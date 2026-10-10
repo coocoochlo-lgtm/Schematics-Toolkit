@@ -35,7 +35,8 @@ public class RemedyInput : SingletonData<RemedyInput>
     /// </summary>
     public static UnityEvent<InputAction.CallbackContext> OnInputUp => Instance._onInputUp;
 
-    private static SerializableDictionary<SignalData, Union> _currentInput = new();
+    // The latest value of each held input, resent every frame by UpdateInputs.
+    private static readonly Dictionary<SignalData, object> _currentInput = new();
 
     [IdentityListRenderer(identifierType: ListIdentifierType.Name, identifierField: "Name", depth: 0, foldoutTitle: "Input Maps", itemLabel: "Map")]
     public InputActionMap[] InputMaps = new InputActionMap[0];
@@ -55,14 +56,17 @@ public class RemedyInput : SingletonData<RemedyInput>
 
     public void SetInputMap(string mapName)
     {
-        foreach(var map in InputMaps)
-            if (map.Name == mapName)
-                _currentActionMap = map;
-            else
-            {
-                Debug.LogError("The Requested Input Map does not exist: " + mapName);
-                return;
-            }
+        InputActionMap map = null;
+        foreach (var candidate in InputMaps)
+            if (candidate.Name == mapName)
+                map = candidate;
+
+        if (map == null)
+        {
+            Debug.LogError("The Requested Input Map does not exist: " + mapName);
+            return;
+        }
+        _currentActionMap = map;
 
         foreach (var inputEventCollection in _currentActionMap.Inputs)
         {
@@ -70,21 +74,7 @@ public class RemedyInput : SingletonData<RemedyInput>
 
             inputEventCollection.Input.started += (InputAction.CallbackContext context) =>
             {
-                switch (inputEventCollection.Output.Parameters[0].Type)
-                {
-                    case Union.ValueType.Bool:
-                        inputEventCollection.Output.Invoke(context.ReadValue<bool>());
-                        break;
-                    case Union.ValueType.Float:
-                        inputEventCollection.Output.Invoke(context.ReadValue<float>());
-                        break;
-                    case Union.ValueType.Vector2:
-                        inputEventCollection.Output.Invoke(context.ReadValue<Vector2>());
-                        break;
-                    default:
-                        inputEventCollection.Output.Invoke(context.ReadValueAsObject());
-                        break;
-                }
+                Send(inputEventCollection, context);
 
                 if (!inputEventCollection.OneShot)
                 {
@@ -94,49 +84,48 @@ public class RemedyInput : SingletonData<RemedyInput>
                 }
             };
 
-            inputEventCollection.Input.performed += (InputAction.CallbackContext context) =>
-            {
-                switch (inputEventCollection.Output.Parameters[0].Type)
-                {
-                    case Union.ValueType.Bool:
-                        inputEventCollection.Output.Invoke(context.ReadValue<bool>());
-                        break;
-                    case Union.ValueType.Float:
-                        inputEventCollection.Output.Invoke(context.ReadValue<float>());
-                        break;
-                    case Union.ValueType.Vector2:
-                        inputEventCollection.Output.Invoke(context.ReadValue<Vector2>());
-                        break;
-                    default:
-                        inputEventCollection.Output.Invoke(context.ReadValueAsObject());
-                        break;
-                }
-            };
+            inputEventCollection.Input.performed += (InputAction.CallbackContext context) => Send(inputEventCollection, context);
+
             inputEventCollection.Input.canceled += (InputAction.CallbackContext context) =>
             {
                 _actionsToUpdate.Remove(inputEventCollection.Input);
-            };
 
-
-            inputEventCollection.Input.canceled += (InputAction.CallbackContext context) =>
-            {
-                switch (inputEventCollection.Output.Parameters[0].Type)
-                {
-                    case Union.ValueType.Bool:
-                        inputEventCollection.Output.FinalInvoke(default);
-                        break;
-                    case Union.ValueType.Float:
-                        inputEventCollection.Output.FinalInvoke(default);
-                        break;
-                    case Union.ValueType.Vector2:
-                        inputEventCollection.Output.FinalInvoke(default);
-                        break;
-                    default:
-                        inputEventCollection.Output.FinalInvoke(default);
-                        break;
-                }
+                var output = inputEventCollection.Output;
+                if (output == null) return;
+                _currentInput.Remove(output);
+                // Released: every listener gets its parameter's default (false, 0, Vector2.zero...).
+                output.BroadcastDefault();
             };
         }
+    }
+
+    /// <summary>
+    /// Sends an input's value through its Signal, read as the Signal's parameter type. Signals carry any value, so
+    /// types without a case of their own are sent as whatever the Input System reads.
+    /// </summary>
+    private static void Send(InputActionEvent inputEvent, InputAction.CallbackContext context)
+    {
+        var output = inputEvent.Output;
+        if (output == null)
+            return;
+
+        if (output.Parameters.Contents.Count == 0)
+        {
+            output.Broadcast();
+            return;
+        }
+
+        object value = output.Parameters[0].Type switch
+        {
+            Union.ValueType.Bool => context.ReadValueAsButton(),
+            Union.ValueType.Float => context.ReadValue<float>(),
+            Union.ValueType.Vector2 => context.ReadValue<Vector2>(),
+            Union.ValueType.Vector3 => context.ReadValue<Vector3>(),
+            _ => context.ReadValueAsObject(),
+        };
+
+        _currentInput[output] = value;
+        output.Broadcast(value);
     }
 
     public void UpdateInputs()
@@ -147,7 +136,9 @@ public class RemedyInput : SingletonData<RemedyInput>
         {
             foreach (var inputEvent in inputEvents)
             {
-                inputEvent.Output?.Invoke(_currentInput);
+                var output = inputEvent.Output;
+                if (output != null && _currentInput.TryGetValue(output, out var value))
+                    output.Broadcast(value);
             }
         }
 

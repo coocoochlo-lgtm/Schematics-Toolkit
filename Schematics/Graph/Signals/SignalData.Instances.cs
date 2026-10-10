@@ -69,6 +69,35 @@ public partial class SignalData
         _signalsByUID.Clear();
     }
 
+    #region Broadcasting
+
+    /// <summary>Sends the Signal to every object listening to it, from anywhere (input, managers, tools).</summary>
+    public void Broadcast() => Invoke(0);
+
+    /// <summary>
+    /// Sends the Signal to every object listening to it, with a value of any type: listeners that take another type
+    /// get it converted (or their type's default if it can't be), and listeners that take <c>object</c> get it as is.
+    /// </summary>
+    public void Broadcast<T1>(T1 a) => Invoke(0, a);
+    public void Broadcast<T1, T2>(T1 a, T2 b) => Invoke(0, a, b);
+    public void Broadcast<T1, T2, T3>(T1 a, T2 b, T3 c) => Invoke(0, a, b, c);
+    public void Broadcast<T1, T2, T3, T4>(T1 a, T2 b, T3 c, T4 d) => Invoke(0, a, b, c, d);
+
+    /// <summary>
+    /// Sends the Signal to every listener with the default value of each parameter (false, 0, Vector2.zero, null...),
+    /// e.g. when an input is released.
+    /// </summary>
+    public void BroadcastDefault()
+    {
+        int count = Math.Max(1, Parameters.Contents.Count);
+        var args = new Union[count];
+        for (int i = 0; i < count; i++)
+            args[i] = Union.Null;
+        InvokeFromGraph(0, args);
+    }
+
+    #endregion
+
     #region Invoking
 
     public void Invoke(int uid)

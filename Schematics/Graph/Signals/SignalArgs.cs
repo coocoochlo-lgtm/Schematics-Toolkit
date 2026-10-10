@@ -43,6 +43,8 @@ public static class SignalArgs
     {
         var type = typeof(T);
         if (type == typeof(Union)) return (T)(object)union;
+        // A listener that takes "any value" gets it as its natural type (a bool as bool, a Vector2 as Vector2, ...).
+        if (type == typeof(object)) return (T)ToObject(union);
 
         switch (union.Type)
         {
@@ -72,6 +74,7 @@ public static class SignalArgs
     public static object FromUnion(Union union, Type type)
     {
         if (type == null || type == typeof(Union)) return union;
+        if (type == typeof(object)) return ToObject(union);
 
         switch (union.Type)
         {
@@ -99,6 +102,32 @@ public static class SignalArgs
         if (value is Component component && type == typeof(GameObject))
             return component.gameObject;
         return DefaultOf(type);
+    }
+
+    /// <summary>
+    /// A Union's value as a plain object of its natural type, for code that accepts any value.
+    /// </summary>
+    public static object ToObject(Union union)
+    {
+        var v = union.GetValue<Vector4>();
+        switch (union.Type)
+        {
+            case Union.ValueType.Null: return null;
+            case Union.ValueType.Bool: return v.x != 0f;
+            case Union.ValueType.Int: return (int)v.x;
+            case Union.ValueType.Float: return v.x;
+            case Union.ValueType.Vector2: return (Vector2)v;
+            case Union.ValueType.Vector3: return (Vector3)v;
+            case Union.ValueType.Vector4: return v;
+            case Union.ValueType.Color: return (Color)v;
+            case Union.ValueType.Color32: return (Color32)(Color)v;
+            case Union.ValueType.Quaternion: return new Quaternion(v.x, v.y, v.z, v.w);
+            case Union.ValueType.LayerMask: return (LayerMask)(int)v.x;
+            case Union.ValueType.Scene: return union.GetScene();
+            // Everything else is stored as an object reference.
+            case Union.ValueType.Union: return union;
+            default: return union.GetValue<object>();
+        }
     }
 
     private static object DefaultOf(Type type) => type.IsValueType ? Activator.CreateInstance(type) : null;

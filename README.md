@@ -235,6 +235,8 @@ public class HitFlash : SchematicBehavior
 
 Each declared Signal has a Signal asset inside the Behavior's Metadata, shown under the Behavior in the Inspector; drag it into a Schematic Graph to make **Send a Signal** / **On Signal Received** nodes. Graph nodes send and listen under the UID of the object running the graph. Subscriptions made in a lifecycle method are released when the listener or the object it listens to despawns, so subscribe in `OnStart`.
 
+To send a Signal to everyone listening, from anywhere (input, managers, tools), use `signal.Broadcast(value)`. The value can be any type: listeners that take another type get it converted (or their type's default), listeners that take `object` get it as is, and `signal.BroadcastDefault()` sends every listener its default (e.g. when an input is released).
+
 `GetSchematicBehavior<T>()` is the Behavior counterpart to `GetComponent`: it returns the Behavior with that object's instance selected, so its Variables act on that object, or null if the Behavior doesn't control it.
 
 ```csharp
