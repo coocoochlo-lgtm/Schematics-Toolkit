@@ -4,7 +4,6 @@ using log4net.DateFormatter;
 using PlasticGui.Configuration.CloudEdition.Welcome;
 using Remedy.Framework;
 using Remedy.Schematics;
-using Remedy.Schematics.Utils;
 using System;
 using System.Collections;
 using System.Collections.Generic;

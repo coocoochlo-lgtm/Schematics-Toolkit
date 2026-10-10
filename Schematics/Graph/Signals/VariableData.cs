@@ -1,8 +1,8 @@
+using Remedy.Framework;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
 using Cysharp.Threading.Tasks;
-using Remedy.Schematics.Utils;
 using System.Data.SqlTypes;
 
 public class VariableData : ScriptableObject

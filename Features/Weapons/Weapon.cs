@@ -7,7 +7,6 @@ using Cysharp.Threading.Tasks;
 using Remedy.Framework;
 using Remedy.Weapons.Projectiles;
 using Remedy.Common;
-using Remedy.Schematics.Utils;
 
 #if UNITY_EDITOR
 using UnityEditor;

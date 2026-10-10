@@ -2,7 +2,6 @@ using BlueGraph;
 using Remedy.Schematics;
 using System;
 using UnityEngine;
-using Remedy.Schematics.Utils;
 
 [Serializable]
 [Node(Name = "Send a Signal", Path = "ScriptableEvents/Events"), Tags("Object")]

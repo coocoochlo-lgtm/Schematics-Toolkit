@@ -6,7 +6,6 @@ using UnityEngine.UIElements;
 using UnityEngine;
 using UnityEditor;
 using System.Linq;
-using Remedy.Schematics.Utils;
 using SchematicAssets;
 
 [FieldRendererTarget(typeof(SignalContainerRendererAttribute))]

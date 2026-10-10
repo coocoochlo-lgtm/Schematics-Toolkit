@@ -1,7 +1,7 @@
+using Remedy.Framework;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using Remedy.Schematics.Utils;
 using System.Data.SqlTypes;
 
 public class SignalData : ScriptableObject
@@ -145,16 +145,7 @@ public class SignalData : ScriptableObject
     {
         if (!Application.isPlaying) return;
 
-        int last = 0;
-        for(int i = 0; i < _subs.Count; i++)
-        {
-            if (_subs[i].Parent != monoBehaviour)
-            {
-                _subs[i] = _subs[last];
-            }
-            last = i;
-        }
-        _subscribersCount--;
+        _subscribersCount -= _subs.RemoveAll(sub => ReferenceEquals(sub.Parent, monoBehaviour));
     }
 
 
@@ -288,37 +279,19 @@ public class SignalData : ScriptableObject
 
     protected void FinalInvoke(UnityEngine.Object target, Union[] args = default)
     {
-        var isGlobal = target == null;
-        var isMono = false;
-        var isMonoEnabled = false;
+        // No target means a global invoke that reaches every subscriber. A destroyed target is not "no target".
+        bool isGlobal = ReferenceEquals(target, null);
 
-        if (target is MonoBehaviour mb)
-        {
-            isMono = true;
-            isMonoEnabled = mb.enabled;
-        }
+        // A disabled MonoBehaviour doesn't send.
+        if (target is MonoBehaviour mb && !mb.enabled)
+            return;
 
-        foreach (var sub in _subs)
+        // Indexed, so subscriptions added by a callback don't break the loop.
+        for (int i = 0; i < _subs.Count; i++)
         {
-            if(isGlobal)
-            {
+            var sub = _subs[i];
+            if (isGlobal || ReferenceEquals(sub.Parent, target))
                 sub?.Invoke(args);
-            }
-            else if (isMono)
-            {
-                if (isMonoEnabled && )
-                {
-                    if (ReferenceEquals(sub.Parent, target))
-                        sub?.Invoke(args);
-                }
-                else
-                    Unsubscribe(target);
-            }
-            else
-            {
-                if (ReferenceEquals(sub.Parent, target))
-                    sub?.Invoke(args);
-            }
         }
     }
 
@@ -440,7 +413,7 @@ public class SignalData : ScriptableObject
                 if (mb.enabled)
                     action?.Invoke();
                 else
-                    Unsubscribe(mb);
+                    return; // disabled MonoBehaviours don't receive
             }
             else
                 action?.Invoke();
@@ -460,7 +433,7 @@ public class SignalData : ScriptableObject
                         values[0].GetValue<T1>()
                     );
                 else
-                    Unsubscribe(mb);
+                    return; // disabled MonoBehaviours don't receive
             }
             else
                 action?.Invoke(
@@ -483,7 +456,7 @@ public class SignalData : ScriptableObject
                         values[1].GetValue<T2>()
                     );
                 else
-                    Unsubscribe(mb);
+                    return; // disabled MonoBehaviours don't receive
             }
             else
                 action?.Invoke(
@@ -508,7 +481,7 @@ public class SignalData : ScriptableObject
                         values[2].GetValue<T3>()
                     );
                 else
-                    Unsubscribe(mb);
+                    return; // disabled MonoBehaviours don't receive
             }
             else
                 action?.Invoke(
@@ -534,7 +507,7 @@ public class SignalData : ScriptableObject
                         values[3].GetValue<T4>()
                     );
                 else
-                    Unsubscribe(mb);
+                    return; // disabled MonoBehaviours don't receive
             }
             else
                 action?.Invoke(
@@ -563,7 +536,7 @@ public class SignalData : ScriptableObject
                         values[4].GetValue<T5>()
                     );
                 else
-                    Unsubscribe(mb);
+                    return; // disabled MonoBehaviours don't receive
             }
             else
                 action(
@@ -594,7 +567,7 @@ public class SignalData : ScriptableObject
                         values[5].GetValue<T6>()
                     );
                 else
-                    Unsubscribe(mb);
+                    return; // disabled MonoBehaviours don't receive
             }
             else
                 action?.Invoke(
@@ -627,7 +600,7 @@ public class SignalData : ScriptableObject
                         values[6].GetValue<T7>()
                     );
                 else
-                    Unsubscribe(mb);
+                    return; // disabled MonoBehaviours don't receive
             }
             else
                 action?.Invoke(
@@ -662,7 +635,7 @@ public class SignalData : ScriptableObject
                         values[7].GetValue<T8>()
                     );
                 else
-                    Unsubscribe(mb);
+                    return; // disabled MonoBehaviours don't receive
             }
             else
                 action?.Invoke(
@@ -699,7 +672,7 @@ public class SignalData : ScriptableObject
                         values[8].GetValue<T9>()
                     );
                 else
-                    Unsubscribe(mb);
+                    return; // disabled MonoBehaviours don't receive
             }
             else
                 action?.Invoke(
@@ -738,7 +711,7 @@ public class SignalData : ScriptableObject
                         values[9].GetValue<T10>()
                     );
                 else
-                    Unsubscribe(mb);
+                    return; // disabled MonoBehaviours don't receive
             }
             else
                 action?.Invoke(

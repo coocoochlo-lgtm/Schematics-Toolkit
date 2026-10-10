@@ -6,7 +6,6 @@ using BlueGraph;
 using System.Collections.Generic;
 using UnityEngine;
 using System;
-using Remedy.Schematics.Utils;
 
 namespace Remedy.Schematics
 {
