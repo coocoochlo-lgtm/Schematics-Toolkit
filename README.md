@@ -246,6 +246,28 @@ if (controller != null)
 Lifecycle order: `OnCreate` (first creation only) → `OnStart` → `OnEnable` → `OnUpdate`/`OnLateUpdate`/`OnFixedUpdate` → `OnDisable` → `OnDestroy`.
 Behaviors also receive `OnCollisionEnter`/`Exit` and `OnTriggerEnter`/`Exit` for the GameObject they're attached to. Variables reset on every spawn, so fetch components with `instance.GetComponent<T>()`, which caches them for the object's whole life.
 
+`[RequireBehavior(typeof(Other))]` is the Behavior counterpart to `[RequireComponent]`: attaching the Behavior attaches the ones it needs too.
+
+### The IO Dock
+The Schematic Graph window's **Prefab** tab lists the prefab's GameObjects and the Behaviors on each, with their **Variables** (above) and **Signals**:
+
+- Drag a **Variable** into the graph for a **Get** or **Set Variable** node.
+- Drag a **Signal** for **Send a Signal** (a pin per parameter) or **On Signal Received**.
+- Drag a **Behavior** for a **Behavior** node: every Variable and its Enabled state as pins, and optionally one of its public methods to call. The reflection is done once per Behavior type and cached.
+- Drag a **GameObject** for a **Prefab Object** node (that object on whichever spawned copy runs the graph).
+- Click a row to jump to the nodes that use it (click again for the next one); click a node to find its row.
+
+Signal nodes only need the object's UID, since Signals reach the whole object. Variable and Behavior nodes also save which Behavior and which GameObject (by path) they mean, because those values live on one instance. The **Graph** tab lists the graph's Signal/Variable/Behavior nodes, and the minimap marks them with icons.
+
+### State Machines
+Attach the **State Machine** Behavior (Logic/State Machine) and click **Open State Machine**. States nest: being in *Grounded* also means being in its parent *Alive*.
+
+- **State Manager**: a spreadsheet of states against the prefab's Behaviors. Click a cell to turn that Behavior on or off in that state; empty cells inherit from the parent state.
+- **State Graph**: states and their transitions, one level at a time. Double-click a state to go inside it.
+- **Transitions** read like an event sheet: *when [Signal] arrives* or *if [Variable] [≤] [value]* (plus time in state, or another Behavior being on), *→ go to [state]*. A parent's transitions apply in all of its children, and win over theirs.
+- Each state can have its own Schematic Graph, which runs while the state is active (**On State Enter / Update / Exit** nodes, plus its Signal nodes).
+- Send the State Machine's `SetState` Signal with a state name to change state from code or a graph; `OnStateChanged` reports each change.
+
 
 ---
 

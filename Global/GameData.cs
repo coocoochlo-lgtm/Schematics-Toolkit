@@ -16,7 +16,6 @@ using Remedy.CharacterControllers.WallSlide;
 using Remedy.CharacterControllers;
 using Remedy.Damagables;
 using Remedy.Inventories;
-using Remedy.StateMachines;
 using Remedy.Weapons.Projectiles;
 using Remedy.Weapons;
 using Remedy.Schematics;
@@ -109,7 +108,8 @@ namespace Remedy.Common
         public class PlayerComponents
         {
             [Header("State Components")]
-            public MBStateMachine StateMachine;
+            [Tooltip("The Player's State Machine (open it from the State Machine Behavior, or double-click the asset).")]
+            public StateMachineDefinition StateMachine;
             [Tooltip("The Stamina Controller can be used accross the board by any other Behavior, but is attached to the Player Prefab.")]
             public StaminaProperties StaminaProperties;
             [Tooltip("Parameter management through Signals, for easily handling animation in-editor.")]
@@ -130,7 +130,7 @@ namespace Remedy.Common
             /// <summary>Reads the Properties assets the Player Prefab's Behaviors are configured with.</summary>
             public void ReadFrom(SchematicObject player)
             {
-                StateMachine = player.GetComponentInChildren<MBStateMachine>(true);
+                StateMachine = PrefabBehavior.ReadDefault<global::StateMachine, StateMachineDefinition>(player, "Definition") ?? StateMachine;
                 StaminaProperties = PrefabBehavior.ReadDefault<StaminaController, StaminaProperties>(player, "Properties") ?? StaminaProperties;
                 AnimationCommunicator = PrefabBehavior.ReadDefault<AnimationComunicator, AnimationComunicatorProperties>(player, "Properties") ?? AnimationCommunicator;
                 DefaultMotionProperties = PrefabBehavior.ReadDefault<PhysicsBasedCharacterController, CharacterControllerProperties>(player, "Properties") ?? DefaultMotionProperties;

@@ -22,14 +22,6 @@ public class SchematicsManager : Singleton<SchematicsManager>
         {
             if (instance.TryGetComponent(out SchematicObject schematicObject))
                 ExecutionContext.Register(schematicObject);
-
-            if(SchematicManagerData.PrefabIOBases.ContainsKey(prefab))
-            {
-                foreach (var id in SchematicManagerData.PrefabIOBases[prefab])
-                {
-                    //ScriptableSignal.IOBase.OnIOBaseInstantiated(id, ScriptableEventsData.IOBases[id].IOEvents);
-                }
-            }
         };
 
         var objectManager = ObjectManager.Instance;

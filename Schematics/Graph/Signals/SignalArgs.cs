@@ -65,6 +65,44 @@ public static class SignalArgs
         return union.GetValue<T>();
     }
 
+    /// <summary>
+    /// The non-generic <see cref="FromUnion{T}"/>, for values whose type is only known at runtime (Behavior Variables
+    /// and method parameters reached through graph nodes).
+    /// </summary>
+    public static object FromUnion(Union union, Type type)
+    {
+        if (type == null || type == typeof(Union)) return union;
+
+        switch (union.Type)
+        {
+            case Union.ValueType.Bool:
+            case Union.ValueType.Int:
+            case Union.ValueType.Float:
+            case Union.ValueType.Vector2:
+            case Union.ValueType.Vector3:
+            case Union.ValueType.Vector4:
+            case Union.ValueType.Color:
+            case Union.ValueType.Color32:
+            case Union.ValueType.Quaternion:
+            case Union.ValueType.LayerMask:
+                return FromVector(union.GetValue<Vector4>(), type) ?? DefaultOf(type);
+            case Union.ValueType.Null:
+                return DefaultOf(type);
+        }
+
+        var value = union.GetValue<object>();
+        if (value != null && type.IsInstanceOfType(value))
+            return value;
+        // A GameObject where a component is wanted, or the other way around.
+        if (value is GameObject gameObject && typeof(Component).IsAssignableFrom(type))
+            return gameObject.GetComponent(type);
+        if (value is Component component && type == typeof(GameObject))
+            return component.gameObject;
+        return DefaultOf(type);
+    }
+
+    private static object DefaultOf(Type type) => type.IsValueType ? Activator.CreateInstance(type) : null;
+
     private static object FromVector(Vector4 v, Type type)
     {
         if (type == typeof(bool)) return v.x != 0f;

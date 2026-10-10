@@ -131,8 +131,22 @@ namespace Remedy.Schematics
             if (IsDirty)
                 UpdateCaches();
 
+            value.LastUpdateTick = StampTick();
             _cachedOutputsByName[name] = value;
         }
+
+        /// <summary>
+        /// A fresh update tick for an output value, so inputs connected to several outputs can pick the newest.
+        /// Never 0, which marks a value that was never set.
+        /// </summary>
+        public static byte StampTick()
+        {
+            byte tick = Union.NextTick();
+            return tick != 0 ? tick : Union.NextTick();
+        }
+
+        // Ticks wrap around at 255, so "newer" is a short distance ahead rather than a bigger number.
+        private static bool IsNewer(byte tick, byte than) => tick != 0 && (than == 0 || (sbyte)(tick - than) > 0);
 
 
         /// <summary>
@@ -220,18 +234,21 @@ namespace Remedy.Schematics
         private void PullMostRecentInputValue(string inputName)
         {
             (SchematicGraphNode node, string name) mostRecentPort = (null, null);
-            int mostRecentTick = 0;
+            byte mostRecentTick = 0;
 
-            var sources = _cachedInputValueSources[inputName];
+            if (!_cachedInputValueSources.TryGetValue(inputName, out var sources))
+                return;
 
             for(int i = 0; i < sources.Length; i++)
             {
                 var (node, portName) = sources[i];
+                if (!node._cachedOutputsByName.TryGetValue(portName, out var output))
+                    continue;
 
-                if (node._cachedOutputsByName[portName].LastUpdateTick > mostRecentTick)
+                if (IsNewer(output.LastUpdateTick, mostRecentTick))
                 {
                     mostRecentPort = (node, portName);
-                    mostRecentTick = node._cachedOutputsByName[portName].LastUpdateTick;
+                    mostRecentTick = output.LastUpdateTick;
                 }
             }
 

@@ -12,10 +12,6 @@ public class SchematicManagerData : SingletonData<SchematicManagerData>
     private SerializableDictionary<GameObject, SchematicGraph> _schematicPrefabs = new();
     public static SerializableDictionary<GameObject, SchematicGraph> SchematicPrefabs => Instance._schematicPrefabs;
 
-    [SerializeField]
-    private SerializableDictionary<GameObject, List<int>> _prefabIOBases = new();
-    public static SerializableDictionary<GameObject, List<int>> PrefabIOBases => Instance._prefabIOBases;
-
     [Tooltip("The Singletons Objects created by the Schematic Editor")]
     [SerializeField]
     private SchematicObject[] Singletons = new SchematicObject[0];
@@ -37,48 +33,4 @@ public class SchematicManagerData : SingletonData<SchematicManagerData>
             Instance._singletonGraphs.Add(graph);
         }
     }
-
-    /// <summary>
-    /// Attempt to get Signal Data from the Schematic Graph with the given ID and it's contained
-    /// </summary>
-    /// <param name="schemaID"></param>
-    /// <param name="signalID"></param>
-    /// <param name="signalData"></param>
-    /// <returns></returns>
-    public static bool TryGetSignal(byte schemaID, byte signalID, out SignalData signalData)
-    {
-        if(schemaID < SchematicGraph.Lookup.Count && 
-            SchematicGraph.Lookup[schemaID].TryGetSignal(signalID, out signalData))
-        {
-            return true;
-        }
-
-        signalData = null;
-        return false;
-    }
-
-    // TODO: Replace with global Behavior scoped Variable groups per-game object instance
-    /// <summary>
-    /// Attempt to get Variable Data from the Schematic Graph with the given ID and it's contained
-    /// </summary>
-    /// <param name="schemaID"></param>
-    /// <param name="variableID"></param>
-    /// <param name="variableData"></param>
-    /// <returns></returns>
-    //public static bool TryGetVariable(byte schemaID, byte variableID, out VariableData variableData)
-    //{
-    //    if (SchematicGraph.Lookup.Count <= schemaID &&
-    //        SchematicGraph.Lookup[schemaID].TryGetVariable(variableID, out variableData))
-    //    {
-    //        return true;
-    //    }
-
-    //    variableData = null;
-    //    return false;
-    //}
-
-    /// <summary>
-    /// Simply the number of variables to store per Schematic Behavior.
-    /// </summary>
-    public SerializableDictionary<Type, int> BehaviorDataTemplates;
 }

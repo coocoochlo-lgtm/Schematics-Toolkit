@@ -118,6 +118,7 @@ public static class SchematicBehaviorsHeaderGUI
                 EditorGUI.indentLevel++;
                 DrawVariables(root, gameObject, index, attachment, metadata);
                 DrawSignals(metadata);
+                ExtraAttachmentGUI?.Invoke(root, gameObject, attachment);
                 EditorGUI.indentLevel--;
             }
         }
@@ -279,8 +280,8 @@ public static class SchematicBehaviorsHeaderGUI
         {
             bool attached = false;
             if (root.Behaviors.TryGetValue(gameObject, out var current) && current != null)
-                foreach (var attachment in current.Items)
-                    if (attachment?.Metadata != null && attachment.Metadata.BehaviorType.Type == requiredBehavior)
+                foreach (var present in current.Items)
+                    if (present?.Metadata != null && present.Metadata.BehaviorType.Type == requiredBehavior)
                         attached = true;
             if (!attached)
                 AddBehavior(root, gameObject, requiredBehavior);
@@ -316,6 +317,61 @@ public static class SchematicBehaviorsHeaderGUI
     }
 
     // Entries whose child GameObject was deleted would otherwise linger in the dictionary.
+    #region API for other editors (the Schematic Graph's IO Dock)
+
+    /// <summary>
+    /// Extra Inspector GUI drawn under an expanded Behavior, for editors in other assemblies (e.g. the State Machine
+    /// Behavior's "Open State Machine" button).
+    /// </summary>
+    public static event Action<SchematicObject, GameObject, BehaviorAttachment> ExtraAttachmentGUI;
+
+    /// <summary>Shows the "Add Schematic Behavior" dropdown for a GameObject of a Schematic Object.</summary>
+    public static void ShowAddBehaviorDropdown(Rect rect, SchematicObject root, GameObject gameObject, Action<Type> onAdded = null)
+    {
+        var attached = new HashSet<Type>();
+        if (root.Behaviors.TryGetValue(gameObject, out var list) && list != null)
+            foreach (var attachment in list.Items)
+                if (attachment?.Metadata != null && attachment.Metadata.BehaviorType.Type != null)
+                    attached.Add(attachment.Metadata.BehaviorType.Type);
+
+        new BehaviorDropdown(_dropdownState, attached, type =>
+        {
+            AddBehavior(root, gameObject, type);
+            onAdded?.Invoke(type);
+        }).Show(rect);
+    }
+
+    /// <summary>Attaches a Behavior with Undo, as the Inspector's add button does (required Behaviors and components, OnSetup).</summary>
+    public static void AttachWithUndo(SchematicObject root, GameObject gameObject, Type behaviorType) => AddBehavior(root, gameObject, behaviorType);
+
+    /// <summary>Removes an attachment with Undo.</summary>
+    public static void RemoveWithUndo(SchematicObject root, GameObject gameObject, BehaviorAttachment attachment)
+    {
+        if (!root.Behaviors.TryGetValue(gameObject, out var list) || list == null)
+            return;
+        Undo.RecordObject(root, "Remove Schematic Behavior");
+        list.Items.Remove(attachment);
+        if (list.Items.Count == 0)
+            root.Behaviors.Remove(gameObject);
+        Commit(root);
+    }
+
+    /// <summary>The Inspector's drawing of one attachment's Variable values, for embedding in an IMGUIContainer.</summary>
+    public static void DrawVariablesGUI(SchematicObject root, GameObject gameObject, BehaviorAttachment attachment)
+    {
+        if (!root.Behaviors.TryGetValue(gameObject, out var list) || list == null || attachment?.Metadata == null)
+            return;
+        int index = list.Items.IndexOf(attachment);
+        if (index < 0)
+            return;
+        if (Application.isPlaying && root.IsSpawned)
+            DrawLiveAttachment(root, gameObject, attachment);
+        else
+            DrawVariables(root, gameObject, index, attachment, attachment.Metadata);
+    }
+
+    #endregion
+
     private static void DrawMissingTargetsCleanup(SchematicObject root)
     {
         int missing = 0;
