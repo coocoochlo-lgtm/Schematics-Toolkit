@@ -29,19 +29,21 @@ public abstract class SchematicBehavior
     // Filled by VariableHandle<T>'s implicit conversion while a Behavior's field initializers run.
     [ThreadStatic] private static List<BehaviorVariable> _pendingVariables;
 
-    // Every Behavior ever created, by ID. Handles store their owner's ID, because field initializers run before
-    // the Behavior object can be referenced.
-    private static readonly List<SchematicBehavior> _behaviorsById = new();
-    [ThreadStatic] private static int _constructingId;
+    // The cursor of the Behavior being constructed, handed to the handles its field initializers create.
+    [ThreadStatic] private static BehaviorCursor _constructingCursor;
 
-    internal int Id { get; private set; } = -1;
+    internal BehaviorCursor Cursor { get; private set; }
 
     /// <summary>
     /// The instance this Behavior is currently acting on. <see cref="VariableHandle{T}.Value"/> reads and writes it.
     /// The Runtime selects each instance in turn while running lifecycle methods (and restores the previous selection
     /// afterwards); <see cref="SchematicBehaviorExtensions.GetSchematicBehavior{T}(GameObject)"/> selects one from outside.
     /// </summary>
-    public BehaviorInstance Selected { get; internal set; }
+    public BehaviorInstance Selected
+    {
+        get => Cursor.Instance;
+        internal set => Cursor.Select(value);
+    }
 
     private BehaviorVariable[] _variables = Array.Empty<BehaviorVariable>();
 
@@ -92,23 +94,21 @@ public abstract class SchematicBehavior
         var pending = _pendingVariables ??= new List<BehaviorVariable>();
         pending.Clear();
 
-        int id = _behaviorsById.Count;
-        _behaviorsById.Add(null);
-        int previousId = _constructingId;
-        _constructingId = id;
+        var cursor = new BehaviorCursor();
+        var previousCursor = _constructingCursor;
+        _constructingCursor = cursor;
 
         SchematicBehavior behavior;
         try
         {
             behavior = (SchematicBehavior)Activator.CreateInstance(behaviorType, nonPublic: true);
             behavior._variables = pending.ToArray();
-            behavior.Id = id;
-            _behaviorsById[id] = behavior;
+            behavior.Cursor = cursor;
         }
         finally
         {
             pending.Clear();
-            _constructingId = previousId;
+            _constructingCursor = previousCursor;
         }
 
         behavior.ResolveVariableNames();
@@ -118,13 +118,11 @@ public abstract class SchematicBehavior
     internal static VariableHandle<T> DefineVariable<T>(T defaultValue)
     {
         var pending = _pendingVariables ??= new List<BehaviorVariable>();
-        var definition = new BehaviorVariable<T>(pending.Count, defaultValue);
+        // Handles converted outside a Behavior's construction get a throwaway cursor that is never selected.
+        var definition = new BehaviorVariable<T>(pending.Count, defaultValue, _constructingCursor ?? new BehaviorCursor());
         pending.Add(definition);
-        return new VariableHandle<T>(_constructingId, definition.Index);
+        return new VariableHandle<T>(definition.TypedColumn, definition.Index);
     }
-
-    internal static SchematicBehavior FromId(int id)
-        => id >= 0 && id < _behaviorsById.Count ? _behaviorsById[id] : null;
 
     /// <summary>
     /// Returns true if this Behavior overrides the given lifecycle method, so Runtimes can skip loops that would do nothing.

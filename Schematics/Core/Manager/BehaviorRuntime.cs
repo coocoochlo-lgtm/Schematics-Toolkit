@@ -14,7 +14,7 @@ public sealed class BehaviorRuntime
         Create, Start, Enable, Update, LateUpdate, FixedUpdate, Disable, Destroy
     }
 
-    private const int InitialCapacity = 16;
+    internal const int InitialCapacity = 16;
 
     /// <summary>The Schematic Behavior this Runtime was created for.</summary>
     public SchematicBehavior Behavior { get; }
@@ -52,10 +52,13 @@ public sealed class BehaviorRuntime
         behavior.Runtime = this;
 
         var variables = behavior.Variables;
+        behavior.Cursor.Runtime = this;
+
+        // The columns already exist: the Behavior's handles were bound to them when its field initializers ran.
         Columns = new IVariableColumn[variables.Count];
         for (int i = 0; i < variables.Count; i++)
         {
-            Columns[i] = variables[i].CreateColumn(InitialCapacity);
+            Columns[i] = variables[i].Column;
             _variableIndices[variables[i].Name] = i;
         }
 
@@ -143,6 +146,9 @@ public sealed class BehaviorRuntime
         for (int i = 0; i < Columns.Length; i++)
             Columns[i].Reset(row);
         instance.ApplyOverrides(Columns);
+
+        if (Behavior.Selected == instance)
+            Behavior.Cursor.Row = row;
     }
 
     /// <summary>Spawn step 2: OnCreate, only the first time this instance's object exists.</summary>
@@ -208,6 +214,11 @@ public sealed class BehaviorRuntime
 
         instance.Row = -1;
         instance.Removing = false;
+
+        // Keep the cursor pointing at the selected instance's (possibly new) row.
+        var cursor = Behavior.Cursor;
+        if (cursor.Instance != null && (cursor.Instance == instance || cursor.Row != cursor.Instance.Row))
+            cursor.Row = cursor.Instance.Row;
     }
 
     private void Grow()
@@ -276,16 +287,46 @@ public sealed class BehaviorRuntime
 
     private void RunLoop(Callback callback)
     {
+        var cursor = Behavior.Cursor;
+        var previousSelection = cursor.Instance;
+        var previousCurrent = ExecutionContext.CurrentInstance;
+
         _iterating++;
+        // Instances spawned during the loop land past this count and start updating next frame.
+        int count = _count;
+        int i = 0;
         try
         {
-            // Instances spawned during the loop land past this count and start updating next frame.
-            int count = _count;
-            for (int i = 0; i < count; i++)
+            // The try sits outside the loop, so it costs nothing per instance; an exception logs and resumes at the next one.
+            while (i < count)
             {
-                var instance = _instances[i];
-                if (instance.Enabled && instance.Started && !instance.Removing)
-                    Invoke(callback, instance);
+                try
+                {
+                    for (; i < count; i++)
+                    {
+                        var instance = _instances[i];
+                        if (!instance.Enabled || !instance.Started || instance.Removing)
+                            continue;
+
+                        // Removals are deferred while iterating, so the instance's row is i.
+                        cursor.Instance = instance;
+                        cursor.Row = i;
+                        ExecutionContext.CurrentInstance = instance;
+
+                        switch (callback)
+                        {
+                            case Callback.Update: Behavior.OnUpdate(instance); break;
+                            case Callback.LateUpdate: Behavior.OnLateUpdate(instance); break;
+                            case Callback.FixedUpdate: Behavior.OnFixedUpdate(instance); break;
+                        }
+                    }
+                }
+                catch (Exception exception)
+                {
+                    // One faulty instance shouldn't stop the rest of the Runtime.
+                    Debug.LogException(exception, _instances[i] != null ? _instances[i].GameObject : null);
+                    i++;
+                }
             }
         }
         finally
@@ -293,6 +334,9 @@ public sealed class BehaviorRuntime
             _iterating--;
             if (_iterating == 0 && _pendingRemovals.Count > 0)
                 FlushRemovals();
+
+            cursor.Select(previousSelection);
+            ExecutionContext.CurrentInstance = previousCurrent;
         }
     }
 

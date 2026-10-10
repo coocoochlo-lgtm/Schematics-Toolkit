@@ -20,13 +20,15 @@ internal sealed class VariableColumn<T> : IVariableColumn
 {
     public T[] Values;
     public T Default;
+    public readonly BehaviorCursor Cursor;
 
     public Type ValueType => typeof(T);
 
-    public VariableColumn(T defaultValue, int capacity)
+    public VariableColumn(T defaultValue, int capacity, BehaviorCursor cursor)
     {
         Default = defaultValue;
         Values = new T[capacity];
+        Cursor = cursor;
     }
 
     public void Resize(int capacity) => Array.Resize(ref Values, capacity);

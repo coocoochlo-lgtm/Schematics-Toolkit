@@ -16,7 +16,7 @@ public abstract class BehaviorVariable
         Index = index;
     }
 
-    internal abstract IVariableColumn CreateColumn(int capacity);
+    internal abstract IVariableColumn Column { get; }
 }
 
 public sealed class BehaviorVariable<T> : BehaviorVariable
@@ -26,10 +26,12 @@ public sealed class BehaviorVariable<T> : BehaviorVariable
     public override Type ValueType => typeof(T);
     public override object BoxedDefault => Default;
 
-    internal BehaviorVariable(int index, T defaultValue) : base(index)
+    internal readonly VariableColumn<T> TypedColumn;
+    internal override IVariableColumn Column => TypedColumn;
+
+    internal BehaviorVariable(int index, T defaultValue, BehaviorCursor cursor) : base(index)
     {
         Default = defaultValue;
+        TypedColumn = new VariableColumn<T>(defaultValue, BehaviorRuntime.InitialCapacity, cursor);
     }
-
-    internal override IVariableColumn CreateColumn(int capacity) => new VariableColumn<T>(Default, capacity);
 }
