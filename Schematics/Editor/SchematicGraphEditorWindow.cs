@@ -378,8 +378,6 @@ public class SchematicGraphEditorWindow : GraphEditorWindow
         if (_prefabPath == null)
             _prefabPath = AssetDatabase.GetAssetPath(Prefab);
 
-        SchematicEditorData.Instance.ScriptableEventReferenceDebug = SignalManager.WorkingSet;
-
         Application.focusChanged += Reload;
         EditorApplication.projectChanged += Canvas.Reload;
         AssemblyReloadEvents.afterAssemblyReload += Canvas.Reload;
@@ -463,7 +461,7 @@ public class SchematicGraphEditorWindow : GraphEditorWindow
 
         Profiler.StopTracking(loadProcess);
 
-        Prefab.GetComponent<SchematicInstanceController>().SchematicGraph = SchematicGraph;
+        Prefab.GetComponent<SchematicObject>().SchematicGraph = SchematicGraph;
     }
 
 
@@ -546,7 +544,7 @@ public class SchematicGraphEditorWindow : GraphEditorWindow
         // Draw
         _sidebarTabs["Graph"].Clear();
         if(Prefab != null)
-            _sidebarTabs["Graph"].Set(IODockRegistry.RenderMultipleFields(this, Prefab.GetComponent<SchematicInstanceController>(), Prefab.GetComponent<SchematicInstanceController>()).Item2);
+            _sidebarTabs["Graph"].Set(IODockRegistry.RenderMultipleFields(this, Prefab.GetComponent<SchematicObject>(), Prefab.GetComponent<SchematicObject>()).Item2);
     }
 
     /// <summary>

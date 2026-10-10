@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using Cysharp.Threading.Tasks;
 using Remedy.Schematics.Utils;
 using System.Data.SqlTypes;
 
@@ -177,51 +176,46 @@ public class SignalData : ScriptableObject
         public bool Value = false;
     }
 
-    public void FinalInvoke(Union[] value = default)
+    public void Invoke(UnityEngine.Object target)
     {
-        AsyncInvoke(value).Forget();
+        FinalInvoke(target);
     }
-
-    public void Invoke()
-    {
-        FinalInvoke();
-    }
-    public void Invoke<T>(T arg)
+    public void Invoke<T>(UnityEngine.Object target, T arg)
     {
         RuntimeArgs[0].SetValue(arg);
-        FinalInvoke(RuntimeArgs);
+        FinalInvoke(target, RuntimeArgs);
     }
-    public void Invoke<T1, T2>(T1 arg1, T2 arg2)
+    public void Invoke<T1, T2>(UnityEngine.Object target, T1 arg1, T2 arg2)
     {
         RuntimeArgs[0].SetValue(arg1);
         RuntimeArgs[1].SetValue(arg2);
-        FinalInvoke(RuntimeArgs);
+        FinalInvoke(target, RuntimeArgs);
     }
-    public void Invoke<T1, T2, T3>(T1 arg1, T2 arg2, T3 arg3)
+    public void Invoke<T1, T2, T3>(UnityEngine.Object target, T1 arg1, T2 arg2, T3 arg3)
     {
         RuntimeArgs[0].SetValue(arg1);
         RuntimeArgs[1].SetValue(arg2);
         RuntimeArgs[2].SetValue(arg3);
-        FinalInvoke(RuntimeArgs);
+        FinalInvoke(target, RuntimeArgs);
     }
-    public void Invoke<T1, T2, T3, T4>(T1 arg1, T2 arg2, T3 arg3, T4 arg4)
+    public void Invoke<T1, T2, T3, T4>(UnityEngine.Object target, T1 arg1, T2 arg2, T3 arg3, T4 arg4)
     {
         RuntimeArgs[0].SetValue(arg1);
         RuntimeArgs[1].SetValue(arg2);
         RuntimeArgs[2].SetValue(arg3);
         RuntimeArgs[3].SetValue(arg4);
-        FinalInvoke(RuntimeArgs);
+        FinalInvoke(target, RuntimeArgs);
     }
-    public void Invoke<T1, T2, T3, T4, T5>(T1 arg1, T2 arg2, T3 arg3, T4 arg4, T5 arg5)
+    public void Invoke<T1, T2, T3, T4, T5>(UnityEngine.Object target, T1 arg1, T2 arg2, T3 arg3, T4 arg4, T5 arg5)
     {
         RuntimeArgs[0].SetValue(arg1);
         RuntimeArgs[1].SetValue(arg2);
         RuntimeArgs[2].SetValue(arg3);
         RuntimeArgs[3].SetValue(arg4);
         RuntimeArgs[4].SetValue(arg5);
-        FinalInvoke(RuntimeArgs);
+        FinalInvoke(target, RuntimeArgs);
     }
-    public void Invoke<T1, T2, T3, T4, T5, T6>(
+    public void Invoke<T1, T2, T3, T4, T5, T6>(UnityEngine.Object target,
     T1 arg1, T2 arg2, T3 arg3, T4 arg4, T5 arg5, T6 arg6)
     {
         RuntimeArgs[0].SetValue(arg1);
@@ -230,10 +224,10 @@ public class SignalData : ScriptableObject
         RuntimeArgs[3].SetValue(arg4);
         RuntimeArgs[4].SetValue(arg5);
         RuntimeArgs[5].SetValue(arg6);
-        FinalInvoke(RuntimeArgs);
+        FinalInvoke(target, RuntimeArgs);
     }
 
-    public void Invoke<T1, T2, T3, T4, T5, T6, T7>(
+    public void Invoke<T1, T2, T3, T4, T5, T6, T7>(UnityEngine.Object target,
         T1 arg1, T2 arg2, T3 arg3, T4 arg4, T5 arg5, T6 arg6, T7 arg7)
     {
         RuntimeArgs[0].SetValue(arg1);
@@ -243,10 +237,10 @@ public class SignalData : ScriptableObject
         RuntimeArgs[4].SetValue(arg5);
         RuntimeArgs[5].SetValue(arg6);
         RuntimeArgs[6].SetValue(arg7);
-        FinalInvoke(RuntimeArgs);
+        FinalInvoke(target, RuntimeArgs);
     }
 
-    public void Invoke<T1, T2, T3, T4, T5, T6, T7, T8>(
+    public void Invoke<T1, T2, T3, T4, T5, T6, T7, T8>(UnityEngine.Object target,
         T1 arg1, T2 arg2, T3 arg3, T4 arg4, T5 arg5, T6 arg6, T7 arg7, T8 arg8)
     {
         RuntimeArgs[0].SetValue(arg1);
@@ -257,10 +251,10 @@ public class SignalData : ScriptableObject
         RuntimeArgs[5].SetValue(arg6);
         RuntimeArgs[6].SetValue(arg7);
         RuntimeArgs[7].SetValue(arg8);
-        FinalInvoke(RuntimeArgs);
+        FinalInvoke(target, RuntimeArgs);
     }
 
-    public void Invoke<T1, T2, T3, T4, T5, T6, T7, T8, T9>(
+    public void Invoke<T1, T2, T3, T4, T5, T6, T7, T8, T9>(UnityEngine.Object target,
         T1 arg1, T2 arg2, T3 arg3, T4 arg4, T5 arg5, T6 arg6, T7 arg7, T8 arg8, T9 arg9)
     {
         RuntimeArgs[0].SetValue(arg1);
@@ -272,10 +266,10 @@ public class SignalData : ScriptableObject
         RuntimeArgs[6].SetValue(arg7);
         RuntimeArgs[7].SetValue(arg8);
         RuntimeArgs[8].SetValue(arg9);
-        FinalInvoke(RuntimeArgs);
+        FinalInvoke(target, RuntimeArgs);
     }
 
-    public void Invoke<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10>(
+    public void Invoke<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10>(UnityEngine.Object target,
         T1 arg1, T2 arg2, T3 arg3, T4 arg4, T5 arg5,
         T6 arg6, T7 arg7, T8 arg8, T9 arg9, T10 arg10)
     {
@@ -289,17 +283,45 @@ public class SignalData : ScriptableObject
         RuntimeArgs[7].SetValue(arg8);
         RuntimeArgs[8].SetValue(arg9);
         RuntimeArgs[9].SetValue(arg10);
-        FinalInvoke(RuntimeArgs);
+        FinalInvoke(target, RuntimeArgs);
     }
 
-    protected UniTask<bool> AsyncInvoke(Union[] args = default)
+    protected void FinalInvoke(UnityEngine.Object target, Union[] args = default)
     {
+        var isGlobal = target == null;
+        var isMono = false;
+        var isMonoEnabled = false;
+
+        if (target is MonoBehaviour mb)
+        {
+            isMono = true;
+            isMonoEnabled = mb.enabled;
+        }
+
         foreach (var sub in _subs)
         {
-            sub?.Invoke(args);
+            if(isGlobal)
+            {
+                sub?.Invoke(args);
+            }
+            else if (isMono)
+            {
+                if (isMonoEnabled && )
+                {
+                    if (ReferenceEquals(sub.Parent, target))
+                        sub?.Invoke(args);
+                }
+                else
+                    Unsubscribe(target);
+            }
+            else
+            {
+                if (ReferenceEquals(sub.Parent, target))
+                    sub?.Invoke(args);
+            }
         }
-        return UniTask.FromResult(true);
     }
+
     public void Subscribe(UnityEngine.Object instance, Action action)
     {
         _subs.Add(new Subscription
@@ -413,7 +435,15 @@ public class SignalData : ScriptableObject
 
         public void Invoke(Union[] values)
         {
-            action?.Invoke();
+            if(Parent is MonoBehaviour mb)
+            {
+                if (mb.enabled)
+                    action?.Invoke();
+                else
+                    Unsubscribe(mb);
+            }
+            else
+                action?.Invoke();
         }
     }
     public class Subscription<T1> : ISubscription
@@ -423,9 +453,19 @@ public class SignalData : ScriptableObject
 
         public void Invoke(Union[] values)
         {
-            action?.Invoke(
-                values[0].GetValue<T1>()
-            );
+            if (Parent is MonoBehaviour mb)
+            {
+                if (mb.enabled)
+                    action?.Invoke(
+                        values[0].GetValue<T1>()
+                    );
+                else
+                    Unsubscribe(mb);
+            }
+            else
+                action?.Invoke(
+                    values[0].GetValue<T1>()
+                );
         }
     }
     public class Subscription<T1, T2> : ISubscription
@@ -435,10 +475,21 @@ public class SignalData : ScriptableObject
 
         public void Invoke(Union[] values)
         {
-            action?.Invoke(
-                values[0].GetValue<T1>(),
-                values[1].GetValue<T2>()
-            );
+            if (Parent is MonoBehaviour mb)
+            {
+                if (mb.enabled)
+                    action?.Invoke(
+                        values[0].GetValue<T1>(),
+                        values[1].GetValue<T2>()
+                    );
+                else
+                    Unsubscribe(mb);
+            }
+            else
+                action?.Invoke(
+                    values[0].GetValue<T1>(),
+                    values[1].GetValue<T2>()
+                );
         }
     }
     public class Subscription<T1, T2, T3> : ISubscription
@@ -448,26 +499,50 @@ public class SignalData : ScriptableObject
 
         public void Invoke(Union[] values)
         {
-            action?.Invoke(
-                values[0].GetValue<T1>(),
-                values[1].GetValue<T2>(),
-                values[2].GetValue<T3>()
-            );
+            if (Parent is MonoBehaviour mb)
+            {
+                if (mb.enabled)
+                    action?.Invoke(
+                        values[0].GetValue<T1>(),
+                        values[1].GetValue<T2>(),
+                        values[2].GetValue<T3>()
+                    );
+                else
+                    Unsubscribe(mb);
+            }
+            else
+                action?.Invoke(
+                    values[0].GetValue<T1>(),
+                    values[1].GetValue<T2>(),
+                    values[2].GetValue<T3>()
+                );
         }
     }
     public class Subscription<T1, T2, T3, T4> : ISubscription
     {
         public Action<T1, T2, T3, T4> action;
         public UnityEngine.Object Parent { get; set; }
-
         public void Invoke(Union[] values)
         {
-            action?.Invoke(
-                values[0].GetValue<T1>(),
-                values[1].GetValue<T2>(),
-                values[2].GetValue<T3>(),
-                values[3].GetValue<T4>()
-            );
+            if (Parent is MonoBehaviour mb)
+            {
+                if (mb.enabled)
+                    action?.Invoke(
+                        values[0].GetValue<T1>(),
+                        values[1].GetValue<T2>(),
+                        values[2].GetValue<T3>(),
+                        values[3].GetValue<T4>()
+                    );
+                else
+                    Unsubscribe(mb);
+            }
+            else
+                action?.Invoke(
+                    values[0].GetValue<T1>(),
+                    values[1].GetValue<T2>(),
+                    values[2].GetValue<T3>(),
+                    values[3].GetValue<T4>()
+                );
         }
     }
     public class Subscription<T1, T2, T3, T4, T5> : ISubscription
@@ -477,13 +552,27 @@ public class SignalData : ScriptableObject
 
         public void Invoke(Union[] values)
         {
-            action(
-                values[0].GetValue<T1>(),
-                values[1].GetValue<T2>(),
-                values[2].GetValue<T3>(),
-                values[3].GetValue<T4>(),
-                values[4].GetValue<T5>()
-            );
+            if (Parent is MonoBehaviour mb)
+            {
+                if (mb.enabled)
+                    action(
+                        values[0].GetValue<T1>(),
+                        values[1].GetValue<T2>(),
+                        values[2].GetValue<T3>(),
+                        values[3].GetValue<T4>(),
+                        values[4].GetValue<T5>()
+                    );
+                else
+                    Unsubscribe(mb);
+            }
+            else
+                action(
+                    values[0].GetValue<T1>(),
+                    values[1].GetValue<T2>(),
+                    values[2].GetValue<T3>(),
+                    values[3].GetValue<T4>(),
+                    values[4].GetValue<T5>()
+                );
         }
     }
     public class Subscription<T1, T2, T3, T4, T5, T6> : ISubscription
@@ -493,14 +582,29 @@ public class SignalData : ScriptableObject
 
         public void Invoke(Union[] values)
         {
-            action?.Invoke(
-                values[0].GetValue<T1>(),
-                values[1].GetValue<T2>(),
-                values[2].GetValue<T3>(),
-                values[3].GetValue<T4>(),
-                values[4].GetValue<T5>(),
-                values[5].GetValue<T6>()
-            );
+            if (Parent is MonoBehaviour mb)
+            {
+                if (mb.enabled)
+                    action?.Invoke(
+                        values[0].GetValue<T1>(),
+                        values[1].GetValue<T2>(),
+                        values[2].GetValue<T3>(),
+                        values[3].GetValue<T4>(),
+                        values[4].GetValue<T5>(),
+                        values[5].GetValue<T6>()
+                    );
+                else
+                    Unsubscribe(mb);
+            }
+            else
+                action?.Invoke(
+                    values[0].GetValue<T1>(),
+                    values[1].GetValue<T2>(),
+                    values[2].GetValue<T3>(),
+                    values[3].GetValue<T4>(),
+                    values[4].GetValue<T5>(),
+                    values[5].GetValue<T6>()
+                );
         }
     }
     public class Subscription<T1, T2, T3, T4, T5, T6, T7> : ISubscription
@@ -510,15 +614,31 @@ public class SignalData : ScriptableObject
 
         public void Invoke(Union[] values)
         {
-            action?.Invoke(
-                values[0].GetValue<T1>(),
-                values[1].GetValue<T2>(),
-                values[2].GetValue<T3>(),
-                values[3].GetValue<T4>(),
-                values[4].GetValue<T5>(),
-                values[5].GetValue<T6>(),
-                values[6].GetValue<T7>()
-            );
+            if (Parent is MonoBehaviour mb)
+            {
+                if (mb.enabled)
+                    action?.Invoke(
+                        values[0].GetValue<T1>(),
+                        values[1].GetValue<T2>(),
+                        values[2].GetValue<T3>(),
+                        values[3].GetValue<T4>(),
+                        values[4].GetValue<T5>(),
+                        values[5].GetValue<T6>(),
+                        values[6].GetValue<T7>()
+                    );
+                else
+                    Unsubscribe(mb);
+            }
+            else
+                action?.Invoke(
+                    values[0].GetValue<T1>(),
+                    values[1].GetValue<T2>(),
+                    values[2].GetValue<T3>(),
+                    values[3].GetValue<T4>(),
+                    values[4].GetValue<T5>(),
+                    values[5].GetValue<T6>(),
+                    values[6].GetValue<T7>()
+                );
         }
     }
     public class Subscription<T1, T2, T3, T4, T5, T6, T7, T8> : ISubscription
@@ -528,16 +648,33 @@ public class SignalData : ScriptableObject
 
         public void Invoke(Union[] values)
         {
-            action?.Invoke(
-                values[0].GetValue<T1>(),
-                values[1].GetValue<T2>(),
-                values[2].GetValue<T3>(),
-                values[3].GetValue<T4>(),
-                values[4].GetValue<T5>(),
-                values[5].GetValue<T6>(),
-                values[6].GetValue<T7>(),
-                values[7].GetValue<T8>()
-            );
+            if (Parent is MonoBehaviour mb)
+            {
+                if (mb.enabled)
+                    action?.Invoke(
+                        values[0].GetValue<T1>(),
+                        values[1].GetValue<T2>(),
+                        values[2].GetValue<T3>(),
+                        values[3].GetValue<T4>(),
+                        values[4].GetValue<T5>(),
+                        values[5].GetValue<T6>(),
+                        values[6].GetValue<T7>(),
+                        values[7].GetValue<T8>()
+                    );
+                else
+                    Unsubscribe(mb);
+            }
+            else
+                action?.Invoke(
+                    values[0].GetValue<T1>(),
+                    values[1].GetValue<T2>(),
+                    values[2].GetValue<T3>(),
+                    values[3].GetValue<T4>(),
+                    values[4].GetValue<T5>(),
+                    values[5].GetValue<T6>(),
+                    values[6].GetValue<T7>(),
+                    values[7].GetValue<T8>()
+                );
         }
     }
     public class Subscription<T1, T2, T3, T4, T5, T6, T7, T8, T9> : ISubscription
@@ -547,17 +684,35 @@ public class SignalData : ScriptableObject
 
         public void Invoke(Union[] values)
         {
-            action?.Invoke(
-                values[0].GetValue<T1>(),
-                values[1].GetValue<T2>(),
-                values[2].GetValue<T3>(),
-                values[3].GetValue<T4>(),
-                values[4].GetValue<T5>(),
-                values[5].GetValue<T6>(),
-                values[6].GetValue<T7>(),
-                values[7].GetValue<T8>(),
-                values[8].GetValue<T9>()
-            );
+            if (Parent is MonoBehaviour mb)
+            {
+                if (mb.enabled)
+                    action?.Invoke(
+                        values[0].GetValue<T1>(),
+                        values[1].GetValue<T2>(),
+                        values[2].GetValue<T3>(),
+                        values[3].GetValue<T4>(),
+                        values[4].GetValue<T5>(),
+                        values[5].GetValue<T6>(),
+                        values[6].GetValue<T7>(),
+                        values[7].GetValue<T8>(),
+                        values[8].GetValue<T9>()
+                    );
+                else
+                    Unsubscribe(mb);
+            }
+            else
+                action?.Invoke(
+                    values[0].GetValue<T1>(),
+                    values[1].GetValue<T2>(),
+                    values[2].GetValue<T3>(),
+                    values[3].GetValue<T4>(),
+                    values[4].GetValue<T5>(),
+                    values[5].GetValue<T6>(),
+                    values[6].GetValue<T7>(),
+                    values[7].GetValue<T8>(),
+                    values[8].GetValue<T9>()
+                );
         }
     }
     public class Subscription<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10> : ISubscription
@@ -567,18 +722,37 @@ public class SignalData : ScriptableObject
 
         public void Invoke(Union[] values)
         {
-            action?.Invoke(
-                values[0].GetValue<T1>(),
-                values[1].GetValue<T2>(),
-                values[2].GetValue<T3>(),
-                values[3].GetValue<T4>(),
-                values[4].GetValue<T5>(),
-                values[5].GetValue<T6>(),
-                values[6].GetValue<T7>(),
-                values[7].GetValue<T8>(),
-                values[8].GetValue<T9>(),
-                values[9].GetValue<T10>()
-            );
+            if (Parent is MonoBehaviour mb)
+            {
+                if (mb.enabled)
+                    action?.Invoke(
+                        values[0].GetValue<T1>(),
+                        values[1].GetValue<T2>(),
+                        values[2].GetValue<T3>(),
+                        values[3].GetValue<T4>(),
+                        values[4].GetValue<T5>(),
+                        values[5].GetValue<T6>(),
+                        values[6].GetValue<T7>(),
+                        values[7].GetValue<T8>(),
+                        values[8].GetValue<T9>(),
+                        values[9].GetValue<T10>()
+                    );
+                else
+                    Unsubscribe(mb);
+            }
+            else
+                action?.Invoke(
+                    values[0].GetValue<T1>(),
+                    values[1].GetValue<T2>(),
+                    values[2].GetValue<T3>(),
+                    values[3].GetValue<T4>(),
+                    values[4].GetValue<T5>(),
+                    values[5].GetValue<T6>(),
+                    values[6].GetValue<T7>(),
+                    values[7].GetValue<T8>(),
+                    values[8].GetValue<T9>(),
+                    values[9].GetValue<T10>()
+                );
         }
     }
 }

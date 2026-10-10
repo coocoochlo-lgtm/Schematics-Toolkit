@@ -12,12 +12,16 @@ public class ScriptableObjectWithID<T> : ScriptableObject where T : ScriptableOb
     private int _id = -1;
     public int ID => _id;
 
+    private static int _idCounter = 0;
+
     public static Dictionary<int, T> Lookup
     {
         get
         {
             if (_lookup.Count == 0)
             {
+                _idCounter = 0;
+
                 var objs = Resources.LoadAll<T>("");
                 // Clear old lookup to avoid duplication on domain reload
                 _lookup.Clear();
@@ -29,6 +33,8 @@ public class ScriptableObjectWithID<T> : ScriptableObject where T : ScriptableOb
                     if (obj._id != i)
                     {
                         obj._id = i;
+                        _idCounter++;
+
 #if UNITY_EDITOR
                         UnityEditor.EditorUtility.SetDirty(obj);
                         UnityEditor.AssetDatabase.SaveAssets();
@@ -42,5 +48,11 @@ public class ScriptableObjectWithID<T> : ScriptableObject where T : ScriptableOb
             }
             return _lookup;
         }
+    }
+
+    private void OnEnable()
+    {
+        if(_id == -1)
+            _id = _idCounter++;
     }
 }

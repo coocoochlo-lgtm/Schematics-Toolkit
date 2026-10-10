@@ -4,10 +4,10 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Events;
 
-public class GlobalSchematicsManager : Singleton<GlobalSchematicsManager>
+public class SchematicsManager : Singleton<SchematicsManager>
 {
-    private Dictionary<SchematicGraph, List<SchematicInstanceController>> SchematicInstances = new();
-    private List<SchematicInstanceController> _activeInstances = new();
+    private Dictionary<SchematicGraph, List<SchematicObject>> SchematicInstances = new();
+    private List<SchematicObject> _activeInstances = new();
     [SerializeField]
     private List<SingletonGraph> _runningSingletons = new();
 
@@ -19,15 +19,15 @@ public class GlobalSchematicsManager : Singleton<GlobalSchematicsManager>
         // Adds logic to the Object Manager's Prefab Instantiation to determine whether to add the Instantiated Object as a Schematic Instance.
         ObjectManager.OnPrefabInstantiated += (GameObject prefab, GameObject instance) =>
         {
-            if (GlobalSchematicManagerData.SchematicPrefabs.ContainsKey(prefab))
+            if (SchematicManagerData.SchematicPrefabs.ContainsKey(prefab))
             {
-                var schemInst = instance.GetComponent<SchematicInstanceController>();
-                Instance.SchematicInstances[GlobalSchematicManagerData.SchematicPrefabs[prefab]].Add(schemInst);
+                var schemInst = instance.GetComponent<SchematicObject>();
+                Instance.SchematicInstances[SchematicManagerData.SchematicPrefabs[prefab]].Add(schemInst);
                 Instance.SetupSchematicInstance(schemInst);
             }
-            if(GlobalSchematicManagerData.PrefabIOBases.ContainsKey(prefab))
+            if(SchematicManagerData.PrefabIOBases.ContainsKey(prefab))
             {
-                foreach (var id in GlobalSchematicManagerData.PrefabIOBases[prefab])
+                foreach (var id in SchematicManagerData.PrefabIOBases[prefab])
                 {
                     //ScriptableSignal.IOBase.OnIOBaseInstantiated(id, ScriptableEventsData.IOBases[id].IOEvents);
                 }
@@ -40,14 +40,14 @@ public class GlobalSchematicsManager : Singleton<GlobalSchematicsManager>
     // Okay, now for the good shit
     // ... Except, returning to this months later I have no idea what I was doing.
     // Must have been pretty cool, though, whatever it was. 
-    private void SetupSchematicInstance(SchematicInstanceController instance)
+    private void SetupSchematicInstance(SchematicObject instance)
     {
 
     }
 
     private void InitializeSingletons()
     {
-        foreach(var graph in GlobalSchematicManagerData.SingletonGraphs)
+        foreach(var graph in SchematicManagerData.SingletonGraphs)
         {
             _runningSingletons.Add(graph);
             graph.TriggerEvent<OnStart>(null);

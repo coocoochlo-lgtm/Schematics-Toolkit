@@ -9,11 +9,11 @@ using System.Linq;
 using Remedy.Schematics.Utils;
 using SchematicAssets;
 
-[FieldRendererTarget(typeof(EventContainerRendererAttribute))]
+[FieldRendererTarget(typeof(SignalContainerRendererAttribute))]
 public class SignalRenderer : FieldRenderer
 {
     private static List<SignalRenderer> _eventLinkWaitPool = new(); // Events waiting for the rest of the Component to finish displaying before attempting to draw
-    private EventContainerRendererAttribute _evAttr;
+    private SignalContainerRendererAttribute _evAttr;
     private SchematicEventLinkAttribute _linkAttr;
     private static Texture2D _oIcon;
     private static Texture2D _outputIcon => _oIcon ??= Resources.Load<Texture2D>("Icons/Output");
@@ -29,7 +29,7 @@ public class SignalRenderer : FieldRenderer
 
     public SignalRenderer(SchematicGraphEditorWindow window, UnityEngine.Object obj, object parent, object target, FieldOrPropertyInfo fieldInfo, CustomFieldRendererAttribute attr, string path, List<Action> onModified) : base(window, obj, parent, target, fieldInfo, attr, path, onModified)
     {
-        _evAttr = (EventContainerRendererAttribute)attr;
+        _evAttr = (SignalContainerRendererAttribute)attr;
 
         SchematicEventLinkAttribute linkAttr = null;
 
@@ -50,7 +50,7 @@ public class SignalRenderer : FieldRenderer
         _linkAttr = linkAttr;
 
         if (_evAttr == null)
-            _evAttr = new EventContainerRendererAttribute(typeof(SignalBase), _field.Name, false);
+            _evAttr = new SignalContainerRendererAttribute(typeof(ISignal), _field.Name, false);
 
         if (_linkAttr != null)
             DrawEventContainer();

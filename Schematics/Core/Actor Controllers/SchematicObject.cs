@@ -1,11 +1,18 @@
+using Remedy.Framework;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Remedy.Schematics
 {
+    /// <summary>
+    /// The base of an Object within the Schematic Framework.
+    /// Describes how instances of the Object should interface with the rest of the Schematic Toolkit
+    /// </summary>
     [RequireComponent(typeof(ManagerHandshaker))]
-    public class SchematicInstanceController : MonoBehaviour
+    public class SchematicObject : MonoBehaviour
     {
         public SchematicGraph SchematicGraph;
+        public SerializableDictionary<GameObject, List<BehaviorMetadata>> Behaviors = new();
 
         private void OnEnable()
         {

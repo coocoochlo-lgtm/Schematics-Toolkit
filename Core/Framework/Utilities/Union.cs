@@ -8,7 +8,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 
-namespace Remedy.Schematics.Utils
+namespace Remedy.Framework
 {
     [Serializable]
     [StructLayout(LayoutKind.Explicit)]
@@ -562,4 +562,5 @@ namespace Remedy.Schematics.Utils
             );
         }
     }
+
 }

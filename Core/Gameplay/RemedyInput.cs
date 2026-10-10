@@ -203,7 +203,7 @@ public class RemedyInput : SingletonData<RemedyInput>
         [Tooltip("The Input Action, with it's binds.")]
         public InputAction Input= new();
 
-        [EventContainerRenderer(typeof(SignalData), "EventName", false)]
+        [SignalContainerRenderer(typeof(SignalData), "EventName", false)]
         public SignalData Output;
 
         [Tooltip("If true, the Output Event is not called again on update, although it will be called if the value for the Input has been updated (InputActionPhase.Performed).")]

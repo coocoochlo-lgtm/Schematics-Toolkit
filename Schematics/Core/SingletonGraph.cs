@@ -36,7 +36,7 @@ public class SingletonGraph : SchematicGraph
     protected override void OnGraphEnable()
     {
         base.OnGraphEnable();
-        GlobalSchematicManagerData.AddSingletonGraph(this);
+        SchematicManagerData.AddSingletonGraph(this);
     }
 
     // This method will be called when the game starts

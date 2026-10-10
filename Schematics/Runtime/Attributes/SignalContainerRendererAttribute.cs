@@ -4,7 +4,7 @@ using System;
 /// Draws an Event Container UI within the Schematic Editor for this Field
 /// </summary>
 [AttributeUsage(AttributeTargets.Field)]
-public class EventContainerRendererAttribute : CustomFieldRendererAttribute
+public class SignalContainerRendererAttribute : CustomFieldRendererAttribute
 {
     public Type DefaultType;
     public string DefaultName;
@@ -13,7 +13,7 @@ public class EventContainerRendererAttribute : CustomFieldRendererAttribute
     public bool ParamNameModifiable;
     public SignalData IOBase;
 
-    public EventContainerRendererAttribute(Type defaultType, string defaultName, bool parametersEditable, bool paramTypeModifiable = false, bool paramNameModifiable = false)
+    public SignalContainerRendererAttribute(Type defaultType, string defaultName, bool parametersEditable, bool paramTypeModifiable = false, bool paramNameModifiable = false)
     {
         DefaultType = defaultType;
         DefaultName = defaultName;

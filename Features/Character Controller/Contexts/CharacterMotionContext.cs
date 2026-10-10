@@ -12,23 +12,23 @@ public class CharacterMotionContext : MonoBehaviour
     // IO
     [InputSignal]
     [Parameter("Value", typeof(bool))]
-    public Signal<bool> JumpInput = new("JumpInput");
+    public Signal<bool> JumpInput;
     [InputSignal]
     [Parameter("Value", typeof(Vector2))]
-    public Signal<Vector2> MoveInput = new("MoveInput");
+    public Signal<Vector2> MoveInput;
     [InputSignal]
     [Parameter("Amount", typeof(float))]
-    public Signal<float> StaminaUpdated = new("StaminaUpdated");
+    public Signal<float> StaminaUpdated;
     [InputSignal]
     [Parameter("Direction", typeof(Vector3))]
-    public Signal<Vector3> SetDirectionOfGravity = new("SetDirectionOfGravity");
+    public Signal<Vector3> SetDirectionOfGravity;
 
     [OutputSignal]
-    public Signal OnJump = new("OnJump");
+    public Signal OnJump;
     [OutputSignal]
-    public Signal<Vector3> OnMoveOnGround = new("OnMove");
+    public Signal<Vector3> OnMoveOnGround;
     [OutputSignal]
-    public Signal OnFall = new("OnFall");
+    public Signal OnFall;
 
     //Data
     [SchematicProperties]
@@ -110,9 +110,9 @@ public class CharacterMotionContext : MonoBehaviour
         if (CameraTransform == null)
             Debug.LogError("MotionContext: No camera found for motions to reference!");
 
-        StaminaUpdated?.Subscribe(this, (float value) => _currentStamina = value);
+        StaminaUpdated.Subscribe(this, (float value) => _currentStamina = value);
 
-        SetDirectionOfGravity?.Subscribe(this, (Vector3 val) =>
+        SetDirectionOfGravity.Subscribe(this, (Vector3 val) =>
         {
             _worldDirection = val;
         });
@@ -120,7 +120,7 @@ public class CharacterMotionContext : MonoBehaviour
 
     private void OnDisable()
     {
-        StaminaUpdated?.Unsubscribe(this);
+        StaminaUpdated.Unsubscribe(this);
         MoveInput.Unsubscribe(this);
         SetDirectionOfGravity.Unsubscribe(this);
     }

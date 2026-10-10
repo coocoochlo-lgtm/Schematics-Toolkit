@@ -74,7 +74,7 @@ public static class SchematicGenerator
         PrefabUtility.SaveAsPrefabAsset(prefab, assetPath);
         var loadedPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
 
-        var controller = loadedPrefab.GetComponent<SchematicInstanceController>() ?? loadedPrefab.AddComponent<SchematicInstanceController>();
+        var controller = loadedPrefab.GetComponent<SchematicObject>() ?? loadedPrefab.AddComponent<SchematicObject>();
 
         controller.SchematicGraph = controller.SchematicGraph = schematicGraph;
 

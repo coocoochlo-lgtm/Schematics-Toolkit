@@ -8,12 +8,12 @@ using UnityEngine;
 public class PhysicsBasedCharacterController : SchematicMonoBehavior
 {
     [SchematicEventLink(typeof(CharacterMotionContext), nameof(CharacterMotionContext.MoveInput))]
-    public Signal<Vector2> MoveInput => _motionContext.MoveInput;
+    static public Signal<Vector2> MoveInput;
     [SchematicEventLink(typeof(CharacterMotionContext), nameof(CharacterMotionContext.JumpInput))]
-    public Signal<bool> JumpInput => _motionContext.JumpInput;
+    static public Signal<bool> JumpInput;
     [InputSignal]
     [Parameter("Position", typeof(Vector3))]
-    public Signal<Vector3> MoveToPosition = new("MoveToPosition");
+    static public Signal<Vector3> MoveToPosition;
 
     [SchematicProperties]
     public CharacterControllerProperties Properties;
@@ -25,20 +25,20 @@ public class PhysicsBasedCharacterController : SchematicMonoBehavior
     private float _dt;
 
     // State vars
-    private Vector3 _moveInput = default;
-    private bool _prevGrounded = false;
-    private bool _isJumping = false;
-    private float _jumpResetTime = 0f;
-    private float _jumpBufferTime = 0f;
-    private float _jumpArcY = 0f;
-    private bool _reachedJumpArc = false;
-    private float _tempHangTimeDuration = -1; // > 0 = use this instead of default Hang Time
-    private float _currentHangTime = 0f;
-    private float _jumpStartGroundHeight;
-    private float _groundY = 0;
-    private bool _hadJumped = false;
-    private bool _canJump = true;
-    private bool _enableGravity = true;
+    private readonly VariableHandle<Vector3> _moveInput = default;
+    private readonly VariableHandle<bool> _prevGrounded = false;
+    private readonly VariableHandle<bool> _isJumping = false;
+    private readonly VariableHandle<float> _jumpResetTime = 0f;
+    private readonly VariableHandle<float> _jumpBufferTime = 0f;
+    private readonly VariableHandle<float> _jumpArcY = 0f;
+    private readonly VariableHandle<bool> _reachedJumpArc = false;
+    private readonly VariableHandle<float> _tempHangTimeDuration = -1; // > 0 = use this instead of default Hang Time
+    private readonly VariableHandle<float> _currentHangTime = 0f;
+    private readonly VariableHandle<float> _jumpStartGroundHeight;
+    private readonly VariableHandle<float> _groundY = 0;
+    private readonly VariableHandle<bool> _hadJumped = false;
+    private readonly VariableHandle<bool> _canJump = true;
+    private readonly VariableHandle<bool> _enableGravity = true;
 
     private void OnEnable()
     {
@@ -85,18 +85,12 @@ public class PhysicsBasedCharacterController : SchematicMonoBehavior
         }
     }
 
-    private void OnDisable()
-    {
-        MoveInput.Unsubscribe(this);
-        JumpInput.Unsubscribe(this);
-        MoveToPosition.Unsubscribe(this);
-    }
-
     private void FixedUpdate()
     {
         HandleGroundRide();
         _motionContext.ApplyCappedHorizontalForce(_moveInput, Properties.MoveSpeed, Properties.Acceleration, Properties.Deceleration);
         HandleJump();
+        _moveInput.Value = new Vector3(5, 5, 5);
     }
 
     private void HandleGroundRide()

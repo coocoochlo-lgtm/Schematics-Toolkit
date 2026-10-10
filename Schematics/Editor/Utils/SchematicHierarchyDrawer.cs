@@ -17,7 +17,7 @@ public static class SchematicHierarchyDrawer
         GameObject go = EditorUtility.InstanceIDToObject(instanceID) as GameObject;
         if (go == null) return;
 
-        var controller = go.GetComponent<SchematicInstanceController>();
+        var controller = go.GetComponent<SchematicObject>();
         if (controller == null/* || controller?.SchematicGraphs.Length > 0*/) return;
 
         var prefab = PrefabUtility.GetCorrespondingObjectFromSource(go);
