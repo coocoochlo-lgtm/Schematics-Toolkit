@@ -269,7 +269,7 @@ public abstract class SchematicBehavior
     }
 
     // Auto-property backing fields look like "<Speed>k__BackingField".
-    private static string CleanFieldName(string name)
+    internal static string CleanFieldName(string name)
     {
         if (name.Length > 0 && name[0] == '<')
         {

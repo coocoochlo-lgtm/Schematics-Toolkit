@@ -26,7 +26,9 @@ namespace Remedy.Schematics
             {
                 if (arguments == null || i >= arguments.Length)
                     break;
-                _cachedOutputsByName[key] = arguments[i];
+                var argument = arguments[i];
+                argument.LastUpdateTick = StampTick();
+                _cachedOutputsByName[key] = argument;
                 i++;
             }
 

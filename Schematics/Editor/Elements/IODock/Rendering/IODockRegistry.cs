@@ -8,7 +8,6 @@ using Remedy.Framework;
 using UnityEditor;
 using System.IO;
 using Remedy.Schematics;
-using PlasticPipe.PlasticProtocol.Messages;
 
 public static class IODockRegistry
 {
@@ -109,18 +108,8 @@ public static class IODockRegistry
 
                 var attr = field.GetCustomAttributes().FirstOrDefault(t => typeof(CustomFieldRendererAttribute).IsAssignableFrom(t.GetType()));
 
-                if (attr == null)
-                {
-                    if (typeof(ISignal).IsAssignableFrom(field.MemberType))
-                    {
-                        (fieldDrawn, element) = RenderElementForField(window, obj, parent, field.GetValue(parent), field, propertyPath, onModified, attr, typeof(SignalRenderer));
-
-                        container.Add(element);
-                        draw = true;
-                        fieldDrawn = true;
-                    }
-                }
-                else
+                // Only members marked with a renderer attribute are drawn (e.g. the Signal containers of global data).
+                if (attr != null)
                 {
                     (fieldDrawn, element) = RenderElementForField(window, obj, parent, field.GetValue(parent), field, propertyPath, onModified, attr);
 

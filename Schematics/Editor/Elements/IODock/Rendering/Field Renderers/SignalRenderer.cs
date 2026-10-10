@@ -13,7 +13,6 @@ public class SignalRenderer : FieldRenderer
 {
     private static List<SignalRenderer> _eventLinkWaitPool = new(); // Events waiting for the rest of the Component to finish displaying before attempting to draw
     private SignalContainerRendererAttribute _evAttr;
-    private SchematicEventLinkAttribute _linkAttr;
     private static Texture2D _oIcon;
     private static Texture2D _outputIcon => _oIcon ??= Resources.Load<Texture2D>("Icons/Output");
     private static Texture2D _iIcon;
@@ -30,33 +29,10 @@ public class SignalRenderer : FieldRenderer
     {
         _evAttr = (SignalContainerRendererAttribute)attr;
 
-        SchematicEventLinkAttribute linkAttr = null;
-
-        if (fieldInfo != null)
-        {
-            var attributes = fieldInfo.GetCustomAttributes();
-            for (int i = 0; i < attributes.Count(); i++)
-            {
-                var attribute = attributes.ElementAt(i) as SchematicEventLinkAttribute;
-                if (attribute != null)
-                {
-                    linkAttr = attribute;
-                    break;
-                }
-            }
-        }
-
-        _linkAttr = linkAttr;
-
         if (_evAttr == null)
-            _evAttr = new SignalContainerRendererAttribute(typeof(ISignal), _field.Name, false);
+            _evAttr = new SignalContainerRendererAttribute(typeof(SignalData), _field.Name, false);
 
-        if (_linkAttr != null)
-            DrawEventContainer();
-        else
-            _eventLinkWaitPool.Add(this);
-
-
+        DrawEventContainer();
     }
 
     /// <summary>
@@ -151,33 +127,6 @@ public class SignalRenderer : FieldRenderer
             }
         };
 
-        if (_linkAttr != null)
-        {
-            var otherComponent = ((MonoBehaviour)_object).gameObject.GetComponent(_linkAttr.Type);
-            var otherField = _linkAttr.Type.GetField(_linkAttr.FieldName);
-            if (otherComponent != null && otherField != null)
-            {
-                var parentLabel = new Label
-                {
-                    text = "> " + _linkAttr.Type + _linkAttr.FieldName,
-                    style =
-                    {
-                        fontSize = 8,
-                        color = Color.gray8,
-
-                        marginTop = 2,
-                        marginLeft = 2
-                    }
-                };
-                parentLabel.AddToClassList("event-link-label");
-
-                column.Add(parentLabel);
-
-                _object = otherComponent;
-                _field = otherField;
-            }
-        }
-
         // Name field
         var nameField = new TextField { value = _field.Name, style = { flexGrow = 1, paddingLeft = 0 } };
 
@@ -258,8 +207,6 @@ public class SignalRenderer : FieldRenderer
         column.AddToClassList("event-container-" + (signalType ? "output" : "input"));
 
         var signalData = handler.SignalAsset;
-
-        _window.SchematicGraph.AddSignalToCache(signalData);
 
         var paramAttrs = _field.GetCustomAttributes().OfType<ParameterAttribute>();
 
@@ -365,8 +312,6 @@ public class SignalRenderer : FieldRenderer
                                             );
 
         signalData.RuntimeArgs = new Union[signalData.Parameters.Contents.Count];
-
-        _window.SchematicGraph.AddSignalToCache(signalData);
 
         column.Add(row);
         column.Add(paramList);

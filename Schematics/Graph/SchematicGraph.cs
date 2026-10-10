@@ -13,117 +13,16 @@ namespace Remedy.Schematics
 {
     public class SchematicGraph : Graph
     {
-        /// <summary>
-        /// Used with SignalRef, moving Signal ID's after this position down one to match the List.
-        /// </summary>
-        public Action<byte> OnSignalRemoved;
-
         public override string Title
         {
             get { return Prefab == null ? "SCHEMATIC" : "$ Prefab: " + Prefab.name; }
         }
 
-        private static Dictionary<int, SchematicGraph> _lookup = new Dictionary<int, SchematicGraph>();
-
-        // Serialized index for persistence
-        //[SerializeField, ReadOnly]
-        private int _id = -1;
-        public int ID => _id;
-
-        private static int _idCounter = 0;
-
-        public static Dictionary<int, SchematicGraph> Lookup
-        {
-            get
-            {
-                if (_lookup.Count == 0)
-                {
-                    _idCounter = 0;
-
-                    var objs = Resources.LoadAll<SchematicGraph>("");
-                    // Clear old lookup to avoid duplication on domain reload
-                    _lookup.Clear();
-
-                    // Assign stable indices based on loaded order
-                    for (int i = 0; i < objs.Length; i++)
-                    {
-                        var obj = objs[i];
-                        if (obj._id != i)
-                        {
-                            obj._id = i;
-                            _idCounter++;
-
-#if UNITY_EDITOR
-                            UnityEditor.EditorUtility.SetDirty(obj);
-                            UnityEditor.AssetDatabase.SaveAssets();
-#endif
-                        }
-                        if (!_lookup.ContainsKey(i))
-                        {
-                            _lookup[i] = obj;
-                        }
-                    }
-                }
-                return _lookup;
-            }
-        }
-
-        private void OnEnable()
-        {
-            if (_id == -1)
-                _id = _idCounter++;
-        }
-
         public GameObject Prefab;
-
-        [SerializeField]
-        private List<SignalData> _runtimeSignalCache;
-        [SerializeField]
-        private List<VariableData> _runtimeVariableCache;
-
-        public bool TryGetSignal(int id, out SignalData signalData)
-        {
-            if(_runtimeSignalCache.Count > id)
-            {
-                signalData = _runtimeSignalCache[id];
-                return true;
-            }
-            signalData = null;
-            return false;
-        }
-
-        public bool TryGetVariable(int id, out VariableData variableData)
-        {
-            if (_runtimeSignalCache.Count > id)
-            {
-                variableData = _runtimeVariableCache[id];
-                return true;
-            }
-
-            variableData = null;
-            return false;
-        }
 
 #if UNITY_EDITOR
         public GUID PrefabGUID;
         public GlobalObjectId PrefabID;
-        public List<GlobalObjectId> Components = new();
-
-        public void ResetSignalCache()
-        {
-            _editorSignalCache.Clear();
-        }
-
-        public void AddSignalToCache(SignalData signal)
-        {
-            _editorSignalCache[signal.name] = signal;
-        }
-
-        private SerializableDictionary<string, SignalData> _editorSignalCache = new();
-        public IReadOnlyDictionary<string, SignalData> EditorSignalCache => _editorSignalCache.GetReadOnlyDictionary();
-        [SerializeField]
-        private SerializableDictionary<string, VariableData> _editorVariableCache = new();
-        public IReadOnlyDictionary<string, VariableData> EditorVariableCache => _editorVariableCache.GetReadOnlyDictionary();
 #endif
 
         [SerializeField]
