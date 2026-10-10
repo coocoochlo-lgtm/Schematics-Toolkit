@@ -48,7 +48,7 @@ public class StateMachine : SchematicBehavior
 
     #region Lifecycle
 
-    protected internal override void OnStart(BehaviorInstance instance)
+    protected override void OnStart(BehaviorInstance instance)
     {
         SetState.Subscribe(name => GoTo(instance, name));
 
@@ -99,7 +99,7 @@ public class StateMachine : SchematicBehavior
         }
     }
 
-    protected internal override void OnEnable(BehaviorInstance instance)
+    protected override void OnEnable(BehaviorInstance instance)
     {
         var definition = Definition.Value;
         if (definition == null || definition.Count == 0)
@@ -115,7 +115,7 @@ public class StateMachine : SchematicBehavior
         ChangeState(instance, runtime, definition.InitialIndex);
     }
 
-    protected internal override void OnUpdate(BehaviorInstance instance)
+    protected override void OnUpdate(BehaviorInstance instance)
     {
         var runtime = _runtime.Value;
         if (runtime == null || runtime.Leaf < 0)
@@ -144,7 +144,7 @@ public class StateMachine : SchematicBehavior
             definition.States[runtime.Path[p]].Graph?.TriggerEvent<OnStateUpdate>(root);
     }
 
-    protected internal override void OnDisable(BehaviorInstance instance)
+    protected override void OnDisable(BehaviorInstance instance)
     {
         var runtime = _runtime.Value;
         if (runtime == null || runtime.Leaf < 0)

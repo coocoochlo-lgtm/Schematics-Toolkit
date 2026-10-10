@@ -52,7 +52,7 @@ public class BehaviorDropdown : AdvancedDropdown
             var parent = root;
             for (int i = 0; i < parts.Length - 1; i++)
             {
-                var folder = parent.children.FirstOrDefault(child => child.name == parts[i] && !(child is BehaviorItem));
+                var folder = parent.childList.FirstOrDefault(child => child.name == parts[i] && !(child is BehaviorItem));
                 if (folder == null)
                 {
                     folder = new AdvancedDropdownItem(parts[i]);
@@ -63,7 +63,7 @@ public class BehaviorDropdown : AdvancedDropdown
             parent.AddChild(new BehaviorItem(parts[parts.Length - 1], type));
         }
 
-        if (!root.children.Any())
+        if (!root.childList.Any())
             root.AddChild(new AdvancedDropdownItem("No Schematic Behaviors to add") { enabled = false });
 
         return root;
