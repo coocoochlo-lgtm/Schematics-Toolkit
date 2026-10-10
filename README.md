@@ -172,6 +172,40 @@ public class PlayerMovement : MonoBehaviour
 }
 ```
 
+### Schematic Behaviors
+Schematic Behaviors work like Systems rather than MonoBehaviours: there is one of each, and its Runtime calls its lifecycle methods for every object it's attached to. Attach them with the **Add Schematic Behavior** button under the GameObject header of a Schematic Object or any of its children.
+
+```csharp
+[SchematicBehaviorPath("Movement/Spinner")]
+public class Spinner : SchematicBehavior
+{
+    // Per-instance Variables. Defaults can be changed per object in the Inspector.
+    private readonly VariableHandle<float> _degreesPerSecond = 90f;
+    private readonly VariableHandle<float> _spun = 0f;
+
+    protected override void OnStart(BehaviorInstance instance) { }   // every spawn, Variables already reset
+    protected override void OnEnable(BehaviorInstance instance) { }
+
+    protected override void OnUpdate(BehaviorInstance instance)
+    {
+        float step = _degreesPerSecond * Time.deltaTime;
+        _spun.Value += step;
+        instance.Transform.Rotate(0f, step, 0f);
+    }
+}
+```
+
+```csharp
+var spinner = SchematicsManager.Spawn(spinnerPrefab, position, rotation); // from the prefab's pool
+int uid = spinner.UID;
+
+ExecutionContext.Pick(uid).Disable<Spinner>();  // OnDisable, then skipped by every lifecycle method
+ExecutionContext.Pick(uid).Enable();            // every Behavior on it
+SchematicsManager.Destroy(spinner);             // OnDisable → OnDestroy, then back into the pool
+```
+
+Lifecycle order: `OnCreate` (first creation only) → `OnStart` → `OnEnable` → `OnUpdate`/`OnLateUpdate`/`OnFixedUpdate` → `OnDisable` → `OnDestroy`.
+
 
 ---
 

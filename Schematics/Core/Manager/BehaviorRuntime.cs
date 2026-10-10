@@ -1,23 +1,335 @@
-using Remedy.Framework;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-internal class BehaviorRuntime
+/// <summary>
+/// Drives one <see cref="SchematicBehavior"/> for every instance it is attached to. Instances are kept in a dense list,
+/// and each Variable is a typed array indexed by the same row, so the update loops stay tight and allocation free.
+/// Created on demand by the <see cref="ExecutionContext"/>.
+/// </summary>
+public sealed class BehaviorRuntime
 {
-    /// <summary>
-    /// The Schematic Behavior this Runtime was created for. 
-    /// </summary>
-    public SchematicBehavior BehaviorType;
-    private GameObject _currentInstance;
-    private List<GameObject> _managedInstances = new();  
-    
-    //private Dictionary<int, Union[]> _instanceVariables = new();
-
-    internal void OnUpdate()
+    private enum Callback : byte
     {
-        foreach(var instance in _managedInstances)
+        Create, Start, Enable, Update, LateUpdate, FixedUpdate, Disable, Destroy
+    }
+
+    private const int InitialCapacity = 16;
+
+    /// <summary>The Schematic Behavior this Runtime was created for.</summary>
+    public SchematicBehavior Behavior { get; }
+    /// <summary>The Behavior's Metadata. May be null for Behaviors that were never given one.</summary>
+    public BehaviorMetadata Metadata { get; }
+    public Type BehaviorType => Behavior.GetType();
+
+    /// <summary>Number of rows, including instances despawned during the current loop that haven't been removed yet.</summary>
+    public int Count => _count;
+
+    /// <summary>The instance at the given row. Check <see cref="BehaviorInstance.IsSpawned"/> if you call this mid-update.</summary>
+    public BehaviorInstance this[int row] => _instances[row];
+
+    internal IVariableColumn[] Columns { get; }
+
+    private BehaviorInstance[] _instances = new BehaviorInstance[InitialCapacity];
+    private int _count;
+    private readonly Dictionary<string, int> _variableIndices = new();
+
+    // Despawns that happen while a loop is running are applied once it finishes, so rows don't shift underneath it.
+    private int _iterating;
+    private readonly List<BehaviorInstance> _pendingRemovals = new();
+
+    private readonly bool _hasUpdate;
+    private readonly bool _hasLateUpdate;
+    private readonly bool _hasFixedUpdate;
+
+    internal BehaviorRuntime(SchematicBehavior behavior, BehaviorMetadata metadata)
+    {
+        Behavior = behavior;
+        Metadata = metadata;
+        behavior.Runtime = this;
+
+        var variables = behavior.Variables;
+        Columns = new IVariableColumn[variables.Count];
+        for (int i = 0; i < variables.Count; i++)
         {
-            _currentInstance = instance;
-        }    
+            Columns[i] = variables[i].CreateColumn(InitialCapacity);
+            _variableIndices[variables[i].Name] = i;
+        }
+
+        if (metadata != null)
+        {
+            foreach (var definition in metadata.Variables)
+            {
+                if (!definition.OverrideDefault || definition.Default == null)
+                    continue;
+                int index = IndexOfVariable(definition.Name);
+                if (index >= 0 && Columns[index].ValueType == definition.Type.Type)
+                    Columns[index].SetDefault(definition.Default);
+            }
+        }
+
+        _hasUpdate = behavior.Overrides(nameof(SchematicBehavior.OnUpdate));
+        _hasLateUpdate = behavior.Overrides(nameof(SchematicBehavior.OnLateUpdate));
+        _hasFixedUpdate = behavior.Overrides(nameof(SchematicBehavior.OnFixedUpdate));
+    }
+
+    public int IndexOfVariable(string name)
+        => name != null && _variableIndices.TryGetValue(name, out int index) ? index : -1;
+
+    /// <summary>
+    /// Boxed read of a Variable for a given instance. Meant for tools and debugging, not gameplay code.
+    /// </summary>
+    public object GetVariableBoxed(BehaviorInstance instance, int variableIndex)
+        => instance.Row >= 0 ? Columns[variableIndex].GetBoxed(instance.Row) : null;
+
+    /// <summary>
+    /// Boxed write of a Variable for a given instance. Meant for tools and debugging, not gameplay code.
+    /// </summary>
+    public void SetVariableBoxed(BehaviorInstance instance, int variableIndex, object value)
+    {
+        if (instance.Row >= 0)
+            Columns[variableIndex].SetBoxed(instance.Row, value);
+    }
+
+    /// <summary>
+    /// Copies every spawned instance into the given list.
+    /// </summary>
+    public void GetInstances(List<BehaviorInstance> results)
+    {
+        results.Clear();
+        for (int i = 0; i < _count; i++)
+            if (!_instances[i].Removing)
+                results.Add(_instances[i]);
+    }
+
+    #region Spawning
+
+    /// <summary>
+    /// Spawn step 1: gives the instance a row and resets its Variables. No callbacks yet, so every Behavior on the
+    /// object has its data in place before any of them run.
+    /// </summary>
+    internal void AddRow(BehaviorInstance instance)
+    {
+        int row;
+        if (instance.Row >= 0)
+        {
+            if (!instance.Removing)
+                return;
+
+            // Despawned and respawned within the same loop: keep the row its pending removal would have freed.
+            row = instance.Row;
+        }
+        else
+        {
+            if (_count == _instances.Length)
+                Grow();
+
+            row = _count++;
+            _instances[row] = instance;
+            instance.Row = row;
+        }
+
+        instance.Removing = false;
+        instance.Started = false;
+        instance.Enabled = instance.Attachment == null || instance.Attachment.EnabledByDefault;
+
+        for (int i = 0; i < Columns.Length; i++)
+            Columns[i].Reset(row);
+        instance.ApplyOverrides(Columns);
+    }
+
+    /// <summary>Spawn step 2: OnCreate, only the first time this instance's object exists.</summary>
+    internal void RunCreate(BehaviorInstance instance)
+    {
+        if (instance.Created || !instance.IsSpawned)
+            return;
+        instance.Created = true;
+        Invoke(Callback.Create, instance);
+    }
+
+    /// <summary>Spawn step 3: OnStart then OnEnable, if the instance spawned enabled.</summary>
+    internal void RunStart(BehaviorInstance instance)
+    {
+        if (instance.Enabled && instance.IsSpawned)
+            StartAndEnable(instance);
+    }
+
+    /// <summary>
+    /// Despawns the instance: OnDisable (if enabled), OnDestroy (if started), then frees its row.
+    /// </summary>
+    internal void Remove(BehaviorInstance instance)
+    {
+        if (instance.Row < 0 || instance.Removing)
+            return;
+
+        // Marked first, so a callback despawning the same object again is a no-op.
+        instance.Removing = true;
+
+        if (instance.Started)
+        {
+            if (instance.Enabled)
+                Invoke(Callback.Disable, instance);
+            Invoke(Callback.Destroy, instance);
+            instance.Started = false;
+        }
+
+        if (_iterating > 0)
+            _pendingRemovals.Add(instance);
+        else
+            RemoveRow(instance);
+    }
+
+    private void RemoveRow(BehaviorInstance instance)
+    {
+        int row = instance.Row;
+        int last = _count - 1;
+
+        if (row != last)
+        {
+            var moved = _instances[last];
+            _instances[row] = moved;
+            moved.Row = row;
+            for (int i = 0; i < Columns.Length; i++)
+                Columns[i].Move(last, row);
+        }
+
+        for (int i = 0; i < Columns.Length; i++)
+            Columns[i].Clear(last);
+
+        _instances[last] = null;
+        _count--;
+
+        instance.Row = -1;
+        instance.Removing = false;
+    }
+
+    private void Grow()
+    {
+        int capacity = _instances.Length * 2;
+        Array.Resize(ref _instances, capacity);
+        for (int i = 0; i < Columns.Length; i++)
+            Columns[i].Resize(capacity);
+    }
+
+    #endregion
+
+    #region Enabling
+
+    /// <summary>
+    /// Sets the instance's Enabled flag and calls OnEnable/OnDisable if it changed.
+    /// The first time a spawned instance is enabled, OnStart runs before OnEnable.
+    /// </summary>
+    public void SetEnabled(BehaviorInstance instance, bool enabled)
+    {
+        if (instance == null || instance.Runtime != this || instance.Enabled == enabled)
+            return;
+
+        instance.Enabled = enabled;
+
+        if (!instance.IsSpawned)
+            return;
+
+        if (enabled)
+            StartAndEnable(instance);
+        else if (instance.Started)
+            Invoke(Callback.Disable, instance);
+    }
+
+    private void StartAndEnable(BehaviorInstance instance)
+    {
+        if (!instance.Started)
+        {
+            instance.Started = true;
+            Invoke(Callback.Start, instance);
+        }
+
+        // OnStart may have disabled or despawned it.
+        if (instance.Enabled && instance.IsSpawned)
+            Invoke(Callback.Enable, instance);
+    }
+
+    #endregion
+
+    #region Updating
+
+    internal void Update()
+    {
+        if (_hasUpdate) RunLoop(Callback.Update);
+    }
+
+    internal void LateUpdate()
+    {
+        if (_hasLateUpdate) RunLoop(Callback.LateUpdate);
+    }
+
+    internal void FixedUpdate()
+    {
+        if (_hasFixedUpdate) RunLoop(Callback.FixedUpdate);
+    }
+
+    private void RunLoop(Callback callback)
+    {
+        _iterating++;
+        try
+        {
+            // Instances spawned during the loop land past this count and start updating next frame.
+            int count = _count;
+            for (int i = 0; i < count; i++)
+            {
+                var instance = _instances[i];
+                if (instance.Enabled && instance.Started && !instance.Removing)
+                    Invoke(callback, instance);
+            }
+        }
+        finally
+        {
+            _iterating--;
+            if (_iterating == 0 && _pendingRemovals.Count > 0)
+                FlushRemovals();
+        }
+    }
+
+    private void FlushRemovals()
+    {
+        for (int i = 0; i < _pendingRemovals.Count; i++)
+        {
+            var instance = _pendingRemovals[i];
+            if (instance.Removing && instance.Row >= 0)
+                RemoveRow(instance);
+        }
+        _pendingRemovals.Clear();
+    }
+
+    #endregion
+
+    private void Invoke(Callback callback, BehaviorInstance instance)
+    {
+        // Saved and restored so a Behavior that enables or spawns another instance mid-callback
+        // gets its own context back afterwards.
+        var previous = ExecutionContext.CurrentInstance;
+        ExecutionContext.CurrentInstance = instance;
+        try
+        {
+            switch (callback)
+            {
+                case Callback.Create: Behavior.OnCreate(instance); break;
+                case Callback.Start: Behavior.OnStart(instance); break;
+                case Callback.Enable: Behavior.OnEnable(instance); break;
+                case Callback.Update: Behavior.OnUpdate(instance); break;
+                case Callback.LateUpdate: Behavior.OnLateUpdate(instance); break;
+                case Callback.FixedUpdate: Behavior.OnFixedUpdate(instance); break;
+                case Callback.Disable: Behavior.OnDisable(instance); break;
+                case Callback.Destroy: Behavior.OnDestroy(instance); break;
+            }
+        }
+        catch (Exception exception)
+        {
+            // One faulty instance shouldn't stop the rest of the Runtime.
+            Debug.LogException(exception, instance.GameObject);
+        }
+        finally
+        {
+            ExecutionContext.CurrentInstance = previous;
+        }
     }
 }

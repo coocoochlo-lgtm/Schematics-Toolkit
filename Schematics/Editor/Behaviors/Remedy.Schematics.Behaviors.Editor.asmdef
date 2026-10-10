@@ -1,0 +1,20 @@
+{
+    "name": "Remedy.Schematics.Behaviors.Editor",
+    "rootNamespace": "",
+    "references": [
+        "GUID:0a22d72520a82174ab746de6d8876564",
+        "GUID:9cef1c0784dad074282847b193c0d47b",
+        "GUID:6082862122ef11a49bf208ee4ec62519"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
