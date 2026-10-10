@@ -1,305 +1,255 @@
-using Remedy.Framework;
 using Remedy.CharacterControllers.Hover;
 using Remedy.CharacterControllers.LedgeGrab;
 using Remedy.CharacterControllers.WallSlide;
-/*using SaintsField;
-using SaintsField.Playa;*/
 using UnityEngine;
 
 namespace Remedy.CharacterControllers
 {
-
-    //[Searchable]
-    public class CharacterControllerRig : MonoBehaviour
+    /// <summary>
+    /// Makes the character's renderer follow its physics body smoothly: tilting, turning, squashing with vertical speed,
+    /// and posing for whichever movement controller is enabled (Wall Slide, Hover, Ledge Grab, or the default).
+    /// </summary>
+    [SchematicBehaviorPath("Movement/3D/Character Controller Rig")]
+    [RequireComponent(typeof(Rigidbody))]
+    public class CharacterControllerRig : SchematicBehavior
     {
-        public LayerMask CollisionLayer;
+        public readonly VariableHandle<LayerMask> CollisionLayer = (LayerMask)~0;
 
-        /*[Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Events", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Input")]*/
         [Tooltip("Vector3 Input for the Aim Direction, should be passed from the Camera Manager.")]
-        public SignalData InputAim;
+        [InputSignal, Parameter("Direction", typeof(Vector3))]
+        public readonly SignalHandle<Vector3> InputAim;
         [Tooltip("Boolean Inputs that determine whether to Orient toward the Aim Direction.")]
-        public SignalData InputOrientToAim;
-        public SignalData OnGroundCast;
-        public SignalData OnGroundCastHit;
+        [InputSignal, Parameter("Orient", typeof(bool))]
+        public readonly SignalHandle<bool> InputOrientToAim;
+        [InputSignal, Parameter("Grounded", typeof(bool))]
+        public readonly SignalHandle<bool> OnGroundCast;
+        [InputSignal, Parameter("Hit", typeof(RaycastHit))]
+        public readonly SignalHandle<RaycastHit> OnGroundCastHit;
 
-        /*[Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Events", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Output")]*/
-        [Header("Events")]
-        public SignalData IsWallSliding;
-        public SignalData IsHovering;
-        public SignalData IsLedgeGrabbing;
-        public SignalData IsStrafing;
-        public SignalData VerticalVelocity;
-        public SignalData IsOnGround;
+        [OutputSignal, Parameter("Value", typeof(bool))]
+        public readonly SignalHandle<bool> IsWallSliding;
+        [OutputSignal, Parameter("Value", typeof(bool))]
+        public readonly SignalHandle<bool> IsHovering;
+        [OutputSignal, Parameter("Value", typeof(bool))]
+        public readonly SignalHandle<bool> IsLedgeGrabbing;
+        [OutputSignal, Parameter("Value", typeof(bool))]
+        public readonly SignalHandle<bool> IsStrafing;
+        [OutputSignal, Parameter("Value", typeof(float))]
+        public readonly SignalHandle<float> VerticalVelocity;
+        [OutputSignal, Parameter("Value", typeof(bool))]
+        public readonly SignalHandle<bool> IsOnGround;
 
-        /*[Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Component", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./References")]*/
-        [Header("References")]
-        public Transform CameraTransform;
-        public Transform CharacterRenderer;
+        // References
+        public readonly VariableHandle<Transform> CameraTransform = (Transform)null;
+        public readonly VariableHandle<Transform> CharacterRenderer = (Transform)null;
         [Tooltip("Bone that should be placed at the Ledge Position when Ledge Grabbing.")]
-        public Transform LedgeGrabHandTransform;
-        public Material ShadowDecal;
-        public Transform ShadowProjector;
+        public readonly VariableHandle<Transform> LedgeGrabHandTransform = (Transform)null;
+        public readonly VariableHandle<Material> ShadowDecal = (Material)null;
+        public readonly VariableHandle<Transform> ShadowProjector = (Transform)null;
 
-        public bool HasDecal => ShadowDecal != null;
+        // Shadow Decal
+        public readonly VariableHandle<float> DecalMinScale = 1.15f;
+        public readonly VariableHandle<float> DecalMaxScale = 1.35f;
+        public readonly VariableHandle<float> DecalScaleGap = 5f;
 
-/*        [Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Component", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Scale")]*/
-        [Header("Shadow Decal")]
-        public float DecalMinScale = 1.15f;
-        public float DecalMaxScale = 1.35f;
-        public float DecalScaleGap = 5f;
+        // Motion
+        public readonly VariableHandle<bool> RotateCharacterWhileJumping = false;
+        public readonly VariableHandle<Vector3> Offset = Vector3.zero;
+        public readonly VariableHandle<float> TiltDampening = 5f;
+        public readonly VariableHandle<float> TurnDamening = 15f;
+        public readonly VariableHandle<float> PositionFollowSpeed = 20f;
+        public readonly VariableHandle<float> ScaleSpringDampening = 10f;
+        public readonly VariableHandle<float> ScaleSpringFrequency = 6f;
+        public readonly VariableHandle<float> VerticalVelocityScaleFactor = 0.2f;
+        public readonly VariableHandle<float> OrientToCameraSpeed = 10f;
 
-/*        [Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Component", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Motion")]*/
-        public bool RotateCharacterWhileJumping = false;
-        public Vector3 Offset = Vector3.zero;
-        public float TiltDampening = 5f;
-        public float TurnDamening = 15f;
-        public float PositionFollowSpeed = 20f;
-        public float ScaleSpringDampening = 10f;
-        public float ScaleSpringFrequency = 6f;
-        public float VerticalVelocityScaleFactor = 0.2f;
-        public float OrientToCameraSpeed = 10f;
+        // State
+        private readonly VariableHandle<Vector3> _position = Vector3.zero;
+        private readonly VariableHandle<Vector3> _tilt = Vector3.zero;
+        private readonly VariableHandle<Vector3> _baseScale = Vector3.one;
+        private readonly VariableHandle<Vector3> _targetRendererPosition = Vector3.zero;
+        private readonly VariableHandle<Vector3> _aimDirection = Vector3.zero;
+        private readonly VariableHandle<bool> _orientToDirection = false;
+        private readonly VariableHandle<bool> _isGrounded = false;
+        private readonly VariableHandle<RaycastHit> _groundHit = default(RaycastHit);
+        private readonly VariableHandle<float> _yVelocity = 0f;
 
-        // The Character Controller is a Schematic Behavior now; the Motion Context is the component that always sits beside it.
-        public CharacterMotionContext _characterBody;
-        public CharacterMotionContext CharacterBody => _characterBody ??= SystemManager.GetCachedComponent<CharacterMotionContext>(gameObject);
+        public bool HasDecal => ShadowDecal.Value != null;
 
-        private WallSlideController _wallSlideController;
-        public WallSlideController WallSlideController => _wallSlideController ??= gameObject.GetCachedComponent<WallSlideController>();
-
-        private HoverController _hoverController;
-        public HoverController HoverController => _hoverController ??= gameObject.GetCachedComponent<HoverController>();
-
-        private LedgeGrabController _ledgeGrabController;
-        public LedgeGrabController LedgeGrabController => _ledgeGrabController ??= gameObject.GetCachedComponent<LedgeGrabController>();
-
-        public Rigidbody rb => CharacterBody.GetCachedComponent<Rigidbody>();
-
-
-
-/*        [Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Component", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Variables")]*/
-        [SerializeField/*, ReadOnly*/] private Vector3 position;
-        private Vector3 _localVelocity;
-        private Vector3 Tilt = Vector3.zero;
-        private Vector3 _scale;
-        private Vector3 _handLocalOffset;
-        private Vector3 _targetRendererPosition;
-        private Vector3 _direction;
-        private Vector3 _baseScale = Vector3.one;
-        private float _goalYScale = 0;
-        private Vector3 _aimDirection = Vector3.zero;
-        private bool _orientToDirection = false;
-        private bool _isGrounded = false;
-        private RaycastHit _groundHit = default;
-        private Transform _transform;
-
-        float yVelocity = 0f;
-
-        private void OnEnable()
+        protected override void OnStart(BehaviorInstance instance)
         {
-            InputAim?.Subscribe(this, (Vector3 val) =>
+            InputAim.Subscribe(value => _aimDirection[instance] = value);
+            InputOrientToAim.Subscribe(value => _orientToDirection[instance] = value);
+            OnGroundCast.Subscribe(value =>
             {
-                _aimDirection = val;
+                _isGrounded[instance] = value;
+                IsOnGround.Invoke(instance, value);
             });
-            InputOrientToAim?.Subscribe(this, (bool val) =>
-            {
-                _orientToDirection = val;
-            });
-            OnGroundCast?.Subscribe(this, (bool val) =>
-            {
-                _isGrounded = val;
-                IsOnGround?.Invoke(val);
-            });
-            OnGroundCastHit?.Subscribe(this, (RaycastHit hit) =>
-            {
-                _groundHit = hit;
-            });
-
-            _transform = transform;
+            OnGroundCastHit.Subscribe(hit => _groundHit[instance] = hit);
         }
 
-        private void OnDisable()
+        protected override void OnEnable(BehaviorInstance instance)
         {
-            InputAim.Unsubscribe(this);
-            InputOrientToAim.Unsubscribe(this);
-            OnGroundCast.Unsubscribe(this);
-            OnGroundCastHit.Unsubscribe(this);
+            _position.Value = instance.Transform.position;
         }
 
-        private void Update()
+        // Whether a movement controller on this object is attached and enabled.
+        private static bool IsActive<TController>(BehaviorInstance instance) where TController : SchematicBehavior
         {
-            if (ShadowDecal != null)
+            var controller = ExecutionContext.FindInstance(instance.GameObject, typeof(TController));
+            return controller != null && controller.Enabled;
+        }
+
+        protected override void OnUpdate(BehaviorInstance instance)
+        {
+            var renderer = CharacterRenderer.Value;
+            if (renderer == null)
+                return;
+
+            var transform = instance.Transform;
+            var rb = instance.GetComponent<Rigidbody>();
+            var velocity = rb.linearVelocity;
+            float dt = Time.deltaTime;
+            float followSpeed = PositionFollowSpeed.Value;
+            float turnDampening = TurnDamening.Value;
+
+            ref var position = ref _position.Ref;
+            ref var tilt = ref _tilt.Ref;
+            ref var baseScale = ref _baseScale.Ref;
+            ref var yVelocity = ref _yVelocity.Ref;
+            var aimDirection = _aimDirection.Value;
+            bool orientToDirection = _orientToDirection.Value;
+
+            var decal = ShadowDecal.Value;
+            if (decal != null)
             {
-                if (Physics.Raycast(_transform.position, Vector3.down, out RaycastHit hitInfo, 1000, CollisionLayer))
+                if (Physics.Raycast(transform.position, Vector3.down, out RaycastHit hitInfo, 1000, CollisionLayer.Value))
                 {
-                    float gap = Mathf.Clamp(hitInfo.distance / DecalScaleGap, 0, DecalScaleGap);
-                    ShadowDecal.SetFloat("_Scale", Mathf.Lerp(DecalMaxScale, DecalMinScale, gap));
+                    float gap = Mathf.Clamp(hitInfo.distance / DecalScaleGap.Value, 0, DecalScaleGap.Value);
+                    decal.SetFloat("_Scale", Mathf.Lerp(DecalMaxScale.Value, DecalMinScale.Value, gap));
                 }
             }
 
-            _goalYScale = 1 + Mathf.Abs(rb.linearVelocity.y) * VerticalVelocityScaleFactor;
+            float goalYScale = 1 + Mathf.Abs(velocity.y) * VerticalVelocityScaleFactor.Value;
 
-            float delta = _goalYScale - _baseScale.y;
-            yVelocity += ScaleSpringFrequency * ScaleSpringFrequency * delta * Time.deltaTime;
-            yVelocity *= Mathf.Exp(-ScaleSpringDampening * Time.deltaTime);
-            _baseScale.y += yVelocity * Time.deltaTime;
+            float delta = goalYScale - baseScale.y;
+            float frequency = ScaleSpringFrequency.Value;
+            yVelocity += frequency * frequency * delta * dt;
+            yVelocity *= Mathf.Exp(-ScaleSpringDampening.Value * dt);
+            baseScale.y += yVelocity * dt;
 
-            _direction = CharacterBody.transform.position - CharacterRenderer.position;
-            _direction.y = 0;
+            Vector3 direction = transform.position - renderer.position;
+            direction.y = 0;
 
-            VerticalVelocity?.Invoke(rb.linearVelocity.y);
+            VerticalVelocity.Invoke(instance, velocity.y);
 
-            // Handle Wall Slide
-            if (WallSlideController.enabled)
+            if (IsActive<WallSlideController>(instance))
             {
-                position.x = Mathf.Lerp(position.x, _transform.position.x, PositionFollowSpeed * Time.deltaTime);
-                position.z = Mathf.Lerp(position.z, _transform.position.z, PositionFollowSpeed * Time.deltaTime);
-                position.y = Mathf.Lerp(position.y, _transform.position.y - Offset.y, PositionFollowSpeed * Time.deltaTime);
+                var wallSlide = instance.GetSchematicBehavior<WallSlideController>();
 
-                CharacterRenderer.position = position;
+                position.x = Mathf.Lerp(position.x, transform.position.x, followSpeed * dt);
+                position.z = Mathf.Lerp(position.z, transform.position.z, followSpeed * dt);
+                position.y = Mathf.Lerp(position.y, transform.position.y - Offset.Value.y, followSpeed * dt);
 
-                CharacterRenderer.rotation = WallSlideController.FacingRotation;
+                renderer.position = position;
+                renderer.rotation = wallSlide.FacingRotation.Value;
 
-                _scale.x = WallSlideController.CurrentWallSide == WallSlideController.WallSide.Left ? 1 : -1;
-                _scale.y = _baseScale.y;
-                _scale.z = _baseScale.z;
+                renderer.localScale = new Vector3(wallSlide.CurrentWallSide.Value == WallSlideController.WallSide.Left ? 1 : -1, baseScale.y, baseScale.z);
 
-                CharacterRenderer.localScale = _scale;
-
-                IsWallSliding?.Invoke(true);
+                IsWallSliding.Invoke(instance, true);
             }
-            else if (HoverController.enabled)
+            else if (IsActive<HoverController>(instance))
             {
-                _localVelocity = CharacterRenderer.InverseTransformDirection(rb.linearVelocity);
+                var localVelocity = renderer.InverseTransformDirection(velocity);
 
-                Tilt.x = _localVelocity.z * 2.5f; // Forward/backward tilt (pitch)
-                Tilt.z = -_localVelocity.x * 2.5f;  // Side-to-side tilt (roll)
+                tilt.x = localVelocity.z * 2.5f; // Forward/backward tilt (pitch)
+                tilt.z = -localVelocity.x * 2.5f;  // Side-to-side tilt (roll)
 
-                if (!_orientToDirection)
-                    CharacterRenderer.rotation = Quaternion.Lerp(CharacterRenderer.rotation, Quaternion.LookRotation(_direction, CharacterRenderer.up), TurnDamening * Time.deltaTime);
+                if (!orientToDirection)
+                    renderer.rotation = Quaternion.Lerp(renderer.rotation, Quaternion.LookRotation(direction, renderer.up), turnDampening * dt);
                 else
-                    CharacterRenderer.rotation = Quaternion.Slerp(CharacterRenderer.rotation, Quaternion.LookRotation(_aimDirection, Vector3.up), OrientToCameraSpeed * Time.deltaTime);
+                    renderer.rotation = Quaternion.Slerp(renderer.rotation, Quaternion.LookRotation(aimDirection, Vector3.up), OrientToCameraSpeed.Value * dt);
 
-                Tilt.y = CharacterRenderer.eulerAngles.y;
+                tilt.y = renderer.eulerAngles.y;
 
-                CharacterRenderer.eulerAngles = Tilt;
+                renderer.eulerAngles = tilt;
 
-                position.x = Mathf.Lerp(position.x, _transform.position.x, PositionFollowSpeed * Time.deltaTime);
-                position.z = Mathf.Lerp(position.z, _transform.position.z, PositionFollowSpeed * Time.deltaTime);
-                position.y = Mathf.Lerp(position.y, _transform.position.y, 5 * Time.deltaTime);
+                position.x = Mathf.Lerp(position.x, transform.position.x, followSpeed * dt);
+                position.z = Mathf.Lerp(position.z, transform.position.z, followSpeed * dt);
+                position.y = Mathf.Lerp(position.y, transform.position.y, 5 * dt);
 
-                CharacterRenderer.position = position;
+                renderer.position = position;
 
-                IsHovering?.Invoke(true);
-                IsWallSliding?.Invoke(false);
+                IsHovering.Invoke(instance, true);
+                IsWallSliding.Invoke(instance, false);
 
-
-                _scale.x = _baseScale.x;
-                _scale.y = _baseScale.y;
-                _scale.z = _baseScale.z;
-
-                CharacterRenderer.localScale = _scale;
+                renderer.localScale = baseScale;
             }
-
-            else if (LedgeGrabController.enabled)
+            else if (IsActive<LedgeGrabController>(instance))
             {
-                // Calculate local space offset between hand and renderer
-                _handLocalOffset = CharacterRenderer.InverseTransformPoint(LedgeGrabHandTransform.position);
-
-                // Target position is LedgePosition - that offset in world space
-                //_targetRendererPosition = LedgeGrabController.LedgePosition - CharacterRenderer.TransformVector(_handLocalOffset);
+                // Target position is LedgePosition - the hand's offset from the renderer, in world space
+                //_targetRendererPosition = LedgeGrabController.LedgePosition - CharacterRenderer.TransformVector(handLocalOffset);
+                var target = _targetRendererPosition.Value;
 
                 // Smoothly interpolate renderer position to target
-                if (Vector3.Distance(_transform.position, _targetRendererPosition) < 5f)
-                    position = Vector3.Lerp(CharacterRenderer.position, _targetRendererPosition, PositionFollowSpeed * Time.deltaTime);
-                CharacterRenderer.position = position;
-/*
-                if (LedgeGrabController.CurrentWallSide == LedgeGrabController.WallSide.Left)
-                    CharacterRenderer.rotation = LedgeGrabController.FacingRotation;
-                if (LedgeGrabController.CurrentWallSide == LedgeGrabController.WallSide.Right)
-                    CharacterRenderer.rotation = Quaternion.Euler(LedgeGrabController.FacingRotation.eulerAngles + new Vector3(0, 180, 0));*/
+                if (Vector3.Distance(transform.position, target) < 5f)
+                    position = Vector3.Lerp(renderer.position, target, followSpeed * dt);
+                renderer.position = position;
 
-                _scale.x = _baseScale.x;
-                _scale.y = _baseScale.y;
-                _scale.z = _baseScale.z;
+                renderer.localScale = baseScale;
 
-                CharacterRenderer.localScale = _scale;
-
-                IsLedgeGrabbing?.Invoke(true);
-                IsWallSliding?.Invoke(false);
-                IsHovering?.Invoke(false);
+                IsLedgeGrabbing.Invoke(instance, true);
+                IsWallSliding.Invoke(instance, false);
+                IsHovering.Invoke(instance, false);
             }
             else
             {
+                IsLedgeGrabbing.Invoke(instance, false);
+                IsWallSliding.Invoke(instance, false);
+                IsHovering.Invoke(instance, false);
 
-                IsLedgeGrabbing?.Invoke(false);
-                IsWallSliding?.Invoke(false);
-                IsHovering?.Invoke(false);
+                var groundHit = _groundHit.Value;
+                if (groundHit.point != Vector3.zero)
+                    position.y = Mathf.Lerp(position.y, groundHit.distance, followSpeed * dt);
+                else
+                    position.y = Mathf.Lerp(position.y, transform.position.y - Offset.Value.y, followSpeed * dt);
 
-                CharacterRenderer.localScale = Vector3.one;
+                position.x = Mathf.Lerp(position.x, transform.position.x, followSpeed * dt);
+                position.z = Mathf.Lerp(position.z, transform.position.z, followSpeed * dt);
 
-                if (_groundHit.point != Vector3.zero)
+                renderer.position = position;
+
+                if (Mathf.Abs(velocity.x) + Mathf.Abs(velocity.z) > 0.5f)
                 {
-                    var distanceFromFloor = _groundHit.distance;
+                    tilt.x = Mathf.LerpAngle(renderer.eulerAngles.x, transform.eulerAngles.x, TiltDampening.Value * dt);
+                    tilt.z = Mathf.LerpAngle(renderer.eulerAngles.z, transform.eulerAngles.z, TiltDampening.Value * dt);
 
-                    position.y = Mathf.Lerp(position.y, distanceFromFloor, PositionFollowSpeed * Time.deltaTime);
+                    if (!orientToDirection)
+                    {
+                        if (RotateCharacterWhileJumping.Value || _isGrounded.Value)
+                            renderer.rotation = Quaternion.Lerp(renderer.rotation, Quaternion.LookRotation(direction, renderer.up), turnDampening * dt);
+                    }
+                    else
+                        renderer.rotation = Quaternion.Slerp(renderer.rotation, Quaternion.LookRotation(aimDirection, Vector3.up), OrientToCameraSpeed.Value * dt);
                 }
                 else
                 {
-                    position.y = Mathf.Lerp(position.y, _transform.position.y - Offset.y, PositionFollowSpeed * Time.deltaTime);
+                    tilt.x = Mathf.LerpAngle(renderer.eulerAngles.x, 0, turnDampening * dt);
+                    tilt.z = Mathf.LerpAngle(renderer.eulerAngles.z, 0, turnDampening * dt);
+
+                    if (orientToDirection)
+                        renderer.rotation = Quaternion.Slerp(renderer.rotation, Quaternion.LookRotation(aimDirection, Vector3.up), OrientToCameraSpeed.Value * dt);
                 }
 
-                position.x = Mathf.Lerp(position.x, _transform.position.x, PositionFollowSpeed * Time.deltaTime);
-                position.z = Mathf.Lerp(position.z, _transform.position.z, PositionFollowSpeed * Time.deltaTime);
+                tilt.y = renderer.eulerAngles.y;
+                renderer.eulerAngles = tilt;
 
-                CharacterRenderer.position = position;
-
-
-
-                if (Mathf.Abs(rb.linearVelocity.x) + Mathf.Abs(rb.linearVelocity.z) > 0.5f)
-                {
-                    Tilt.x = Mathf.LerpAngle(CharacterRenderer.eulerAngles.x, CharacterBody.transform.eulerAngles.x, TiltDampening * Time.deltaTime);
-                    Tilt.z = Mathf.LerpAngle(CharacterRenderer.eulerAngles.z, CharacterBody.transform.eulerAngles.z, TiltDampening * Time.deltaTime);
-
-                    if (!_orientToDirection)
-                        if (RotateCharacterWhileJumping || _isGrounded)
-                            CharacterRenderer.rotation = Quaternion.Lerp(CharacterRenderer.rotation, Quaternion.LookRotation(_direction, CharacterRenderer.up), TurnDamening * Time.deltaTime);
-
-                    if (_orientToDirection)
-                        CharacterRenderer.rotation = Quaternion.Slerp(CharacterRenderer.rotation, Quaternion.LookRotation(_aimDirection, Vector3.up), OrientToCameraSpeed * Time.deltaTime);
-                }
-                else
-                {
-                    Tilt.x = Mathf.LerpAngle(CharacterRenderer.eulerAngles.x, 0, TurnDamening * Time.deltaTime);
-                    Tilt.z = Mathf.LerpAngle(CharacterRenderer.eulerAngles.z, 0, TurnDamening * Time.deltaTime);
-
-                    if (_orientToDirection)
-                        CharacterRenderer.rotation = Quaternion.Slerp(CharacterRenderer.rotation, Quaternion.LookRotation(_aimDirection, Vector3.up), OrientToCameraSpeed * Time.deltaTime);
-
-                }
-
-                Tilt.y = CharacterRenderer.eulerAngles.y;
-                CharacterRenderer.eulerAngles = Tilt;
-
-                _scale.x = _baseScale.x;
-                _scale.y = _baseScale.y;
-                _scale.z = _baseScale.z;
-
-                CharacterRenderer.localScale = _scale;
+                renderer.localScale = baseScale;
             }
 
-            ShadowProjector.rotation = Quaternion.LookRotation(Vector3.down, Vector3.up);
+            var projector = ShadowProjector.Value;
+            if (projector != null)
+                projector.rotation = Quaternion.LookRotation(Vector3.down, Vector3.up);
         }
     }
 }

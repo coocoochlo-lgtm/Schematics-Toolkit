@@ -4,88 +4,71 @@ using UnityEngine;
 
 namespace Remedy.CharacterControllers.Stamina
 {
-    [SchematicComponent("Characters/Movement/Stamina Controller")]
-    //[Searchable]
-    public class StaminaController : MonoBehaviour
+    [SchematicBehaviorPath("Characters/Movement/Stamina Controller")]
+    public class StaminaController : SchematicBehavior
     {
-        /*[Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Events", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Input")]*/
         [Tooltip("Called from other scripts to use Stamina")]
-        public SignalData UseStamina;
+        [InputSignal, Parameter("Amount", typeof(float))]
+        public readonly SignalHandle<float> UseStamina;
         [Tooltip("Boolean Events that determine whether Stamina can regerate or not.")]
-        public SignalData RegenerateStamina;
+        [InputSignal, Parameter("Regenerate", typeof(bool))]
+        public readonly SignalHandle<bool> RegenerateStamina;
 
-        /*[Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Events", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Output")]*/
         [Tooltip("Passes the amount that was consumed")]
-        public SignalData OnStaminaConsumed;
+        [OutputSignal, Parameter("Amount", typeof(float))]
+        public readonly SignalHandle<float> OnStaminaConsumed;
         [Tooltip("Passes the current amount of stamina")]
-        public SignalData OnStaminaChanged;
+        [OutputSignal, Parameter("Stamina", typeof(float))]
+        public readonly SignalHandle<float> OnStaminaChanged;
         [Tooltip("Triggered when the Controller runs out of Stamina")]
-        public SignalData OnStaminaDrained;
+        [OutputSignal]
+        public readonly SignalHandle OnStaminaDrained;
 
-        /*[Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Component", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Properties")]
-        [Dropdown("GetProperties")]*/
-        [SchematicProperties]
-        public StaminaProperties Properties;
+        public readonly VariableHandle<StaminaProperties> Properties = (StaminaProperties)null;
 
-        public bool Regenerating = false;
-/*
-        public DropdownList<StaminaProperties> GetProperties()
+        public readonly VariableHandle<bool> Regenerating = false;
+        public readonly VariableHandle<float> Stamina = 100f;
+
+        protected override void OnStart(BehaviorInstance instance)
         {
-            var list = new DropdownList<StaminaProperties>();
-            var scriptableObjects = Resources.LoadAll<StaminaProperties>("");
-
-            foreach (var so in scriptableObjects)
-            {
-                list.Add(so.name, so);
-            }
-
-            return list;
-        }*/
-
-        public float Stamina = 100f;
-
-        void OnEnable()
-        {
-            UseStamina?.Subscribe(this, (float value) => ConsumeStamina(value));
-            RegenerateStamina?.Subscribe(this, (bool value) => Regenerating = value);
-
-            Stamina = Properties.MaxStamina;
+            UseStamina.Subscribe(value => ConsumeStamina(instance, value));
+            RegenerateStamina.Subscribe(value => Regenerating[instance] = value);
         }
 
-        private void OnDisable()
+        protected override void OnEnable(BehaviorInstance instance)
         {
-            UseStamina?.Unsubscribe(this);
-            RegenerateStamina?.Unsubscribe(this);
+            var properties = Properties.Value;
+            if (properties != null)
+                Stamina.Value = properties.MaxStamina;
         }
 
-        private void Update()
+        protected override void OnUpdate(BehaviorInstance instance)
         {
-            if (Regenerating)
+            var properties = Properties.Value;
+            ref var stamina = ref Stamina.Ref;
+            if (Regenerating.Value && properties != null)
             {
-                if (Properties.MaxStamina > Stamina)
-                    Stamina += Properties.StaminaReginAmount * Time.deltaTime;
+                if (properties.MaxStamina > stamina)
+                    stamina += properties.StaminaReginAmount * Time.deltaTime;
                 else
-                    Stamina = Properties.MaxStamina;
+                    stamina = properties.MaxStamina;
             }
-            OnStaminaChanged?.Invoke(Stamina);
+            OnStaminaChanged.Invoke(instance, stamina);
         }
 
         /// <summary>
-        /// Attempts to consume some Stamina, and returns whether it was successful or not.
+        /// Attempts to consume some of the selected object's Stamina, and returns whether it was successful or not.
         /// </summary>
-        /// <param name="amount"></param>
-        /// <returns></returns>
-        public bool ConsumeStamina(float amount)
+        public bool ConsumeStamina(float amount) => ConsumeStamina(Selected, amount);
+
+        public bool ConsumeStamina(BehaviorInstance instance, float amount)
         {
-            if (Stamina < amount) return false;
-            Stamina -= amount;
-            OnStaminaConsumed?.Invoke(amount);
+            ref var stamina = ref Stamina.For(instance);
+            if (stamina < amount) return false;
+            stamina -= amount;
+            OnStaminaConsumed.Invoke(instance, amount);
+            if (stamina <= 0f)
+                OnStaminaDrained.Invoke(instance);
             return true;
         }
     }

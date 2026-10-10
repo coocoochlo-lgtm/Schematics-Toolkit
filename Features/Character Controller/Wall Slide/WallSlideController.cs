@@ -1,113 +1,89 @@
-using Remedy.Framework;
-using System.Collections.Generic;
 using UnityEngine;
 
 namespace Remedy.CharacterControllers.WallSlide
 {
-    [RequireComponent(typeof(CharacterMotionContext))]
-    [RequireComponent(typeof(CharacterRaycastContext))]
-    [SchematicComponent("Movement/3D/Wall Slide Controller")]
-    public class WallSlideController : MonoBehaviour
+    /// <summary>
+    /// Slides down walls the character moves into, and jumps off them. Input comes from the Motion Context's Signals.
+    /// </summary>
+    [RequireComponent(typeof(Rigidbody))]
+    [RequireBehavior(typeof(CharacterMotionContext), typeof(CharacterRaycastContext))]
+    [SchematicBehaviorPath("Movement/3D/Wall Slide Controller")]
+    public class WallSlideController : SchematicBehavior
     {
-        public Rigidbody Rigidbody => gameObject.GetCachedComponent<Rigidbody>();
+        [OutputSignal]
+        public readonly SignalHandle OnWallJump;
+        [OutputSignal, Parameter("Sliding", typeof(bool))]
+        public readonly SignalHandle<bool> OnWallSlideExitted;
 
-        [SchematicEventLink(typeof(CharacterMotionContext), nameof(CharacterMotionContext.JumpInput))]
-        public Signal<bool> JumpInput => _motionContext.JumpInput;
-        [SchematicEventLink(typeof(CharacterMotionContext), nameof(CharacterMotionContext.MoveInput))]
-        public Signal<Vector2> MoveInput => _motionContext.MoveInput;
+        public readonly VariableHandle<WallSlideControllerProperties> Properties = (WallSlideControllerProperties)null;
 
-        public Signal OnWallJump;
-        public Signal<bool> OnWallSlideExitted;
-
-        [SchematicProperties]
-        public WallSlideControllerProperties Properties;
-
-        public Quaternion FacingRotation;
+        public readonly VariableHandle<Quaternion> FacingRotation = Quaternion.identity;
 
         public enum WallSide { Left, Right }
-        public WallSide CurrentWallSide { get; private set; }
+        public readonly VariableHandle<WallSide> CurrentWallSide = WallSide.Left;
 
-        public RaycastHit _lastWallHit;
-        private Vector3 _facingDir;
+        private readonly VariableHandle<RaycastHit> _lastWallHit = default(RaycastHit);
 
-        private bool _cached;
-        private CharacterMotionContext _motionContext;
-        private CharacterRaycastContext _raycastContext;
-        private Transform _transform;
-
-        private void OnEnable()
+        protected override void OnStart(BehaviorInstance instance)
         {
-            _cached = false;
-            Cache();
-
-            JumpInput?.Subscribe(this, (bool val) => Jump(val));
+            var motion = instance.GetSchematicBehavior<CharacterMotionContext>();
+            motion?.JumpInput.Subscribe(instance, value => Jump(instance, value));
         }
 
-        private void OnDisable()
+        protected override void OnFixedUpdate(BehaviorInstance instance)
         {
-            JumpInput?.Unsubscribe(this);
-        }
+            var properties = Properties.Value;
+            var motion = instance.GetSchematicBehavior<CharacterMotionContext>();
+            var raycast = instance.GetSchematicBehavior<CharacterRaycastContext>();
+            if (properties == null || motion == null || raycast == null)
+                return;
 
-        private void FixedUpdate()
-        {
-            _motionContext.ApplyVerticalForce(-Properties.WallSlideSpeed, true);
+            motion.ApplyVerticalForce(-properties.WallSlideSpeed, true);
 
-            _motionContext.WallCheckInMoveDirection();
-            if(_raycastContext.WallCastResult.TryGetClosestHit(out RaycastHit hit))
-            {
-                StickOnWall(hit);
-            }
+            motion.WallCheckInMoveDirection();
+            if (raycast.WallCastResult.Value.TryGetClosestHit(out RaycastHit hit))
+                StickOnWall(instance, properties, motion, hit);
             else
-            {
-                OnWallSlideExitted?.Invoke(this, false);
-            }
+                OnWallSlideExitted.Invoke(instance, false);
         }
 
-        public void Jump(bool value)
+        public void Jump(BehaviorInstance instance, bool value)
         {
-            if(value)
-            {
-                var lateralVelocity = Vector3.ProjectOnPlane(_motionContext.MoveDirection, _lastWallHit.normal);
-                Vector3 jumpDir = (lateralVelocity * Properties.JumpLateralInputInfluence + _lastWallHit.normal).normalized;
-                _motionContext.ApplyForce(jumpDir * Properties.JumpHorizontalForce + Vector3.up * Properties.JumpVerticalForce, true);
-                
-                OnWallJump?.Invoke(this);
-            }
+            var properties = Properties[instance];
+            var motion = instance.GetSchematicBehavior<CharacterMotionContext>();
+            if (!value || properties == null || motion == null)
+                return;
+
+            var wallHit = _lastWallHit[instance];
+            var lateralVelocity = Vector3.ProjectOnPlane(motion.MoveDirection, wallHit.normal);
+            Vector3 jumpDir = (lateralVelocity * properties.JumpLateralInputInfluence + wallHit.normal).normalized;
+            motion.ApplyForce(jumpDir * properties.JumpHorizontalForce + Vector3.up * properties.JumpVerticalForce, true);
+
+            OnWallJump.Invoke(instance);
         }
 
-        private void Cache()
+        private void StickOnWall(BehaviorInstance instance, WallSlideControllerProperties properties, CharacterMotionContext motion, RaycastHit hit)
         {
-            if (!_cached)
+            _lastWallHit.Value = hit;
+            var transform = instance.Transform;
+
+            if (hit.distance < properties.GapFromWall)
             {
-                _motionContext = GetComponent<CharacterMotionContext>();
-                _raycastContext = GetComponent<CharacterRaycastContext>();
-                _transform = transform;
-
-                _cached = true;
-            }
-        }
-
-        private void StickOnWall(RaycastHit hit)
-        {
-            _lastWallHit = hit;
-
-            if (_lastWallHit.distance < Properties.GapFromWall)
-            {
-                var projectedTransform = Vector3.ProjectOnPlane(_transform.position, _lastWallHit.normal);
-                _motionContext.TeleportToPosition(projectedTransform + _lastWallHit.normal * Properties.GapFromWall);
+                var projectedTransform = Vector3.ProjectOnPlane(transform.position, hit.normal);
+                motion.TeleportToPosition(projectedTransform + hit.normal * properties.GapFromWall);
             }
 
-            _facingDir = Vector3.ProjectOnPlane(_motionContext.HorizontalDirection, _lastWallHit.normal);
+            var facingDir = Vector3.ProjectOnPlane(motion.HorizontalDirection, hit.normal);
 
-            if (_facingDir.sqrMagnitude < 0.001f)
-                _facingDir = Vector3.ProjectOnPlane(-transform.right, _lastWallHit.normal);
+            if (facingDir.sqrMagnitude < 0.001f)
+                facingDir = Vector3.ProjectOnPlane(-transform.right, hit.normal);
 
-            _facingDir.Normalize();
+            facingDir.Normalize();
 
-            FacingRotation = Quaternion.LookRotation(_facingDir, Vector3.up);
+            FacingRotation.Value = Quaternion.LookRotation(facingDir, Vector3.up);
 
-            float side = Vector3.Dot(_facingDir, _motionContext.HorizontalDirection);
-            CurrentWallSide = side > 0 ? WallSide.Left : WallSide.Right;
+            float side = Vector3.Dot(facingDir, motion.HorizontalDirection);
+            CurrentWallSide.Value = side > 0 ? WallSide.Left : WallSide.Right;
         }
     }
 }

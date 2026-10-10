@@ -3,10 +3,12 @@ using UnityEngine;
 /// <summary>
 /// Physics based character movement: rides at a hover height above the ground, jumps with a buffer and hang time,
 /// and falls with extra gravity. Movement itself is applied through the <see cref="CharacterMotionContext"/> and ground
-/// detection comes from the <see cref="CharacterRaycastContext"/>; both must be on the same GameObject.<br/>
+/// detection comes from the <see cref="CharacterRaycastContext"/>; both are attached along with it.<br/>
 /// Input arrives through the Motion Context's MoveInput and JumpInput Signals.
 /// </summary>
 [SchematicBehaviorPath("Movement/3D/Default Character Controller")]
+[RequireComponent(typeof(Rigidbody))]
+[RequireBehavior(typeof(CharacterMotionContext), typeof(CharacterRaycastContext))]
 public class PhysicsBasedCharacterController : SchematicBehavior
 {
     [InputSignal]
@@ -44,25 +46,22 @@ public class PhysicsBasedCharacterController : SchematicBehavior
         return properties != null;
     }
 
-    protected override void OnCreate(BehaviorInstance instance)
+    protected override void OnStart(BehaviorInstance instance)
     {
-        var motion = instance.GetComponent<CharacterMotionContext>();
+        var motion = instance.GetSchematicBehavior<CharacterMotionContext>();
         if (motion == null)
             return;
 
-        // Subscribed once for the object's whole life (pooled objects included). Signals are delivered to the
-        // subscriptions owned by the object that invokes them, so the Motion Context is the owner here too.
-        motion.MoveInput.Subscribe(motion, (Vector2 value) =>
+        // The Motion Context's input Signals, heard here for the same object. Skipped while this is disabled.
+        motion.MoveInput.Subscribe(instance, value =>
         {
-            if (!instance.IsSpawned || !instance.Enabled) return;
             ref var input = ref _moveInput.For(instance);
             input.x = value.x;
             input.z = value.y;
         });
 
-        motion.JumpInput.Subscribe(motion, (bool value) =>
+        motion.JumpInput.Subscribe(instance, value =>
         {
-            if (!instance.IsSpawned || !instance.Enabled) return;
             _moveInput.For(instance).y = value ? 1 : 0;
 
             if (value)
@@ -76,13 +75,19 @@ public class PhysicsBasedCharacterController : SchematicBehavior
             else
                 _canJump[instance] = true;
         });
+
+        MoveToPosition.Subscribe(position =>
+        {
+            var target = instance.GetSchematicBehavior<CharacterMotionContext>();
+            target?.TeleportToPosition(position);
+        });
     }
 
     protected override void OnEnable(BehaviorInstance instance)
     {
-        var motion = instance.GetComponent<CharacterMotionContext>();
+        var motion = instance.GetSchematicBehavior<CharacterMotionContext>();
         if (motion != null)
-            motion.IsKinematic = false;
+            motion.IsKinematic.Value = false;
 
         _canJump.Value = true;
 
@@ -97,8 +102,8 @@ public class PhysicsBasedCharacterController : SchematicBehavior
     protected override void OnFixedUpdate(BehaviorInstance instance)
     {
         var properties = Properties.Value;
-        var motion = instance.GetComponent<CharacterMotionContext>();
-        var raycast = instance.GetComponent<CharacterRaycastContext>();
+        var motion = instance.GetSchematicBehavior<CharacterMotionContext>();
+        var raycast = instance.GetSchematicBehavior<CharacterRaycastContext>();
         if (properties == null || motion == null || raycast == null)
             return;
 
@@ -109,10 +114,10 @@ public class PhysicsBasedCharacterController : SchematicBehavior
 
     private void HandleGroundRide(CharacterControllerProperties properties, CharacterMotionContext motion, CharacterRaycastContext raycast)
     {
-        if (raycast.IsGrounded && !_isJumping)
+        if (raycast.IsGrounded.Value && !_isJumping)
         {
             _hadJumped.Value = false;
-            _groundY.Value = raycast.GroundPosition.y;
+            _groundY.Value = raycast.GroundPosition.Value.y;
             _prevGrounded.Value = true;
             _reachedJumpArc.Value = false;
             motion.SpringToVertically(_groundY, properties.RideHeight, properties.RideSpringStrength, properties.HangTimeDamper, properties.MaxHoverForce);
@@ -121,7 +126,7 @@ public class PhysicsBasedCharacterController : SchematicBehavior
         {
             float hangTimeDuration = _tempHangTimeDuration > 0 ? _tempHangTimeDuration : properties.HangTimeDuration;
 
-            if (_enableGravity && !(_currentHangTime < hangTimeDuration && _hadJumped) && !raycast.IsGrounded)
+            if (_enableGravity && !(_currentHangTime < hangTimeDuration && _hadJumped) && !raycast.IsGrounded.Value)
                 motion.ApplyGravity();
 
             _prevGrounded.Value = false;
@@ -154,12 +159,12 @@ public class PhysicsBasedCharacterController : SchematicBehavior
                 _isJumping.Value = true;
                 _prevGrounded.Value = false;
                 _jumpResetTime.Value = 0f;
-                _jumpArcY.Value = raycast.GroundPosition.y + properties.JumpHeight;
+                _jumpArcY.Value = raycast.GroundPosition.Value.y + properties.JumpHeight;
 
                 if (motion.Velocity.y < properties.JumpSpeed)
                     motion.ApplyVerticalForce(properties.JumpSpeed);
 
-                _jumpStartGroundHeight.Value = raycast.GroundPosition.y;
+                _jumpStartGroundHeight.Value = raycast.GroundPosition.Value.y;
                 _reachedJumpArc.Value = false;
 
                 _hadJumped.Value = true;
@@ -189,7 +194,7 @@ public class PhysicsBasedCharacterController : SchematicBehavior
 
             _currentHangTime.Value += dt;
         }
-        else if (!raycast.IsGrounded)
+        else if (!raycast.IsGrounded.Value)
         {
             motion.ApplyVerticalForce(-properties.FallSpeed);
             _enableGravity.Value = true;

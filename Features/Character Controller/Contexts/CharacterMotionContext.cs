@@ -2,244 +2,230 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-[SchematicComponent("Movement/3D/Character Motion Context")]
+/// <summary>
+/// Applies forces, springs and gravity to a character's Rigidbody. Movement controllers on the same GameObject drive it
+/// through its methods (on the selected instance): <c>instance.GetSchematicBehavior&lt;CharacterMotionContext&gt;().ApplyForce(...)</c>.
+/// </summary>
+[SchematicBehaviorPath("Movement/3D/Character Motion Context")]
 [RequireComponent(typeof(Rigidbody))]
 [RequireComponent(typeof(SphereCollider))]
-[RequireComponent(typeof(CharacterRaycastContext))]
-public class CharacterMotionContext : MonoBehaviour
+public class CharacterMotionContext : SchematicBehavior
 {
     // IO
     [InputSignal]
     [Parameter("Value", typeof(bool))]
-    public Signal<bool> JumpInput;
+    public readonly SignalHandle<bool> JumpInput;
     [InputSignal]
     [Parameter("Value", typeof(Vector2))]
-    public Signal<Vector2> MoveInput;
+    public readonly SignalHandle<Vector2> MoveInput;
     [InputSignal]
     [Parameter("Amount", typeof(float))]
-    public Signal<float> StaminaUpdated;
+    public readonly SignalHandle<float> StaminaUpdated;
     [InputSignal]
     [Parameter("Direction", typeof(Vector3))]
-    public Signal<Vector3> SetDirectionOfGravity;
+    public readonly SignalHandle<Vector3> SetDirectionOfGravity;
 
     [OutputSignal]
-    public Signal OnJump;
+    public readonly SignalHandle OnJump;
     [OutputSignal]
-    public Signal<Vector3> OnMoveOnGround;
+    [Parameter("Velocity", typeof(Vector3))]
+    public readonly SignalHandle<Vector3> OnMoveOnGround;
     [OutputSignal]
-    public Signal OnFall;
+    public readonly SignalHandle OnFall;
 
     //Data
-    [SchematicProperties]
-    public CharacterMotionProperties Properties;
+    public readonly VariableHandle<CharacterMotionProperties> Properties = (CharacterMotionProperties)null;
 
-    // C# Events
-    public Action<Vector3> OnPushed;
-    public Action SpringPathFinished;
-    
-    // Accessors
-    public Transform CameraTransform { get; private set; }
-    public bool IsKinematic = true;
-    public Vector3 Velocity => _velocity;
-    public Vector3 HorizontalVelocity => _horizontalVelocity;
-    public Vector3 HorizontalDirection => _horizontalMovementDirection;
-    public bool JumpPooled => _jumpPooled;
-    public float CurrentStamina => _currentStamina;
-    public Vector3 MoveDirection => _moveInput;
+    /// <summary>Raised with the relative velocity of a collision that pushed the character.</summary>
+    public readonly VariableHandle<Action<Vector3>> OnPushed = (Action<Vector3>)null;
+    /// <summary>Raised each time a point of a spring path is reached.</summary>
+    public readonly VariableHandle<Action> SpringPathFinished = (Action)null;
 
-    // cache
-    [SerializeField]
-    [HideInInspector]
-    private bool _cached;
-    [SerializeField, HideInInspector]
-    private Transform _transform;
-    [SerializeField, HideInInspector]
-    private Rigidbody _rb;
-    private CharacterRaycastContext _raycastContext;
-    [SerializeField, HideInInspector]
-    private SphereCollider _collider;
-    [SerializeField, HideInInspector]
-    private Transform _gravReference;
+    public readonly VariableHandle<bool> IsKinematic = true;
+    public readonly VariableHandle<Transform> CameraTransform = (Transform)null;
+
+    // Accessors (selected instance)
+    public Vector3 Velocity => _velocity.Value;
+    public Vector3 HorizontalVelocity => _horizontalVelocity.Value;
+    public Vector3 HorizontalDirection => _horizontalMovementDirection.Value;
+    public bool JumpPooled => _jumpPooled.Value;
+    public float CurrentStamina => _currentStamina.Value;
+    public Vector3 MoveDirection => _moveInput.Value;
 
     // state vars
-    private Vector3 _worldDirection = default;
-    private Vector3 _velocity;
-    private Vector3 _horizontalVelocity;
-    private Vector3 _wallProjectedVelocity;
-    private Vector3 _wallHitPoint = default;
-    private Vector3 _horizontalMovementDirection = default;
+    private readonly VariableHandle<Vector3> _worldDirection = Vector3.zero;
+    private readonly VariableHandle<Vector3> _velocity = Vector3.zero;
+    private readonly VariableHandle<Vector3> _horizontalVelocity = Vector3.zero;
+    private readonly VariableHandle<Vector3> _wallProjectedVelocity = Vector3.zero;
+    private readonly VariableHandle<Vector3> _wallHitPoint = Vector3.zero;
+    private readonly VariableHandle<Vector3> _horizontalMovementDirection = Vector3.zero;
 
-    private Vector3[] _forces = new Vector3[10];
-    private Vector3 _overrideVelocity = default;
-    private int _forcesCount = 0;
-    private float _dt = 0;
-    private Vector3 _vec3Zero;
-    private bool _jumpPooled = false;
-    private bool _physicsStep = false;
-    private float _currentStamina;
-    private bool _canBePushed = false;
-    
-    private List<Vector3> _springPath;
-    private int _springPathIndex = 0; 
-    private float _springStartY;
-    private bool _isResting;
+    private const int MaxForces = 10;
+    // Copied per spawn, so every character has its own buffer.
+    private readonly VariableHandle<Vector3[]> _forces = new Vector3[MaxForces];
+    private readonly VariableHandle<Vector3> _overrideVelocity = Vector3.zero;
+    private readonly VariableHandle<int> _forcesCount = 0;
+    private readonly VariableHandle<bool> _jumpPooled = false;
+    private readonly VariableHandle<float> _currentStamina = 0f;
+    private readonly VariableHandle<bool> _canBePushed = false;
 
-    private Vector3 _moveInput =  default;
-    
+    private readonly VariableHandle<List<Vector3>> _springPath = (List<Vector3>)null;
+    private readonly VariableHandle<int> _springPathIndex = 0;
+    private readonly VariableHandle<float> _springStartY = 0f;
+    private readonly VariableHandle<bool> _isResting = false;
+
+    private readonly VariableHandle<Vector3> _moveInput = Vector3.zero;
+
+    private static float DeltaTime => Time.fixedDeltaTime;
+
     // Lifecycle
-    private void OnEnable()
+    protected override void OnCreate(BehaviorInstance instance)
     {
-        _cached = false;
-        Cache();
+        var rb = instance.GetComponent<Rigidbody>();
+        rb.constraints = RigidbodyConstraints.FreezeRotation;
+        rb.useGravity = false;
 
-        MoveInput.Subscribe(this, (Vector2 val) =>
+        var properties = Properties.Value;
+        if (properties != null)
+            instance.GetComponent<SphereCollider>().sharedMaterial = properties.PhysicsMaterial;
+    }
+
+    protected override void OnStart(BehaviorInstance instance)
+    {
+        MoveInput.Subscribe(value =>
         {
-            _moveInput.x = val.x;
-            _moveInput.z = val.y;
+            ref var input = ref _moveInput.For(instance);
+            input.x = value.x;
+            input.z = value.y;
         });
 
-        CameraTransform = CameraSubsystem.Camera?.transform;
+        StaminaUpdated.Subscribe(value => _currentStamina[instance] = value);
+        SetDirectionOfGravity.Subscribe(value => _worldDirection[instance] = value);
+    }
 
-        if (CameraTransform == null && Camera.main != null)
+    protected override void OnEnable(BehaviorInstance instance)
+    {
+        var camera = CameraSubsystem.Camera != null ? CameraSubsystem.Camera.transform : null;
+
+        if (camera == null && Camera.main != null)
         {
-            CameraTransform = Camera.main.transform;
-            Debug.LogWarning($"MotionContext: Global camera not found, defaulting to MainCamera ({CameraTransform.name})");
+            camera = Camera.main.transform;
+            Debug.LogWarning($"MotionContext: Global camera not found, defaulting to MainCamera ({camera.name})");
         }
 
-        if (CameraTransform == null)
+        if (camera == null)
             Debug.LogError("MotionContext: No camera found for motions to reference!");
 
-        StaminaUpdated.Subscribe(this, (float value) => _currentStamina = value);
-
-        SetDirectionOfGravity.Subscribe(this, (Vector3 val) =>
-        {
-            _worldDirection = val;
-        });
+        CameraTransform.Value = camera;
     }
 
-    private void OnDisable()
+    protected override void OnFixedUpdate(BehaviorInstance instance)
     {
-        StaminaUpdated.Unsubscribe(this);
-        MoveInput.Unsubscribe(this);
-        SetDirectionOfGravity.Unsubscribe(this);
-    }
+        var properties = Properties.Value;
+        if (properties == null)
+            return;
 
-    private void FixedUpdate()
-    {
-        _physicsStep = !_physicsStep;
-        _rb.isKinematic = IsKinematic;
+        var rb = instance.GetComponent<Rigidbody>();
+        var raycast = instance.GetSchematicBehavior<CharacterRaycastContext>();
+        rb.isKinematic = IsKinematic.Value;
 
-        if(true)
+        ref var velocity = ref _velocity.Ref;
+        ref var horizontalVelocity = ref _horizontalVelocity.Ref;
+        ref var wallProjectedVelocity = ref _wallProjectedVelocity.Ref;
+        ref var overrideVelocity = ref _overrideVelocity.Ref;
+        ref var forcesCount = ref _forcesCount.Ref;
+        var forces = _forces.Value;
+
+        raycast?.PerformGroundCast();
+
+        // calculate spring arc (if there is one)
+        var springPath = _springPath.Value;
+        if (springPath != null)
         {
-            _raycastContext.PerformGroundCast();
+            ref var index = ref _springPathIndex.Ref;
+            if (index < springPath.Count)
+            {
+                var point = springPath[index];
 
-            // calculate spring arc (if there is one)
-            if (_springPath != null )
-            { 
-                if(_springPathIndex < _springPath.Count)
+                SpringTo(_springStartY.Value, point, properties.SpringStrength, properties.SpringDamper, properties.SpringMaxForce);
+
+                if (Vector3.Distance(instance.Transform.position, point) < properties.SpringEpsilon)
                 {
-                    var point = _springPath[_springPathIndex];
-
-                    SpringTo(_springStartY, point, Properties.SpringStrength, Properties.SpringDamper, Properties.SpringMaxForce);
-
-                    if (Vector3.Distance(_transform.position, point) < Properties.SpringEpsilon)
-                    {
-                        _springPathIndex++;
-                        SpringPathFinished?.Invoke();
-                    }
-                }
-                else
-                {
-                    _springPath = null;
-                    _springPathIndex = 0;
-                }
-            }
-
-            HandleWallSlidingMovement();
-
-            // apply forces
-            for (int i = 0; i < _forcesCount; i++)
-            {
-                _velocity += _forces[i];
-            }
-
-            if (_overrideVelocity != _vec3Zero)
-            {
-                _velocity = _overrideVelocity;
-                _overrideVelocity = _vec3Zero;
-            }
-            if (_wallHitPoint != _vec3Zero)
-            {
-                _velocity.x = _wallProjectedVelocity.x;
-                _velocity.z = _wallProjectedVelocity.z;
-            }
-
-            _horizontalVelocity.x = _velocity.x;
-            _horizontalVelocity.z = _velocity.z;
-
-            // rest
-            _isResting = false;
-
-            if (_horizontalVelocity.sqrMagnitude < Properties.MovementSnapThreshold) // *gringe for the magic numbers*
-            {
-                if(Mathf.Pow(Mathf.Abs(_velocity.y) * 10, 2) < Properties.MovementSnapThreshold)
-                {
-                    _isResting = true;
+                    index++;
+                    SpringPathFinished.Value?.Invoke();
                 }
             }
             else
             {
-                _horizontalMovementDirection = _horizontalVelocity.normalized;
+                _springPath.Value = null;
+                index = 0;
             }
         }
-        // apply velocity
-        if (!_isResting)
+
+        if (raycast != null)
+            HandleWallSlidingMovement(instance, properties, raycast);
+
+        // apply forces
+        for (int i = 0; i < forcesCount; i++)
+            velocity += forces[i];
+
+        if (overrideVelocity != Vector3.zero)
         {
-            _rb.WakeUp();
+            velocity = overrideVelocity;
+            overrideVelocity = Vector3.zero;
+        }
+        if (_wallHitPoint.Value != Vector3.zero)
+        {
+            velocity.x = wallProjectedVelocity.x;
+            velocity.z = wallProjectedVelocity.z;
+        }
 
-            // velocity overrides
-            if (_velocity.y < 0 && _raycastContext.GroundCastResult.TryGetClosestHit(out var hit))
-            {
-                if (hit.distance < Properties.MinDistanceFromGround)
-                {
-                    //_velocity.y = 0;
-                }
-            }
+        horizontalVelocity.x = velocity.x;
+        horizontalVelocity.z = velocity.z;
 
-            _rb.linearVelocity = _velocity;
+        // rest
+        ref var isResting = ref _isResting.Ref;
+        isResting = false;
 
-            OnMoveOnGround?.Invoke(this, _horizontalVelocity);
+        if (horizontalVelocity.sqrMagnitude < properties.MovementSnapThreshold) // *gringe for the magic numbers*
+        {
+            if (Mathf.Pow(Mathf.Abs(velocity.y) * 10, 2) < properties.MovementSnapThreshold)
+                isResting = true;
         }
         else
         {
-            _rb.Sleep();
-            _wallProjectedVelocity = _vec3Zero;
+            _horizontalMovementDirection.Value = horizontalVelocity.normalized;
         }
-/*        else
-        {*/
-            // reset velocity
-            //_velocity = _rb.linearVelocity;
 
-            // reset forces
-            _forcesCount = 0;
-        //}
-
-        for (int i = 0; i < _forces.Length; i++)
+        // apply velocity
+        if (!isResting)
         {
-            _forces[i] = _vec3Zero;
+            rb.WakeUp();
+            rb.linearVelocity = velocity;
+            OnMoveOnGround.Invoke(instance, horizontalVelocity);
         }
+        else
+        {
+            rb.Sleep();
+            wallProjectedVelocity = Vector3.zero;
+        }
+
+        // reset forces
+        forcesCount = 0;
+        Array.Clear(forces, 0, forces.Length);
     }
 
-    private void OnCollisionEnter(Collision collision)
+    protected override void OnCollisionEnter(BehaviorInstance instance, Collision collision)
     {
-        if(_canBePushed && collision.relativeVelocity.sqrMagnitude > Properties.CollisionPushVelocityThreshold)
+        var properties = Properties.Value;
+        if (properties != null && _canBePushed.Value && collision.relativeVelocity.sqrMagnitude > properties.CollisionPushVelocityThreshold)
         {
-            OnPushed?.Invoke(collision.relativeVelocity);
-            _velocity += collision.relativeVelocity * Properties.CollisionPushInfluence;
+            OnPushed.Value?.Invoke(collision.relativeVelocity);
+            _velocity.Value += collision.relativeVelocity * properties.CollisionPushInfluence;
         }
     }
 
-    // public api
+    // public api (acts on the selected instance)
 
     /// <summary>
     /// Moves the Character to a specific position and forces the Rigidbody to Kinematic so that it can set the exact position of the Character without forces acting on it.
@@ -248,108 +234,73 @@ public class CharacterMotionContext : MonoBehaviour
     /// <param name="canBePushed">Whether collisions from other objects can switch the Rigidbody out of Kinematic mode.</param>
     public void SetPositionLocked(Vector3 position, bool canBePushed = true)
     {
-        _rb.isKinematic = true;
-        _rb.position = position;
-        _canBePushed = canBePushed;
+        var rb = Selected.GetComponent<Rigidbody>();
+        rb.isKinematic = true;
+        rb.position = position;
+        _canBePushed.Value = canBePushed;
     }
 
     public void SetRotationLocked(Quaternion rotation)
     {
-        bool isKinematic = _rb.isKinematic;
+        var rb = Selected.GetComponent<Rigidbody>();
+        bool isKinematic = rb.isKinematic;
 
-        _rb.isKinematic = true;
-        _rb.rotation = rotation;
-        _rb.isKinematic = isKinematic;
+        rb.isKinematic = true;
+        rb.rotation = rotation;
+        rb.isKinematic = isKinematic;
     }
 
     /// <summary>
     /// Applies the given force to the Rigidbody
     /// </summary>
-    /// <param name="force"></param>
-    /// <returns></returns>
     public void ApplyForce(Vector3 force, bool overrideOtherForces = false)
     {
-        if (!overrideOtherForces)
-        {
-            if (_forcesCount < _forces.Length)
-            {
-                force = RotateByGravityDirection(force);
-                _forces[_forcesCount] = force;
-
-                _forcesCount++;
-            }
-        }
-        else
-        {
-            force = RotateByGravityDirection(force);
-            _overrideVelocity = force;
-        }
+        force = RotateByGravityDirection(force);
+        AddForce(force, overrideOtherForces);
     }
 
     public void ApplyHorizontalForce(Vector3 force, bool overrideOtherForces = false)
     {
-        if (!overrideOtherForces)
-        {
-            if (_forcesCount < _forces.Length)
-            {
-                force.y = 0;
-                force = RotateByGravityDirection(force);
-                _forces[_forcesCount] = force;
-
-                _forcesCount++;
-            }
-        }
-        else
-        {
-            force.y = 0;
-            force = RotateByGravityDirection(force);
-
-            _overrideVelocity = force;
-        }
+        force.y = 0;
+        AddForce(RotateByGravityDirection(force), overrideOtherForces);
     }
 
     public void ApplyVerticalForce(float force, bool overrideOtherForces = false)
     {
-        if (!overrideOtherForces)
-        {
-            if (_forcesCount < _forces.Length)
-            {
-                var appliedForce = _forces[_forcesCount];
-                appliedForce = _vec3Zero;
-                appliedForce.y = force;
-                appliedForce = RotateByGravityDirection(appliedForce);
-                _forces[_forcesCount] = appliedForce;
+        AddForce(RotateByGravityDirection(new Vector3(0f, force, 0f)), overrideOtherForces);
+    }
 
-                _forcesCount++;
-            }
+    private void AddForce(Vector3 force, bool overrideOtherForces)
+    {
+        if (overrideOtherForces)
+        {
+            _overrideVelocity.Value = force;
+            return;
         }
-        else
-        {
-            var appliedForce = _vec3Zero;
-            appliedForce.y = force;
-            appliedForce = RotateByGravityDirection(appliedForce);
 
-            _overrideVelocity = appliedForce;
+        ref var count = ref _forcesCount.Ref;
+        var forces = _forces.Value;
+        if (count < forces.Length)
+        {
+            forces[count] = force;
+            count++;
         }
     }
 
     public Vector3 PredictNextPosition()
     {
-        return _rb.position + _rb.linearVelocity * _dt * _dt;
+        var rb = Selected.GetComponent<Rigidbody>();
+        return rb.position + rb.linearVelocity * DeltaTime * DeltaTime;
     }
 
     public void ApplyGravity()
     {
-        _velocity += RotateByGravityDirection(Physics.gravity * _dt);
+        _velocity.Value += RotateByGravityDirection(Physics.gravity * DeltaTime);
     }
 
     /// <summary>
     /// Uses physics forces to push the character in a direction at a specific speed
     /// </summary>
-    /// <param name="direction"></param>
-    /// <param name="maxSpeed"></param>
-    /// <param name="acceleration"></param>
-    /// <param name="decceleration"></param>
     public void ApplyCappedHorizontalForce(Vector3 direction, float maxSpeed, float acceleration, float decceleration, bool applyCameraTransform = true)
     {
         float desiredSpeed = maxSpeed;
@@ -361,7 +312,7 @@ public class CharacterMotionContext : MonoBehaviour
             desiredRateOfChange = decceleration;
         }
 
-        if (applyCameraTransform && CameraTransform != null)
+        if (applyCameraTransform && CameraTransform.Value != null)
             direction = TransformInputDirection(direction);
 
         direction.y = 0f;
@@ -374,30 +325,22 @@ public class CharacterMotionContext : MonoBehaviour
 
         Vector3 correction = -excess.normalized * desiredRateOfChange;
 
-        ApplyHorizontalForce(correction * _dt);
+        ApplyHorizontalForce(correction * DeltaTime);
     }
 
     /// <summary>
     /// Iterates through an array of positions to spring the rigidbody in a path
     /// </summary>
-    /// <param name="startPositionY"></param>
-    /// <param name="position"></param>
-    /// <returns></returns>
     public void FollowSpringPath(float startPositionY, List<Vector3> path)
     {
-        _springStartY = startPositionY;
-        _springPathIndex = 0;
-        _springPath = path;
+        _springStartY.Value = startPositionY;
+        _springPathIndex.Value = 0;
+        _springPath.Value = path;
     }
 
     /// <summary>
     /// Springs the Rigidbody toward the given position with the given force
     /// </summary>
-    /// <param name="groundYPosition"></param>
-    /// <param name="position"></param>
-    /// <param name="strength"></param>
-    /// <param name="damper"></param>
-    /// <param name="maxForce"></param>
     public void SpringTo(float groundYPosition, Vector3 position, float strength, float damper, float maxForce)
     {
         SpringHorizontally(position, strength, damper, maxForce);
@@ -407,31 +350,22 @@ public class CharacterMotionContext : MonoBehaviour
     /// <summary>
     /// Springs the Rigidbody to the given HorizontalPosition
     /// </summary>
-    /// <param name="targetPosition"></param>
-    /// <param name="strength"></param>
-    /// <param name="damper"></param>
-    /// <param name="maxForce"></param>
     public void SpringHorizontally(Vector3 targetPosition, float strength, float damper, float maxForce)
     {
-        Vector3 horizontalPosition = _transform.position;
+        Vector3 horizontalPosition = Selected.Transform.position;
         horizontalPosition.y = 0;
         Vector3 delta = targetPosition - horizontalPosition;
-        Vector3 springForce = (delta * strength) - (_horizontalVelocity * damper);
-        springForce = Vector3.ClampMagnitude(springForce * _dt, maxForce);
+        Vector3 springForce = (delta * strength) - (HorizontalVelocity * damper);
+        springForce = Vector3.ClampMagnitude(springForce * DeltaTime, maxForce);
         ApplyHorizontalForce(springForce);
     }
 
     /// <summary>
     /// Springs the Rigidbody to the given vertical position
     /// </summary>
-    /// <param name="groundYPosition"></param>
-    /// <param name="targetYPosition"></param>
-    /// <param name="strength"></param>
-    /// <param name="damper"></param>
-    /// <param name="maxForce"></param>
     public void SpringToVertically(float groundYPosition, float targetYPosition, float strength, float damper, float maxForce)
     {
-        float heightError =  (groundYPosition + targetYPosition) - _transform.position.y;
+        float heightError = (groundYPosition + targetYPosition) - Selected.Transform.position.y;
         float differenceForce = ((heightError * strength) - (Velocity.y * damper));
 
         ApplyVerticalForce(differenceForce);
@@ -439,128 +373,109 @@ public class CharacterMotionContext : MonoBehaviour
 
     public void TeleportToPosition(Vector3 position)
     {
-        _rb.isKinematic = true;
-        _rb.position = position;
-        _rb.isKinematic = false;
+        var rb = Selected.GetComponent<Rigidbody>();
+        rb.isKinematic = true;
+        rb.position = position;
+        rb.isKinematic = false;
     }
-    
+
     public void PoolJump()
     {
-        _jumpPooled = true;
+        _jumpPooled.Value = true;
     }
 
     public void PerformJump()
     {
-        _jumpPooled = false;
+        _jumpPooled.Value = false;
     }
 
     public Vector3 TransformInputDirection(Vector3 inputDirection)
     {
-        return CameraTransform.TransformDirection(inputDirection);
+        var camera = CameraTransform.Value;
+        return camera != null ? camera.TransformDirection(inputDirection) : inputDirection;
     }
 
     public void WallCheckInMoveDirection()
     {
-        _moveInput = TransformInputDirection(_moveInput);
-        _raycastContext.PerformWallCast(_moveInput);
+        var instance = Selected;
+        ref var moveInput = ref _moveInput.Ref;
+        moveInput = TransformInputDirection(moveInput);
+        instance.GetSchematicBehavior<CharacterRaycastContext>()?.PerformWallCast(instance, moveInput);
     }
 
     // internals
-    private void Cache()
+    private void HandleWallSlidingMovement(BehaviorInstance instance, CharacterMotionProperties properties, CharacterRaycastContext raycast)
     {
-        if(!_cached)
-        {
-            _dt = Time.fixedDeltaTime;
-
-            _transform = gameObject.GetComponent<Transform>();
-            _rb = gameObject.GetComponent<Rigidbody>();
-            _raycastContext = gameObject.GetComponent<CharacterRaycastContext>();
-            _collider = gameObject.GetComponent<SphereCollider>();
-
-            if(_gravReference == null)
-            {
-                if(transform.childCount > 0)
-                    _gravReference = transform.GetChild(0);
-                else
-                    _gravReference = new GameObject("Gravity Reference").transform;
-
-                _gravReference.parent = _transform;
-            }
-
-            if (Properties != null)
-                _collider.sharedMaterial = Properties.PhysicsMaterial;
-
-            _rb.constraints = RigidbodyConstraints.FreezeRotation;
-            _rb.useGravity = false;
-
-            _cached = true;
-        }
-    }
-
-    private void HandleWallSlidingMovement()
-    {
-        if (!Properties.SlideOnWall) return;
+        if (!properties.SlideOnWall) return;
 
         WallCheckInMoveDirection();
 
-        if (_raycastContext.WallCastResult.TryGetClosestHit(out var closestWallHit))
+        ref var wallProjectedVelocity = ref _wallProjectedVelocity.Ref;
+        if (raycast.WallCastResult[instance].TryGetClosestHit(out var closestWallHit))
         {
-            _wallHitPoint = closestWallHit.point;
-            _wallProjectedVelocity = Vector3.ProjectOnPlane(_horizontalVelocity, -closestWallHit.normal);
+            _wallHitPoint.Value = closestWallHit.point;
+            wallProjectedVelocity = Vector3.ProjectOnPlane(HorizontalVelocity, -closestWallHit.normal);
 
-            if (_wallProjectedVelocity.magnitude > 0.01f)
+            if (wallProjectedVelocity.magnitude > 0.01f)
             {
-                _raycastContext.PerformWallCast(_wallProjectedVelocity.normalized);
-                if (_raycastContext.WallCastResult.HasHit)
-                {
-                    _wallProjectedVelocity = _vec3Zero;
-                }
+                raycast.PerformWallCast(instance, wallProjectedVelocity.normalized);
+                if (raycast.WallCastResult[instance].HasHit)
+                    wallProjectedVelocity = Vector3.zero;
             }
         }
         else
         {
-            _wallProjectedVelocity = default;
-            _wallHitPoint = default;
+            wallProjectedVelocity = default;
+            _wallHitPoint.Value = default;
         }
     }
 
-    Vector3 RotateByGravityDirection(Vector3 inputForce)
+    // Forces are given relative to the direction of gravity.
+    private Vector3 RotateByGravityDirection(Vector3 inputForce)
     {
-        if (_worldDirection == _vec3Zero) 
-            _worldDirection = Vector3.forward;
+        ref var worldDirection = ref _worldDirection.Ref;
+        if (worldDirection == Vector3.zero)
+            worldDirection = Vector3.forward;
 
-        _gravReference.rotation = Quaternion.LookRotation(_worldDirection, Vector3.forward);
-        var result = _gravReference.TransformDirection(inputForce);
-        return result;
+        return Quaternion.LookRotation(worldDirection, Vector3.forward) * inputForce;
     }
 
-    private void OnDrawGizmos()
+    protected override void OnDrawGizmos(BehaviorGizmoContext context)
     {
-        Cache();
+        var rb = context.GetComponent<Rigidbody>();
+        var collider = context.GetComponent<SphereCollider>();
+        if (rb == null || collider == null)
+            return;
 
-        if(!_rb.isKinematic)
-            Gizmos.color = new Color(0f, 0.3f, 1f, 0.75f);
-        else
-            Gizmos.color = new Color(1f, 0.3f, 0f, 0.75f);
+        var position = context.Transform.position;
 
-        Gizmos.DrawSphere(_transform.position + _collider.center, _collider.radius);
+        Gizmos.color = !rb.isKinematic ? new Color(0f, 0.3f, 1f, 0.75f) : new Color(1f, 0.3f, 0f, 0.75f);
+        Gizmos.DrawSphere(position + collider.center, collider.radius);
 
-        for (int i = 0; i < _forcesCount; i++)
+        var instance = context.Instance;
+        if (instance == null || !instance.IsSpawned)
+            return;
+
+        var forces = _forces[instance];
+        for (int i = 0; i < _forcesCount[instance]; i++)
         {
-            if (_forces[i] != Vector3.zero)
-                CustomGizmos.DrawArrow(_transform.position, _forces[i], _forces[i].magnitude * 2, new Color(1f, 1f, 0f, 0.3f));
+            if (forces[i] != Vector3.zero)
+                CustomGizmos.DrawArrow(position, forces[i], forces[i].magnitude * 2, new Color(1f, 1f, 0f, 0.3f));
         }
 
-        if (Properties != null && Properties.SlideOnWall && _raycastContext.WallCastResult.TryGetClosestHit(out var closestWallHit))
+        var properties = Properties[instance];
+        var raycast = instance.GetSchematicBehavior<CharacterRaycastContext>();
+        if (properties != null && properties.SlideOnWall && raycast != null && raycast.WallCastResult[instance].TryGetClosestHit(out _))
         {
+            var wallPosition = raycast.WallPosition[instance];
             Gizmos.color = Color.green;
-            Gizmos.DrawLine(_transform.position, _raycastContext.WallPosition);
-            CustomGizmos.DrawArrow(_raycastContext.WallPosition, _wallProjectedVelocity, _rb.linearVelocity.magnitude, new Color(0, 1f, 0, 0.5f));
+            Gizmos.DrawLine(position, wallPosition);
+            CustomGizmos.DrawArrow(wallPosition, _wallProjectedVelocity[instance], rb.linearVelocity.magnitude, new Color(0, 1f, 0, 0.5f));
         }
-        else
-        if (_rb.linearVelocity != Vector3.zero)
-            CustomGizmos.DrawArrow(_transform.position, _rb.linearVelocity, _rb.linearVelocity.magnitude * 0.5f, new Color(0, 1f, 0, 0.5f));
+        else if (rb.linearVelocity != Vector3.zero)
+            CustomGizmos.DrawArrow(position, rb.linearVelocity, rb.linearVelocity.magnitude * 0.5f, new Color(0, 1f, 0, 0.5f));
 
-        CustomGizmos.DrawArrow(_transform.position, _moveInput, 2f, new Color(1, 1f, 1, 0.5f));
+        CustomGizmos.DrawArrow(position, _moveInput[instance], 2f, new Color(1, 1f, 1, 0.5f));
     }
+
 }

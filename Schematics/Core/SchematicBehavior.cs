@@ -209,6 +209,31 @@ public abstract class SchematicBehavior
     }
 
     /// <summary>
+    /// The Behaviors a Behavior asks for with <see cref="RequireBehaviorAttribute"/>, including the ones those ask for,
+    /// dependencies first.
+    /// </summary>
+    public static List<Type> GetRequiredBehaviors(Type behaviorType)
+    {
+        var result = new List<Type>();
+        Collect(behaviorType, new HashSet<Type> { behaviorType });
+        return result;
+
+        void Collect(Type type, HashSet<Type> visiting)
+        {
+            foreach (RequireBehaviorAttribute attribute in type.GetCustomAttributes(typeof(RequireBehaviorAttribute), true))
+                foreach (var required in attribute.Behaviors)
+                {
+                    if (required == null || !typeof(SchematicBehavior).IsAssignableFrom(required) || required.IsAbstract)
+                        continue;
+                    if (!visiting.Add(required) || result.Contains(required))
+                        continue;
+                    Collect(required, visiting);
+                    result.Add(required);
+                }
+        }
+    }
+
+    /// <summary>
     /// Returns true if this Behavior overrides the given lifecycle method, so Runtimes can skip loops that would do nothing.
     /// </summary>
     internal bool Overrides(string methodName)

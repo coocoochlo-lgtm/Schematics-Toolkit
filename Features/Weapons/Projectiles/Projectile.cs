@@ -1,144 +1,173 @@
-﻿/*using SaintsField;
+/*using SaintsField;
 using SaintsField.Playa;*/
+using Remedy.Schematics;
 using UnityEngine;
 
 namespace Remedy.Weapons.Projectiles
 {
-    [SchematicComponent("Weapons/Projectile")]
-    //[Searchable]
+    [SchematicBehaviorPath("Weapons/Projectile")]
     [RequireComponent(typeof(Rigidbody))]
     [RequireComponent(typeof(SphereCollider))]
-    public class Projectile : MonoBehaviour
+    public class Projectile : SchematicBehavior
     {
-/*        [Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Events", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Output")]*/
-        [Tooltip("On hit anything collidable, passes the PhysicMaterial of the collider that was hit.")]
-        public SignalData OnHit;
+        [Tooltip("On hit anything collidable, passes the PhysicsMaterial of the collider that was hit.")]
+        [OutputSignal, Parameter("Material", typeof(PhysicsMaterial))]
+        public readonly SignalHandle<PhysicsMaterial> OnHit;
         [Tooltip("On hit the Target Object, passes the reference of the Target Object that was hit.")]
-        public SignalData OnHitTarget;
-        [Tooltip("On Hit of anything collidable, and the projectile bounced off, passes the PhysicMaterial of the hit Collider")]
-        public SignalData OnRicochet;
+        [OutputSignal, Parameter("Target", typeof(GameObject))]
+        public readonly SignalHandle<GameObject> OnHitTarget;
+        [Tooltip("On Hit of anything collidable, and the projectile bounced off, passes the PhysicsMaterial of the hit Collider")]
+        [OutputSignal, Parameter("Material", typeof(PhysicsMaterial))]
+        public readonly SignalHandle<PhysicsMaterial> OnRicochet;
         [Tooltip("Called when this is destroyed")]
-        public SignalData OnDestroyed;
+        [OutputSignal]
+        public readonly SignalHandle OnDestroyed;
 
-/*        [Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Component", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Properties")]
-        [Expandable]*/
-        public ProjectileData Data;
+        public readonly VariableHandle<ProjectileData> Data = (ProjectileData)null;
 
-        /*[Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Component", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Variables")]*/
         [Tooltip("Used for magnetization or orientation to the Target object.")]
-        public Transform Target;
+        public readonly VariableHandle<Transform> Target = (Transform)null;
         [Tooltip("The position to interpolate toward until it has been reached.")]
-        public Vector3 TargetPosition; 
+        public readonly VariableHandle<Vector3> TargetPosition = Vector3.zero;
         [Tooltip("Speed of motion")]
-        public Vector3 Velocity;
-        // This should probably be deleted, Collisions should be handled by collision layer only 
+        public readonly VariableHandle<Vector3> Velocity = Vector3.zero;
+        // This should probably be deleted, Collisions should be handled by collision layer only
         [Tooltip("The current number of collisions")]
-        public int CollisionCount;
-        
-        private Rigidbody _rigidBody;
-        public Rigidbody RigidBody => _rigidBody ??= GetComponent<Rigidbody>();
+        public readonly VariableHandle<int> CollisionCount = 0;
 
-        private SphereCollider _collider;
-        public SphereCollider Collider => _collider ??= GetComponent<SphereCollider>();
+        /// <summary>The Fire Mode that shot this Projectile. Set by the Weapon.</summary>
+        public readonly VariableHandle<FireMode> ParentFireMode = (FireMode)null;
+        public readonly VariableHandle<Vector3> AimTargetPosition = Vector3.zero;
 
-        public FireMode ParentFireMode;
+        private readonly VariableHandle<float> _timeAlive = 0f;
+        private readonly VariableHandle<float> _distanceTraveled = 0f;
+        // Launched on the first update, after the Weapon has finished orienting the spawned Projectile.
+        private readonly VariableHandle<bool> _launched = false;
 
-        public Vector3 AimTargetPosition = Vector3.zero;
-
-        private float _timeAlive = 0f;
-        private float _distanceTraveled = 0f;
-
-        void Start()
+        /// <summary>
+        /// The Projectile Data a projectile prefab is set up with, for reading it before one is spawned.
+        /// </summary>
+        public static ProjectileData DataOf(SchematicObject prefab)
         {
-            Velocity = Data.InitialVelocity * transform.forward;
-            RigidBody.useGravity = false;
-            gameObject.layer = Data.Layer;
-            RigidBody.isKinematic = true;
-            Collider.isTrigger = true;
+            var behavior = ExecutionContext.GetRuntime<Projectile>().Behavior as Projectile;
+            return behavior != null ? behavior.Data.DefaultFor(prefab) : null;
         }
 
-        private void Update()
+        protected override void OnEnable(BehaviorInstance instance)
         {
-            _distanceTraveled += (Velocity * Time.deltaTime).magnitude;
-
-            if(_distanceTraveled < Data.LineUpDistance)
-            {
-                Vector3 offsetPosition = Vector3.Lerp(transform.position, AimTargetPosition, _distanceTraveled / Data.LineUpDistance);
-                transform.position = offsetPosition;
-
-                if (Vector3.Distance(transform.position, AimTargetPosition) < 1)
-                    _distanceTraveled = Data.LineUpDistance;
-            }
-
-            if (Physics.SphereCast(transform.position, Collider.radius, Velocity.normalized, out RaycastHit hit, Velocity.magnitude * Time.deltaTime))
-            {
-                OnTriggerEnter(hit.collider);
-            }
-
-            transform.position += Velocity * Time.deltaTime;
-
-            _timeAlive += Time.deltaTime;
-
-            if (_timeAlive > Data.LifeSpan)
-            {
-                Destroy(gameObject);
-            }
+            var data = Data.Value;
+            var rigidbody = instance.GetComponent<Rigidbody>();
+            rigidbody.useGravity = false;
+            rigidbody.isKinematic = true;
+            instance.GetComponent<SphereCollider>().isTrigger = true;
+            if (data != null)
+                instance.GameObject.layer = data.Layer;
         }
 
-        private void OnTriggerEnter(Collider other)
+        protected override void OnDisable(BehaviorInstance instance)
         {
+            // Pooled projectiles are reused, so drop the joint a Fixed projectile was attached with.
+            var joint = instance.GetComponent<FixedJoint>();
+            if (joint != null)
+                Object.Destroy(joint);
+        }
 
-            if(Data.TargetingMode == ProjectileData.TargetMode.MatchingTag)
+        protected override void OnUpdate(BehaviorInstance instance)
+        {
+            var data = Data.Value;
+            if (data == null)
+                return;
+
+            var transform = instance.Transform;
+            ref var velocity = ref Velocity.Ref;
+
+            if (!_launched.Value)
             {
-                if (other.gameObject.tag == Data.TargetTag)
-                {
-                    OnHitTarget?.Invoke(other.gameObject);
-                    OnHit?.Invoke(other.sharedMaterial);
-                }
-            }
-            else
-            {
-                if (other.gameObject == Target.gameObject)
-                {
-                    OnHitTarget?.Invoke(other.gameObject);
-                    OnHit?.Invoke(other.sharedMaterial);
-                }
+                _launched.Value = true;
+                velocity = data.InitialVelocity * transform.forward;
             }
 
-            OnHit?.Invoke(other.sharedMaterial);
+            ref var distanceTraveled = ref _distanceTraveled.Ref;
+            distanceTraveled += (velocity * Time.deltaTime).magnitude;
+
+            if (distanceTraveled < data.LineUpDistance)
+            {
+                var aimTarget = AimTargetPosition.Value;
+                transform.position = Vector3.Lerp(transform.position, aimTarget, distanceTraveled / data.LineUpDistance);
+
+                if (Vector3.Distance(transform.position, aimTarget) < 1)
+                    distanceTraveled = data.LineUpDistance;
+            }
+
+            var radius = instance.GetComponent<SphereCollider>().radius;
+            if (Physics.SphereCast(transform.position, radius, velocity.normalized, out RaycastHit hit, velocity.magnitude * Time.deltaTime))
+                Hit(instance, hit.collider);
+
+            transform.position += velocity * Time.deltaTime;
+
+            ref var timeAlive = ref _timeAlive.Ref;
+            timeAlive += Time.deltaTime;
+
+            if (timeAlive > data.LifeSpan)
+                Despawn(instance);
+        }
+
+        protected override void OnTriggerEnter(BehaviorInstance instance, Collider other) => Hit(instance, other);
+
+        private void Hit(BehaviorInstance instance, Collider other)
+        {
+            var data = Data.Value;
+            if (data == null)
+                return;
+
+            bool isTarget = data.TargetingMode == ProjectileData.TargetMode.MatchingTag
+                ? other.gameObject.CompareTag(data.TargetTag)
+                : Target.Value != null && other.gameObject == Target.Value.gameObject;
+
+            if (isTarget)
+                OnHitTarget.Invoke(instance, other.gameObject);
+
+            OnHit.Invoke(instance, other.sharedMaterial);
+        }
+
+        /// <summary>
+        /// Sends On Destroyed and returns the Projectile to its pool.
+        /// </summary>
+        public void Despawn(BehaviorInstance instance)
+        {
+            OnDestroyed.Invoke(instance);
+            SchematicsManager.Destroy(instance.Owner);
         }
 
         // Draws a Gizmo displaying the path to the next frame's position
-        private void OnDrawGizmos()
+        protected override void OnDrawGizmos(BehaviorGizmoContext context)
         {
-            if (!Application.isPlaying) return; 
+            if (!Application.isPlaying || context.Instance == null)
+                return;
+
+            var collider = context.GetComponent<SphereCollider>();
+            float radius = collider ? collider.radius : 0.1f;
+            var velocity = context.Get(Velocity);
+            var position = context.Transform.position;
 
             Gizmos.color = Color.red;
 
-            Vector3 nextPosition = transform.position + Velocity * Time.deltaTime;
-            float castDistance = Velocity.magnitude * Time.deltaTime;
+            Vector3 nextPosition = position + velocity * Time.deltaTime;
+            float castDistance = velocity.magnitude * Time.deltaTime;
 
-            Gizmos.DrawWireSphere(transform.position, Collider ? Collider.radius : 0.1f);
+            Gizmos.DrawWireSphere(position, radius);
+            Gizmos.DrawLine(position, nextPosition);
 
-            Gizmos.DrawLine(transform.position, nextPosition);
-
-            if (Physics.SphereCast(transform.position, Collider.radius, Velocity.normalized, out RaycastHit hit, castDistance))
+            if (Physics.SphereCast(position, radius, velocity.normalized, out RaycastHit hit, castDistance))
             {
                 Gizmos.color = Color.green;
-                Gizmos.DrawWireSphere(hit.point, Collider.radius);
+                Gizmos.DrawWireSphere(hit.point, radius);
             }
             else
             {
                 Gizmos.color = Color.yellow;
-                Gizmos.DrawWireSphere(nextPosition, Collider.radius);
+                Gizmos.DrawWireSphere(nextPosition, radius);
             }
         }
-
     }
 }

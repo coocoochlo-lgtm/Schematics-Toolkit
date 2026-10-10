@@ -1,157 +1,197 @@
 /*using SaintsField;
 using SaintsField.Playa;*/
 using System;
+using Remedy.Schematics;
 using UnityEngine;
 
 namespace Remedy.Weapons
 {
-    [SchematicComponent("Weapons/Holder")]
     /// <summary>
-    /// The WeaponHolder component should be attached to a GameObject which is the child of a Character, Vehicle, or whatever, seperate from motion behaviour.
+    /// The WeaponHolder should be attached to a GameObject which is the child of a Character, Vehicle, or whatever, seperate from motion behaviour.
     /// It has a unique Collider (Trigger) that is used for interactions with Weapons that can be picked up
     /// </summary>
-    //[Searchable]
+    [SchematicBehaviorPath("Weapons/Holder")]
     [RequireComponent(typeof(SphereCollider))]
-    public class WeaponHolder : MonoBehaviour
+    public class WeaponHolder : SchematicBehavior
     {
-        /*[Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Events", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Input")]*/
         [Tooltip("Device inputs that are passed to Equipped Weapons")]
-        public WeaponInputEvent[] WeaponInputs;
-        public SignalData EquipInput;
+        public readonly VariableHandle<WeaponInputEvent[]> WeaponInputs = (WeaponInputEvent[])null;
+
+        [Tooltip("Equips the Weapon with the given ID (its ID within the WeaponData Lookup).")]
+        [InputSignal, Parameter("Weapon ID", typeof(int))]
+        public readonly SignalHandle<int> EquipInput;
         [Tooltip("The current Aim Forward, updated from the Camera Controller.")]
-        public SignalData AimInput;
+        [InputSignal, Parameter("Aim", typeof(Vector3))]
+        public readonly SignalHandle<Vector3> AimInput;
 
-        /*[Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Component", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./References")]*/
-        public AimBone[] AimBones;
+        public readonly VariableHandle<AimBone[]> AimBones = (AimBone[])null;
 
-        /*[Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Component", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Sockets")]
-        [InfoBox("The way a Weapon fills sockets is based on the number of (and SocketIndex of) WeaponHandles that are applied to the Weapon Prefab. " +
-                "If there are two WeaponHandles, the weapon will need the two specified WeaponSockets open the WeaponHolder for it to be equipped.")]*/
+        // The way a Weapon fills sockets is based on the number of (and SocketIndex of) WeaponHandles that are applied to the Weapon Prefab.
+        // If there are two WeaponHandles, the weapon will need the two specified WeaponSockets open on the WeaponHolder for it to be equipped.
         [Tooltip("Weapon Sockets are parent Transforms for Weapons that are added to this Weapon Holder and determine the orientation of them")]
-        public WeaponSocket[] WeaponSockets;
-        private WeaponSocket[] _previousWeaponSockets;
+        public readonly VariableHandle<WeaponSocket[]> WeaponSockets = (WeaponSocket[])null;
 
-/*        [Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Component", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Variables")]*/
         [Tooltip("The weapon we're currently using.")]
-        public int ActiveWeaponSlot = 0;
+        public readonly VariableHandle<int> ActiveWeaponSlot = 0;
 
+        private readonly VariableHandle<Vector3> _aimInput = Vector3.zero;
 
-        private SphereCollider _collider;
-        public SphereCollider Collider => _collider ??= GetComponent<SphereCollider>();
-
-        private Vector3 _aimInput = Vector3.zero;
-
-        void OnValidate()
+        protected override void OnSetup(BehaviorSetupContext context)
         {
-            WeaponSocket previousSocket = null;
-            for (int i = 0; i < WeaponSockets.Length; i++)
-            {
-                var slot = WeaponSockets[i];
-                if (slot == previousSocket && slot != null)
-                {
-                    WeaponSockets[i] = new(new GameObject("WeaponSocket_" + i).transform);
-                }
-            }
-            _previousWeaponSockets = WeaponSockets;
+            // Start with one socket, on a child of its own.
+            var socket = new GameObject("WeaponSocket_0").transform;
+            socket.SetParent(context.Transform, false);
+            context.Set(WeaponSockets, new[] { new WeaponSocket(socket) { Name = "Primary" } });
         }
 
-        void OnEnable()
+        protected override void OnCreate(BehaviorInstance instance)
         {
-            EquipInput?.Subscribe(this, (int weaponID) => Equip(weaponID));
+            var collider = instance.GetComponent<SphereCollider>();
+            collider.isTrigger = true;
+            collider.includeLayers = 1 << GlobalWeaponData.Instance.WeaponCollisionLayer;
+        }
 
-            foreach (var weaponInput in WeaponInputs)
+        protected override void OnStart(BehaviorInstance instance)
+        {
+            EquipInput.Subscribe(weaponID => Equip(instance, weaponID));
+            AimInput.Subscribe(aim => _aimInput[instance] = aim);
+
+            var inputs = WeaponInputs.Value;
+            if (inputs == null)
+                return;
+
+            foreach (var weaponInput in inputs)
             {
-                weaponInput.InputEvent?.Subscribe(this, (bool value) =>
+                if (weaponInput?.InputEvent == null) continue;
+
+                weaponInput.InputEvent.Subscribe(instance, () =>
                 {
                     if (weaponInput.Event == WeaponInputEvent.WeaponEventType.Fire)
-                    {
-                        Fire(weaponInput.Socket, weaponInput.Mode);
-                    }
+                        Fire(instance, weaponInput.Socket, weaponInput.Mode);
                     else
-                    {
-                        Reload(weaponInput.Socket, weaponInput.Mode);
-                    }
+                        Reload(instance, weaponInput.Socket, weaponInput.Mode);
                 });
             }
-
-            AimInput?.Subscribe(this, (Vector3 val) =>
-            {
-                foreach (var socket in WeaponSockets)
-                {
-                    if (socket == null || socket.ActiveWeapon == null) continue;
-                    _aimInput = val;
-                }
-            });
-
-            Collider.isTrigger = true;
-            Collider.includeLayers = GlobalWeaponData.Instance.WeaponCollisionLayer;
         }
 
-        private void Update()
+        protected override void OnUpdate(BehaviorInstance instance)
         {
-            foreach (var socket in WeaponSockets)
+            var sockets = WeaponSockets.Value;
+            if (sockets == null)
+                return;
+
+            var aim = _aimInput.Value;
+            foreach (var socket in sockets)
             {
-                var HeldWeapon = socket.ActiveWeapon;
-                if (HeldWeapon != null)
-                {
-                    if (HeldWeapon.PrimaryHandle != null)
-                    {
-                        HeldWeapon.PrimaryHandle.Transform.position = WeaponSockets[0].Transform.position;
-                    }
-                    HeldWeapon.AttackDirection = _aimInput;
-                }
+                var weapon = socket != null ? WeaponIn(socket) : null;
+                if (weapon != null)
+                    weapon.AttackDirection.Value = aim;
             }
+        }
+
+        protected override void OnDisable(BehaviorInstance instance)
+        {
+            var sockets = WeaponSockets.Value;
+            if (sockets == null)
+                return;
+            for (int i = 0; i < sockets.Length; i++)
+                UnEquip(instance, i);
+        }
+
+        /// <summary>
+        /// The Weapon in a Socket, with it selected. Null if the Socket is empty.
+        /// </summary>
+        public static Weapon WeaponIn(WeaponSocket socket)
+        {
+            var weapon = socket?.ActiveWeapon;
+            return weapon != null && weapon.IsSpawned ? weapon.GetSchematicBehavior<Weapon>() : null;
         }
 
         /// <summary>
         /// Equips the Weapon with the given WeaponID (the ID within the WeaponData.Lookup)
         /// </summary>
-        /// <param name="weaponID"></param>
         /// <param name="socket">The socket to place the Weapon in. If a weapon is in said socket, it will be replaced.</param>
-        public void Equip(int weaponID, int socket = 0)
+        public void Equip(BehaviorInstance instance, int weaponID, int socket = 0)
         {
+            var sockets = WeaponSockets[instance];
+            if (sockets == null || socket < 0 || socket >= sockets.Length)
+                return;
+
             var weaponData = WeaponData.Lookup[weaponID];
-            if (weaponData.Prefab != null)
+            if (weaponData == null || weaponData.Prefab == null)
+                return;
+
+            UnEquip(instance, socket);
+
+            var spawned = SchematicsManager.Spawn(weaponData.Prefab);
+            var weapon = spawned.GetSchematicBehavior<Weapon>();
+            if (weapon == null || !weapon.Equip(instance.GameObject, sockets, socket))
             {
-                var weapon = Instantiate(weaponData.Prefab);
-                weapon.Equip(this);
-                WeaponSockets[socket].ActiveWeapon = weapon;
+                Debug.LogWarning($"{weaponData.name} couldn't be equipped in socket {socket} of {instance.GameObject.name}.", instance.GameObject);
+                SchematicsManager.Destroy(spawned);
             }
         }
 
-        public void UnEquip(int socket = 0)
+        public void Equip(int weaponID, int socket = 0) => Equip(Selected, weaponID, socket);
+
+        /// <summary>
+        /// Drops the Weapon in the given Socket and returns it to its pool.
+        /// </summary>
+        public void UnEquip(BehaviorInstance instance, int socket = 0)
         {
-            Destroy(WeaponSockets[socket].ActiveWeapon);
+            var sockets = WeaponSockets[instance];
+            if (sockets == null || socket < 0 || socket >= sockets.Length)
+                return;
+
+            var weapon = WeaponIn(sockets[socket]);
+            if (weapon == null)
+                return;
+
+            var owner = weapon.Selected.Owner;
+            weapon.Drop();
+            SchematicsManager.Destroy(owner);
         }
+
+        public void UnEquip(int socket = 0) => UnEquip(Selected, socket);
 
         /// <summary>
         /// Shoot the given Weapon using the given Mode.
         /// </summary>
-        /// <param name="socket"></param>
-        /// <param name="mode"></param>
-        //[Button]
-        public void Fire(int socket = 0, int mode = 0)
+        public void Fire(BehaviorInstance instance, int socket = 0, int mode = 0)
         {
-            WeaponSockets[socket]?.ActiveWeapon?.Fire(mode, true);
+            var sockets = WeaponSockets[instance];
+            if (sockets != null && socket >= 0 && socket < sockets.Length)
+                WeaponIn(sockets[socket])?.Fire(mode, true);
         }
+
+        public void Fire(int socket = 0, int mode = 0) => Fire(Selected, socket, mode);
 
         /// <summary>
         /// Reload the given Weapon for the given Mode.
         /// </summary>
-        /// <param name="socket"></param>
-        /// <param name="mode"></param>
-        //[Button]
-        public void Reload(int socket = 0, int mode = 0)
+        public void Reload(BehaviorInstance instance, int socket = 0, int mode = 0)
         {
-            WeaponSockets[socket]?.ActiveWeapon?.Reload(mode).GetAsyncEnumerator();
+            var sockets = WeaponSockets[instance];
+            if (sockets != null && socket >= 0 && socket < sockets.Length)
+                WeaponIn(sockets[socket])?.Reload(mode);
+        }
+
+        public void Reload(int socket = 0, int mode = 0) => Reload(Selected, socket, mode);
+
+        protected override void OnDrawGizmos(BehaviorGizmoContext context)
+        {
+            var sockets = context.Get(WeaponSockets);
+            if (sockets == null)
+                return;
+
+            Gizmos.color = new Color(1f, 0.6f, 0.1f);
+            foreach (var socket in sockets)
+            {
+                if (socket?.Transform == null) continue;
+                var position = socket.Transform.position + socket.Transform.rotation * socket.PositionOffset;
+                Gizmos.DrawWireSphere(position, 0.05f);
+                Gizmos.DrawRay(position, socket.Transform.rotation * Quaternion.Euler(socket.AngularOffset) * Vector3.forward * 0.2f);
+            }
         }
     }
 
@@ -174,7 +214,7 @@ namespace Remedy.Weapons
         [Tooltip("The Unique Functionality that the Weapon should perform")]
         public WeaponEventType Event;
 
-        [Tooltip("The ScriptableEvent that was triggered to invoke this Weapon Evnet")]
+        [Tooltip("The Signal, sent to this object, that triggers this Weapon Event")]
         public SignalData InputEvent;
     }
 
@@ -193,10 +233,12 @@ namespace Remedy.Weapons
         [Tooltip("Optional ID for the Slot (for special cases of weapon Transformation).")]
         public int SpecialID = -1;
         [Tooltip("The Weapon in this Socket.")]
-        public Weapon ActiveWeapon;
+        [NonSerialized] public BehaviorInstance ActiveWeapon;
         public Vector3 PositionOffset;
         [Tooltip("The Offset at for the held Weapon rotationally from the bone socket's rotation.")]
         public Vector3 AngularOffset;
+
+        public WeaponSocket() { }
 
         public WeaponSocket(Transform transform)
         {
@@ -204,6 +246,7 @@ namespace Remedy.Weapons
         }
     }
 
+    [Serializable]
     public class AimBone
     {
         public Transform Limb;

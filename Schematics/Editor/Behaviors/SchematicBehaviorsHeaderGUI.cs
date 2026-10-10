@@ -274,6 +274,18 @@ public static class SchematicBehaviorsHeaderGUI
         if (metadata == null)
             return;
 
+        // [RequireBehavior] dependencies first, skipping the ones already attached here.
+        foreach (var requiredBehavior in SchematicBehavior.GetRequiredBehaviors(behaviorType))
+        {
+            bool attached = false;
+            if (root.Behaviors.TryGetValue(gameObject, out var current) && current != null)
+                foreach (var attachment in current.Items)
+                    if (attachment?.Metadata != null && attachment.Metadata.BehaviorType.Type == requiredBehavior)
+                        attached = true;
+            if (!attached)
+                AddBehavior(root, gameObject, requiredBehavior);
+        }
+
         foreach (var required in SchematicBehavior.GetRequiredComponents(behaviorType))
             if (!gameObject.GetComponent(required))
                 Undo.AddComponent(gameObject, required);

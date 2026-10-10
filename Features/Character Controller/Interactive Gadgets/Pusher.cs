@@ -3,66 +3,69 @@ using UnityEngine;
 
 namespace Remedy.CharacterControllers.Gadgets
 {
+    /// <summary>
+    /// Launches Rigidbodies that touch it along its up axis, after a short delay, squashing while it does.
+    /// </summary>
+    [SchematicBehaviorPath("Level Design/Pusher")]
     [RequireComponent(typeof(SphereCollider))]
-    public class Pusher : MonoBehaviour
+    public class Pusher : SchematicBehavior
     {
-        [Header("Output Events")]
         [Tooltip("Invoked when a Rigidbody Collides with this.")]
-        public SignalData OnHit;
+        [OutputSignal, Parameter("Hit", typeof(GameObject))]
+        public readonly SignalHandle<GameObject> OnHit;
 
-        [Header("Properties")]
-        public float Force;
-        public Vector3 ScaleOnHit = Vector3.one;
-        public int Delay = 30;
+        public readonly VariableHandle<float> Force = 0f;
+        public readonly VariableHandle<Vector3> ScaleOnHit = Vector3.one;
+        [Tooltip("Milliseconds before the push is applied.")]
+        public readonly VariableHandle<int> Delay = 30;
 
-        private Vector3 _defaultScale;
-        private float _waitTime = 0;
+        private readonly VariableHandle<Vector3> _defaultScale = Vector3.one;
 
-        private void Reset()
+        protected override void OnSetup(BehaviorSetupContext context)
         {
-            GetComponent<SphereCollider>().isTrigger = true;
+            var collider = context.GameObject.GetComponent<SphereCollider>();
+            if (collider != null)
+                collider.isTrigger = true;
         }
 
-        private void OnEnable()
+        protected override void OnEnable(BehaviorInstance instance)
         {
-            _defaultScale = transform.localScale;
+            _defaultScale.Value = instance.Transform.localScale;
         }
 
-        private void Update()
+        protected override void OnTriggerEnter(BehaviorInstance instance, Collider other)
         {
-            _waitTime += Time.deltaTime;
+            var rb = other.attachedRigidbody;
+            if (rb == null)
+                return;
+
+            ApplyForce(instance, rb, instance.Transform.up * Force.Value, Delay.Value, _defaultScale.Value).Forget();
+            instance.Transform.localScale = Vector3.Scale(_defaultScale.Value, ScaleOnHit.Value);
+
+            OnHit.Invoke(instance, rb.gameObject);
         }
 
-        private void OnTriggerEnter(Collider other)
+        private static async UniTaskVoid ApplyForce(BehaviorInstance instance, Rigidbody rb, Vector3 velocity, int delay, Vector3 defaultScale)
         {
-            var rb = other.GetComponent<Rigidbody>();
+            int uid = instance.UID;
+            await UniTask.Delay(delay);
+
             if (rb != null)
-            {
-                ApplyForce(rb).Forget();
-                transform.localScale = Vector3.Scale(_defaultScale, ScaleOnHit);
-
-                OnHit?.FinalInvoke(default);
-            }
+                rb.linearVelocity = velocity;
+            if (instance.IsSpawnedAs(uid))
+                instance.Transform.localScale = defaultScale;
         }
 
-        private async UniTaskVoid ApplyForce(Rigidbody rb)
-        {
-            await UniTask.Delay(Delay);
-            rb.linearVelocity = transform.up * Force;
-            transform.localScale = _defaultScale;
-        }
-
-        private void OnDrawGizmos()
+        protected override void OnDrawGizmos(BehaviorGizmoContext context)
         {
 #if UNITY_EDITOR
-            if (UnityEditor.Selection.activeGameObject == null ||
-                UnityEditor.Selection.activeGameObject.GetComponent<Pusher>() == null) return;
+            if (UnityEditor.Selection.activeGameObject != context.GameObject) return;
             Gizmos.color = Color.cyan;
 
-            Vector3 initialVelocity = transform.up * Force;
+            Vector3 initialVelocity = context.Transform.up * context.Get(Force);
 
             Vector3[] trajectoryPoints = CharacterTrajectoryCalculator.CalculateTrajectory(
-                transform.position,
+                context.Transform.position,
                 initialVelocity,
                 timeStep: Time.fixedDeltaTime,
                 maxTime: 3f,

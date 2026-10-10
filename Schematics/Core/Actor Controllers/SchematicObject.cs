@@ -335,6 +335,9 @@ namespace Remedy.Schematics
             if (existing != null)
                 return existing;
 
+            foreach (var requiredBehavior in SchematicBehavior.GetRequiredBehaviors(behaviorType))
+                AttachBehavior(requiredBehavior, target);
+
             foreach (var required in SchematicBehavior.GetRequiredComponents(behaviorType))
                 if (!target.GetComponent(required))
                     target.AddComponent(required);
@@ -375,6 +378,9 @@ namespace Remedy.Schematics
             var existing = GetBehavior(behaviorType, target);
             if (existing != null)
                 return existing;
+
+            foreach (var requiredBehavior in SchematicBehavior.GetRequiredBehaviors(behaviorType))
+                AddBehavior(requiredBehavior, target, enabled);
 
             foreach (var required in SchematicBehavior.GetRequiredComponents(behaviorType))
                 if (!target.GetComponent(required))
