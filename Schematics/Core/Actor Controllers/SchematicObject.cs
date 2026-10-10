@@ -97,6 +97,7 @@ namespace Remedy.Schematics
                 SchematicGraph.TriggerEvent<OnDestroy>(gameObject);
 
             ExecutionContext.Unregister(this);
+            ExecutionContext.Untrack(this);
             Pool?.Forget(this);
         }
 
@@ -226,7 +227,9 @@ namespace Remedy.Schematics
                         continue;
                     }
 
-                    _behaviorInstances.Add(new BehaviorInstance(this, target, runtime, attachment));
+                    var instance = new BehaviorInstance(this, target, runtime, attachment);
+                    _behaviorInstances.Add(instance);
+                    ExecutionContext.Track(instance);
 
                     // Unity only sends physics messages to the colliding object itself, so children need a relay.
                     if (runtime.HasPhysicsCallbacks && target != gameObject && !target.TryGetComponent(out SchematicPhysicsRelay _))

@@ -79,6 +79,12 @@ public sealed class BehaviorInstance
         return component;
     }
 
+    /// <summary>
+    /// Gets another Behavior on this instance's GameObject, with this object selected. Null if it isn't attached here.
+    /// </summary>
+    public TBehavior GetSchematicBehavior<TBehavior>() where TBehavior : SchematicBehavior
+        => GameObject.GetSchematicBehavior<TBehavior>();
+
     internal void ApplyOverrides(IVariableColumn[] columns)
     {
         if (_overrideColumns == null)

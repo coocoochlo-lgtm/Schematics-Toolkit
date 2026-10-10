@@ -1,4 +1,3 @@
-using Remedy.Schematics;
 using UnityEngine;
 
 /// <summary>
@@ -40,13 +39,8 @@ public class PhysicsBasedCharacterController : SchematicBehavior
     /// </summary>
     public static bool TryGetProperties(GameObject gameObject, out CharacterControllerProperties properties)
     {
-        properties = null;
-        var schematicObject = gameObject.GetComponentInParent<SchematicObject>();
-        var instance = schematicObject != null ? schematicObject.GetBehavior<PhysicsBasedCharacterController>(gameObject) : null;
-        if (instance == null || !instance.IsSpawned)
-            return false;
-
-        properties = ((PhysicsBasedCharacterController)instance.Behavior).Properties[instance];
+        var controller = gameObject.GetSchematicBehavior<PhysicsBasedCharacterController>();
+        properties = controller != null ? controller.Properties.Value : null;
         return properties != null;
     }
 

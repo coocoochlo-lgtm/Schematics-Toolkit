@@ -204,6 +204,14 @@ ExecutionContext.Pick(uid).Enable();            // every Behavior on it
 SchematicsManager.Destroy(spinner);             // OnDisable → OnDestroy, then back into the pool
 ```
 
+`GetSchematicBehavior<T>()` is the Behavior counterpart to `GetComponent`: it returns the Behavior with that object's instance selected, so its Variables act on that object, or null if the Behavior doesn't control it.
+
+```csharp
+var controller = player.GetSchematicBehavior<PhysicsBasedCharacterController>();
+if (controller != null)
+    Debug.Log(controller.Properties.Value.MoveSpeed);
+```
+
 Lifecycle order: `OnCreate` (first creation only) → `OnStart` → `OnEnable` → `OnUpdate`/`OnLateUpdate`/`OnFixedUpdate` → `OnDisable` → `OnDestroy`.
 Behaviors also receive `OnCollisionEnter`/`Exit` and `OnTriggerEnter`/`Exit` for the GameObject they're attached to. Variables reset on every spawn, so fetch components with `instance.GetComponent<T>()`, which caches them for the object's whole life.
 

@@ -326,7 +326,9 @@ public sealed class BehaviorRuntime
             return;
 
         var previous = ExecutionContext.CurrentInstance;
+        var previousSelection = Behavior.Selected;
         ExecutionContext.CurrentInstance = instance;
+        Behavior.Selected = instance;
         try
         {
             switch (message)
@@ -344,6 +346,7 @@ public sealed class BehaviorRuntime
         finally
         {
             ExecutionContext.CurrentInstance = previous;
+            Behavior.Selected = previousSelection;
         }
     }
 
@@ -351,10 +354,12 @@ public sealed class BehaviorRuntime
 
     private void Invoke(Callback callback, BehaviorInstance instance)
     {
-        // Saved and restored so a Behavior that enables or spawns another instance mid-callback
-        // gets its own context back afterwards.
+        // Saved and restored so a Behavior that enables, spawns or selects another instance mid-callback
+        // gets its own selection back afterwards.
         var previous = ExecutionContext.CurrentInstance;
+        var previousSelection = Behavior.Selected;
         ExecutionContext.CurrentInstance = instance;
+        Behavior.Selected = instance;
         try
         {
             switch (callback)
@@ -377,6 +382,7 @@ public sealed class BehaviorRuntime
         finally
         {
             ExecutionContext.CurrentInstance = previous;
+            Behavior.Selected = previousSelection;
         }
     }
 }

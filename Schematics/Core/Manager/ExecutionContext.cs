@@ -19,6 +19,8 @@ public static class ExecutionContext
     private static readonly Dictionary<Type, BehaviorRuntime> _runtimesByType = new();
     private static readonly List<BehaviorRuntime> _runtimes = new();
     private static readonly Dictionary<int, SchematicObject> _objects = new();
+    // Every GameObject that has Behaviors attached (roots and children), for GetSchematicBehavior.
+    private static readonly Dictionary<GameObject, List<BehaviorInstance>> _instancesByGameObject = new();
     private static int _nextUID = 1;
 
     /// <summary>
@@ -39,6 +41,7 @@ public static class ExecutionContext
         _runtimesByType.Clear();
         _runtimes.Clear();
         _objects.Clear();
+        _instancesByGameObject.Clear();
         _nextUID = 1;
         CurrentInstance = null;
     }
@@ -134,6 +137,50 @@ public static class ExecutionContext
     /// Picks a spawned Schematic Object by UID, to enable, disable or destroy it.
     /// </summary>
     public static SchematicHandle Pick(int uid) => new SchematicHandle(uid);
+
+    /// <summary>
+    /// Finds the spawned instance of a Behavior attached to a GameObject, or null if that Behavior doesn't control it.
+    /// </summary>
+    public static BehaviorInstance FindInstance(GameObject gameObject, Type behaviorType)
+    {
+        if (gameObject == null || !_instancesByGameObject.TryGetValue(gameObject, out var instances))
+            return null;
+
+        for (int i = 0; i < instances.Count; i++)
+        {
+            var instance = instances[i];
+            if (instance.IsSpawned && behaviorType.IsInstanceOfType(instance.Behavior))
+                return instance;
+        }
+        return null;
+    }
+
+    internal static void Track(BehaviorInstance instance)
+    {
+        if (!_instancesByGameObject.TryGetValue(instance.GameObject, out var instances))
+        {
+            instances = new List<BehaviorInstance>(2);
+            _instancesByGameObject.Add(instance.GameObject, instances);
+        }
+        instances.Add(instance);
+    }
+
+    /// <summary>
+    /// Forgets a destroyed Schematic Object's GameObjects.
+    /// </summary>
+    internal static void Untrack(SchematicObject schematicObject)
+    {
+        var instances = schematicObject.BehaviorInstances;
+        for (int i = 0; i < instances.Count; i++)
+        {
+            var gameObject = instances[i].GameObject;
+            if (!_instancesByGameObject.TryGetValue(gameObject, out var tracked))
+                continue;
+            tracked.Remove(instances[i]);
+            if (tracked.Count == 0)
+                _instancesByGameObject.Remove(gameObject);
+        }
+    }
 
     public static bool Contains(int uid) => _objects.ContainsKey(uid);
 

@@ -8,8 +8,9 @@ internal interface IVariableHandle
 /// <summary>
 /// A per-instance Variable of a <see cref="SchematicBehavior"/>. Declare it as a field with a default value:
 /// <code>private readonly VariableHandle&lt;float&gt; _speed = 5f;</code>
-/// Inside a lifecycle method, <see cref="Value"/> reads and writes the instance currently being processed.
-/// Anywhere else, index it with the instance you want: <c>_speed[instance]</c>.
+/// <see cref="Value"/> reads and writes the owning Behavior's <see cref="SchematicBehavior.Selected"/> instance: the one
+/// being processed inside a lifecycle method, or the one picked with <c>GetSchematicBehavior</c>.
+/// Index it to target a specific instance instead: <c>_speed[instance]</c>.
 /// </summary>
 /// <remarks>
 /// Declare handles as fields. A handle exposed through a property can still be read, but C# won't let you
@@ -19,9 +20,12 @@ public readonly struct VariableHandle<T> : IVariableHandle
 {
     // Index + 1, so a field left without an initializer (default) reads as "undefined" instead of aliasing Variable 0.
     private readonly int _id;
+    // The Behavior that declared this handle.
+    private readonly int _ownerId;
 
-    internal VariableHandle(int index)
+    internal VariableHandle(int ownerId, int index)
     {
+        _ownerId = ownerId;
         _id = index + 1;
     }
 
@@ -29,7 +33,7 @@ public readonly struct VariableHandle<T> : IVariableHandle
     public bool IsDefined => _id != 0;
 
     /// <summary>
-    /// The value for the instance currently running a lifecycle method.
+    /// The value for the owning Behavior's selected instance.
     /// </summary>
     public T Value
     {
@@ -44,11 +48,14 @@ public readonly struct VariableHandle<T> : IVariableHandle
     {
         get
         {
-            var instance = ExecutionContext.CurrentInstance;
+            if (_id == 0)
+                throw new InvalidOperationException("This VariableHandle was never defined. Give the field a default value, e.g. `= 0f;`.");
+
+            var instance = SchematicBehavior.FromId(_ownerId)?.Selected;
             if (instance == null)
                 throw new InvalidOperationException(
-                    "VariableHandle.Value can only be used inside a Schematic Behavior lifecycle method. " +
-                    "Elsewhere, use handle[instance].");
+                    "No instance is selected. VariableHandle.Value works inside lifecycle methods, or after picking an " +
+                    "object with GetSchematicBehavior. Otherwise use handle[instance].");
             return ref For(instance);
         }
     }
