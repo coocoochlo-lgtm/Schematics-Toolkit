@@ -40,13 +40,19 @@ public class SchematicGenerationPrefabPostProcessor : AssetPostprocessor
     }
 }
 
+[InitializeOnLoad]
 public static class PrefabDragTracker
 {
     private static double _lastDragTime;
 
     static PrefabDragTracker()
     {
-        DragAndDrop.AddDropHandler(OnProjectBrowserDrop);
+#if UNITY_6000_2_OR_NEWER
+        // Unity 6.2 replaced the int-id drop handler with one that passes an EntityId; only the path is used here.
+        DragAndDrop.AddDropHandlerV2((dragged, path, perform) => OnProjectBrowserDrop(perform));
+#else
+        DragAndDrop.AddDropHandler((int dragged, string path, bool perform) => OnProjectBrowserDrop(perform));
+#endif
     }
 
     public static bool WasRecentDrag()
@@ -54,10 +60,7 @@ public static class PrefabDragTracker
         return EditorApplication.timeSinceStartup - _lastDragTime < 1.0;
     }
 
-    private static DragAndDropVisualMode OnProjectBrowserDrop(
-        int instanceId,
-        string path,
-        bool perform)
+    private static DragAndDropVisualMode OnProjectBrowserDrop(bool perform)
     {
         if (perform)
             _lastDragTime = EditorApplication.timeSinceStartup;

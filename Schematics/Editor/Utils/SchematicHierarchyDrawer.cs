@@ -9,12 +9,18 @@ public static class SchematicHierarchyDrawer
 {
     static SchematicHierarchyDrawer()
     {
-        EditorApplication.hierarchyWindowItemOnGUI += OnHierarchyGUI;
+#if UNITY_6000_2_OR_NEWER
+        // Unity 6.2 replaced the int-id hierarchy callback with one that passes an EntityId.
+        EditorApplication.hierarchyWindowItemByEntityIdOnGUI += (entityId, selectionRect) =>
+            OnHierarchyGUI(EditorUtility.EntityIdToObject(entityId) as GameObject, selectionRect);
+#else
+        EditorApplication.hierarchyWindowItemOnGUI += (instanceID, selectionRect) =>
+            OnHierarchyGUI(EditorObjectIds.ToObject(instanceID) as GameObject, selectionRect);
+#endif
     }
 
-    static void OnHierarchyGUI(int instanceID, Rect selectionRect)
+    static void OnHierarchyGUI(GameObject go, Rect selectionRect)
     {
-        GameObject go = EditorObjectIds.ToObject(instanceID) as GameObject;
         if (go == null) return;
 
         var controller = go.GetComponent<SchematicObject>();
