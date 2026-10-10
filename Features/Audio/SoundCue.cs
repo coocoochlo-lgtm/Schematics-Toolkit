@@ -1,205 +1,166 @@
-using System.Collections.Generic;
 using System;
+using System.Collections.Generic;
 using UnityEngine;
-/*using SaintsField.Playa;
-using SaintsField;*/
-
-#if UNITY_EDITOR
-using UnityEditor;
-#endif
 
 namespace Remedy.Audio
 {
-    public class SoundCue : MonoBehaviour
+    /// <summary>
+    /// Plays an Audio Definition list from the Audio Data, on start, on collision/trigger, or when its Signal is sent.
+    /// <see cref="Play()"/> and <see cref="Stop()"/> act on the selected instance.
+    /// </summary>
+    [SchematicBehaviorPath("Audio/Sound Cue")]
+    public class SoundCue : SchematicBehavior
     {
-/*        [Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Events", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Input")]*/
-        [Tooltip("The Event that triggers this Sound Cue.")]
-        public SignalData Event;
-        public SignalData StopEvent;
+        [Tooltip("Plays this Sound Cue, whatever the Signal carries.")]
+        [InputSignal] public readonly SignalHandle Event;
+        [InputSignal] public readonly SignalHandle StopEvent;
 
-/*        [Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Component", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Audio Selection")]*/
         [Tooltip("The AudioDefinition List to play, received from the AudioData Scriptable Object")]
-        //[Dropdown("GetAudio")]
-        public string AudioName;
+        public readonly VariableHandle<string> AudioName = "";
         [Tooltip("Determines how the Audio Manager handles the playback of this Sound Cue. If set to Music, it will loop globally in the Music Mixer, otherwise it will be positioned and played in the SFX Mixer")]
-        public AudioType Type = AudioType.SoundEffect;
-/*
-        public DropdownList<string> GetAudio()
-        {
-            var list = new DropdownList<string>();
-
-            foreach (var def in AudioData.AudioDefinitions.Keys)
-            {
-                list.Add(def, def);
-            }
-
-            return list;
-        }
-*/
-        public bool IsMusic => Type == AudioType.Music;
-        [Tooltip("The Content of the Audio Definitions that have been selected by name in the above Dropdown")]
-        public List<AudioDefinition> AudioContent;
+        public readonly VariableHandle<AudioType> Type = AudioType.SoundEffect;
         [Tooltip("The way in which Audio Definitions are picked for Playback.")]
-        public SelectionMode SelectionMode = SelectionMode.Random;
-        //[ShowIf("IsSequence")]
-        public float SequenceDelay = 0f;
-/*
-        [Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Component", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Playback")]*/
+        public readonly VariableHandle<SelectionMode> SelectionMode = Audio.SelectionMode.Random;
+        public readonly VariableHandle<float> SequenceDelay = 0f;
         [Tooltip("When an AudioDefinition is played")]
-        //[HideIf("IsMusic")]
-        public PlaybackMode PlaybackMode = PlaybackMode.OnStart;
+        public readonly VariableHandle<PlaybackMode> PlaybackMode = Audio.PlaybackMode.OnStart;
         [Tooltip("The target to play the sound at when the Collision is Entered/Exitted.")]
-        //[ShowIf("IsCollisionMode")]
-        public CollisionTargetMode CollisionPlaybackTarget = CollisionTargetMode.HitPoint;
-        public bool IsCollisionMode => (PlaybackMode == PlaybackMode.OnCollisionEnter || PlaybackMode == PlaybackMode.OnCollisionExit) && !IsMusic;
-
+        public readonly VariableHandle<CollisionTargetMode> CollisionPlaybackTarget = CollisionTargetMode.HitPoint;
         [Tooltip("The target to play the sound at when the Trigger is Entered/Exitted.")]
-        //[ShowIf("IsTriggerMode")]
-        public TriggerTargetMode TriggerPlaybackTarget = TriggerTargetMode.Other;
-        public bool IsTriggerMode => (PlaybackMode == PlaybackMode.OnTriggerEnter || PlaybackMode == PlaybackMode.OnTriggerExit) && !IsMusic;
-
-        public bool IsScriptableEventMode => (PlaybackMode == PlaybackMode.ScriptableEvent);
-
+        public readonly VariableHandle<TriggerTargetMode> TriggerPlaybackTarget = TriggerTargetMode.Other;
 
         [Tooltip("Multiplied into the Volume of the AudioClip that gets played by this Sound Cue")]
-        [Range(0.1f, 1.0f)]
-        public float VolumeMultiplier = 1.0f;
+        public readonly VariableHandle<float> VolumeMultiplier = 1.0f;
         [Tooltip("Whether to Set the Spacial Blend of the Audio played by the Sound Cue")]
-        public bool SetSpacialBlend = false;
+        public readonly VariableHandle<bool> SetSpacialBlend = false;
         [Tooltip("Sets the Spacial Blender of the AudioClip that gets played by this Sound Cue")]
-        [Range(0.1f, 1.0f)]
-        //[ShowIf("SetSpacialBlend")]
-        public float SpacialBlend = 1.0f;
-/*
-        [Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Component", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Timing")]*/
+        public readonly VariableHandle<float> SpacialBlend = 1.0f;
+
         [Tooltip("If above 0, will Delay the playback by that amount in seconds.")]
-        public float Delay = 0f;
+        public readonly VariableHandle<float> Delay = 0f;
         [Tooltip("When the Audio is told to Play, it will fade in instead of stopping immidiately")]
-        public bool FadeIn = false;
-        //[ShowIf("FadeIn")]
-        public float FadeInTime = 0.1f;
+        public readonly VariableHandle<bool> FadeIn = false;
+        public readonly VariableHandle<float> FadeInTime = 0.1f;
         [Tooltip("When the Audio is told to stop, it will fade out instead of stopping immidiately.")]
-        public bool FadeOut = false;
-        //[ShowIf("FadeOut")]
-        public float FadeOuttime = 0.1f;
+        public readonly VariableHandle<bool> FadeOut = false;
+        public readonly VariableHandle<float> FadeOuttime = 0.1f;
 
-        public bool IsSequence => SelectionMode == SelectionMode.Sequential;
+        public bool IsMusic => Type.Value == AudioType.Music;
 
-        /// <summary>
-        /// The AudioSource that was returned from the AudioManager 
-        /// </summary>
-        private AudioSource _source;
+        /// <summary>The Audio Definitions named by AudioName, looked up when the object is created.</summary>
+        private readonly VariableHandle<List<AudioDefinition>> _audioContent = (List<AudioDefinition>)null;
 
-        private void OnValidate()
+        protected override void OnStart(BehaviorInstance instance)
         {
-#if UNITY_EDITOR
-            EditorApplication.delayCall += () =>
+            AudioData.AudioDefinitions.TryGetValue(AudioName.Value ?? "", out var content);
+            _audioContent.Value = content;
+
+            if (PlaybackMode.Value == Audio.PlaybackMode.OnStart || IsMusic)
+                Play(instance);
+
+            Event.Subscribe(() => Play(instance));
+            StopEvent.Subscribe(() => Stop(instance));
+        }
+
+        /// <summary>Plays the selected Sound Cue.</summary>
+        public void Play() => Play(Selected);
+
+        /// <summary>Stops the selected Sound Cue.</summary>
+        public void Stop() => Stop(Selected);
+
+        public void Stop(BehaviorInstance instance)
+        {
+            AudioManager.Stop(instance.GameObject, AudioName[instance]);
+        }
+
+        public virtual void Play(BehaviorInstance instance, GameObject otherObject = null, Vector3 position = default)
+        {
+            var content = _audioContent[instance];
+            if (content == null || content.Count == 0)
+                return;
+
+            var target = otherObject == null ? instance.GameObject : otherObject;
+            var type = Type[instance];
+
+            switch (SelectionMode[instance])
             {
-                AudioContent = AudioData.AudioDefinitions[AudioName];
-            };
-#endif
+                case Audio.SelectionMode.Simulaneous:
+                    foreach (var definition in content)
+                        AudioManager.Play(definition, type, target, position);
+                    break;
+
+                case Audio.SelectionMode.Sequential:
+                case Audio.SelectionMode.LoopSequentially:
+                    PlaySequence(instance, content, type, target, position, 0, SelectionMode[instance] == Audio.SelectionMode.LoopSequentially);
+                    break;
+
+                default:
+                    AudioManager.Play(content[UnityEngine.Random.Range(0, content.Count)], type, target, position);
+                    break;
+            }
         }
 
-        // On Start Playback
-        public virtual void Start()
+        // Plays each definition when the previous one completes, while the instance is still the same spawn.
+        private void PlaySequence(BehaviorInstance instance, List<AudioDefinition> content, AudioType type, GameObject target, Vector3 position, int index, bool loop)
         {
-            if (PlaybackMode == PlaybackMode.OnStart || IsMusic)
-                Play();
-
-            Event?.Subscribe(this, (Union value) => Play());
-            StopEvent?.Subscribe(this, (Union value) => Stop());
-        }
-
-        public void Play()
-        {
-            Play(null);
-        }
-
-        public void Stop()
-        {
-            AudioManager.Stop(gameObject, AudioName);
-        }
-
-        protected void Play(GameObject otherObject = null, Vector3 position = default, int index = -1, Action onComplete = null)
-        {
-            // Handle Selection
-            if (SelectionMode == SelectionMode.Simulaneous && index == -1)
+            if (index >= content.Count)
             {
+                if (!loop) return;
                 index = 0;
-                for (int i = 1; i < AudioContent.Count; i++)
-                {
-                    Play(otherObject, position, index);
-                }
-            }
-            else if (SelectionMode == SelectionMode.Sequential && index < AudioContent.Count)
-            {
-                onComplete = () => Play(otherObject, position, index, onComplete);
-                index++;
-                Play(otherObject, position, index, onComplete);
             }
 
-            //Get definition index and Play through the AudioManager
-            if (index == -1) index = UnityEngine.Random.Range(0, AudioContent.Count - 1);
-            AudioManager.Play(AudioContent[index], Type, otherObject == null ? gameObject : otherObject, position, onComplete);
+            int uid = instance.UID;
+            AudioManager.Play(content[index], type, target, position, () =>
+            {
+                if (instance.IsSpawnedAs(uid))
+                    PlaySequence(instance, content, type, target, position, index + 1, loop);
+            });
         }
 
         // Collision Playback
-        private void OnCollisionEnter(Collision collision)
+        protected override void OnCollisionEnter(BehaviorInstance instance, Collision collision)
         {
-            if (PlaybackMode == PlaybackMode.OnCollisionEnter)
-                PlayCollision(collision);
+            if (PlaybackMode.Value == Audio.PlaybackMode.OnCollisionEnter && !IsMusic)
+                PlayCollision(instance, collision);
         }
-        private void OnCollisionExit(Collision collision)
+        protected override void OnCollisionExit(BehaviorInstance instance, Collision collision)
         {
-            if (PlaybackMode == PlaybackMode.OnCollisionExit)
-                PlayCollision(collision);
+            if (PlaybackMode.Value == Audio.PlaybackMode.OnCollisionExit && !IsMusic)
+                PlayCollision(instance, collision);
         }
-        void PlayCollision(Collision collision)
+        private void PlayCollision(BehaviorInstance instance, Collision collision)
         {
-            switch (CollisionPlaybackTarget)
+            switch (CollisionPlaybackTarget.Value)
             {
                 case CollisionTargetMode.HitPoint:
-                    Play(position: collision.GetContact(0).point);
+                    Play(instance, position: collision.contactCount > 0 ? collision.GetContact(0).point : instance.Transform.position);
                     break;
                 case CollisionTargetMode.Other:
-                    Play(otherObject: collision.gameObject);
+                    Play(instance, otherObject: collision.gameObject);
                     break;
                 default:
-                    Play();
+                    Play(instance);
                     break;
             }
         }
 
         // Trigger Playback
-        private void OnTriggerEnter(Collider other)
+        protected override void OnTriggerEnter(BehaviorInstance instance, Collider other)
         {
-            if (PlaybackMode == PlaybackMode.OnTriggerEnter)
-                PlayTrigger(other);
+            if (PlaybackMode.Value == Audio.PlaybackMode.OnTriggerEnter && !IsMusic)
+                PlayTrigger(instance, other);
         }
-        private void OnTriggerExit(Collider other)
+        protected override void OnTriggerExit(BehaviorInstance instance, Collider other)
         {
-            if (PlaybackMode == PlaybackMode.OnTriggerExit)
-                PlayTrigger(other);
+            if (PlaybackMode.Value == Audio.PlaybackMode.OnTriggerExit && !IsMusic)
+                PlayTrigger(instance, other);
         }
-        void PlayTrigger(Collider other)
+        private void PlayTrigger(BehaviorInstance instance, Collider other)
         {
-            switch (TriggerPlaybackTarget)
-            {
-                case TriggerTargetMode.Other:
-                    Play(otherObject: other.gameObject);
-                    break;
-                default:
-                    Play();
-                    break;
-            }
+            if (TriggerPlaybackTarget.Value == TriggerTargetMode.Other)
+                Play(instance, otherObject: other.gameObject);
+            else
+                Play(instance);
         }
     }
 

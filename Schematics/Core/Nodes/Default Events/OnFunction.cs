@@ -2,6 +2,7 @@
 
 #pragma warning disable 0414
 
+using Remedy.Framework;
 using BlueGraph;
 using System;
 using System.Collections.Generic;

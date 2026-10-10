@@ -44,6 +44,8 @@ public sealed class BehaviorRuntime
 
     /// <summary>True if the Behavior overrides any collision or trigger callback.</summary>
     public bool HasPhysicsCallbacks { get; }
+    /// <summary>True if the Behavior overrides OnCollisionStay or OnTriggerStay.</summary>
+    public bool HasStayCallbacks { get; }
 
     internal BehaviorRuntime(SchematicBehavior behavior, BehaviorMetadata metadata)
     {
@@ -89,6 +91,10 @@ public sealed class BehaviorRuntime
                            || behavior.Overrides(nameof(SchematicBehavior.OnCollisionExit))
                            || behavior.Overrides(nameof(SchematicBehavior.OnTriggerEnter))
                            || behavior.Overrides(nameof(SchematicBehavior.OnTriggerExit));
+        // Stay messages fire every physics step, so they're only forwarded to Behaviors that ask for them.
+        HasStayCallbacks = behavior.Overrides(nameof(SchematicBehavior.OnCollisionStay))
+                        || behavior.Overrides(nameof(SchematicBehavior.OnTriggerStay));
+        HasPhysicsCallbacks |= HasStayCallbacks;
     }
 
     public int IndexOfVariable(string name)
@@ -367,7 +373,7 @@ public sealed class BehaviorRuntime
 
     internal enum PhysicsMessage : byte
     {
-        CollisionEnter, CollisionExit, TriggerEnter, TriggerExit
+        CollisionEnter, CollisionExit, TriggerEnter, TriggerExit, CollisionStay, TriggerStay
     }
 
     /// <summary>
@@ -391,6 +397,8 @@ public sealed class BehaviorRuntime
                 case PhysicsMessage.CollisionExit: Behavior.OnCollisionExit(instance, collision); break;
                 case PhysicsMessage.TriggerEnter: Behavior.OnTriggerEnter(instance, other); break;
                 case PhysicsMessage.TriggerExit: Behavior.OnTriggerExit(instance, other); break;
+                case PhysicsMessage.CollisionStay: Behavior.OnCollisionStay(instance, collision); break;
+                case PhysicsMessage.TriggerStay: Behavior.OnTriggerStay(instance, other); break;
             }
         }
         catch (Exception exception)

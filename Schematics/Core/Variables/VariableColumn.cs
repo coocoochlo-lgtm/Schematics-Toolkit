@@ -24,6 +24,9 @@ internal sealed class VariableColumn<T> : IVariableColumn
 
     public Type ValueType => typeof(T);
 
+    // Arrays, lists and serializable classes are copied per spawn, so instances never share (or edit) one default.
+    private static readonly bool _copyDefault = SchematicValue.IsBoxable(typeof(T));
+
     public VariableColumn(T defaultValue, int capacity, BehaviorCursor cursor)
     {
         Default = defaultValue;
@@ -33,7 +36,7 @@ internal sealed class VariableColumn<T> : IVariableColumn
 
     public void Resize(int capacity) => Array.Resize(ref Values, capacity);
     public void Move(int from, int to) => Values[to] = Values[from];
-    public void Reset(int row) => Values[row] = Default;
+    public void Reset(int row) => Values[row] = _copyDefault ? SchematicCloner.Copy(Default) : Default;
     // Drops references so despawned rows don't keep objects alive.
     public void Clear(int row) => Values[row] = default;
     public void Apply(int row, SchematicValue value) => Values[row] = value.Get<T>();

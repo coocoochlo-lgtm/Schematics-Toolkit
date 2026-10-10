@@ -116,14 +116,14 @@ public static class SchematicBehaviorsHeaderGUI
             if (expanded && attachment != null && metadata != null)
             {
                 EditorGUI.indentLevel++;
-                DrawVariables(root, attachment, metadata);
+                DrawVariables(root, gameObject, index, attachment, metadata);
                 DrawSignals(metadata);
                 EditorGUI.indentLevel--;
             }
         }
     }
 
-    private static void DrawVariables(SchematicObject root, BehaviorAttachment attachment, BehaviorMetadata metadata)
+    private static void DrawVariables(SchematicObject root, GameObject gameObject, int attachmentIndex, BehaviorAttachment attachment, BehaviorMetadata metadata)
     {
         if (metadata.Variables.Count == 0)
         {
@@ -139,6 +139,12 @@ public static class SchematicBehaviorsHeaderGUI
             var label = new GUIContent(ObjectNames.NicifyVariableName(definition.Name),
                 entry != null ? "Overridden on this object." : "Using the Behavior's default.");
 
+            if (SchematicValue.IsBoxable(type))
+            {
+                DrawBoxedVariable(root, gameObject, attachmentIndex, attachment, definition, entry, label);
+                continue;
+            }
+
             using (new EditorGUILayout.HorizontalScope())
             {
                 if (SchematicValueField.Draw(label, type, current, out var newValue))
@@ -149,7 +155,7 @@ public static class SchematicBehaviorsHeaderGUI
                         entry = new VariableOverride { Name = definition.Name };
                         attachment.Overrides.Add(entry);
                     }
-                    entry.Value.Set(newValue);
+                    entry.Value.Set(newValue, type);
                     Commit(root);
                 }
 
@@ -163,6 +169,69 @@ public static class SchematicBehaviorsHeaderGUI
                     }
                 }
             }
+        }
+    }
+
+    // Arrays, lists and serializable classes are drawn with Unity's own property drawers, straight from the
+    // Schematic Object's serialized data, so object references and nested lists behave like any other field.
+    private static void DrawBoxedVariable(SchematicObject root, GameObject gameObject, int attachmentIndex, BehaviorAttachment attachment,
+                                          VariableDefinition definition, VariableOverride entry, GUIContent label)
+    {
+        var type = definition.Type.Type;
+
+        if (entry == null)
+        {
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                EditorGUILayout.LabelField(label, new GUIContent($"Default {ObjectNames.NicifyVariableName(type.Name)}"));
+                if (GUILayout.Button(new GUIContent("Override", "Give this object its own value."), EditorStyles.miniButton, GUILayout.Width(60)))
+                {
+                    Undo.RecordObject(root, "Override Schematic Variable");
+                    attachment.SetOverride(definition.Name, definition.Default?.Get(type), type);
+                    Commit(root);
+                    GUIUtility.ExitGUI();
+                }
+            }
+            return;
+        }
+
+        int entryIndex = 0;
+        foreach (var key in root.Behaviors.Keys)
+        {
+            if (key == gameObject) break;
+            entryIndex++;
+        }
+        int overrideIndex = attachment.Overrides.IndexOf(entry);
+
+        var serializedObject = new SerializedObject(root);
+        var property = serializedObject.FindProperty(
+            $"{nameof(SchematicObject.Behaviors)}.items.Array.data[{entryIndex}].value.{nameof(BehaviorAttachmentList.Items)}.Array.data[{attachmentIndex}]" +
+            $".{nameof(BehaviorAttachment.Overrides)}.Array.data[{overrideIndex}].{nameof(VariableOverride.Value)}.{SchematicValue.BoxedValuePath}");
+
+        using (new EditorGUILayout.HorizontalScope())
+        {
+            using (new EditorGUILayout.VerticalScope())
+            {
+                if (property != null)
+                    EditorGUILayout.PropertyField(property, label, true);
+                else
+                    EditorGUILayout.LabelField(label, new GUIContent("(not serializable by Unity)"));
+            }
+
+            if (GUILayout.Button(new GUIContent("↺", "Revert to the Behavior's default"), _revertStyle, GUILayout.Width(20)))
+            {
+                Undo.RecordObject(root, "Revert Schematic Variable Default");
+                attachment.Overrides.Remove(entry);
+                Commit(root);
+                GUIUtility.ExitGUI();
+            }
+        }
+
+        // Applying rebuilds the Schematic Object's Behavior data, so stop drawing this pass.
+        if (serializedObject.ApplyModifiedProperties())
+        {
+            Commit(root);
+            GUIUtility.ExitGUI();
         }
     }
 
@@ -205,13 +274,32 @@ public static class SchematicBehaviorsHeaderGUI
         if (metadata == null)
             return;
 
+        foreach (var required in SchematicBehavior.GetRequiredComponents(behaviorType))
+            if (!gameObject.GetComponent(required))
+                Undo.AddComponent(gameObject, required);
+
         Undo.RecordObject(root, "Add Schematic Behavior");
         if (!root.Behaviors.TryGetValue(gameObject, out var list) || list == null)
         {
             list = new BehaviorAttachmentList();
             root.Behaviors[gameObject] = list;
         }
-        list.Items.Add(new BehaviorAttachment { Metadata = metadata });
+        var attachment = new BehaviorAttachment { Metadata = metadata };
+        list.Items.Add(attachment);
+
+        // Setup may create child objects; register them so undoing the add removes them too.
+        var existing = new HashSet<Transform>(gameObject.GetComponentsInChildren<Transform>(true));
+        try
+        {
+            SchematicBehavior.RunSetup(behaviorType, gameObject, attachment);
+        }
+        catch (Exception exception)
+        {
+            Debug.LogException(exception, gameObject);
+        }
+        foreach (var child in gameObject.GetComponentsInChildren<Transform>(true))
+            if (!existing.Contains(child))
+                Undo.RegisterCreatedObjectUndo(child.gameObject, "Add Schematic Behavior");
         Commit(root);
     }
 

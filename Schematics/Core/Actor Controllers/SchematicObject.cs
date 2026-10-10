@@ -103,12 +103,87 @@ namespace Remedy.Schematics
             SchematicGraph.TriggerEvent<OnCollisionEnter>(gameObject, collider);
         }
 
+        protected virtual void OnCollisionStay(Collision collision)
+        {
+            ForwardStay(gameObject, BehaviorRuntime.PhysicsMessage.CollisionStay, collision, null);
+        }
+
+        protected virtual void OnTriggerStay(Collider collider)
+        {
+            ForwardStay(gameObject, BehaviorRuntime.PhysicsMessage.TriggerStay, null, collider);
+        }
+
         protected virtual void OnTriggerExit(Collider collider)
         {
             ForwardPhysics(gameObject, BehaviorRuntime.PhysicsMessage.TriggerExit, null, collider);
             if (SchematicGraph == null) return;
             SchematicGraph.TriggerEvent<OnCollisionExit>(gameObject, collider);
         }
+
+#if UNITY_EDITOR
+        // Behaviors draw their Gizmos for every object they're attached to, in Edit Mode as well as Play Mode.
+        private void OnDrawGizmos()
+        {
+            foreach (var entry in Behaviors)
+            {
+                var target = entry.Key;
+                if (target == null || entry.Value?.Items == null)
+                    continue;
+
+                foreach (var attachment in entry.Value.Items)
+                {
+                    var behaviorType = attachment?.Metadata != null ? attachment.Metadata.BehaviorType.Type : null;
+                    var behavior = behaviorType != null ? GizmoBehaviors.Get(behaviorType) : null;
+                    if (behavior == null)
+                        continue;
+
+                    BehaviorInstance instance = null;
+                    if (_behaviorInstances != null)
+                        foreach (var candidate in _behaviorInstances)
+                            if (candidate.Attachment == attachment) { instance = candidate; break; }
+
+                    // Spawned: draw with the live Behavior so the selection and Variables are the real ones.
+                    var drawing = instance != null ? instance.Behavior : behavior;
+                    var previous = drawing.Selected;
+                    if (instance != null && instance.IsSpawned) drawing.Cursor.Select(instance);
+                    try
+                    {
+                        drawing.OnDrawGizmos(new BehaviorGizmoContext(target, this, instance, attachment, drawing));
+                    }
+                    catch (Exception exception)
+                    {
+                        Debug.LogException(exception, target);
+                    }
+                    finally
+                    {
+                        drawing.Cursor.Select(previous);
+                    }
+                }
+            }
+        }
+
+        // One Behavior object per type for drawing Gizmos in Edit Mode, when there are no Runtimes.
+        // Null for types that don't draw Gizmos, so the check costs one lookup per repaint.
+        private static class GizmoBehaviors
+        {
+            private static readonly Dictionary<Type, SchematicBehavior> _cache = new();
+
+            public static SchematicBehavior Get(Type type)
+            {
+                if (_cache.TryGetValue(type, out var behavior))
+                    return behavior;
+                try
+                {
+                    behavior = SchematicBehavior.Create(type);
+                    if (!behavior.Overrides(nameof(SchematicBehavior.OnDrawGizmos)))
+                        behavior = null;
+                }
+                catch (Exception exception) { Debug.LogException(exception); }
+                _cache[type] = behavior;
+                return behavior;
+            }
+        }
+#endif
 
         public void OnValidate()
         {
@@ -209,17 +284,108 @@ namespace Remedy.Schematics
                         continue;
                     }
 
-                    var instance = new BehaviorInstance(this, target, runtime, attachment);
-                    _behaviorInstances.Add(instance);
-                    ExecutionContext.Track(instance);
-
-                    // Unity only sends physics messages to the colliding object itself, so children need a relay.
-                    if (runtime.HasPhysicsCallbacks && target != gameObject && !target.TryGetComponent(out SchematicPhysicsRelay _))
-                        target.AddComponent<SchematicPhysicsRelay>().Owner = this;
+                    AddInstance(target, runtime, attachment);
                 }
             }
 
             return _behaviorInstances;
+        }
+
+        private BehaviorInstance AddInstance(GameObject target, BehaviorRuntime runtime, BehaviorAttachment attachment)
+        {
+            var instance = new BehaviorInstance(this, target, runtime, attachment);
+            _behaviorInstances.Add(instance);
+            ExecutionContext.Track(instance);
+
+            // Unity only sends physics messages to the colliding object itself, so children need a relay.
+            if (runtime.HasPhysicsCallbacks && target != gameObject && !target.TryGetComponent(out SchematicPhysicsRelay _))
+                target.AddComponent<SchematicPhysicsRelay>().Owner = this;
+
+            return instance;
+        }
+
+        /// <summary>
+        /// Finds the saved attachment of a Behavior type, on the given GameObject or (with null) on any of them.
+        /// </summary>
+        public BehaviorAttachment FindAttachment(Type behaviorType, GameObject target = null)
+        {
+            foreach (var entry in Behaviors)
+            {
+                if (target != null && entry.Key != target)
+                    continue;
+                if (entry.Value?.Items == null)
+                    continue;
+                foreach (var attachment in entry.Value.Items)
+                    if (attachment?.Metadata != null && attachment.Metadata.BehaviorType.Type == behaviorType)
+                        return attachment;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Attaches a Behavior to the saved data, as adding it in the Inspector does (including its required components
+        /// and OnSetup). For editor scripts that build prefabs. At runtime, use <see cref="AddBehavior"/>.
+        /// </summary>
+        public BehaviorAttachment AttachBehavior(Type behaviorType, GameObject target = null)
+        {
+            if (target == null)
+                target = gameObject;
+
+            var existing = FindAttachment(behaviorType, target);
+            if (existing != null)
+                return existing;
+
+            foreach (var required in SchematicBehavior.GetRequiredComponents(behaviorType))
+                if (!target.GetComponent(required))
+                    target.AddComponent(required);
+
+            if (!Behaviors.TryGetValue(target, out var list) || list == null)
+            {
+                list = new BehaviorAttachmentList();
+                Behaviors[target] = list;
+            }
+
+            var attachment = new BehaviorAttachment { Metadata = BehaviorMetadata.Get(behaviorType) };
+            if (attachment.Metadata == null)
+                Debug.LogWarning($"{behaviorType.Name} has no Behavior Metadata yet. Use Tools/Remedy/Schematics/Refresh Behavior Metadata, then attach it again.", this);
+            list.Items.Add(attachment);
+
+            SchematicBehavior.RunSetup(behaviorType, target, attachment);
+            return attachment;
+        }
+
+        public BehaviorAttachment AttachBehavior<TBehavior>(GameObject target = null) where TBehavior : SchematicBehavior
+            => AttachBehavior(typeof(TBehavior), target);
+
+        /// <summary>
+        /// Attaches a Behavior at runtime, the Schematic counterpart to AddComponent. If this object is spawned, the
+        /// new instance spawns right away (OnCreate, OnStart, OnEnable). Returns the existing instance if the
+        /// Behavior is already attached to the target. Runtime attachments aren't saved to the prefab.
+        /// </summary>
+        /// <param name="target">The GameObject to attach to: this object or one of its children. Defaults to this object.</param>
+        public BehaviorInstance AddBehavior<TBehavior>(GameObject target = null, bool enabled = true) where TBehavior : SchematicBehavior
+            => AddBehavior(typeof(TBehavior), target, enabled);
+
+        public BehaviorInstance AddBehavior(Type behaviorType, GameObject target = null, bool enabled = true)
+        {
+            if (target == null)
+                target = gameObject;
+
+            GetOrCreateBehaviorInstances();
+            var existing = GetBehavior(behaviorType, target);
+            if (existing != null)
+                return existing;
+
+            foreach (var required in SchematicBehavior.GetRequiredComponents(behaviorType))
+                if (!target.GetComponent(required))
+                    target.AddComponent(required);
+
+            var runtime = ExecutionContext.GetRuntime(behaviorType);
+            var instance = AddInstance(target, runtime, new BehaviorAttachment { Metadata = runtime.Metadata, EnabledByDefault = enabled });
+
+            if (IsSpawned)
+                ExecutionContext.SpawnAttached(instance);
+            return instance;
         }
 
         /// <summary>
@@ -254,6 +420,20 @@ namespace Remedy.Schematics
                         isInvoking = false;
                     }
                 }));
+            }
+        }
+
+        // Stay messages arrive every physics step for every contact; only Behaviors that handle them are visited.
+        internal void ForwardStay(GameObject source, BehaviorRuntime.PhysicsMessage message, Collision collision, Collider other)
+        {
+            if (_behaviorInstances == null)
+                return;
+
+            for (int i = 0; i < _behaviorInstances.Count; i++)
+            {
+                var instance = _behaviorInstances[i];
+                if (instance.Runtime.HasStayCallbacks && instance.GameObject == source)
+                    instance.Runtime.DispatchPhysics(instance, message, collision, other);
             }
         }
 

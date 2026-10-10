@@ -95,6 +95,23 @@ public readonly struct VariableHandle<T> : IVariableHandle
         }
     }
 
+    /// <summary>
+    /// The value a Schematic Object (typically a prefab that isn't spawned) is configured to spawn with for this
+    /// Variable: its override, then the Metadata default, then the default in code.
+    /// </summary>
+    /// <param name="target">The GameObject the Behavior is attached to. Null for the first one found.</param>
+    public T DefaultFor(Remedy.Schematics.SchematicObject schematicObject, UnityEngine.GameObject target = null)
+    {
+        var column = _column;
+        if (column == null) ThrowUndefined();
+        var behavior = column.Cursor.Runtime?.Behavior;
+        if (behavior == null || schematicObject == null)
+            return default;
+
+        var attachment = schematicObject.FindAttachment(behavior.GetType(), target);
+        return BehaviorDefaults.Resolve(this, attachment, behavior);
+    }
+
     public static implicit operator VariableHandle<T>(T defaultValue)
         => SchematicBehavior.DefineVariable(defaultValue);
 

@@ -1,58 +1,48 @@
-using Remedy.Framework;
 using System;
 using UnityEngine;
-using UnityEngine.Events;
 
 namespace Remedy.LevelDesign
 {
     // TODO: Create a new Level Manager to handle spawning and Enemy Pools, but implement using ScriptableEvents
-    [ExecuteAlways]
-    public class SpawnPoint : MonoBehaviour
+    /// <summary>
+    /// A place the player can be spawned. <see cref="Spawn"/> acts on the selected instance, e.g.
+    /// <c>point.GetSchematicBehavior&lt;SpawnPoint&gt;().Spawn(player)</c>.
+    /// </summary>
+    [SchematicBehaviorPath("Level Design/Spawn Point")]
+    public class SpawnPoint : SchematicBehavior
     {
         [Tooltip("If True, this Spawn Point will be assigned to the Level it's inside of, instead of being us ed globally.")]
-        public bool AssignToLevel = false;
+        public readonly VariableHandle<bool> AssignToLevel = false;
         [Tooltip("If True, this Spawn Point can only be used when the orientation is close to normal.")]
-        public bool MustNotBeRotated = false;
+        public readonly VariableHandle<bool> MustNotBeRotated = false;
         [Tooltip("Offset from the Spawner that the Player is Spawned at. This value is shared with all other Spawn Points.")]
-        public Vector3 SpawnOffset = Vector3.up * 1.5f;
+        public readonly VariableHandle<Vector3> SpawnOffset = Vector3.up * 1.5f;
 
-        [Tooltip("Invoked when this Spawner is used.")]
-        public UnityEvent OnSpawn;
+        [Tooltip("Sent when this Spawner is used.")]
+        [OutputSignal]
+        public readonly SignalHandle OnSpawn;
 
-        public Action<GameObject> ExtraSpawnBehaviour;
-        /*
-            private void Update()
-            {
-                if (Application.isPlaying)
-                {
-                    if (CanSpawn())
-                        SystemManager.SpawnPoints.Add(this);
-                    else
-                        SystemManager.SpawnPoints.Remove(this);
-                }
-            }*/
+        /// <summary>Extra code to run on whatever is spawned here.</summary>
+        public readonly VariableHandle<Action<GameObject>> ExtraSpawnBehaviour = (Action<GameObject>)null;
 
         /// <summary>
-        /// Customizable function used to determine whether this Spawn Point is valid or not. If it is, it will be added to the System Manager's List of Spawn Points. 
+        /// Customizable function used to determine whether this Spawn Point is valid or not.
         /// </summary>
-        protected virtual bool CanSpawn()
+        protected virtual bool CanSpawn(BehaviorInstance instance)
         {
             // Add other Spawn Point Conditions
-            if (MustNotBeRotated || Vector3.Dot(transform.up, Vector3.up) > 0.99f)
-            {
-                return true;
-            }
-            else
-            {
-                return false;
-            }
+            return !MustNotBeRotated.Value || Vector3.Dot(instance.Transform.up, Vector3.up) > 0.99f;
         }
 
+        /// <summary>
+        /// Moves the given object to the selected Spawn Point.
+        /// </summary>
         public void Spawn(GameObject gameObject)
         {
-            gameObject.transform.position = transform.position + SpawnOffset;
-            OnSpawn?.Invoke();
-            ExtraSpawnBehaviour?.Invoke(gameObject);
+            var instance = Selected;
+            gameObject.transform.position = instance.Transform.position + SpawnOffset.Value;
+            OnSpawn.Invoke();
+            ExtraSpawnBehaviour.Value?.Invoke(gameObject);
         }
     }
 }

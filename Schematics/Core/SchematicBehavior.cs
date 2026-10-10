@@ -28,8 +28,6 @@ public abstract class SchematicBehavior
 {
     // Filled by VariableHandle<T>'s implicit conversion while a Behavior's field initializers run.
     [ThreadStatic] private static List<BehaviorVariable> _pendingVariables;
-    // Filled by DeclareSignal while a Behavior's field initializers run.
-    [ThreadStatic] private static List<BehaviorSignal> _pendingSignals;
 
     // The cursor of the Behavior being constructed, handed to the handles its field initializers create.
     [ThreadStatic] private static BehaviorCursor _constructingCursor;
@@ -47,6 +45,17 @@ public abstract class SchematicBehavior
         internal set => Cursor.Select(value);
     }
 
+    /// <summary>
+    /// Selects one of this Behavior's instances, so its Variables and methods act on it. Returns this Behavior.
+    /// </summary>
+    public SchematicBehavior Select(BehaviorInstance instance)
+    {
+        if (instance != null && instance.Behavior != this)
+            throw new ArgumentException($"{instance} belongs to a different Behavior.", nameof(instance));
+        Selected = instance;
+        return this;
+    }
+
     private BehaviorVariable[] _variables = Array.Empty<BehaviorVariable>();
 
     /// <summary>
@@ -57,7 +66,8 @@ public abstract class SchematicBehavior
     private BehaviorSignal[] _signals = Array.Empty<BehaviorSignal>();
 
     /// <summary>
-    /// The Signals this Behavior declared with <see cref="DeclareSignal()"/>, in declaration order.
+    /// The Signals this Behavior has: one per <c>SignalHandle</c> field, in declaration order. The fields need no
+    /// initializer; they're bound when the Behavior is created.
     /// </summary>
     public IReadOnlyList<BehaviorSignal> Signals => _signals;
 
@@ -86,11 +96,35 @@ public abstract class SchematicBehavior
     /// <summary>Called when the instance is despawned. Pooled objects go back to their pool afterwards rather than being destroyed.</summary>
     protected internal virtual void OnDestroy(BehaviorInstance instance) { }
 
+    /// <summary>
+    /// Called in the editor when this Behavior is attached to a GameObject through the Inspector, the counterpart to a
+    /// MonoBehaviour's Reset. Create child objects and set this object's Variable values through the context.
+    /// </summary>
+    protected internal virtual void OnSetup(BehaviorSetupContext context) { }
+
+    /// <summary>
+    /// Runs a Behavior type's <see cref="OnSetup"/> for a newly attached object. Called by the editor.
+    /// </summary>
+    public static void RunSetup(Type behaviorType, GameObject target, Remedy.Schematics.BehaviorAttachment attachment)
+    {
+        var behavior = Create(behaviorType);
+        if (behavior.Overrides(nameof(OnSetup)))
+            behavior.OnSetup(new BehaviorSetupContext(target, attachment, behavior));
+    }
+
+    /// <summary>
+    /// Draws Gizmos for one object this Behavior is attached to, in Edit Mode as well as Play Mode.
+    /// Read Variables through <see cref="BehaviorGizmoContext.Get{T}"/>.
+    /// </summary>
+    protected internal virtual void OnDrawGizmos(BehaviorGizmoContext context) { }
+
     /// <summary>Unity physics messages from the instance's GameObject, while it is enabled.</summary>
     protected internal virtual void OnCollisionEnter(BehaviorInstance instance, Collision collision) { }
     protected internal virtual void OnCollisionExit(BehaviorInstance instance, Collision collision) { }
     protected internal virtual void OnTriggerEnter(BehaviorInstance instance, Collider other) { }
     protected internal virtual void OnTriggerExit(BehaviorInstance instance, Collider other) { }
+    protected internal virtual void OnCollisionStay(BehaviorInstance instance, Collision collision) { }
+    protected internal virtual void OnTriggerStay(BehaviorInstance instance, Collider other) { }
 
     /// <summary>
     /// Creates a Behavior of the given type and collects the Variables its field initializers declared.
@@ -102,8 +136,6 @@ public abstract class SchematicBehavior
 
         var pending = _pendingVariables ??= new List<BehaviorVariable>();
         pending.Clear();
-        var pendingSignals = _pendingSignals ??= new List<BehaviorSignal>();
-        pendingSignals.Clear();
 
         var cursor = new BehaviorCursor();
         var previousCursor = _constructingCursor;
@@ -114,17 +146,16 @@ public abstract class SchematicBehavior
         {
             behavior = (SchematicBehavior)Activator.CreateInstance(behaviorType, nonPublic: true);
             behavior._variables = pending.ToArray();
-            behavior._signals = pendingSignals.ToArray();
             behavior.Cursor = cursor;
         }
         finally
         {
             pending.Clear();
-            pendingSignals.Clear();
             _constructingCursor = previousCursor;
         }
 
         behavior.ResolveVariableNames();
+        behavior.BindSignals();
         return behavior;
     }
 
@@ -137,22 +168,44 @@ public abstract class SchematicBehavior
         return new VariableHandle<T>(definition.TypedColumn, definition.Index);
     }
 
-    /// <summary>
-    /// Declares a Signal. Call it from a field initializer:
-    /// <code>public readonly SignalHandle&lt;float&gt; Damaged = DeclareSignal&lt;float&gt;();</code>
-    /// </summary>
-    protected static SignalHandle DeclareSignal() => new SignalHandle(PendSignal(SignalHandle.ParameterTypes));
-    protected static SignalHandle<T1> DeclareSignal<T1>() => new SignalHandle<T1>(PendSignal(SignalHandle<T1>.ParameterTypes));
-    protected static SignalHandle<T1, T2> DeclareSignal<T1, T2>() => new SignalHandle<T1, T2>(PendSignal(SignalHandle<T1, T2>.ParameterTypes));
-    protected static SignalHandle<T1, T2, T3> DeclareSignal<T1, T2, T3>() => new SignalHandle<T1, T2, T3>(PendSignal(SignalHandle<T1, T2, T3>.ParameterTypes));
-    protected static SignalHandle<T1, T2, T3, T4> DeclareSignal<T1, T2, T3, T4>() => new SignalHandle<T1, T2, T3, T4>(PendSignal(SignalHandle<T1, T2, T3, T4>.ParameterTypes));
-
-    private static BehaviorSignal PendSignal(Type[] parameterTypes)
+    // Fills every SignalHandle field with its Signal. Runs once per Behavior type, when its Runtime is created.
+    private void BindSignals()
     {
-        var pending = _pendingSignals ??= new List<BehaviorSignal>();
-        var signal = new BehaviorSignal(pending.Count, parameterTypes, _constructingCursor ?? new BehaviorCursor());
-        pending.Add(signal);
-        return signal;
+        var signals = new List<BehaviorSignal>();
+        var types = new List<Type>();
+        for (var type = GetType(); type != null && type != typeof(SchematicBehavior); type = type.BaseType)
+            types.Insert(0, type); // base class fields first
+
+        foreach (var type in types)
+        {
+            foreach (var field in type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+            {
+                if (!typeof(ISignalHandle).IsAssignableFrom(field.FieldType))
+                    continue;
+
+                var parameterTypes = field.FieldType.IsGenericType ? field.FieldType.GetGenericArguments() : Type.EmptyTypes;
+                var signal = new BehaviorSignal(signals.Count, parameterTypes, Cursor) { Name = CleanFieldName(field.Name) };
+                var handle = Activator.CreateInstance(field.FieldType, BindingFlags.Instance | BindingFlags.NonPublic, null, new object[] { signal }, null);
+                field.SetValue(this, handle);
+                signals.Add(signal);
+            }
+        }
+
+        _signals = signals.ToArray();
+    }
+
+    /// <summary>
+    /// The component types a Behavior asks for with <c>[RequireComponent]</c>. Unity only enforces that attribute on
+    /// MonoBehaviours, so the toolkit adds them itself when a Behavior is attached.
+    /// </summary>
+    public static IEnumerable<Type> GetRequiredComponents(Type behaviorType)
+    {
+        foreach (RequireComponent attribute in behaviorType.GetCustomAttributes(typeof(RequireComponent), true))
+        {
+            if (attribute.m_Type0 != null) yield return attribute.m_Type0;
+            if (attribute.m_Type1 != null) yield return attribute.m_Type1;
+            if (attribute.m_Type2 != null) yield return attribute.m_Type2;
+        }
     }
 
     /// <summary>
@@ -174,13 +227,6 @@ public abstract class SchematicBehavior
             var fields = type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
             foreach (var field in fields)
             {
-                if (typeof(ISignalHandle).IsAssignableFrom(field.FieldType))
-                {
-                    var signal = ((ISignalHandle)field.GetValue(this)).Signal;
-                    if (signal != null && signal.Index < _signals.Length && _signals[signal.Index] == signal)
-                        signal.Name = CleanFieldName(field.Name);
-                    continue;
-                }
 
                 if (!field.FieldType.IsGenericType || field.FieldType.GetGenericTypeDefinition() != typeof(VariableHandle<>))
                     continue;
@@ -195,8 +241,6 @@ public abstract class SchematicBehavior
 
         for (int i = 0; i < _variables.Length; i++)
             _variables[i].Name ??= $"Variable {i}";
-        for (int i = 0; i < _signals.Length; i++)
-            _signals[i].Name ??= $"Signal {i}";
     }
 
     // Auto-property backing fields look like "<Speed>k__BackingField".

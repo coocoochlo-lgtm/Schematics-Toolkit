@@ -44,7 +44,8 @@ public readonly struct SignalSubscription : IDisposable
         previousCurrent = null;
         if (listener == null)
             return true;
-        if (!listener.IsSpawned)
+        // Disabled instances skip everything, Signals included.
+        if (!listener.IsSpawned || !listener.Enabled)
             return false;
 
         previousSelection = listener.Behavior.Cursor.Instance;

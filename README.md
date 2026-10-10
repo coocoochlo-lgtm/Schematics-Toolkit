@@ -205,13 +205,13 @@ SchematicsManager.Destroy(spinner);             // OnDisable → OnDestroy, then
 ```
 
 ### Signals
-Signals are declared on a Behavior like Variables and are addressed to a spawned Schematic Object by its UID, the same ID that `ExecutionContext.Pick`, Variables and `GetSchematicBehavior` use. Behaviors and Schematic Graphs on the same object send to and hear each other.
+Signals are `SignalHandle` fields on a Behavior (no initializer needed; the editor generates and saves their assets), addressed to a spawned Schematic Object by its UID, the same ID that `ExecutionContext.Pick`, Variables and `GetSchematicBehavior` use. Behaviors and Schematic Graphs on the same object send to and hear each other.
 
 ```csharp
 public class Health : SchematicBehavior
 {
     [OutputSignal, Parameter("Amount", typeof(float))]
-    public readonly SignalHandle<float> Damaged = DeclareSignal<float>();
+    public readonly SignalHandle<float> Damaged;
     public readonly VariableHandle<float> Current = 100f;
 
     public void TakeDamage(float amount)

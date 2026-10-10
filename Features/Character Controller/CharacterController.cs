@@ -11,7 +11,7 @@ public class PhysicsBasedCharacterController : SchematicBehavior
 {
     [InputSignal]
     [Parameter("Position", typeof(Vector3))]
-    public readonly SignalHandle<Vector3> MoveToPosition = DeclareSignal<Vector3>();
+    public readonly SignalHandle<Vector3> MoveToPosition;
 
     /// <summary>
     /// Tuning values, assigned per object in the Inspector.

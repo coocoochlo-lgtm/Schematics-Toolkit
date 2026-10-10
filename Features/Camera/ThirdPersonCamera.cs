@@ -2,243 +2,198 @@ using UnityEngine;
 
 namespace Remedy.Cameras
 {
-    [SchematicComponent("Cameras/Third Person")]
-    [ExecuteAlways]
+    [SchematicBehaviorPath("Cameras/Third Person")]
     public class ThirdPersonCamera : CameraOperator
     {
-        public SignalData AimPosition;
+        [OutputSignal, Parameter("Position", typeof(Vector3))]
+        public readonly SignalHandle<Vector3> AimPosition;
 
         [Tooltip("The Object to Follow.")]
-        public Vector3 FollowOffset;
-        public float HorizontalFollowSpeed = 10f;
-        public float VerticalFollowSpeed = 3f;
+        public readonly VariableHandle<Vector3> FollowOffset = Vector3.zero;
+        public readonly VariableHandle<float> HorizontalFollowSpeed = 10f;
+        public readonly VariableHandle<float> VerticalFollowSpeed = 3f;
         [Tooltip("The Camera sticks to the ground beneath the follow target until this distance is reached, then this is used as an offset from the Follow Target")]
-        public float YDistanceAllowance = 3f;
-        public Vector3 GroundedOffset = new Vector3(0, 1, 0);
+        public readonly VariableHandle<float> YDistanceAllowance = 3f;
+        public readonly VariableHandle<Vector3> GroundedOffset = new Vector3(0, 1, 0);
         [Tooltip("Max distance from the Followed Object.")]
-        public float MaxDistance = 5f;
+        public readonly VariableHandle<float> MaxDistance = 5f;
 
-        public float LevelAngle = 5f;
-        public float AutoLevelDelay = 1f;
-        public float AutoLevelSpeed = 5f;
+        public readonly VariableHandle<float> LevelAngle = 5f;
+        public readonly VariableHandle<float> AutoLevelDelay = 1f;
+        public readonly VariableHandle<float> AutoLevelSpeed = 5f;
 
         [Tooltip("An angular force applied to distance the Camera Rotation away from walls over time.")]
-        public float OptimalDistancePush = 1f;
-        public float OptimalDistance = 10f;
+        public readonly VariableHandle<float> OptimalDistancePush = 1f;
+        public readonly VariableHandle<float> OptimalDistance = 10f;
 
-        public Rigidbody Rigidbody;
-        public float LookaheadOrientationStrength = 1f;
+        public readonly VariableHandle<Rigidbody> Rigidbody = (Rigidbody)null;
+        public readonly VariableHandle<float> LookaheadOrientationStrength = 1f;
         [Tooltip("The Velocity (downward) at which the Rigidbody must be moving to fully forcefully orient the camera down.")]
-        public float LookdownOrientationMaxVelocity = 10f;
+        public readonly VariableHandle<float> LookdownOrientationMaxVelocity = 10f;
         [Tooltip("The maximum angle downward the to orient the camera when falling")]
-        public float LookdownOrientationMaxAngle = 40f;
-        [Tooltip("The Velocity (downward) at which the Rigidbody must be moving to fully forcefully orient the camera down.")]
-        public float LookupOrientationMaxVelocity = 10f;
-        [Tooltip("The maximum angle downward the to orient the camera when falling")]
-        public float LookupOrientationMaxAngle = 30f;
-        public float LookdownOrientationSpeed = 10f;
+        public readonly VariableHandle<float> LookdownOrientationMaxAngle = 40f;
+        [Tooltip("The Velocity (upward) at which the Rigidbody must be moving to fully forcefully orient the camera up.")]
+        public readonly VariableHandle<float> LookupOrientationMaxVelocity = 10f;
+        [Tooltip("The maximum angle upward to orient the camera when rising")]
+        public readonly VariableHandle<float> LookupOrientationMaxAngle = 30f;
+        public readonly VariableHandle<float> LookdownOrientationSpeed = 10f;
 
         [Tooltip("What is collided with to move the Camera closer to the Player")]
-        public LayerMask CollisionLayers;
-        public float CollisionReactSpeed = 10f;
-        public float YOffsetTransitionSpeed = 10f;
+        public readonly VariableHandle<LayerMask> CollisionLayers = (LayerMask)(-1);
+        public readonly VariableHandle<float> CollisionReactSpeed = 10f;
+        public readonly VariableHandle<float> YOffsetTransitionSpeed = 10f;
 
-        private float _targetScale = 1f;
-        private float _currentScale = 1f;
-        private RaycastHit _floorHit = default;
-        private RaycastHit _wallHit = default;
-        private Vector3 _allowanceOffset = Vector3.zero;
-        private Vector3 _horPos = Vector3.zero;
-        private Vector3 _vertPos = Vector3.zero;
-        private bool _lookingDown = false;
-        private float _currentYOffset;
-        private float _lastFloorHit;
+        private readonly VariableHandle<float> _targetScale = 1f;
+        private readonly VariableHandle<float> _currentScale = 1f;
+        private readonly VariableHandle<Vector3> _horPos = Vector3.zero;
+        private readonly VariableHandle<Vector3> _vertPos = Vector3.zero;
+        private readonly VariableHandle<bool> _lookingDown = false;
+        private readonly VariableHandle<float> _currentYOffset = 0f;
+        private readonly VariableHandle<float> _lastFloorHit = 0f;
 
-
-        private void Update()
+        protected override void OnUpdate(BehaviorInstance instance)
         {
-            if (Follow == null) return;
+            var follow = Follow.Value;
+            var root = Root.Value;
+            var camera = Camera.Value;
+            if (follow == null || root == null || camera == null) return;
 
-            if(Application.isPlaying)
-            {
-                if (Physics.Raycast(Camera.position, Camera.forward, out RaycastHit aimHit, Mathf.Infinity))
-                {
-                    AimPosition?.Invoke(aimHit.point);
-                }
-            }
+            float dt = Time.deltaTime;
+            var collisionLayers = CollisionLayers.Value;
+            var rigidbody = Rigidbody.Value;
+            var followOffset = FollowOffset.Value;
+            float yDistanceAllowance = YDistanceAllowance.Value;
 
-            var prevRootPos = Root.position;
-            transform.position = Root.position;
-            Root.position = prevRootPos;
+            ref float xAxis = ref XAxis.Ref;
+            ref float yAxis = ref YAxis.Ref;
+            ref float actualXAxis = ref ActualXAxis.Ref;
+            ref float actualYAxis = ref ActualYAxis.Ref;
+            ref float timeSinceInput = ref _timeSinceInput.Ref;
+            ref var horPos = ref _horPos.Ref;
+            ref var vertPos = ref _vertPos.Ref;
+            ref float currentYOffset = ref _currentYOffset.Ref;
+            ref float lastFloorHit = ref _lastFloorHit.Ref;
 
-            _allowanceOffset.y = -YDistanceAllowance;
+            if (Physics.Raycast(camera.position, camera.forward, out RaycastHit aimHit, Mathf.Infinity))
+                AimPosition.Invoke(aimHit.point);
 
-            _horPos.x = Mathf.Lerp(Root.position.x, Follow.position.x + FollowOffset.x, HorizontalFollowSpeed * Time.deltaTime);
-            _horPos.z = Mathf.Lerp(Root.position.z, Follow.position.z + FollowOffset.z, HorizontalFollowSpeed * Time.deltaTime);
+            // Keep the object at the Root without moving the Root.
+            var prevRootPos = root.position;
+            instance.Transform.position = root.position;
+            root.position = prevRootPos;
+
+            horPos.x = Mathf.Lerp(root.position.x, follow.position.x + followOffset.x, HorizontalFollowSpeed.Value * dt);
+            horPos.z = Mathf.Lerp(root.position.z, follow.position.z + followOffset.z, HorizontalFollowSpeed.Value * dt);
 
             // TODO: Apply an Offset Grace Period (Transition between the two different offsets so the camera doesn't jump up and down)
-            /*        if (Physics.SphereCast(Follow.position + Vector3.up, 0.5f, Vector3.down, out _floorHit, YDistanceAllowance, CollisionLayers))
-                    {
-                        _vertPos.y = Mathf.Lerp(Root.position.y, _floorHit.point.y + GroundedOffset.y, VerticalFollowSpeed * Time.deltaTime);
-                    }
-                    else
-                    {
-                        _vertPos.y = Mathf.Lerp(Root.position.y, Follow.position.y + FollowOffset.y, VerticalFollowSpeed * Time.deltaTime);
-                    }*/
-
-            // TODO: Apply an Offset Grace Period (Transition between the two different offsets so the camera doesn't jump up and down)
-            if (Physics.SphereCast(Follow.position + Vector3.up, 0.5f, Vector3.down, out _floorHit, YDistanceAllowance, CollisionLayers))
+            if (Physics.SphereCast(follow.position + Vector3.up, 0.5f, Vector3.down, out RaycastHit floorHit, yDistanceAllowance, collisionLayers))
             {
-                _currentYOffset = Mathf.Lerp(_currentYOffset, 0f, YOffsetTransitionSpeed * Time.deltaTime);
-                _lastFloorHit = _floorHit.point.y + GroundedOffset.y;
+                currentYOffset = Mathf.Lerp(currentYOffset, 0f, YOffsetTransitionSpeed.Value * dt);
+                lastFloorHit = floorHit.point.y + GroundedOffset.Value.y;
             }
             else
             {
-                _currentYOffset = Mathf.Lerp(_currentYOffset, 1f, YOffsetTransitionSpeed * Time.deltaTime);
+                currentYOffset = Mathf.Lerp(currentYOffset, 1f, YOffsetTransitionSpeed.Value * dt);
             }
 
-            float goalY = Mathf.Lerp(_lastFloorHit, Follow.position.y + FollowOffset.y, _currentYOffset);
-            _vertPos.y = Mathf.Lerp(Root.position.y, goalY, VerticalFollowSpeed * Time.deltaTime);
+            float goalY = Mathf.Lerp(lastFloorHit, follow.position.y + followOffset.y, currentYOffset);
+            vertPos.y = Mathf.Lerp(root.position.y, goalY, VerticalFollowSpeed.Value * dt);
 
-            Root.position = _horPos + _vertPos;
+            root.position = horPos + vertPos;
 
             // Rotation smoothing
-            _actualXAxis = Mathf.Lerp(_actualXAxis, _xAxis, SmoothSpeed * Time.deltaTime);
+            actualXAxis = Mathf.Lerp(actualXAxis, xAxis, SmoothSpeed * dt);
+
+            TryGetVolume(out var volume, out var volumeInstance);
 
             // Level look axis angle
-            _timeSinceInput += Time.deltaTime;
-            if (_timeSinceInput > AutoLevelDelay)
+            timeSinceInput += dt;
+            if (timeSinceInput > AutoLevelDelay.Value)
             {
-                if (!_lookingDown)
+                if (!_lookingDown.Value)
                 {
                     // Reset camera to resting angle
-                    if (CurrentVolume != null && CurrentVolume.ChangeRestingAngle)
-                    {
-                        _actualYAxis = Mathf.Lerp(_actualYAxis, CurrentVolume.RestingAngle, AutoLevelSpeed * Time.deltaTime);
-                        _yAxis = Mathf.Lerp(_yAxis, CurrentVolume.RestingAngle, AutoLevelSpeed * Time.deltaTime);
-                    }
-                    else
-                    {
-                        _actualYAxis = Mathf.Lerp(_actualYAxis, LevelAngle, AutoLevelSpeed * Time.deltaTime);
-                        _yAxis = Mathf.Lerp(_yAxis, LevelAngle, AutoLevelSpeed * Time.deltaTime);
-                    }
+                    float restingAngle = volume != null && volume.ChangeRestingAngle[volumeInstance] ? volume.RestingAngle[volumeInstance] : LevelAngle.Value;
+                    actualYAxis = Mathf.Lerp(actualYAxis, restingAngle, AutoLevelSpeed.Value * dt);
+                    yAxis = Mathf.Lerp(yAxis, restingAngle, AutoLevelSpeed.Value * dt);
                 }
 
                 // Lookahead in the direction of the Rigidbody Horizontal Velocity
-                if (Rigidbody != null && (Mathf.Abs(Rigidbody.linearVelocity.x) > 1 || Mathf.Abs(Rigidbody.linearVelocity.z) > 1))
+                if (rigidbody != null && (Mathf.Abs(rigidbody.linearVelocity.x) > 1 || Mathf.Abs(rigidbody.linearVelocity.z) > 1))
                 {
-                    _actualXAxis = Mathf.LerpAngle(_actualXAxis, Rigidbody.transform.eulerAngles.y, LookaheadOrientationStrength * Time.deltaTime);
-                    _xAxis = Mathf.LerpAngle(_xAxis, Rigidbody.transform.eulerAngles.y, LookaheadOrientationStrength * Time.deltaTime);
+                    actualXAxis = Mathf.LerpAngle(actualXAxis, rigidbody.transform.eulerAngles.y, LookaheadOrientationStrength.Value * dt);
+                    xAxis = Mathf.LerpAngle(xAxis, rigidbody.transform.eulerAngles.y, LookaheadOrientationStrength.Value * dt);
                 }
-
 
                 // Orient relative to walls
-                if (Physics.SphereCast(Follow.position, 0.25f, Follow.right, out _wallHit, OptimalDistance, CollisionLayers))
+                if (Physics.SphereCast(follow.position, 0.25f, follow.right, out RaycastHit wallHit, OptimalDistance.Value, collisionLayers))
                 {
-                    Vector3 projectedForward = Vector3.ProjectOnPlane(Follow.right, _wallHit.normal).normalized;
-                    Quaternion targetYaw = Quaternion.LookRotation(projectedForward, Vector3.up);
-                    var euler = targetYaw.eulerAngles.y;
+                    Vector3 projectedForward = Vector3.ProjectOnPlane(follow.right, wallHit.normal).normalized;
+                    var euler = Quaternion.LookRotation(projectedForward, Vector3.up).eulerAngles.y;
 
-                    if (Mathf.Abs(Mathf.DeltaAngle(euler, Root.eulerAngles.y)) < 60)
-                        _xAxis = Mathf.LerpAngle(_xAxis, euler, OptimalDistancePush * Time.deltaTime);
+                    if (Mathf.Abs(Mathf.DeltaAngle(euler, root.eulerAngles.y)) < 60)
+                        xAxis = Mathf.LerpAngle(xAxis, euler, OptimalDistancePush.Value * dt);
                 }
-                else if (Physics.SphereCast(Follow.position, 0.25f, -Follow.right, out _wallHit, OptimalDistance, CollisionLayers))
+                else if (Physics.SphereCast(follow.position, 0.25f, -follow.right, out wallHit, OptimalDistance.Value, collisionLayers))
                 {
-                    Vector3 projectedForward = Vector3.ProjectOnPlane(-Follow.right, _wallHit.normal).normalized;
-                    Quaternion targetYaw = Quaternion.LookRotation(projectedForward, Vector3.up);
-                    var euler = targetYaw.eulerAngles.y;
+                    Vector3 projectedForward = Vector3.ProjectOnPlane(-follow.right, wallHit.normal).normalized;
+                    var euler = Quaternion.LookRotation(projectedForward, Vector3.up).eulerAngles.y;
 
-                    if (Mathf.Abs(Mathf.DeltaAngle(euler, Root.eulerAngles.y)) < 100)
-                        _xAxis = Mathf.LerpAngle(_xAxis, euler, OptimalDistancePush * Time.deltaTime);
+                    if (Mathf.Abs(Mathf.DeltaAngle(euler, root.eulerAngles.y)) < 100)
+                        xAxis = Mathf.LerpAngle(xAxis, euler, OptimalDistancePush.Value * dt);
                 }
-
             }
             else
             {
-                _actualYAxis = Mathf.Lerp(_actualYAxis, _yAxis, SmoothSpeed * Time.deltaTime);
+                actualYAxis = Mathf.Lerp(actualYAxis, yAxis, SmoothSpeed * dt);
             }
 
             // Aim down when falling
-            if (!Physics.SphereCast(Follow.position + Vector3.up, 0.5f, Vector3.down, out _floorHit, YDistanceAllowance, CollisionLayers))
+            if (!Physics.SphereCast(follow.position + Vector3.up, 0.5f, Vector3.down, out floorHit, yDistanceAllowance, collisionLayers))
             {
-                _lookingDown = true;
+                _lookingDown.Value = true;
 
-                if (Rigidbody.linearVelocity.y <= 0)
+                if (rigidbody != null && rigidbody.linearVelocity.y <= 0)
                 {
-                    float t = Mathf.Clamp(Mathf.Abs(Rigidbody.linearVelocity.y) / LookdownOrientationMaxVelocity, 0.2f, 1f);
-
-                    _yAxis = Mathf.Lerp(_yAxis, Mathf.Lerp(0, LookdownOrientationMaxAngle, t), LookdownOrientationSpeed * Time.deltaTime);
-                    _actualYAxis = Mathf.Lerp(_actualYAxis, Mathf.Lerp(0, LookdownOrientationMaxAngle, t), LookdownOrientationSpeed * Time.deltaTime);
+                    float t = Mathf.Clamp(Mathf.Abs(rigidbody.linearVelocity.y) / LookdownOrientationMaxVelocity.Value, 0.2f, 1f);
+                    float angle = Mathf.Lerp(0, LookdownOrientationMaxAngle.Value, t);
+                    yAxis = Mathf.Lerp(yAxis, angle, LookdownOrientationSpeed.Value * dt);
+                    actualYAxis = Mathf.Lerp(actualYAxis, angle, LookdownOrientationSpeed.Value * dt);
                 }
-                else if (Rigidbody.linearVelocity.y > 0)
+                else if (rigidbody != null && rigidbody.linearVelocity.y > 0)
                 {
-                    float t = Mathf.Clamp(Mathf.Abs(Rigidbody.linearVelocity.y) / LookupOrientationMaxVelocity, 0f, 1f);
-
-                    _yAxis = Mathf.Lerp(_yAxis, Mathf.Lerp(0, -LookupOrientationMaxAngle, t), LookdownOrientationSpeed * Time.deltaTime);
-                    _actualYAxis = Mathf.Lerp(_actualYAxis, Mathf.Lerp(0, -LookupOrientationMaxAngle, t), LookdownOrientationSpeed * Time.deltaTime);
+                    float t = Mathf.Clamp(Mathf.Abs(rigidbody.linearVelocity.y) / LookupOrientationMaxVelocity.Value, 0f, 1f);
+                    float angle = Mathf.Lerp(0, -LookupOrientationMaxAngle.Value, t);
+                    yAxis = Mathf.Lerp(yAxis, angle, LookdownOrientationSpeed.Value * dt);
+                    actualYAxis = Mathf.Lerp(actualYAxis, angle, LookdownOrientationSpeed.Value * dt);
                 }
             }
             else
-                _lookingDown = false;
+                _lookingDown.Value = false;
 
             // Apply rotation to Root
-            Root.rotation = Quaternion.Euler(_actualYAxis, _actualXAxis, 0f);
+            root.rotation = Quaternion.Euler(actualYAxis, actualXAxis, 0f);
 
             // SphereCast from Root to max range in the local -Z direction
-            Vector3 origin = Root.position;
-            Vector3 direction = -Root.forward;
-            Vector3 targetCameraPos = origin + direction * MaxDistance;
+            Vector3 origin = root.position;
+            Vector3 direction = -root.forward;
 
-            float targetDistance;
-            if (CurrentVolume != null && CurrentVolume.ChangeZoom)
-                targetDistance = CurrentVolume.Zoom;
-            else
-                targetDistance = MaxDistance;
+            float targetDistance = volume != null && volume.ChangeZoom[volumeInstance] ? volume.Zoom[volumeInstance] : MaxDistance.Value;
 
-            if (Physics.SphereCast(origin, CameraCollisionRadius, direction, out RaycastHit hit, targetDistance, CollisionLayers, QueryTriggerInteraction.Ignore))
-            {
-                // Reduce distance based on hit
-                float hitDistance = Mathf.Clamp(hit.distance, 0.5f, targetDistance);
-                _targetScale = hitDistance;
-            }
+            if (Physics.SphereCast(origin, CameraCollisionRadius.Value, direction, out RaycastHit hit, targetDistance, collisionLayers, QueryTriggerInteraction.Ignore))
+                _targetScale.Value = Mathf.Clamp(hit.distance, 0.5f, targetDistance); // reduce distance based on hit
             else
-            {
-                _targetScale = targetDistance;
-            }
+                _targetScale.Value = targetDistance;
 
             // Smooth scale interpolation
-            _currentScale = Mathf.Lerp(_currentScale, _targetScale, CollisionReactSpeed * Time.deltaTime);
+            _currentScale.Value = Mathf.Lerp(_currentScale.Value, _targetScale.Value, CollisionReactSpeed.Value * dt);
+            root.localScale = new Vector3(1, 1, _currentScale.Value);
 
-            Root.localScale = new Vector3(1, 1, _currentScale);
-
-
-            var dir = Root.position - Camera.position;
-            Camera.rotation = Quaternion.Slerp(Camera.rotation, Quaternion.LookRotation(dir, Vector3.up), 20f * Time.deltaTime);
-
-            Camera.localPosition = Vector3.Lerp(Camera.localPosition, new Vector3(0, 0, -1), 20f * Time.deltaTime);
-
+            var dir = root.position - camera.position;
+            camera.rotation = Quaternion.Slerp(camera.rotation, Quaternion.LookRotation(dir, Vector3.up), 20f * dt);
+            camera.localPosition = Vector3.Lerp(camera.localPosition, new Vector3(0, 0, -1), 20f * dt);
 
             UpdateAimDirection();
         }
-
-        private void OnTriggerEnter(Collider other)
-        {
-            var propVolume = other.GetComponent<CameraPropertiesVolume>();
-            if (propVolume != null)
-            {
-                CurrentVolume = propVolume;
-            }
-        }
-
-        private void OnTriggerExit(Collider other)
-        {
-            var propVolume = other.GetComponent<CameraPropertiesVolume>();
-            if (propVolume == CurrentVolume)
-            {
-                CurrentVolume = null;
-            }
-        }
-
     }
-
 }

@@ -1,30 +1,33 @@
-//using SaintsField;
-using System.Collections.Generic;
 using UnityEngine;
 
 namespace Remedy.UI
 {
-    public class UIComponent : MonoBehaviour
+    /// <summary>
+    /// A UI element rendered on the UI layer at a depth set by its Layer. Extend it for specific UI elements and
+    /// override <see cref="InitiateAndSubscribeEvents"/>/<see cref="UnSubscribeEvents"/> for their setup.
+    /// </summary>
+    [SchematicBehaviorPath("UI/UI Component")]
+    public class UIComponent : SchematicBehavior
     {
         [Tooltip("The UI Layer to render this Prefab's Canvas on.")]
-        public int Layer;
+        public readonly VariableHandle<int> Layer = 0;
 
-        private void Start()
+        protected override void OnStart(BehaviorInstance instance)
         {
-            UIManager.AddUIComponent(this);
-            InitiateAndSubscribeEvents();
+            UIManager.AddUIComponent(instance, Layer.Value);
+            InitiateAndSubscribeEvents(instance);
         }
 
-        private void OnDisable()
+        protected override void OnDisable(BehaviorInstance instance)
         {
-            UIManager.RemoveUIComponent(this);
-            UnSubscribeEvents();
+            UIManager.RemoveUIComponent(instance, Layer.Value);
+            UnSubscribeEvents(instance);
         }
 
-        protected virtual void InitiateAndSubscribeEvents()
+        protected virtual void InitiateAndSubscribeEvents(BehaviorInstance instance)
         { }
 
-        protected virtual void UnSubscribeEvents()
+        protected virtual void UnSubscribeEvents(BehaviorInstance instance)
         { }
     }
 }

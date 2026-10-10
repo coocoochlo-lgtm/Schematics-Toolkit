@@ -30,6 +30,20 @@ namespace Remedy.Schematics
         /// </summary>
         public List<VariableOverride> Overrides = new();
 
+        /// <summary>
+        /// Sets this object's value for a Variable, adding the override if needed.
+        /// </summary>
+        public void SetOverride(string name, object value, System.Type type = null)
+        {
+            var entry = FindOverride(name);
+            if (entry == null)
+            {
+                entry = new VariableOverride { Name = name };
+                Overrides.Add(entry);
+            }
+            entry.Value.Set(value, type);
+        }
+
         public VariableOverride FindOverride(string name)
         {
             foreach (var entry in Overrides)

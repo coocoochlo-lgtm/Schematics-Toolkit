@@ -1,36 +1,41 @@
-//using SaintsField;
 using UnityEngine;
 
 namespace Remedy.Cameras
 {
+    /// <summary>
+    /// A trigger volume that changes camera settings for Camera Operators inside it.
+    /// Operators read the values with the volume's instance, e.g. <c>volume.Zoom[volumeInstance]</c>.
+    /// </summary>
+    [SchematicBehaviorPath("Cameras/Camera Properties Volume")]
     [RequireComponent(typeof(BoxCollider))]
-    public class CameraPropertiesVolume : MonoBehaviour
+    public class CameraPropertiesVolume : SchematicBehavior
     {
-        public bool ChangeZoom = false;
-        //[ShowIf("ChangeZoom")]
-        public float Zoom = 15f;
-        public bool ChangeFOV = false;
-        //[ShowIf("ChangeFOV")]
-        public float FOV = 60f;
-        public bool ChangeRestingAngle = false;
-        //[ShowIf("ChangeRestingAngle")]
-        public float RestingAngle = 60f;
-        public bool UseReferenceCam = false;
-        //[ShowIf("UseReferenceCam")]
-        public Transform ReferenceCamera;
-        //[ShowIf("UseReferenceCam")]
+        public readonly VariableHandle<bool> ChangeZoom = false;
+        public readonly VariableHandle<float> Zoom = 15f;
+        public readonly VariableHandle<bool> ChangeFOV = false;
+        public readonly VariableHandle<float> FOV = 60f;
+        public readonly VariableHandle<bool> ChangeRestingAngle = false;
+        public readonly VariableHandle<float> RestingAngle = 60f;
+        public readonly VariableHandle<bool> UseReferenceCam = false;
+        public readonly VariableHandle<Transform> ReferenceCamera = (Transform)null;
         [Tooltip("A mask to applied to copying the position of the Reference Camera")]
-        public Vector3Bool ReferenceCamPositionMask = Vector3Bool.False;
-        //[ShowIf("UseReferenceCam")]
+        public readonly VariableHandle<Vector3Bool> ReferenceCamPositionMask = Vector3Bool.False;
         [Tooltip("A mask applied to euler angle copying of the reference Camera")]
-        public Vector3Bool ReferenceCamAngleMask = Vector3Bool.False;
-        //[ShowIf("UseReferenceCam")]
+        public readonly VariableHandle<Vector3Bool> ReferenceCamAngleMask = Vector3Bool.False;
         [Tooltip("The Speed at which the Player's Camera is pulled to the Reference Camera")]
-        public float ReferenceCameraSpeed;
+        public readonly VariableHandle<float> ReferenceCameraSpeed = 0f;
 
-        private void OnValidate()
+        protected override void OnSetup(BehaviorSetupContext context)
         {
-            gameObject.GetComponent<BoxCollider>().isTrigger = true;
+            if (context.GameObject.TryGetComponent(out BoxCollider collider))
+                collider.isTrigger = true;
+        }
+
+        protected override void OnCreate(BehaviorInstance instance)
+        {
+            var collider = instance.GetComponent<BoxCollider>();
+            if (collider != null)
+                collider.isTrigger = true;
         }
     }
 }

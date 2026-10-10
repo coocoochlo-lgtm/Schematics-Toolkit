@@ -1,16 +1,16 @@
 using UnityEngine;
-//using SaintsField.Playa;
 
 namespace Remedy.Cameras
 {
-    [SchematicComponent("Cameras/Shoulder")]
-    [ExecuteAlways]
+    [SchematicBehaviorPath("Cameras/Shoulder")]
     public class ShoulderCamera : CameraOperator
     {
-        [Parameter("Direction", typeof(Vector3))]
-        public SignalData ActualLookDirection;
-        public SignalData GoalLookDirection;
-        public SignalData AimPosition;
+        [OutputSignal, Parameter("Direction", typeof(Vector3))]
+        public readonly SignalHandle<Vector3> ActualLookDirection;
+        [OutputSignal, Parameter("Direction", typeof(Vector3))]
+        public readonly SignalHandle<Vector3> GoalLookDirection;
+        [OutputSignal, Parameter("Position", typeof(Vector3))]
+        public readonly SignalHandle<Vector3> AimPosition;
 
         public enum Shoulders
         {
@@ -18,164 +18,112 @@ namespace Remedy.Cameras
             Right
         }
 
-        /*[Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Component", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Follow")]*/
         [Tooltip("The shoulder the Camera is 'peering over'")]
-        public Shoulders Shoulder = Shoulders.Left;
+        public readonly VariableHandle<Shoulders> Shoulder = Shoulders.Left;
         [Tooltip("The distance offset from the character's shoulder.")]
-        public Vector3 ShoulderOffset = new Vector3(0.5f, 0f, 0f);
-        public float ShoulderSwitchSpeed = 10f;
-        public bool AutoSwitch = true;
-        public float SwitchDistance = 2f;
-        public Vector3 FollowOffset;
-        public float HorizontalFollowSpeed = 10f;
-        public float VerticalFollowSpeed = 3f;
+        public readonly VariableHandle<Vector3> ShoulderOffset = new Vector3(0.5f, 0f, 0f);
+        public readonly VariableHandle<float> ShoulderSwitchSpeed = 10f;
+        public readonly VariableHandle<bool> AutoSwitch = true;
+        public readonly VariableHandle<float> SwitchDistance = 2f;
+        public readonly VariableHandle<Vector3> FollowOffset = Vector3.zero;
+        public readonly VariableHandle<float> HorizontalFollowSpeed = 10f;
+        public readonly VariableHandle<float> VerticalFollowSpeed = 3f;
         [Tooltip("The Camera sticks to the ground beneath the follow target until this distance is reached, then this is used as an offset from the Follow Target")]
-        public float YDistanceAllowance = 3f;
+        public readonly VariableHandle<float> YDistanceAllowance = 3f;
         [Tooltip("Max distance from the Followed Object.")]
-        public float MaxDistance = 5f;
+        public readonly VariableHandle<float> MaxDistance = 5f;
 
-
-        /*[Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Component", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Optimizations")]*/
         [Tooltip("An angular force applied to distance the Camera Rotation away from walls over time.")]
-        public float OptimalDistancePush = 1f;
-        public float OptimalDistance = 10f;
+        public readonly VariableHandle<float> OptimalDistancePush = 1f;
+        public readonly VariableHandle<float> OptimalDistance = 10f;
 
-        public Rigidbody Rigidbody;
-        public float LookaheadOrientationStrength = 1f;
+        public readonly VariableHandle<Rigidbody> Rigidbody = (Rigidbody)null;
+        public readonly VariableHandle<float> LookaheadOrientationStrength = 1f;
 
-        /*[Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Component", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Collision")]*/
         [Tooltip("What is collided with to move the Camera closer to the Player")]
-        public LayerMask CollisionLayers;
-        public float CollisionReactSpeed = 10f;
+        public readonly VariableHandle<LayerMask> CollisionLayers = (LayerMask)(-1);
+        public readonly VariableHandle<float> CollisionReactSpeed = 10f;
 
+        private readonly VariableHandle<float> _targetScale = 1f;
+        private readonly VariableHandle<float> _currentScale = 1f;
+        private readonly VariableHandle<Vector3> _horPos = Vector3.zero;
+        private readonly VariableHandle<Vector3> _vertPos = Vector3.zero;
+        private readonly VariableHandle<Vector3> _shoulderPosition = Vector3.zero;
 
-        private float _targetScale = 1f;
-        private float _currentScale = 1f;
-        private Vector3 _allowanceOffset = Vector3.zero;
-        private Vector3 _horPos = Vector3.zero;
-        private Vector3 _vertPos = Vector3.zero;
-        private CameraPropertiesVolume _currentVolume;
-        private Vector3 _shoulderPosition = Vector3.zero;
-        private float _goalShoulderPosition = 0f;
-
-
-        private void Update()
+        protected override void OnUpdate(BehaviorInstance instance)
         {
-            if (AutoSwitch)
+            var follow = Follow.Value;
+            var root = Root.Value;
+            var camera = Camera.Value;
+            if (follow == null || root == null || camera == null) return;
+
+            float dt = Time.deltaTime;
+            var collisionLayers = CollisionLayers.Value;
+            ref var shoulder = ref Shoulder.Ref;
+            ref var shoulderPosition = ref _shoulderPosition.Ref;
+            ref var horPos = ref _horPos.Ref;
+            ref var vertPos = ref _vertPos.Ref;
+            var followOffset = FollowOffset.Value;
+
+            if (AutoSwitch.Value)
             {
-                if (Shoulder == Shoulders.Left)
-                {
-                    if (Physics.SphereCast(Root.position + Vector3.up, 0.25f, -Root.right, out RaycastHit shoulderHit, 1, CollisionLayers))
-                    {
-                        Shoulder = Shoulders.Right;
-                    }
-                }
-                else
-                {
-                    if (Physics.SphereCast(Root.position + Vector3.up, 0.25f, Root.right, out RaycastHit shoulderHit, 1, CollisionLayers))
-                    {
-                        Shoulder = Shoulders.Left;
-                    }
-                }
+                var side = shoulder == Shoulders.Left ? -root.right : root.right;
+                if (Physics.SphereCast(root.position + Vector3.up, 0.25f, side, out _, 1, collisionLayers))
+                    shoulder = shoulder == Shoulders.Left ? Shoulders.Right : Shoulders.Left;
             }
 
-            _shoulderPosition.y = ShoulderOffset.y;
-            _shoulderPosition.z = -1;
-            _goalShoulderPosition = ShoulderOffset.x * (((int)Shoulder * 2f) - 1f);
-            _shoulderPosition.x = Mathf.Lerp(_shoulderPosition.x, _goalShoulderPosition, ShoulderSwitchSpeed * Time.deltaTime);
-            Camera.localPosition = _shoulderPosition;
+            shoulderPosition.y = ShoulderOffset.Value.y;
+            shoulderPosition.z = -1;
+            float goalShoulderPosition = ShoulderOffset.Value.x * (((int)shoulder * 2f) - 1f);
+            shoulderPosition.x = Mathf.Lerp(shoulderPosition.x, goalShoulderPosition, ShoulderSwitchSpeed.Value * dt);
+            camera.localPosition = shoulderPosition;
 
-            var prevRootPos = Root.position;
-            transform.position = Root.position;
-            Root.position = prevRootPos;
+            // Keep the object at the Root without moving the Root.
+            var prevRootPos = root.position;
+            instance.Transform.position = root.position;
+            root.position = prevRootPos;
 
-            _allowanceOffset.y = -YDistanceAllowance;
+            horPos.x = Mathf.Lerp(root.position.x, follow.position.x + followOffset.x, HorizontalFollowSpeed.Value * dt);
+            horPos.z = Mathf.Lerp(root.position.z, follow.position.z + followOffset.z, HorizontalFollowSpeed.Value * dt);
+            vertPos.y = Mathf.Lerp(root.position.y, follow.position.y + followOffset.y, VerticalFollowSpeed.Value * dt);
 
-            _horPos.x = Mathf.Lerp(Root.position.x, Follow.position.x + FollowOffset.x, HorizontalFollowSpeed * Time.deltaTime);
-            _horPos.z = Mathf.Lerp(Root.position.z, Follow.position.z + FollowOffset.z, HorizontalFollowSpeed * Time.deltaTime);
-
-            _vertPos.y = Mathf.Lerp(Root.position.y, Follow.position.y + FollowOffset.y, VerticalFollowSpeed * Time.deltaTime);
-
-
-            Root.position = _horPos + _vertPos;
-
+            root.position = horPos + vertPos;
 
             // Apply rotation to Root
-            _goalRotation = Quaternion.Euler(_yAxis, _xAxis, 0);
-
-            if(Application.isPlaying)
-
+            _goalRotation.Value = Quaternion.Euler(YAxis.Value, XAxis.Value, 0);
 
             // Rotation smoothing
-            _actualYAxis = Mathf.Lerp(_actualYAxis, _yAxis, SmoothSpeed * Time.deltaTime);
-            _actualXAxis = Mathf.Lerp(_actualXAxis, _xAxis, SmoothSpeed * Time.deltaTime);
+            ActualYAxis.Value = Mathf.Lerp(ActualYAxis.Value, YAxis.Value, SmoothSpeed * dt);
+            ActualXAxis.Value = Mathf.Lerp(ActualXAxis.Value, XAxis.Value, SmoothSpeed * dt);
 
-            Root.rotation = Quaternion.Euler(_actualYAxis, _actualXAxis, 0);
+            root.rotation = Quaternion.Euler(ActualYAxis.Value, ActualXAxis.Value, 0);
 
-            Vector3 origin = Root.position;
-            Vector3 direction = -Root.forward;
+            Vector3 origin = root.position;
+            Vector3 direction = -root.forward;
+            float maxDistance = MaxDistance.Value;
 
-            if (Physics.SphereCast(origin, CameraCollisionRadius, direction, out RaycastHit hit, MaxDistance, CollisionLayers, QueryTriggerInteraction.Ignore))
-            {
-                // Reduce distance based on hit
-                float hitDistance = Mathf.Clamp(hit.distance, 0.5f, MaxDistance);
-                _targetScale = hitDistance;
-            }
+            if (Physics.SphereCast(origin, CameraCollisionRadius.Value, direction, out RaycastHit hit, maxDistance, collisionLayers, QueryTriggerInteraction.Ignore))
+                _targetScale.Value = Mathf.Clamp(hit.distance, 0.5f, maxDistance); // reduce distance based on hit
             else
-            {
-                _targetScale = MaxDistance;
-            }
+                _targetScale.Value = maxDistance;
 
             // Smooth scale interpolation
-            _currentScale = Mathf.Lerp(_currentScale, _targetScale, CollisionReactSpeed * Time.deltaTime);
-
-            Root.localScale = new Vector3(1, 1, _currentScale);
+            _currentScale.Value = Mathf.Lerp(_currentScale.Value, _targetScale.Value, CollisionReactSpeed.Value * dt);
+            root.localScale = new Vector3(1, 1, _currentScale.Value);
 
             UpdateAimDirection();
 
-            if (Application.isPlaying)
-            {
-                GoalLookDirection?.Invoke(_goalRotation * Vector3.forward);
-                ActualLookDirection?.Invoke(Root.forward);
+            GoalLookDirection.Invoke(_goalRotation.Value * Vector3.forward);
+            ActualLookDirection.Invoke(root.forward);
 
-                if (Physics.Raycast(Camera.position, Camera.forward, out RaycastHit aimHit, Mathf.Infinity))
-                {
-                    AimPosition?.Invoke(aimHit.point);
-                }
-            }
+            if (Physics.Raycast(camera.position, camera.forward, out RaycastHit aimHit, Mathf.Infinity))
+                AimPosition.Invoke(aimHit.point);
         }
 
-
-        void SwitchShoulder()
+        /// <summary>Swaps the selected Shoulder Camera to the other shoulder.</summary>
+        public void SwitchShoulder()
         {
-            if (Shoulder == Shoulders.Left)
-                Shoulder = Shoulders.Right;
-            else
-                Shoulder = Shoulders.Left;
-        }
-
-        private void OnTriggerEnter(Collider other)
-        {
-            var propVolume = other.GetComponent<CameraPropertiesVolume>();
-            if (propVolume != null)
-            {
-                _currentVolume = propVolume;
-            }
-        }
-
-        private void OnTriggerExit(Collider other)
-        {
-            var propVolume = other.GetComponent<CameraPropertiesVolume>();
-            if (propVolume == _currentVolume)
-            {
-                _currentVolume = null;
-            }
+            Shoulder.Value = Shoulder.Value == Shoulders.Left ? Shoulders.Right : Shoulders.Left;
         }
     }
 }

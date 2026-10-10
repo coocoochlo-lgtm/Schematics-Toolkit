@@ -28,6 +28,12 @@ public sealed class BehaviorInstance
     /// <summary>True while the instance is spawned and being processed by its Runtime.</summary>
     public bool IsSpawned => Row >= 0 && !Removing;
 
+    /// <summary>
+    /// True if the instance is still in the spawn that had this UID. For async code or coroutines that span frames:
+    /// capture <see cref="UID"/> when starting and stop once this is false (despawned, or reused from the pool).
+    /// </summary>
+    public bool IsSpawnedAs(int uid) => IsSpawned && uid != 0 && UID == uid;
+
     /// <summary>The Inspector configuration this instance was created from.</summary>
     public BehaviorAttachment Attachment { get; }
 

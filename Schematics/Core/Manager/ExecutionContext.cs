@@ -127,6 +127,16 @@ public static class ExecutionContext
     }
 
     /// <summary>
+    /// Spawns one Behavior Instance added to an already spawned object.
+    /// </summary>
+    internal static void SpawnAttached(BehaviorInstance instance)
+    {
+        instance.Runtime.AddRow(instance);
+        instance.Runtime.RunCreate(instance);
+        instance.Runtime.RunStart(instance);
+    }
+
+    /// <summary>
     /// Despawns a Schematic Object from its Runtimes. Its UID stops being valid.
     /// </summary>
     internal static void Unregister(SchematicObject schematicObject)

@@ -1,71 +1,52 @@
-using Remedy.Framework;
-//using SaintsField;
 using UnityEngine;
-using Remedy.Common;
 
 namespace Remedy.LevelDesign
 {
     /// <summary>
-    /// Trigger Volumes are a base for any Volumes that would invoke Events related to the player's interactions with it. 
+    /// Trigger Volumes are a base for any Volumes that would invoke Events related to the player's interactions with it.
     /// </summary>
+    [SchematicBehaviorPath("Level Design/Trigger Volume")]
     [RequireComponent(typeof(BoxCollider))]
-    public class TriggerVolume : MonoBehaviour
+    public class TriggerVolume : SchematicBehavior
     {
-        public SignalData OnTrigger;
-        public bool showCollider = true;
+        [OutputSignal]
+        public readonly SignalHandle OnTrigger;
 
-        //[Dropdown("GetTriggerVolumes")]
-        public int TriggerType;
-        public LevelDesignData.TriggerInfo TriggerInfo;
+        public readonly VariableHandle<bool> ShowCollider = true;
 
-        private BoxCollider _boxCollider;
-/*
-        public DropdownList<int> GetTriggerVolumes()
+        [Tooltip("Index into the Trigger Types defined in the Level Design Data.")]
+        public readonly VariableHandle<int> TriggerType = 0;
+
+        protected override void OnCreate(BehaviorInstance instance)
         {
-            var list = new DropdownList<int>();
-
-            for(int i = 0; i < LevelDesignData.Instance.Triggers.TriggerTypes.Length; i++)
-            {
-                list.Add(LevelDesignData.Instance.Triggers.TriggerTypes[i].Name, i);
-            }
-
-            return list;
-        }*/
-
-        private void OnValidate()
-        {
-            GetComponent<BoxCollider>().isTrigger = true;
+            var collider = instance.GetComponent<BoxCollider>();
+            if (collider != null)
+                collider.isTrigger = true;
         }
 
-        public virtual void OnTriggerEnter(Collider other)
+        protected override void OnTriggerEnter(BehaviorInstance instance, Collider other)
         {
             if (other.CompareTag(GlobalSubsystem.PlayerTag))
-            {
-                OnTrigger?.Invoke();
-            }
+                OnTrigger.Invoke();
         }
 
-
-        void OnDrawGizmos()
+        protected override void OnDrawGizmos(BehaviorGizmoContext context)
         {
-            TriggerInfo = LevelDesignData.Instance.Triggers;
-            if (showCollider)
-            {
-                if(_boxCollider == null)
-                    _boxCollider = GetComponent<BoxCollider>();
+            if (!context.Get(ShowCollider))
+                return;
 
-                if (LevelDesignData.Instance.Triggers.TriggerTypes.Length == 0) return;
+            var collider = context.GetComponent<BoxCollider>();
+            var triggerTypes = LevelDesignData.Instance.Triggers?.TriggerTypes;
+            int triggerType = context.Get(TriggerType);
+            if (collider == null || triggerTypes == null || triggerType < 0 || triggerType >= triggerTypes.Length)
+                return;
 
-                Gizmos.color = LevelDesignData.Instance.Triggers.TriggerTypes[TriggerType].Color;
-
-                if (LevelDesignData.Instance.Triggers.TriggerTypes[TriggerType].Filled)
-                {
-                    Gizmos.DrawCube(transform.position + _boxCollider.center, _boxCollider.size);
-                    Gizmos.DrawWireCube(transform.position + _boxCollider.center, _boxCollider.size);
-                }
-                else
-                    Gizmos.DrawWireCube(transform.position + _boxCollider.center, _boxCollider.size);
-            }
+            var definition = triggerTypes[triggerType];
+            var center = context.Transform.position + collider.center;
+            Gizmos.color = definition.Color;
+            if (definition.Filled)
+                Gizmos.DrawCube(center, collider.size);
+            Gizmos.DrawWireCube(center, collider.size);
         }
     }
 }

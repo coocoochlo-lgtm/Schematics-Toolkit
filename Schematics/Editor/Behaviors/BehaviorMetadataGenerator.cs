@@ -121,7 +121,7 @@ public static class BehaviorMetadataGenerator
 
             definition.Default ??= new SchematicValue();
             if (!definition.OverrideDefault)
-                definition.Default.Set(variable.BoxedDefault);
+                definition.Default.Set(variable.BoxedDefault, variable.ValueType);
 
             variables.Add(definition);
         }

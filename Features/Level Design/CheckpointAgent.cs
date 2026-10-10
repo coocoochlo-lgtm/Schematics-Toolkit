@@ -1,24 +1,29 @@
-using Remedy.Framework;
 using UnityEngine;
 
 namespace Remedy.LevelDesign
 {
-    public class CheckpointAgent : MonoBehaviour
+    /// <summary>
+    /// Moves its object's Rigidbody to the position carried by the Respawn Signal.
+    /// </summary>
+    [SchematicBehaviorPath("Level Design/Checkpoint Agent")]
+    public class CheckpointAgent : SchematicBehavior
     {
-        public SignalData Respawn;
-        private Rigidbody _rb => gameObject.GetCachedComponent<Rigidbody>();
+        [InputSignal]
+        [Parameter("Position", typeof(Vector3))]
+        public readonly SignalHandle<Vector3> Respawn;
 
-        private void OnEnable()
+        protected override void OnStart(BehaviorInstance instance)
         {
-            Respawn?.Subscribe(this, (Vector3 position) =>
+            Respawn.Subscribe(position =>
             {
-                if (_rb != null)
-                {
-                    bool originallyKinematic = _rb.isKinematic;
-                    _rb.isKinematic = true;
-                    _rb.position = position;
-                    _rb.isKinematic = originallyKinematic;
-                }
+                var rigidbody = instance.GetComponent<Rigidbody>();
+                if (rigidbody == null)
+                    return;
+
+                bool originallyKinematic = rigidbody.isKinematic;
+                rigidbody.isKinematic = true;
+                rigidbody.position = position;
+                rigidbody.isKinematic = originallyKinematic;
             });
         }
     }

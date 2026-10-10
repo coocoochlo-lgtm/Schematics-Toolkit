@@ -1,4 +1,5 @@
 using System;
+using UnityEditorInternal;
 using UnityEditor;
 using UnityEngine;
 
@@ -44,8 +45,20 @@ public static class SchematicValueField
             var rotation = value is Quaternion q && q != default ? q : Quaternion.identity;
             newValue = Quaternion.Euler(EditorGUILayout.Vector3Field(label, rotation.eulerAngles));
         }
+        else if (type == typeof(LayerMask))
+        {
+            var mask = value is LayerMask m ? m : default;
+            int concatenated = InternalEditorUtility.LayerMaskToConcatenatedLayersMask(mask);
+            concatenated = EditorGUILayout.MaskField(label, concatenated, InternalEditorUtility.layers);
+            newValue = (LayerMask)InternalEditorUtility.ConcatenatedLayersMaskToLayerMask(concatenated);
+        }
         else if (typeof(UnityEngine.Object).IsAssignableFrom(type))
             newValue = EditorGUILayout.ObjectField(label, value as UnityEngine.Object, type, true);
+        else if (SchematicValue.IsBoxable(type))
+        {
+            // Drawn by the caller with a PropertyField when it has a SerializedProperty for the value.
+            EditorGUILayout.LabelField(label, new GUIContent(ObjectNames.NicifyVariableName(type.Name)));
+        }
 
         return EditorGUI.EndChangeCheck();
     }

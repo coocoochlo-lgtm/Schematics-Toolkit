@@ -27,8 +27,10 @@ public class BehaviorMetadataEditor : Editor
         if (metadata.Variables.Count == 0)
             EditorGUILayout.LabelField("No Variables", EditorStyles.miniLabel);
 
-        foreach (var definition in metadata.Variables)
+        serializedObject.Update();
+        for (int index = 0; index < metadata.Variables.Count; index++)
         {
+            var definition = metadata.Variables[index];
             var type = definition.Type.Type;
             using (new EditorGUILayout.HorizontalScope())
             {
@@ -47,16 +49,29 @@ public class BehaviorMetadataEditor : Editor
                 {
                     var label = new GUIContent(ObjectNames.NicifyVariableName(definition.Name),
                         definition.OverrideDefault ? "Overrides the default in code for every instance." : "Default from code. Tick the box to override it.");
-                    if (SchematicValueField.Draw(label, type, definition.Default?.Get(type), out var newValue))
+                    if (SchematicValue.IsBoxable(type))
+                    {
+                        // Arrays, lists and serializable classes use Unity's own property drawers.
+                        var property = serializedObject.FindProperty(
+                            $"{nameof(BehaviorMetadata.Variables)}.Array.data[{index}].{nameof(VariableDefinition.Default)}.{SchematicValue.BoxedValuePath}");
+                        using (new EditorGUILayout.VerticalScope())
+                        {
+                            if (property != null) EditorGUILayout.PropertyField(property, label, true);
+                            else EditorGUILayout.LabelField(label, new GUIContent("(not serializable by Unity)"));
+                        }
+                    }
+                    else if (SchematicValueField.Draw(label, type, definition.Default?.Get(type), out var newValue))
                     {
                         Undo.RecordObject(metadata, "Set Behavior Default");
                         definition.Default ??= new SchematicValue();
-                        definition.Default.Set(newValue);
+                        definition.Default.Set(newValue, type);
                         EditorUtility.SetDirty(metadata);
                     }
                 }
             }
         }
+
+        serializedObject.ApplyModifiedProperties();
 
         EditorGUILayout.Space();
         EditorGUILayout.LabelField("Signals", EditorStyles.boldLabel);

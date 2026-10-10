@@ -11,8 +11,9 @@ namespace Remedy.Damagables
     public class DamageManager : Singleton<DamageManager>
     {
         //[ReadOnly, SaintsDictionary]
-        private Dictionary<int, List<Damageable>> _activeDamageables = new();
-        public static Dictionary<int, List<Damageable>> ActiveDamageables => Instance._activeDamageables;
+        private Dictionary<int, List<BehaviorInstance>> _activeDamageables = new();
+        /// <summary>Spawned, enabled Damageables by Damage Layer.</summary>
+        public static Dictionary<int, List<BehaviorInstance>> ActiveDamageables => Instance._activeDamageables;
 
         private Dictionary<GameObject, int> _damageables;
         public static Dictionary<GameObject, int> Damageables => Instance._damageables ??= new();
@@ -21,47 +22,50 @@ namespace Remedy.Damagables
         {
             for(int i = 0; i < DamageData.Instance.DamageLayers.Length; i++)
             {
-                ActiveDamageables.Add(i, new());
+                if (!ActiveDamageables.ContainsKey(i))
+                    ActiveDamageables.Add(i, new());
             }
         }
 
-        public static void AddDamageable(Damageable damageable)
+        /// <summary>Called by Damageables when they become enabled.</summary>
+        public static void AddDamageable(BehaviorInstance damageable, int damageLayer)
         {
-            ActiveDamageables[damageable.DamageLayer].Add(damageable);
-            Damageables.Add(damageable.gameObject, damageable.DamageLayer);
+            if (!ActiveDamageables.TryGetValue(damageLayer, out var list))
+                ActiveDamageables[damageLayer] = list = new();
+            if (!list.Contains(damageable))
+                list.Add(damageable);
+            Damageables[damageable.GameObject] = damageLayer;
         }
 
-        public static void RemoveDamageable(Damageable damageable)
+        /// <summary>Called by Damageables when they become disabled or despawn.</summary>
+        public static void RemoveDamageable(BehaviorInstance damageable)
         {
-            ActiveDamageables[damageable.DamageLayer].Remove(damageable);
-            Damageables.Remove(damageable.gameObject);
+            if (Damageables.TryGetValue(damageable.GameObject, out var layer) && ActiveDamageables.TryGetValue(layer, out var list))
+                list.Remove(damageable);
+            Damageables.Remove(damageable.GameObject);
         }
 
         public static void InstigateDamage(DamageInstigation instigation)
         {
-            var data = DamageInstigationData.Lookup[instigation.DataID];
-            var damageables = ActiveDamageables[data.DamageLayer];
-
-            foreach (var damageable in damageables)
-            {
-                if (Vector3.Distance(damageable.transform.position, instigation.Position) < data.Radius)
-                {
-                    damageable.Damage(instigation);
-                }
-            }
+            ForEachInRadius(instigation, (damageable, instance) => damageable.Damage(instance, instigation));
         }
 
-        public void InstigateHeal(DamageInstigation instigation)
+        public static void InstigateHeal(DamageInstigation instigation)
         {
-            var data = DamageInstigationData.Lookup[instigation.DataID];
-            var damageables = ActiveDamageables[data.DamageLayer];
+            ForEachInRadius(instigation, (damageable, instance) => damageable.Heal(instance, instigation));
+        }
 
-            foreach (var damageable in damageables)
+        private static void ForEachInRadius(DamageInstigation instigation, System.Action<Damageable, BehaviorInstance> apply)
+        {
+            if (!DamageInstigationData.Lookup.TryGetValue(instigation.DataID, out var data) ||
+                !ActiveDamageables.TryGetValue(data.DamageLayer, out var damageables))
+                return;
+
+            // Copied: damage can kill and despawn things, which removes them from the list.
+            foreach (var instance in damageables.ToArray())
             {
-                if (Vector3.Distance(damageable.transform.position, instigation.Position) < data.Radius)
-                {
-                    damageable.Damage(instigation);
-                }
+                if (instance.IsSpawned && Vector3.Distance(instance.Transform.position, instigation.Position) < data.Radius)
+                    apply((Damageable)instance.Behavior, instance);
             }
         }
     }

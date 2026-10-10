@@ -1,86 +1,60 @@
-﻿using Remedy.Framework;
-/*using SaintsField;
-using SaintsField.Playa;*/
 using UnityEngine;
 
 namespace Remedy.Damagables
 {
-    [SchematicComponent("Damageables/Instigator")]
-    ///[Searchable]
-    public class DamageInstigator : MonoBehaviour
+    /// <summary>
+    /// Deals damage, either to Damageables in a radius when Instigate is sent, or on contact depending on its Data.
+    /// </summary>
+    [SchematicBehaviorPath("Damageables/Instigator")]
+    public class DamageInstigator : SchematicBehavior
     {
-/*        [Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Events", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Input")]*/
-        public SignalData Instigate;
-/*        [Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Events", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Output")]*/
-        public SignalData OnInstigation;
+        [InputSignal] public readonly SignalHandle Instigate;
+        [OutputSignal] public readonly SignalHandle OnInstigation;
 
-/*        [Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Component", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Properties")]*/
-        public DamageInstigationData Data;
+        public readonly VariableHandle<DamageInstigationData> Data = (DamageInstigationData)null;
 
-        void OnEnable()
+        protected override void OnStart(BehaviorInstance instance)
         {
-            Instigate?.Subscribe(this, (Union value) =>
+            // Fires whatever the Signal carries.
+            Instigate.Subscribe(() =>
             {
-                DamageManager.InstigateDamage(new(transform.position, Data.ID));
+                var data = Data.Value;
+                if (data == null) return;
+                DamageManager.InstigateDamage(new(instance.Transform.position, data.ID));
+                OnInstigation.Invoke();
             });
         }
-        void OnDisable()
-        {
-            Instigate?.Unsubscribe(this);
-        }
 
-/*        public DropdownList<DamageType> GetDamageTypes()
+        protected override void OnTriggerStay(BehaviorInstance instance, Collider other)
+            => TryDamage(instance, other, DamageInstigationData.InstigationType.OnTriggerStay);
+
+        protected override void OnCollisionEnter(BehaviorInstance instance, Collision collision)
+            => TryDamage(instance, collision.collider, DamageInstigationData.InstigationType.OnCollisionEnter);
+
+        protected override void OnTriggerEnter(BehaviorInstance instance, Collider other)
+            => TryDamage(instance, other, DamageInstigationData.InstigationType.OnCollisionEnter);
+
+        private void TryDamage(BehaviorInstance instance, Collider other, DamageInstigationData.InstigationType when)
         {
-            DropdownList<DamageType> list = new();
-            var damageTypes = Resources.LoadAll<DamageType>("");
-            if (damageTypes.Length == 0)
-                list.Add("No Damage Types", null);
-            else
+            var data = Data.Value;
+            if (data == null || data.Instigation != when)
+                return;
+
+            var damageable = FindDamageable(other);
+            if (damageable != null && damageable.DamageLayer.Value == data.DamageLayer)
             {
-                foreach(var damageType in damageTypes)
-                {
-                    list.Add(damageType.name, damageType);
-                }
-            }
-            return list;
-        }*/
-
-        private void OnTriggerStay(Collider other)
-        {
-            if (Data.Instigation != DamageInstigationData.InstigationType.OnTriggerStay) return;
-            var damageable = other.GetCachedComponent<Damageable>();
-
-            if(damageable != null && damageable.DamageLayer == Data.DamageLayer)
-            {
-                damageable.Damage(new(transform.position, Data.ID));
+                damageable.Damage(new(instance.Transform.position, data.ID));
+                OnInstigation.Invoke(instance);
             }
         }
 
-        private void OnCollisionEnter(Collision collision)
+        // The collider's own object, or the object its Rigidbody belongs to. Returned with that object selected.
+        private static Damageable FindDamageable(Collider other)
         {
-            if (Data.Instigation != DamageInstigationData.InstigationType.OnCollisionEnter) return;
-            var damageable = collision.gameObject.GetCachedComponent<Damageable>();
-
-            if (damageable != null && damageable.DamageLayer == Data.DamageLayer)
-            {
-                damageable.Damage(new(transform.position, Data.ID));
-            }
-        }
-        private void OnTriggerEnter(Collider other)
-        {
-            if (Data.Instigation != DamageInstigationData.InstigationType.OnCollisionEnter) return;
-            var damageable = other.GetCachedComponent<Damageable>();
-
-            if (damageable != null && damageable.DamageLayer == Data.DamageLayer)
-            {
-                damageable.Damage(new(transform.position, Data.ID));
-            }
+            var damageable = other.gameObject.GetSchematicBehavior<Damageable>();
+            if (damageable == null && other.attachedRigidbody != null)
+                damageable = other.attachedRigidbody.gameObject.GetSchematicBehavior<Damageable>();
+            return damageable;
         }
     }
 }

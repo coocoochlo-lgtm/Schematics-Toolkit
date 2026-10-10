@@ -35,5 +35,15 @@ namespace Remedy.Schematics
         {
             if (Owner != null) Owner.ForwardPhysics(gameObject, BehaviorRuntime.PhysicsMessage.TriggerExit, null, other);
         }
+
+        private void OnCollisionStay(Collision collision)
+        {
+            if (Owner != null) Owner.ForwardStay(gameObject, BehaviorRuntime.PhysicsMessage.CollisionStay, collision, null);
+        }
+
+        private void OnTriggerStay(Collider other)
+        {
+            if (Owner != null) Owner.ForwardStay(gameObject, BehaviorRuntime.PhysicsMessage.TriggerStay, null, other);
+        }
     }
 }
