@@ -411,10 +411,58 @@ public class SchematicGraphEditorWindow : GraphEditorWindow
     {
         _sidebarTabs["Prefab"].Clear();
         _dock = null;
+        if (SchematicGraph is SingletonGraph singleton)
+        {
+            _sidebarTabs["Prefab"].Set(new IMGUIContainer(() => DrawSingletonPanel(singleton)));
+            return;
+        }
         if (Prefab != null)
         {
             _dock = new PrefabHierarchy(Prefab, this);
             _sidebarTabs["Prefab"].Set(_dock);
+        }
+    }
+
+    /// <summary>
+    /// A Singleton Graph has no prefab: its object is created when the game starts. This panel shows how, and its State Machine.
+    /// </summary>
+    private void DrawSingletonPanel(SingletonGraph singleton)
+    {
+        EditorGUILayout.HelpBox("This Singleton gets its own object when the game starts (kept across scenes), registered automatically: no Resources folder needed.", MessageType.None);
+
+        EditorGUI.BeginChangeCheck();
+        bool spawn = EditorGUILayout.Toggle(new GUIContent("Spawn On Start", "Create this Singleton's object when the game starts."), singleton.SpawnOnStart);
+        int order = EditorGUILayout.IntField(new GUIContent("Order", "Singletons are created in ascending order."), singleton.Order);
+        var stateMachine = (StateMachineDefinition)EditorGUILayout.ObjectField("State Machine", singleton.StateMachine, typeof(StateMachineDefinition), false);
+        if (EditorGUI.EndChangeCheck())
+        {
+            Undo.RecordObject(singleton, "Edit Singleton");
+            singleton.SpawnOnStart = spawn;
+            singleton.Order = order;
+            singleton.StateMachine = stateMachine;
+            if (stateMachine != null && stateMachine.Prefab == null && stateMachine.Singleton == null)
+            {
+                Undo.RecordObject(stateMachine, "Edit Singleton");
+                stateMachine.Singleton = singleton;
+                EditorUtility.SetDirty(stateMachine);
+            }
+            EditorUtility.SetDirty(singleton);
+            SingletonGraphRegistry.Sync();
+        }
+
+        if (GUILayout.Button(singleton.StateMachine != null ? "Open State Machine" : "Create State Machine"))
+            StateMachineWindow.Open(StateMachineEditorUtility.DefinitionFor(singleton, create: true));
+
+        if (Application.isPlaying)
+        {
+            EditorGUILayout.Space();
+            var host = singleton.Host;
+            using (new EditorGUI.DisabledScope(host == null))
+                if (GUILayout.Button(host != null ? $"Select {host.name}" : "Not running"))
+                    Selection.activeGameObject = host.gameObject;
+            var machine = host != null ? host.gameObject.GetSchematicBehavior<StateMachine>() : null;
+            if (machine != null)
+                EditorGUILayout.LabelField("Current State", machine.CurrentState.Value);
         }
     }
 

@@ -8,8 +8,6 @@ using UnityEngine.Events;
 public class SchematicsManager : Singleton<SchematicsManager>
 {
     private readonly Dictionary<SchematicObject, SchematicPool> _pools = new();
-    [SerializeField]
-    private List<SingletonGraph> _runningSingletons = new();
 
     public static event UnityAction OnUpdate;
 
@@ -32,7 +30,8 @@ public class SchematicsManager : Singleton<SchematicsManager>
                 ExecutionContext.Unregister(schematicObject);
         });
 
-        Instance.InitializeSingletons();
+        // Singleton Graphs are created by the SingletonGraphSpawner before the first scene loads.
+        _ = Instance;
     }
 
     #region Spawning
@@ -101,17 +100,6 @@ public class SchematicsManager : Singleton<SchematicsManager>
     }
 
     #endregion
-
-    private void InitializeSingletons()
-    {
-        foreach(var graph in SchematicManagerData.SingletonGraphs)
-        {
-            _runningSingletons.Add(graph);
-            graph.TriggerEvent<OnStart>(null);
-
-            OnUpdate += () => graph.TriggerEvent<OnUpdate>(null);
-        }
-    }
 
     private void Update()
     {

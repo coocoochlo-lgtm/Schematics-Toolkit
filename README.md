@@ -268,6 +268,11 @@ Attach the **State Machine** Behavior (Logic/State Machine) and click **Open Sta
 - Each state can have its own Schematic Graph, which runs while the state is active (**On State Enter / Update / Exit** nodes, plus its Signal nodes).
 - Send the State Machine's `SetState` Signal with a state name to change state from code or a graph; `OnStateChanged` reports each change.
 
+### Singleton Graphs
+Create one with **Create → Remedy Toolkit → Schematics → Singleton Schematic**. It doesn't need to be in a Resources folder: the editor registers every Singleton Graph automatically (in the Schematic Manager Data, which is in Resources). When the game starts, each one gets its own Schematic Object, named `[Singleton] <graph name>` and kept across scenes, which runs the graph like any other object: its events, Signals, Variable nodes and the game-wide events (scene loaded, runtime update, …).
+
+Give it a State Machine from the graph window's side panel (**Create State Machine**). The definition is stored on the asset; the state lives on the object. Reach the object from code with `mySingletonGraph.Host` or `SingletonGraph.Find("Name")`.
+
 
 ---
 

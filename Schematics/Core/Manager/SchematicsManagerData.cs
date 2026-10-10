@@ -19,18 +19,29 @@ public class SchematicManagerData : SingletonData<SchematicManagerData>
     private List<SchematicGraph> _graphs;
     public static List<SchematicGraph> Graphs => Instance._graphs ??= new();
 
-    [SerializeField, HideInInspector]
-    private List<SingletonGraph> _singletonGraphs;
+    [Tooltip("Every Singleton Graph in the project, kept up to date by the editor. Each gets its own object when the game starts.")]
+    [SerializeField]
+    private List<SingletonGraph> _singletonGraphs = new();
     public static List<SingletonGraph> SingletonGraphs => Instance._singletonGraphs ??= new();
 
-    public static void AddSingletonGraph(SingletonGraph graph)
+#if UNITY_EDITOR
+    /// <summary>
+    /// Replaces the registered Singleton Graphs. Called by the editor whenever Singleton Graph assets change and
+    /// before builds. Returns true if the list changed.
+    /// </summary>
+    public static bool SetSingletonGraphs(List<SingletonGraph> graphs)
     {
-        if(Application.isPlaying)
-            Instance._singletonGraphs.RemoveAll(item => item == null);
+        var current = SingletonGraphs;
+        bool same = current.Count == graphs.Count;
+        for (int i = 0; same && i < graphs.Count; i++)
+            same = current[i] == graphs[i];
+        if (same)
+            return false;
 
-        if (!Instance._singletonGraphs.Contains(graph))
-        {
-            Instance._singletonGraphs.Add(graph);
-        }
+        current.Clear();
+        current.AddRange(graphs);
+        UnityEditor.EditorUtility.SetDirty(Instance);
+        return true;
     }
+#endif
 }

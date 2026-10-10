@@ -7,13 +7,16 @@ using UnityEngine;
 /// A hierarchical state machine for a Schematic Object: states (which can hold child states), what each state turns
 /// on and off among the object's Behaviors, the transitions out of it (on a Signal, or when conditions hold), and a
 /// Schematic Graph of its own that runs while the state is active.<br/>
-/// Edited in the State Machine window (as a spreadsheet, or as a graph) and run by the <see cref="StateMachine"/> Behavior.
+/// Edited in the State Machine window (as a spreadsheet, or as a graph) and run by the State Machine Behavior.
 /// </summary>
 [CreateAssetMenu(menuName = "Remedy Toolkit/Schematics/State Machine", fileName = "New State Machine")]
 public class StateMachineDefinition : ScriptableObject
 {
     [Tooltip("The prefab this State Machine was made for. Used by the editor to list its Behaviors and Signals.")]
     public GameObject Prefab;
+
+    [Tooltip("Set instead of a prefab when the State Machine belongs to a Singleton Graph.")]
+    public SingletonGraph Singleton;
 
     public List<StateDefinition> States = new();
 

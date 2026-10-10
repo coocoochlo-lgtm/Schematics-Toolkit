@@ -144,7 +144,12 @@ public class StateMachineWindow : EditorWindow
             if (EditorGUI.EndChangeCheck())
                 SetDefinition(definition);
 
-            if (_definition != null)
+            if (_definition != null && _definition.Singleton != null && _definition.Prefab == null)
+            {
+                using (new EditorGUI.DisabledScope(true))
+                    EditorGUILayout.ObjectField(_definition.Singleton, typeof(SingletonGraph), false, GUILayout.Width(180));
+            }
+            else if (_definition != null)
             {
                 EditorGUI.BeginChangeCheck();
                 var prefab = (GameObject)EditorGUILayout.ObjectField(_definition.Prefab, typeof(GameObject), false, GUILayout.Width(180));
@@ -206,7 +211,9 @@ public class StateMachineWindow : EditorWindow
 
         if (_columns.Count == 0 && _definition.Prefab != null)
             EditorGUILayout.HelpBox("The prefab has no other Schematic Behaviors to switch yet.", MessageType.None);
-        if (_definition.Prefab == null)
+        if (_definition.Prefab == null && _definition.Singleton != null)
+            EditorGUILayout.HelpBox($"Runs on the object of the Singleton Graph '{_definition.Singleton.name}', which has only its State Machine. Transitions can use any Signal asset, such as global input Signals.", MessageType.None);
+        else if (_definition.Prefab == null)
             EditorGUILayout.HelpBox("Set the prefab (toolbar) to list its Behaviors, Variables and Signals.", MessageType.Warning);
 
         EditorGUILayout.EndScrollView();

@@ -90,7 +90,15 @@ public static class StateMachineEditorUtility
         var result = new List<(string, SignalData)>();
         var root = prefab != null ? prefab.GetComponent<SchematicObject>() : null;
         if (root == null)
+        {
+            // A Singleton's object has only its State Machine Behavior.
+            var metadata = BehaviorMetadata.Get(typeof(StateMachine));
+            if (metadata != null)
+                foreach (var signal in metadata.Signals)
+                    if (signal.Asset != null)
+                        result.Add((nameof(StateMachine) + "/" + signal.Name, signal.Asset));
             return result;
+        }
 
         var seen = new HashSet<SignalData>();
         foreach (var entry in root.Behaviors)
@@ -165,6 +173,30 @@ public static class StateMachineEditorUtility
         Undo.RecordObject(root, "Create State Machine");
         attachment.SetOverride("Definition", definition, typeof(StateMachineDefinition));
         EditorUtility.SetDirty(root);
+        AssetDatabase.SaveAssets();
+        return definition;
+    }
+
+    /// <summary>
+    /// The State Machine of a Singleton Graph, creating it next to the graph asset and assigning it if there isn't one.
+    /// </summary>
+    public static StateMachineDefinition DefinitionFor(SingletonGraph graph, bool create)
+    {
+        if (graph == null || graph.StateMachine != null || !create)
+            return graph != null ? graph.StateMachine : null;
+
+        string graphPath = AssetDatabase.GetAssetPath(graph);
+        string folder = string.IsNullOrEmpty(graphPath) ? "Assets" : Path.GetDirectoryName(graphPath).Replace('\\', '/');
+        var definition = ScriptableObject.CreateInstance<StateMachineDefinition>();
+        definition.Singleton = graph;
+        var first = new StateDefinition { Name = "Idle" };
+        definition.States.Add(first);
+        definition.InitialState = first.Id;
+        AssetDatabase.CreateAsset(definition, AssetDatabase.GenerateUniqueAssetPath($"{folder}/{SafeName(graph.name)} State Machine.asset"));
+
+        Undo.RecordObject(graph, "Create State Machine");
+        graph.StateMachine = definition;
+        EditorUtility.SetDirty(graph);
         AssetDatabase.SaveAssets();
         return definition;
     }
