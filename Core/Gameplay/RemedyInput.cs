@@ -45,6 +45,10 @@ public class RemedyInput : SingletonData<RemedyInput>
     private InputActionMap _currentActionMap;
     private Dictionary<InputAction, List<InputActionEvent>> _actionsToUpdate = new();
 
+    // The handlers attached to each Input Action of the current map, kept so they can be removed again. Without this,
+    // every call to SetInputMap stacked another set of handlers and inputs fired once more each time.
+    private readonly Dictionary<InputAction, (Action<InputAction.CallbackContext> started, Action<InputAction.CallbackContext> performed, Action<InputAction.CallbackContext> canceled)> _boundHandlers = new();
+
 
     public void InitializeInput()
     {
@@ -66,37 +70,73 @@ public class RemedyInput : SingletonData<RemedyInput>
             Debug.LogError("The Requested Input Map does not exist: " + mapName);
             return;
         }
+        UnbindCurrentMap();
         _currentActionMap = map;
 
         foreach (var inputEventCollection in _currentActionMap.Inputs)
         {
-            inputEventCollection.Input.Enable();
+            var action = inputEventCollection.Input;
+            if (action == null || _boundHandlers.ContainsKey(action))
+                continue;
 
-            inputEventCollection.Input.started += (InputAction.CallbackContext context) =>
+            Action<InputAction.CallbackContext> started = context =>
             {
                 Send(inputEventCollection, context);
 
                 if (!inputEventCollection.OneShot)
                 {
-                    if (!_actionsToUpdate.ContainsKey(inputEventCollection.Input))
-                        _actionsToUpdate.Add(inputEventCollection.Input, new());
-                    _actionsToUpdate[inputEventCollection.Input].Add(inputEventCollection);
+                    if (!_actionsToUpdate.TryGetValue(action, out var held))
+                        _actionsToUpdate.Add(action, held = new());
+                    if (!held.Contains(inputEventCollection))
+                        held.Add(inputEventCollection);
                 }
             };
 
-            inputEventCollection.Input.performed += (InputAction.CallbackContext context) => Send(inputEventCollection, context);
+            Action<InputAction.CallbackContext> performed = context => Send(inputEventCollection, context);
 
-            inputEventCollection.Input.canceled += (InputAction.CallbackContext context) =>
+            Action<InputAction.CallbackContext> canceled = context =>
             {
-                _actionsToUpdate.Remove(inputEventCollection.Input);
-
-                var output = inputEventCollection.Output;
-                if (output == null) return;
-                _currentInput.Remove(output);
-                // Released: every listener gets its parameter's default (false, 0, Vector2.zero...).
-                output.BroadcastDefault();
+                _actionsToUpdate.Remove(action);
+                Release(inputEventCollection);
             };
+
+            action.started += started;
+            action.performed += performed;
+            action.canceled += canceled;
+            _boundHandlers[action] = (started, performed, canceled);
+            action.Enable();
         }
+    }
+
+    /// <summary>
+    /// Detaches the current map's inputs: removes their handlers, disables them, and releases any that are held
+    /// (their Signals get defaults), so nothing stays "pressed" after switching maps.
+    /// </summary>
+    private void UnbindCurrentMap()
+    {
+        foreach (var entry in _boundHandlers)
+        {
+            var action = entry.Key;
+            action.started -= entry.Value.started;
+            action.performed -= entry.Value.performed;
+            action.canceled -= entry.Value.canceled;
+            action.Disable();
+        }
+        _boundHandlers.Clear();
+
+        foreach (var held in _actionsToUpdate.Values)
+            foreach (var inputEvent in held)
+                Release(inputEvent);
+        _actionsToUpdate.Clear();
+    }
+
+    private static void Release(InputActionEvent inputEvent)
+    {
+        var output = inputEvent.Output;
+        if (output == null) return;
+        _currentInput.Remove(output);
+        // Released: every listener gets its parameter's default (false, 0, Vector2.zero...).
+        output.BroadcastDefault();
     }
 
     /// <summary>
