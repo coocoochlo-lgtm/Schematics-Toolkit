@@ -102,23 +102,27 @@ namespace Remedy.Schematics
 
         protected virtual void OnCollisionEnter(Collision collision)
         {
+            ForwardPhysics(gameObject, BehaviorRuntime.PhysicsMessage.CollisionEnter, collision, null);
             if (SchematicGraph == null) return;
             SchematicGraph.TriggerEvent<OnCollisionEnter>(gameObject, collision.collider, collision.impulse, collision.relativeVelocity, collision.articulationBody, collision.transform, collision.gameObject);
         }
 
         protected virtual void OnCollisionExit(Collision collision)
         {
+            ForwardPhysics(gameObject, BehaviorRuntime.PhysicsMessage.CollisionExit, collision, null);
             if (SchematicGraph == null) return;
             SchematicGraph.TriggerEvent<OnCollisionExit>(gameObject, collision.collider, collision.impulse, collision.relativeVelocity, collision.articulationBody, collision.transform, collision.gameObject);
         }
         protected virtual void OnTriggerEnter(Collider collider)
         {
+            ForwardPhysics(gameObject, BehaviorRuntime.PhysicsMessage.TriggerEnter, null, collider);
             if (SchematicGraph == null) return;
             SchematicGraph.TriggerEvent<OnCollisionEnter>(gameObject, collider);
         }
 
         protected virtual void OnTriggerExit(Collider collider)
         {
+            ForwardPhysics(gameObject, BehaviorRuntime.PhysicsMessage.TriggerExit, null, collider);
             if (SchematicGraph == null) return;
             SchematicGraph.TriggerEvent<OnCollisionExit>(gameObject, collider);
         }
@@ -223,10 +227,30 @@ namespace Remedy.Schematics
                     }
 
                     _behaviorInstances.Add(new BehaviorInstance(this, target, runtime, attachment));
+
+                    // Unity only sends physics messages to the colliding object itself, so children need a relay.
+                    if (runtime.HasPhysicsCallbacks && target != gameObject && !target.TryGetComponent(out SchematicPhysicsRelay _))
+                        target.AddComponent<SchematicPhysicsRelay>().Owner = this;
                 }
             }
 
             return _behaviorInstances;
+        }
+
+        /// <summary>
+        /// Sends a physics message to the enabled Behavior Instances attached to <paramref name="source"/>.
+        /// </summary>
+        internal void ForwardPhysics(GameObject source, BehaviorRuntime.PhysicsMessage message, Collision collision, Collider other)
+        {
+            if (_behaviorInstances == null)
+                return;
+
+            for (int i = 0; i < _behaviorInstances.Count; i++)
+            {
+                var instance = _behaviorInstances[i];
+                if (instance.GameObject == source)
+                    instance.Runtime.DispatchPhysics(instance, message, collision, other);
+            }
         }
 
         #endregion

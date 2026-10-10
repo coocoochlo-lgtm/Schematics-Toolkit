@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using UnityEngine;
 
 /// <summary>
 /// A Schematic Behavior is closer to a System than a traditional MonoBehaviour. There is only ever one
@@ -18,6 +19,8 @@ using System.Reflection;
 ///     instance.Transform.position += Vector3.forward * _speed.Value * Time.deltaTime;
 /// }
 /// </code>
+/// Components are best fetched with <see cref="BehaviorInstance.GetComponent{T}"/>, which caches them for the object's life;
+/// Variables are reset every spawn, so they're the wrong place to cache anything.<br/>
 /// Lifecycle order on spawn: <see cref="OnCreate"/> (first time the object is ever created) →
 /// <see cref="OnStart"/> → <see cref="OnEnable"/>. On despawn: <see cref="OnDisable"/> → <see cref="OnDestroy"/>.
 /// </remarks>
@@ -58,6 +61,12 @@ public abstract class SchematicBehavior
     /// <summary>Called when the instance is despawned. Pooled objects go back to their pool afterwards rather than being destroyed.</summary>
     protected internal virtual void OnDestroy(BehaviorInstance instance) { }
 
+    /// <summary>Unity physics messages from the instance's GameObject, while it is enabled.</summary>
+    protected internal virtual void OnCollisionEnter(BehaviorInstance instance, Collision collision) { }
+    protected internal virtual void OnCollisionExit(BehaviorInstance instance, Collision collision) { }
+    protected internal virtual void OnTriggerEnter(BehaviorInstance instance, Collider other) { }
+    protected internal virtual void OnTriggerExit(BehaviorInstance instance, Collider other) { }
+
     /// <summary>
     /// Creates a Behavior of the given type and collects the Variables its field initializers declared.
     /// </summary>
@@ -97,8 +106,10 @@ public abstract class SchematicBehavior
     /// </summary>
     internal bool Overrides(string methodName)
     {
-        var method = GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-        return method != null && method.DeclaringType != typeof(SchematicBehavior);
+        foreach (var method in GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            if (method.Name == methodName && method.DeclaringType != typeof(SchematicBehavior) && method.GetBaseDefinition().DeclaringType == typeof(SchematicBehavior))
+                return true;
+        return false;
     }
 
     // Names come from the fields holding each handle, so they match what the Inspector shows.

@@ -42,6 +42,9 @@ public sealed class BehaviorRuntime
     private readonly bool _hasLateUpdate;
     private readonly bool _hasFixedUpdate;
 
+    /// <summary>True if the Behavior overrides any collision or trigger callback.</summary>
+    public bool HasPhysicsCallbacks { get; }
+
     internal BehaviorRuntime(SchematicBehavior behavior, BehaviorMetadata metadata)
     {
         Behavior = behavior;
@@ -71,6 +74,10 @@ public sealed class BehaviorRuntime
         _hasUpdate = behavior.Overrides(nameof(SchematicBehavior.OnUpdate));
         _hasLateUpdate = behavior.Overrides(nameof(SchematicBehavior.OnLateUpdate));
         _hasFixedUpdate = behavior.Overrides(nameof(SchematicBehavior.OnFixedUpdate));
+        HasPhysicsCallbacks = behavior.Overrides(nameof(SchematicBehavior.OnCollisionEnter))
+                           || behavior.Overrides(nameof(SchematicBehavior.OnCollisionExit))
+                           || behavior.Overrides(nameof(SchematicBehavior.OnTriggerEnter))
+                           || behavior.Overrides(nameof(SchematicBehavior.OnTriggerExit));
     }
 
     public int IndexOfVariable(string name)
@@ -298,6 +305,46 @@ public sealed class BehaviorRuntime
                 RemoveRow(instance);
         }
         _pendingRemovals.Clear();
+    }
+
+    #endregion
+
+    #region Physics
+
+    internal enum PhysicsMessage : byte
+    {
+        CollisionEnter, CollisionExit, TriggerEnter, TriggerExit
+    }
+
+    /// <summary>
+    /// Forwards a Unity physics message to an enabled instance. Sent by the Schematic Object (root) or a
+    /// <see cref="Remedy.Schematics.SchematicPhysicsRelay"/> (children).
+    /// </summary>
+    internal void DispatchPhysics(BehaviorInstance instance, PhysicsMessage message, Collision collision, Collider other)
+    {
+        if (!HasPhysicsCallbacks || !instance.Enabled || !instance.Started || !instance.IsSpawned)
+            return;
+
+        var previous = ExecutionContext.CurrentInstance;
+        ExecutionContext.CurrentInstance = instance;
+        try
+        {
+            switch (message)
+            {
+                case PhysicsMessage.CollisionEnter: Behavior.OnCollisionEnter(instance, collision); break;
+                case PhysicsMessage.CollisionExit: Behavior.OnCollisionExit(instance, collision); break;
+                case PhysicsMessage.TriggerEnter: Behavior.OnTriggerEnter(instance, other); break;
+                case PhysicsMessage.TriggerExit: Behavior.OnTriggerExit(instance, other); break;
+            }
+        }
+        catch (Exception exception)
+        {
+            Debug.LogException(exception, instance.GameObject);
+        }
+        finally
+        {
+            ExecutionContext.CurrentInstance = previous;
+        }
     }
 
     #endregion

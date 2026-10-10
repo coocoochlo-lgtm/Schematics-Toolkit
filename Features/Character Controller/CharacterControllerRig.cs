@@ -69,8 +69,9 @@ namespace Remedy.CharacterControllers
         public float VerticalVelocityScaleFactor = 0.2f;
         public float OrientToCameraSpeed = 10f;
 
-        public PhysicsBasedCharacterController _characterController;
-        public PhysicsBasedCharacterController CharacterController => _characterController ??= SystemManager.GetCachedComponent<PhysicsBasedCharacterController>(gameObject);
+        // The Character Controller is a Schematic Behavior now; the Motion Context is the component that always sits beside it.
+        public CharacterMotionContext _characterBody;
+        public CharacterMotionContext CharacterBody => _characterBody ??= SystemManager.GetCachedComponent<CharacterMotionContext>(gameObject);
 
         private WallSlideController _wallSlideController;
         public WallSlideController WallSlideController => _wallSlideController ??= gameObject.GetCachedComponent<WallSlideController>();
@@ -81,7 +82,7 @@ namespace Remedy.CharacterControllers
         private LedgeGrabController _ledgeGrabController;
         public LedgeGrabController LedgeGrabController => _ledgeGrabController ??= gameObject.GetCachedComponent<LedgeGrabController>();
 
-        public Rigidbody rb => CharacterController.GetCachedComponent<Rigidbody>();
+        public Rigidbody rb => CharacterBody.GetCachedComponent<Rigidbody>();
 
 
 
@@ -154,7 +155,7 @@ namespace Remedy.CharacterControllers
             yVelocity *= Mathf.Exp(-ScaleSpringDampening * Time.deltaTime);
             _baseScale.y += yVelocity * Time.deltaTime;
 
-            _direction = CharacterController.transform.position - CharacterRenderer.position;
+            _direction = CharacterBody.transform.position - CharacterRenderer.position;
             _direction.y = 0;
 
             VerticalVelocity?.Invoke(rb.linearVelocity.y);
@@ -268,8 +269,8 @@ namespace Remedy.CharacterControllers
 
                 if (Mathf.Abs(rb.linearVelocity.x) + Mathf.Abs(rb.linearVelocity.z) > 0.5f)
                 {
-                    Tilt.x = Mathf.LerpAngle(CharacterRenderer.eulerAngles.x, CharacterController.transform.eulerAngles.x, TiltDampening * Time.deltaTime);
-                    Tilt.z = Mathf.LerpAngle(CharacterRenderer.eulerAngles.z, CharacterController.transform.eulerAngles.z, TiltDampening * Time.deltaTime);
+                    Tilt.x = Mathf.LerpAngle(CharacterRenderer.eulerAngles.x, CharacterBody.transform.eulerAngles.x, TiltDampening * Time.deltaTime);
+                    Tilt.z = Mathf.LerpAngle(CharacterRenderer.eulerAngles.z, CharacterBody.transform.eulerAngles.z, TiltDampening * Time.deltaTime);
 
                     if (!_orientToDirection)
                         if (RotateCharacterWhileJumping || _isGrounded)

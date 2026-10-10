@@ -1,196 +1,221 @@
-using Remedy.Framework;
-using Remedy.Schematics.Utils;
+using Remedy.Schematics;
 using UnityEngine;
 
-[SchematicComponent("Movement/3D/Default Character Controller")]
-[RequireComponent(typeof(CharacterMotionContext))]
-[RequireComponent(typeof(CharacterRaycastContext))]
-public class PhysicsBasedCharacterController : SchematicMonoBehavior
+/// <summary>
+/// Physics based character movement: rides at a hover height above the ground, jumps with a buffer and hang time,
+/// and falls with extra gravity. Movement itself is applied through the <see cref="CharacterMotionContext"/> and ground
+/// detection comes from the <see cref="CharacterRaycastContext"/>; both must be on the same GameObject.<br/>
+/// Input arrives through the Motion Context's MoveInput and JumpInput Signals.
+/// </summary>
+[SchematicBehaviorPath("Movement/3D/Default Character Controller")]
+public class PhysicsBasedCharacterController : SchematicBehavior
 {
-    [SchematicEventLink(typeof(CharacterMotionContext), nameof(CharacterMotionContext.MoveInput))]
-    static public Signal<Vector2> MoveInput;
-    [SchematicEventLink(typeof(CharacterMotionContext), nameof(CharacterMotionContext.JumpInput))]
-    static public Signal<bool> JumpInput;
     [InputSignal]
     [Parameter("Position", typeof(Vector3))]
     static public Signal<Vector3> MoveToPosition;
 
-    [SchematicProperties]
-    public CharacterControllerProperties Properties;
+    /// <summary>
+    /// Tuning values, assigned per object in the Inspector.
+    /// </summary>
+    public readonly VariableHandle<CharacterControllerProperties> Properties = (CharacterControllerProperties)null;
 
-    // Cached
-    private bool _cached = false;
-    private CharacterRaycastContext _raycastContext;
-    private CharacterMotionContext _motionContext;
-    private float _dt;
-
-    // State vars
-    private readonly VariableHandle<Vector3> _moveInput = default;
+    // State
+    private readonly VariableHandle<Vector3> _moveInput = default(Vector3);
     private readonly VariableHandle<bool> _prevGrounded = false;
     private readonly VariableHandle<bool> _isJumping = false;
     private readonly VariableHandle<float> _jumpResetTime = 0f;
     private readonly VariableHandle<float> _jumpBufferTime = 0f;
     private readonly VariableHandle<float> _jumpArcY = 0f;
     private readonly VariableHandle<bool> _reachedJumpArc = false;
-    private readonly VariableHandle<float> _tempHangTimeDuration = -1; // > 0 = use this instead of default Hang Time
+    private readonly VariableHandle<float> _tempHangTimeDuration = -1f; // > 0 = use this instead of default Hang Time
     private readonly VariableHandle<float> _currentHangTime = 0f;
-    private readonly VariableHandle<float> _jumpStartGroundHeight;
-    private readonly VariableHandle<float> _groundY = 0;
+    private readonly VariableHandle<float> _jumpStartGroundHeight = 0f;
+    private readonly VariableHandle<float> _groundY = 0f;
     private readonly VariableHandle<bool> _hadJumped = false;
     private readonly VariableHandle<bool> _canJump = true;
     private readonly VariableHandle<bool> _enableGravity = true;
 
-    private void OnEnable()
+    /// <summary>
+    /// The Properties of the controller attached to the given GameObject, for systems that need to predict its motion.
+    /// </summary>
+    public static bool TryGetProperties(GameObject gameObject, out CharacterControllerProperties properties)
     {
-        _cached = false;
-        Cache();
+        properties = null;
+        var schematicObject = gameObject.GetComponentInParent<SchematicObject>();
+        var instance = schematicObject != null ? schematicObject.GetBehavior<PhysicsBasedCharacterController>(gameObject) : null;
+        if (instance == null || !instance.IsSpawned)
+            return false;
 
-        _motionContext.IsKinematic = false;
-        _canJump = true;
+        properties = ((PhysicsBasedCharacterController)instance.Behavior).Properties[instance];
+        return properties != null;
+    }
 
-        _currentHangTime = Properties.HangTimeDuration;
-        _jumpBufferTime = Properties.JumpBuffer;
+    protected override void OnCreate(BehaviorInstance instance)
+    {
+        var motion = instance.GetComponent<CharacterMotionContext>();
+        if (motion == null)
+            return;
 
-        MoveInput.Subscribe(this, (Vector2 value) =>
+        // Subscribed once for the object's whole life (pooled objects included). Signals are delivered to the
+        // subscriptions owned by the object that invokes them, so the Motion Context is the owner here too.
+        motion.MoveInput.Subscribe(motion, (Vector2 value) =>
         {
-            _moveInput.x = value.x;
-            _moveInput.z = value.y;
+            if (!instance.IsSpawned || !instance.Enabled) return;
+            ref var input = ref _moveInput.For(instance);
+            input.x = value.x;
+            input.z = value.y;
         });
 
-        JumpInput.Subscribe(this, (bool value) =>
+        motion.JumpInput.Subscribe(motion, (bool value) =>
         {
-            _moveInput.y = value ? 1 : 0;
+            if (!instance.IsSpawned || !instance.Enabled) return;
+            _moveInput.For(instance).y = value ? 1 : 0;
 
             if (value)
             {
-                if (_canJump)
+                if (_canJump[instance])
                 {
-                    _jumpBufferTime = 0f;
-                    _canJump = false;
+                    _jumpBufferTime[instance] = 0f;
+                    _canJump[instance] = false;
                 }
             }
             else
-                _canJump = true;
+                _canJump[instance] = true;
         });
     }
 
-    private void Cache()
+    protected override void OnEnable(BehaviorInstance instance)
     {
-        if(!_cached)
+        var motion = instance.GetComponent<CharacterMotionContext>();
+        if (motion != null)
+            motion.IsKinematic = false;
+
+        _canJump.Value = true;
+
+        var properties = Properties.Value;
+        if (properties != null)
         {
-            _raycastContext = gameObject.GetComponent<CharacterRaycastContext>();
-            _motionContext = gameObject.GetComponent<CharacterMotionContext>();
-            _dt = Time.fixedDeltaTime;
-            _cached = true;
+            _currentHangTime.Value = properties.HangTimeDuration;
+            _jumpBufferTime.Value = properties.JumpBuffer;
         }
     }
 
-    private void FixedUpdate()
+    protected override void OnFixedUpdate(BehaviorInstance instance)
     {
-        HandleGroundRide();
-        _motionContext.ApplyCappedHorizontalForce(_moveInput, Properties.MoveSpeed, Properties.Acceleration, Properties.Deceleration);
-        HandleJump();
-        _moveInput.Value = new Vector3(5, 5, 5);
+        var properties = Properties.Value;
+        var motion = instance.GetComponent<CharacterMotionContext>();
+        var raycast = instance.GetComponent<CharacterRaycastContext>();
+        if (properties == null || motion == null || raycast == null)
+            return;
+
+        HandleGroundRide(properties, motion, raycast);
+        motion.ApplyCappedHorizontalForce(_moveInput, properties.MoveSpeed, properties.Acceleration, properties.Deceleration);
+        HandleJump(properties, motion, raycast);
     }
 
-    private void HandleGroundRide()
+    private void HandleGroundRide(CharacterControllerProperties properties, CharacterMotionContext motion, CharacterRaycastContext raycast)
     {
-        if (_raycastContext.IsGrounded && !_isJumping)
+        if (raycast.IsGrounded && !_isJumping)
         {
-            _hadJumped = false;
-            _groundY = _raycastContext.GroundPosition.y;
-            _prevGrounded = true;
-            _reachedJumpArc = false;
-            _motionContext.SpringToVertically(_groundY, Properties.RideHeight, Properties.RideSpringStrength, Properties.HangTimeDamper, Properties.MaxHoverForce);
+            _hadJumped.Value = false;
+            _groundY.Value = raycast.GroundPosition.y;
+            _prevGrounded.Value = true;
+            _reachedJumpArc.Value = false;
+            motion.SpringToVertically(_groundY, properties.RideHeight, properties.RideSpringStrength, properties.HangTimeDamper, properties.MaxHoverForce);
         }
         else
         {
-            float hangTimeDuration = _tempHangTimeDuration > 0 ? _tempHangTimeDuration : Properties.HangTimeDuration;
+            float hangTimeDuration = _tempHangTimeDuration > 0 ? _tempHangTimeDuration : properties.HangTimeDuration;
 
-            if (_enableGravity && !(_currentHangTime < hangTimeDuration && _hadJumped) && !_raycastContext.IsGrounded)
-                _motionContext.ApplyGravity();
+            if (_enableGravity && !(_currentHangTime < hangTimeDuration && _hadJumped) && !raycast.IsGrounded)
+                motion.ApplyGravity();
 
-            _prevGrounded = false;
+            _prevGrounded.Value = false;
         }
     }
 
-    private void HandleJump()
+    private void HandleJump(CharacterControllerProperties properties, CharacterMotionContext motion, CharacterRaycastContext raycast)
     {
-        float hangTimeDuration = _tempHangTimeDuration > 0 ? _tempHangTimeDuration : Properties.HangTimeDuration;
+        float dt = Time.fixedDeltaTime;
+        float hangTimeDuration = _tempHangTimeDuration > 0 ? _tempHangTimeDuration : properties.HangTimeDuration;
 
-        if (_moveInput.y == 0)
+        if (_moveInput.Value.y == 0)
         {
-            if(_prevGrounded)
-                _jumpResetTime += _dt;
+            if (_prevGrounded)
+                _jumpResetTime.Value += dt;
 
-            if(_isJumping)
+            if (_isJumping)
             {
-                _jumpBufferTime = Properties.JumpBuffer;
-                _isJumping = false;
+                _jumpBufferTime.Value = properties.JumpBuffer;
+                _isJumping.Value = false;
             }
         }
 
         if (!_isJumping && _prevGrounded)
         {
-            _jumpResetTime += _dt;
+            _jumpResetTime.Value += dt;
 
-            if (_jumpResetTime > Properties.JumpResetDelay && _jumpBufferTime < Properties.JumpBuffer)
+            if (_jumpResetTime > properties.JumpResetDelay && _jumpBufferTime < properties.JumpBuffer)
             {
-                _isJumping = true;
-                _prevGrounded = false;
-                _jumpResetTime = 0f;
-                _jumpArcY = _raycastContext.GroundPosition.y + Properties.JumpHeight;
+                _isJumping.Value = true;
+                _prevGrounded.Value = false;
+                _jumpResetTime.Value = 0f;
+                _jumpArcY.Value = raycast.GroundPosition.y + properties.JumpHeight;
 
-                if(_motionContext.Velocity.y < Properties.JumpSpeed)
-                    _motionContext.ApplyVerticalForce(Properties.JumpSpeed);
+                if (motion.Velocity.y < properties.JumpSpeed)
+                    motion.ApplyVerticalForce(properties.JumpSpeed);
 
-                _jumpStartGroundHeight = _raycastContext.GroundPosition.y;
-                _reachedJumpArc = false;
+                _jumpStartGroundHeight.Value = raycast.GroundPosition.y;
+                _reachedJumpArc.Value = false;
 
-                _hadJumped = true;
-                _enableGravity = false;
+                _hadJumped.Value = true;
+                _enableGravity.Value = false;
             }
         }
-        else if(_isJumping)
+        else if (_isJumping)
         {
-            Vector3 predictedPos = _motionContext.PredictNextPosition();
+            Vector3 predictedPos = motion.PredictNextPosition();
 
             if (predictedPos.y < _jumpArcY)
             {
-                if (_motionContext.Velocity.y < Properties.JumpSpeed)
-                    _motionContext.ApplyVerticalForce(Properties.JumpSpeed);
+                if (motion.Velocity.y < properties.JumpSpeed)
+                    motion.ApplyVerticalForce(properties.JumpSpeed);
             }
             else
             {
-                _isJumping = false;
-                _currentHangTime = 0f;
-                _reachedJumpArc = true;
+                _isJumping.Value = false;
+                _currentHangTime.Value = 0f;
+                _reachedJumpArc.Value = true;
             }
         }
         else if (_currentHangTime < hangTimeDuration && _hadJumped)
         {
-            if(_reachedJumpArc)
-                _motionContext.SpringToVertically(_jumpStartGroundHeight, Properties.JumpHeight, Properties.RideSpringStrength, Properties.HangTimeDamper, Properties.MaxHoverForce);
+            if (_reachedJumpArc)
+                motion.SpringToVertically(_jumpStartGroundHeight, properties.JumpHeight, properties.RideSpringStrength, properties.HangTimeDamper, properties.MaxHoverForce);
 
-            _currentHangTime += _dt;
+            _currentHangTime.Value += dt;
         }
-        else if(!_raycastContext.IsGrounded)
+        else if (!raycast.IsGrounded)
         {
-            _motionContext.ApplyVerticalForce(-Properties.FallSpeed);
-            _enableGravity = true;
+            motion.ApplyVerticalForce(-properties.FallSpeed);
+            _enableGravity.Value = true;
         }
 
-        _jumpBufferTime += _dt;
+        _jumpBufferTime.Value += dt;
     }
 
-
-    private void OnCollisionEnter(Collision collision)
+    protected override void OnCollisionEnter(BehaviorInstance instance, Collision collision)
     {
+        var properties = Properties.Value;
+        if (properties == null)
+            return;
+
+        // Hitting something overhead ends the hang time.
         foreach (var contact in collision.contacts)
         {
             if (Vector3.Dot(contact.normal, Vector3.down) > 0.5f)
             {
-                _currentHangTime = Properties.HangTimeDuration; 
+                _currentHangTime.Value = properties.HangTimeDuration;
                 break;
             }
         }

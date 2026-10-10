@@ -205,6 +205,7 @@ SchematicsManager.Destroy(spinner);             // OnDisable → OnDestroy, then
 ```
 
 Lifecycle order: `OnCreate` (first creation only) → `OnStart` → `OnEnable` → `OnUpdate`/`OnLateUpdate`/`OnFixedUpdate` → `OnDisable` → `OnDestroy`.
+Behaviors also receive `OnCollisionEnter`/`Exit` and `OnTriggerEnter`/`Exit` for the GameObject they're attached to. Variables reset on every spawn, so fetch components with `instance.GetComponent<T>()`, which caches them for the object's whole life.
 
 
 ---

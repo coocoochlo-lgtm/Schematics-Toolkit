@@ -146,7 +146,8 @@ namespace Remedy.Common
             [Header("State Based Components")]
             /*[InfoBox("These components are enabled/disabled by the MB State Machine. These contain the functionality & properties of the Character Controller.")]
             [Expandable]*/
-            public PhysicsBasedCharacterController DefaultMotionController;
+            [Tooltip("The Default Character Controller is a Schematic Behavior, so its tuning values are shown here instead of a component.")]
+            public CharacterControllerProperties DefaultMotionProperties;
             //[Expandable]
             public HoverController HoverController;
             //[Expandable]

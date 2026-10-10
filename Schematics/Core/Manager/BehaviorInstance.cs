@@ -36,6 +36,9 @@ public sealed class BehaviorInstance
     internal bool Started;
     internal bool Removing;
 
+    // Components looked up through GetComponent, kept for the object's whole life (pooling included).
+    private Component[] _componentCache = System.Array.Empty<Component>();
+
     // Attachment overrides resolved to column indices the first time the instance spawns.
     private int[] _overrideColumns;
     private SchematicValue[] _overrideValues;
@@ -57,6 +60,24 @@ public sealed class BehaviorInstance
     /// Reference to this instance's value of a Variable.
     /// </summary>
     public ref T Get<T>(VariableHandle<T> variable) => ref variable.For(this);
+
+    /// <summary>
+    /// Gets a component on this instance's GameObject, cached for the object's whole life.
+    /// Use this instead of storing components in Variables, which are reset every spawn.
+    /// </summary>
+    public T GetComponent<T>() where T : Component
+    {
+        for (int i = 0; i < _componentCache.Length; i++)
+            if (_componentCache[i] is T cached)
+                return cached;
+
+        if (!GameObject.TryGetComponent(out T component))
+            return null;
+
+        System.Array.Resize(ref _componentCache, _componentCache.Length + 1);
+        _componentCache[_componentCache.Length - 1] = component;
+        return component;
+    }
 
     internal void ApplyOverrides(IVariableColumn[] columns)
     {

@@ -13,7 +13,10 @@ namespace Remedy.CharacterControllers
     [SelectionBase]
     public class CharacterTrajectoryCalculator : Singleton<CharacterTrajectoryCalculator>
     {
-        public PhysicsBasedCharacterController controller;
+        /// <summary>
+        /// The character to simulate. Found automatically if left empty.
+        /// </summary>
+        public CharacterMotionContext controller;
         public float Contrast = 3f;
         private CharacterRaycastContext _raycastContext => controller.GetComponent<CharacterRaycastContext>();
 
@@ -40,13 +43,17 @@ namespace Remedy.CharacterControllers
             Vector3 position = startingPosition;
             Vector3 velocity = initialVelocity;
             if (Instance.controller == null)
-                Instance.controller = FindAnyObjectByType<PhysicsBasedCharacterController>();
+                Instance.controller = FindAnyObjectByType<CharacterMotionContext>();
+            if (Instance.controller == null ||
+                !PhysicsBasedCharacterController.TryGetProperties(Instance.controller.gameObject, out var properties))
+                return trajectoryPoints.ToArray();
+
             Rigidbody rb = Instance.controller.gameObject.GetComponent<Rigidbody>();
             float mass = rb.mass;
 
             // Simulation parameters from controller
 
-            Vector3 baseGravity = (Physics.gravity * mass * 2f) + (Physics.gravity * mass * ((Instance.controller.Properties.FallSpeed + 1f))) ;
+            Vector3 baseGravity = (Physics.gravity * mass * 2f) + (Physics.gravity * mass * ((properties.FallSpeed + 1f))) ;
             Vector3 gravity = baseGravity;
             LayerMask terrainLayer = Instance._raycastContext.Properties.CollisionMask;
 
@@ -90,13 +97,13 @@ namespace Remedy.CharacterControllers
 
                 if (velocity.y <= 0)
                 {
-                    if (simulatedHangTime > Instance.controller.Properties.HangTimeDuration || !includeHangtime)
+                    if (simulatedHangTime > properties.HangTimeDuration || !includeHangtime)
                     {
                         // If we're very close to ground, we might be landing
-                        if (hitGround && groundHit.distance <= Instance.controller.Properties.RideHeight * 1.3f)
+                        if (hitGround && groundHit.distance <= properties.RideHeight * 1.3f)
                         {
                             // Character has landed, trajectory ends here
-                            trajectoryPoints.Add(groundHit.point + Vector3.up * Instance.controller.Properties.RideHeight);
+                            trajectoryPoints.Add(groundHit.point + Vector3.up * properties.RideHeight);
                             break;
                         }
 
