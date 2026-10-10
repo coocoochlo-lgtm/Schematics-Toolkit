@@ -319,7 +319,8 @@ public class PrefabHierarchy : VisualElement
             string variableName = variable.Name;
 
             // Every object gets its own Properties asset, as before; made the first time the dock shows it.
-            if (CurrentProperties(attachment, variable) == null && type != null && !type.IsAbstract)
+            string createKey = $"{_assetPath}|{path}|{behaviorType.FullName}|{variableName}";
+            if (CurrentProperties(attachment, variable) == null && type != null && !type.IsAbstract && !Application.isPlaying && _propertiesAttempted.Add(createKey))
                 EditorApplication.delayCall += () => CreateProperties(target, path, behaviorType, attachment, variableName, type);
 
             UnityEditor.Editor editor = null;
@@ -365,10 +366,40 @@ public class PrefabHierarchy : VisualElement
         return variable.Default?.Get(type) as ScriptableObject;
     }
 
+    // Each Properties asset is attempted once per editor session, so a failure can't retry in a loop.
+    private static readonly HashSet<string> _propertiesAttempted = new();
+
     private void CreateProperties(GameObject target, string path, Type behaviorType, BehaviorAttachment attachment, string variableName, Type type)
     {
         if (_root == null || attachment.FindOverride(variableName)?.Value?.Get(type) != null)
             return;
+
+        // Not during Play Mode: give up for now (the dock tries again next time it's drawn).
+        if (Application.isPlaying)
+        {
+            _propertiesAttempted.Remove($"{_assetPath}|{path}|{behaviorType.FullName}|{variableName}");
+            return;
+        }
+
+        // Not in the middle of a compile, import or prefab save: come back once things are quiet.
+        if (PrefabSaveQueue.Busy || _editing)
+        {
+            EditorApplication.delayCall += () => CreateProperties(target, path, behaviorType, attachment, variableName, type);
+            return;
+        }
+
+        try
+        {
+            CreatePropertiesNow(path, behaviorType, attachment, variableName, type);
+        }
+        catch (Exception exception)
+        {
+            Debug.LogException(exception, _prefab);
+        }
+    }
+
+    private void CreatePropertiesNow(string path, Type behaviorType, BehaviorAttachment attachment, string variableName, Type type)
+    {
 
         // Stored with the prefab's other Schematic assets, one per Behavior (and GameObject) that uses it.
         string scope = behaviorType.Name + (string.IsNullOrEmpty(path) ? "" : "_" + path.Replace('/', '_'));
@@ -572,19 +603,40 @@ public class PrefabHierarchy : VisualElement
     // change the copy, save it over the asset, then reimport and redraw.
     private void EditContents(Action<GameObject> edit)
     {
+        if (_editing || EditorApplication.isCompiling || EditorApplication.isUpdating)
+        {
+            Debug.LogWarning("The prefab is busy (another change, a compile or an import is in progress); try again in a moment.");
+            return;
+        }
+
         PrefabSaveQueue.Flush(); // value edits waiting to be saved would otherwise be lost
-        var contents = PrefabUtility.LoadPrefabContents(_assetPath);
+        _editing = true;
+        PrefabSaveQueue.BeginExclusive();
+
+        GameObject contents = null;
         try
         {
+            contents = PrefabUtility.LoadPrefabContents(_assetPath);
             edit(contents);
         }
         catch (Exception exception)
         {
             Debug.LogException(exception);
-            PrefabUtility.UnloadPrefabContents(contents);
+            if (contents != null)
+                PrefabUtility.UnloadPrefabContents(contents);
+            Finish();
             return;
         }
         Save(contents);
+    }
+
+    // One load-edit-save at a time; saving direct edits waits until it's done.
+    private static bool _editing;
+
+    private static void Finish()
+    {
+        _editing = false;
+        PrefabSaveQueue.EndExclusive();
     }
 
     private static Transform Find(GameObject contents, string path)
@@ -664,14 +716,26 @@ public class PrefabHierarchy : VisualElement
 
     private async void Save(GameObject contents)
     {
-        PrefabUtility.SaveAsPrefabAsset(contents, _assetPath);
-        PrefabUtility.UnloadPrefabContents(contents);
+        // Always finishes, even if a step throws: an unfinished save would hold every later save back.
+        try
+        {
+            PrefabUtility.SaveAsPrefabAsset(contents, _assetPath);
+            PrefabUtility.UnloadPrefabContents(contents);
 
-        AssetDatabase.Refresh();
+            AssetDatabase.Refresh();
 
-        await EditorUtilities.NextEditorFrame();
+            await EditorUtilities.NextEditorFrame();
 
-        PrefabRefreshUtility.ReimportAndResetPrefab(_prefab);
+            PrefabRefreshUtility.ReimportAndResetPrefab(_prefab);
+        }
+        catch (Exception exception)
+        {
+            Debug.LogException(exception);
+        }
+        finally
+        {
+            Finish();
+        }
         _window.RedrawIODock();
     }
 

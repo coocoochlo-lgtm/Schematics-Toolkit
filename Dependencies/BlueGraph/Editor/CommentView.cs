@@ -77,6 +77,13 @@ namespace BlueGraph.Editor
                     );
                 }
 
+                evt.menu.AppendAction("Resize To Fit Nodes", _ =>
+                {
+                    Target.FixedSize = !Target.FixedSize;
+                    if (!Target.FixedSize)
+                        FitToMembers();
+                }, Target.FixedSize ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Checked);
+
                 evt.menu.AppendSeparator();
             }
         }
@@ -160,6 +167,51 @@ namespace BlueGraph.Editor
             return titleContainer.ContainsPoint(mappedPoint);
         }
         
+        /// <summary>Space between a comment's edges and the nodes it fits around (the top leaves room for the title).</summary>
+        public const float FitPadding = 30f, FitTitlePadding = 60f;
+
+        /// <summary>
+        /// The nodes this comment groups: those whose centre lies inside it. A node dragged partly past the edge stays in
+        /// (and the comment grows to fit it); dragged out past its centre, it leaves.
+        /// </summary>
+        public List<NodeView> MemberNodes()
+        {
+            var result = new List<NodeView>();
+            var canvas = GetFirstAncestorOfType<CanvasView>();
+            if (canvas == null)
+                return result;
+            var region = Target.Region;
+            foreach (var node in canvas.nodes.ToList())
+                if (node is NodeView view && region.Contains(view.GetPosition().center))
+                    result.Add(view);
+            return result;
+        }
+
+        /// <summary>Resizes the comment around its member nodes (unless it's fixed-size). True if it changed.</summary>
+        public bool FitToMembers()
+        {
+            if (Target.FixedSize)
+                return false;
+            var members = MemberNodes();
+            if (members.Count == 0)
+                return false;
+
+            var bounds = members[0].GetPosition();
+            foreach (var member in members)
+            {
+                var r = member.GetPosition();
+                bounds = Rect.MinMaxRect(Mathf.Min(bounds.xMin, r.xMin), Mathf.Min(bounds.yMin, r.yMin), Mathf.Max(bounds.xMax, r.xMax), Mathf.Max(bounds.yMax, r.yMax));
+            }
+            var fitted = Rect.MinMaxRect(bounds.xMin - FitPadding, bounds.yMin - FitTitlePadding, bounds.xMax + FitPadding, bounds.yMax + FitPadding);
+            if (fitted == Target.Region)
+                return false;
+
+            // Set directly: SetPosition would treat a move as dragging the comment and carry the nodes along.
+            base.SetPosition(fitted);
+            Target.Region = fitted;
+            return true;
+        }
+
         public override void SetPosition(Rect newPos)
         {
             var previous = Target.Region;

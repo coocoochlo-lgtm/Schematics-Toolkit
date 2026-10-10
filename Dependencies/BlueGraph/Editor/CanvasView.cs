@@ -48,7 +48,7 @@ namespace BlueGraph.Editor
 
             this.AddManipulator(new ContentDragger());
             this.AddManipulator(new SelectionDragger());
-            this.AddManipulator(new RectangleSelector());
+            this.AddManipulator(new CommentRectangleSelector(this));
             this.AddManipulator(new ClickSelector());
 
             // Add event handlers for shortcuts and changes
@@ -108,6 +108,9 @@ namespace BlueGraph.Editor
                 // Moved nodes will update their underlying models automatically.
                 EditorUtility.SetDirty(Graph);
             }
+
+            if (change.movedElements != null || change.elementsToRemove != null)
+                ScheduleCommentRefit();
 
             if (change.elementsToRemove != null)
             {
@@ -305,6 +308,8 @@ namespace BlueGraph.Editor
             Graph.AddNode(node);
             serializedGraph.Update();
             EditorUtility.SetDirty(Graph);
+
+            ScheduleCommentRefit();
 
             // Add a node to the visual graph
             var editorType = NodeReflection.GetNodeEditorType(node.GetType());
@@ -667,10 +672,67 @@ namespace BlueGraph.Editor
             return contentRect;
         }
 
+        private const string CommentOnBoxSelectKey = "BlueGraph.CommentOnBoxSelect";
+
+        /// <summary>
+        /// When on (the default), box-selecting nodes also wraps them in a new comment. Saved per user.
+        /// </summary>
+        public bool CommentOnBoxSelect
+        {
+            get { return EditorPrefs.GetBool(CommentOnBoxSelectKey, true); }
+            set { EditorPrefs.SetBool(CommentOnBoxSelectKey, value); }
+        }
+
+        private bool refitScheduled;
+
+        /// <summary>
+        /// Refits every auto-sizing comment around its nodes, once layout has caught up (node sizes are only known then).
+        /// </summary>
+        public void ScheduleCommentRefit()
+        {
+            if (refitScheduled)
+                return;
+            refitScheduled = true;
+            schedule.Execute(() =>
+            {
+                refitScheduled = false;
+                bool changed = false;
+                foreach (var comment in commentViews)
+                    changed |= comment.FitToMembers();
+                if (changed && Graph != null)
+                    EditorUtility.SetDirty(Graph);
+            }).StartingIn(20);
+        }
+
+        /// <summary>
+        /// Called after a box selection: wraps the selected nodes in a comment, unless they're already exactly the
+        /// members of one (so re-selecting a group doesn't stack comments).
+        /// </summary>
+        internal void OnBoxSelected()
+        {
+            if (!CommentOnBoxSelect)
+                return;
+
+            var selectedNodes = new HashSet<NodeView>();
+            foreach (var item in selection)
+                if (item is NodeView node)
+                    selectedNodes.Add(node);
+            if (selectedNodes.Count == 0)
+                return;
+
+            foreach (var comment in commentViews)
+                if (selectedNodes.SetEquals(comment.MemberNodes()))
+                    return;
+
+            AddComment();
+        }
+
         public override void BuildContextualMenu(ContextualMenuPopulateEvent evt)
         {
             if (evt.target == this)
             {
+                evt.menu.AppendAction("Box Select Creates Comments", _ => CommentOnBoxSelect = !CommentOnBoxSelect,
+                    CommentOnBoxSelect ? DropdownMenuAction.Status.Checked : DropdownMenuAction.Status.Normal);
                 lastMousePosition = evt.mousePosition;
                 evt.menu.AppendAction(selection.Count > 0 ? "Group Selection in Comment (C)" : "Add Comment (C)", _ => AddComment());
                 evt.menu.AppendSeparator();

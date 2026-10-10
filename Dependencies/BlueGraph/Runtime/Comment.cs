@@ -40,6 +40,17 @@ namespace BlueGraph
             set { theme = value; }
         }
 
+        [SerializeField] private bool fixedSize;
+
+        /// <summary>
+        /// When false (the default), the comment resizes itself to fit the nodes inside it whenever they move or are added.
+        /// </summary>
+        public bool FixedSize
+        {
+            get { return fixedSize; }
+            set { fixedSize = value; }
+        }
+
         [SerializeField] private Rect region;
 
         /// <summary>
