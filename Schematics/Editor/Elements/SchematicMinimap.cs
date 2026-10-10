@@ -8,14 +8,16 @@ using UnityEngine.UIElements;
 
 /// <summary>
 /// A minimap of the Schematic Graph, in the canvas' corner. Signal nodes show as arrows (sending or receiving),
-/// Variable nodes as dots in their type's color, Behavior nodes as script icons. Click or drag to move the view;
-/// hover a mark to see what it is. Toggle it with the button above it.
+/// Variable nodes as dots in their type's color, Behavior nodes as script icons, and comments as named regions.
+/// Hover anything to see its name. Click a node or comment to glide to it, or anywhere else to glide there; drag to
+/// steer the view. Toggle it with the button above it.
 /// </summary>
 public class SchematicMinimap : VisualElement
 {
     private const float Width = 220f, Height = 150f, Padding = 6f;
 
     private readonly CanvasView _canvas;
+    private readonly CanvasMotion _motion;
     private readonly IMGUIContainer _drawing;
     private Rect _contentBounds;
     private bool _dragging;
@@ -28,9 +30,10 @@ public class SchematicMinimap : VisualElement
 
     private const string VisibleKey = "SchematicMinimap.Visible";
 
-    public SchematicMinimap(CanvasView canvas)
+    public SchematicMinimap(CanvasView canvas, CanvasMotion motion)
     {
         _canvas = canvas;
+        _motion = motion;
         pickingMode = PickingMode.Ignore;
         style.position = Position.Absolute;
         style.right = 8;
@@ -49,7 +52,7 @@ public class SchematicMinimap : VisualElement
             _drawing.style.borderBottomLeftRadius = _drawing.style.borderBottomRightRadius = 4;
         Add(_drawing);
 
-        _drawing.RegisterCallback<MouseDownEvent>(evt => { _dragging = true; Pan(evt.localMousePosition); evt.StopPropagation(); });
+        _drawing.RegisterCallback<MouseDownEvent>(evt => { _dragging = true; Click(evt.localMousePosition); evt.StopPropagation(); });
         _drawing.RegisterCallback<MouseMoveEvent>(evt => { if (_dragging) { Pan(evt.localMousePosition); evt.StopPropagation(); } });
         _drawing.RegisterCallback<MouseUpEvent>(evt => { _dragging = false; evt.StopPropagation(); });
         _drawing.RegisterCallback<MouseLeaveEvent>(_ => _dragging = false);
@@ -76,13 +79,12 @@ public class SchematicMinimap : VisualElement
         var nodes = Nodes();
         var viewport = _canvas.contentViewContainer.WorldToLocal(_canvas.worldBound);
 
-        // Fit every node and the current view.
+        // Fit every node, comment and the current view.
         Rect bounds = viewport;
         foreach (var node in nodes)
-        {
-            var rect = node.GetPosition();
-            bounds = Encapsulate(bounds, rect);
-        }
+            bounds = Encapsulate(bounds, node.GetPosition());
+        foreach (var comment in _canvas.Query<CommentView>().ToList())
+            bounds = Encapsulate(bounds, comment.GetPosition());
         bounds = Inflate(bounds, 40f);
         _contentBounds = bounds;
 
@@ -93,10 +95,23 @@ public class SchematicMinimap : VisualElement
         string hover = null;
         var mouse = Event.current.mousePosition;
 
+        // Comments first, under the nodes: a tinted region with an outline.
+        _hitRects.Clear();
+        foreach (var comment in _canvas.Query<CommentView>().ToList())
+        {
+            var region = ToMap(comment.GetPosition());
+            EditorGUI.DrawRect(region, new Color(0.35f, 0.55f, 0.85f, 0.15f));
+            DrawOutline(region, new Color(0.45f, 0.65f, 0.95f, 0.6f));
+            _hitRects.Add((region, comment.GetPosition(), true));
+            if (region.Contains(mouse))
+                hover = comment.Target.Text;
+        }
+
         foreach (var node in nodes)
         {
             var target = node.Target;
             var rect = ToMap(node.GetPosition());
+            _hitRects.Add((rect, node.GetPosition(), false));
             bool selected = _canvas.selection.Contains(node);
             EditorGUI.DrawRect(rect, selected ? new Color(0.3f, 0.6f, 0.9f, 0.9f) : new Color(0.45f, 0.45f, 0.45f, 0.75f));
 
@@ -153,17 +168,36 @@ public class SchematicMinimap : VisualElement
 
     private float _mapScale = 1f;
     private Vector2 _mapOffset;
+    // What was drawn where last time: minimap rect, graph rect, and whether it's a comment.
+    private readonly List<(Rect map, Rect graph, bool comment)> _hitRects = new();
 
-    // Centres the canvas on the graph point under the given minimap position.
+    private Vector2 ToGraph(Vector2 local) => _contentBounds.position + (local - _mapOffset) / _mapScale;
+
+    // A click on a node glides to that node, on a comment to the whole comment, anywhere else to that point.
+    private void Click(Vector2 local)
+    {
+        if (_mapScale <= 0f) return;
+
+        // Nodes win over the comments around them; they were added after the comments.
+        for (int i = _hitRects.Count - 1; i >= 0; i--)
+        {
+            var hit = _hitRects[i];
+            if (!hit.map.Contains(local))
+                continue;
+            if (hit.comment)
+                _motion.Frame(hit.graph);
+            else
+                _motion.CenterOn(hit.graph.center);
+            return;
+        }
+        _motion.CenterOn(ToGraph(local));
+    }
+
+    // Dragging steers the view smoothly towards the point under the cursor.
     private void Pan(Vector2 local)
     {
         if (_mapScale <= 0f) return;
-        var contentPoint = _contentBounds.position + (local - _mapOffset) / _mapScale;
-        var scale = _canvas.contentViewContainer.transform.scale;
-        var size = _canvas.layout.size;
-        var position = new Vector3(size.x * 0.5f - contentPoint.x * scale.x, size.y * 0.5f - contentPoint.y * scale.y, 0);
-        _canvas.UpdateViewTransform(position, scale);
-        _drawing.MarkDirtyRepaint();
+        _motion.CenterOn(ToGraph(local));
     }
 
     private static Rect Encapsulate(Rect a, Rect b) => Rect.MinMaxRect(Mathf.Min(a.xMin, b.xMin), Mathf.Min(a.yMin, b.yMin), Mathf.Max(a.xMax, b.xMax), Mathf.Max(a.yMax, b.yMax));

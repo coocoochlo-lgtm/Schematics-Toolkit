@@ -667,13 +667,24 @@ namespace BlueGraph.Editor
             return contentRect;
         }
 
+        public override void BuildContextualMenu(ContextualMenuPopulateEvent evt)
+        {
+            if (evt.target == this)
+            {
+                lastMousePosition = evt.mousePosition;
+                evt.menu.AppendAction(selection.Count > 0 ? "Group Selection in Comment (C)" : "Add Comment (C)", _ => AddComment());
+                evt.menu.AppendSeparator();
+            }
+            base.BuildContextualMenu(evt);
+        }
+
         /// <summary>
         /// Add a new comment to the canvas and the associated Graph
         /// 
         /// If there are selected nodes, this'll encapsulate the selection with
         /// the comment box. Otherwise, it'll add at defaultPosition.
         /// </summary>
-        private void AddComment()
+        public void AddComment()
         {
             Undo.RegisterCompleteObjectUndo(Graph, "Add Comment");
 

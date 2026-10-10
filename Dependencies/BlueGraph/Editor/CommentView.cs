@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UIElements;
 
@@ -161,8 +162,51 @@ namespace BlueGraph.Editor
         
         public override void SetPosition(Rect newPos)
         {
+            var previous = Target.Region;
             base.SetPosition(newPos);
             Target.Region = newPos;
+
+            // A comment groups the nodes inside it: moving it (not resizing) carries them along.
+            var delta = newPos.position - previous.position;
+            if (delta != Vector2.zero && Mathf.Approximately(newPos.width, previous.width) && Mathf.Approximately(newPos.height, previous.height))
+                MoveContainedNodes(previous, delta);
+        }
+
+        /// <summary>The nodes lying entirely inside this comment.</summary>
+        public List<NodeView> ContainedNodes(Rect region)
+        {
+            var result = new List<NodeView>();
+            var canvas = GetFirstAncestorOfType<CanvasView>();
+            if (canvas == null)
+                return result;
+
+            foreach (var node in canvas.nodes.ToList())
+            {
+                if (!(node is NodeView view))
+                    continue;
+                var rect = view.GetPosition();
+                if (region.Contains(rect.min) && region.Contains(rect.max))
+                    result.Add(view);
+            }
+            return result;
+        }
+
+        private void MoveContainedNodes(Rect region, Vector2 delta)
+        {
+            bool moved = false;
+            foreach (var view in ContainedNodes(region))
+            {
+                // Selected nodes are already being dragged along with the comment.
+                if (view.selected)
+                    continue;
+                var rect = view.GetPosition();
+                view.SetPosition(new Rect(rect.position + delta, rect.size));
+                moved = true;
+            }
+
+            var canvas = GetFirstAncestorOfType<CanvasView>();
+            if (moved && canvas != null && canvas.Graph != null)
+                UnityEditor.EditorUtility.SetDirty(canvas.Graph);
         }
 
         public void Dirty() { }

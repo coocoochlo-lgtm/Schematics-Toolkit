@@ -150,6 +150,7 @@ public class SchematicGraphEditorWindow : GraphEditorWindow
     /// <summary>The Prefab tab's dock, for revealing rows from the graph.</summary>
     private PrefabHierarchy _dock;
     private SchematicMinimap _minimap;
+    private CanvasMotion _motion;
 
     // Which node FocusNodes showed last for each dock item, so repeated clicks step through them.
     private readonly Dictionary<string, int> _focusIndex = new();
@@ -351,7 +352,8 @@ public class SchematicGraphEditorWindow : GraphEditorWindow
         // Clicking a Signal or Variable node reveals it in the IO Dock.
         Canvas.RegisterCallback<MouseUpEvent>(OnCanvasMouseUp, TrickleDown.TrickleDown);
 
-        _minimap = new SchematicMinimap(Canvas);
+        _motion = new CanvasMotion(Canvas);
+        _minimap = new SchematicMinimap(Canvas, _motion);
         Canvas.Add(_minimap);
 
         if (!alreadyUpdated) Reload();
@@ -575,7 +577,8 @@ public class SchematicGraphEditorWindow : GraphEditorWindow
     {
         Canvas.ClearSelection();
         Canvas.AddToSelection(view);
-        Canvas.FrameSelection();
+        if (_motion != null) _motion.Frame(view.GetPosition());
+        else Canvas.FrameSelection();
         PrefabHierarchy.Flash(view);
     }
 
@@ -626,7 +629,7 @@ public class SchematicGraphEditorWindow : GraphEditorWindow
 
             switch (item.Kind)
             {
-                case DockItem.ItemKind.Signal: ShowEventDropMenu(item.Signal, dropPosition); break;
+                case DockItem.ItemKind.Signal: DropSignal(item.Signal, item.Direction, dropPosition); break;
                 case DockItem.ItemKind.Variable: ShowVariableDropMenu(item, dropPosition); break;
                 case DockItem.ItemKind.Behavior: CreateBehaviorNode(item, dropPosition); break;
                 case DockItem.ItemKind.GameObject: CreatePrefabObjectNode(item, dropPosition); break;
@@ -639,7 +642,7 @@ public class SchematicGraphEditorWindow : GraphEditorWindow
         {
             if (obj is SignalData signal)
             {
-                ShowEventDropMenu(signal, dropPosition);
+                DropSignal(signal, DirectionOf(signal), dropPosition);
                 accepted = true;
             }
         }
@@ -649,6 +652,33 @@ public class SchematicGraphEditorWindow : GraphEditorWindow
             DragAndDrop.AcceptDrag();
             evt.StopPropagation();
         }
+    }
+
+    /// <summary>
+    /// A Signal's direction says what the graph can do with it: an Input Signal is one the Behavior listens to, so the
+    /// graph sends it; an Output Signal is one the Behavior sends, so the graph reacts to it. Only Signals without a
+    /// direction (e.g. global ones) ask.
+    /// </summary>
+    private void DropSignal(SignalData signal, SignalDirection direction, Vector2 position)
+    {
+        if (signal == null)
+            return;
+        switch (direction)
+        {
+            case SignalDirection.Input: CreateInvokeNode(signal, position); break;
+            case SignalDirection.Output: CreateOnInvokeNode(signal, position); break;
+            default: ShowEventDropMenu(signal, position); break;
+        }
+    }
+
+    /// <summary>The direction a Behavior declared for this Signal asset; Unspecified for Signals that aren't a Behavior's.</summary>
+    internal static SignalDirection DirectionOf(SignalData signal)
+    {
+        if (signal != null && AssetDatabase.LoadMainAssetAtPath(AssetDatabase.GetAssetPath(signal)) is BehaviorMetadata metadata)
+            foreach (var definition in metadata.Signals)
+                if (definition.Asset == signal)
+                    return definition.Direction;
+        return SignalDirection.Unspecified;
     }
 
     private void ShowEventDropMenu(SignalData evtAsset, Vector2 position)
