@@ -43,7 +43,21 @@ public static class SchematicBehaviorsHeaderGUI
                 EditorGUILayout.LabelField($"UID {root.UID}", EditorStyles.miniLabel, GUILayout.Width(70));
         }
 
+        // A prefab asset (selected in the Project window) is never edited in place: changes to it go through Prefab
+        // Mode (or the Schematic Graph's IO Dock), which save it properly.
+        bool readOnlyAsset = !Application.isPlaying && PrefabUtility.IsPartOfPrefabAsset(root);
+        if (readOnlyAsset)
+        {
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                EditorGUILayout.HelpBox("Open the prefab to edit its Schematic Behaviors.", MessageType.None);
+                if (GUILayout.Button("Open Prefab", GUILayout.Width(90), GUILayout.Height(38)))
+                    AssetDatabase.OpenAsset(root.transform.root.gameObject);
+            }
+        }
+
         root.Behaviors.TryGetValue(gameObject, out var list);
+        using var readOnly = new EditorGUI.DisabledScope(readOnlyAsset);
         if (list != null)
         {
             for (int i = 0; i < list.Items.Count; i++)
@@ -55,7 +69,7 @@ public static class SchematicBehaviorsHeaderGUI
             }
         }
 
-        if (!Application.isPlaying)
+        if (!Application.isPlaying && !readOnlyAsset)
         {
             DrawAddButton(root, gameObject, list);
             DrawMissingTargetsCleanup(root);
@@ -420,9 +434,6 @@ public static class SchematicBehaviorsHeaderGUI
         EditorUtility.SetDirty(root);
         if (PrefabUtility.IsPartOfPrefabInstance(root))
             PrefabUtility.RecordPrefabInstancePropertyModifications(root);
-        // A prefab asset edited directly (e.g. from the IO Dock) is written to disk right away, so a later
-        // reimport or a load-edit-save of the prefab's contents can't throw the edit away.
-        PrefabSaveQueue.Request(root);
     }
 
     #endregion

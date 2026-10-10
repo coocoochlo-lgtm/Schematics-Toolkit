@@ -33,6 +33,8 @@ public class PrefabHierarchy : VisualElement
         _root = prefab != null ? prefab.GetComponent<SchematicObject>() : null;
 
         AddToClassList("behavior-dock");
+        RegisterCallback<MouseLeaveEvent>(_ => FlushPendingEdits());
+        RegisterCallback<DetachFromPanelEvent>(_ => FlushPendingEdits());
         // IMGUI fields can ask for a lot of width; never let the dock grow over the graph.
         style.overflow = Overflow.Hidden;
         style.minWidth = 0;
@@ -201,7 +203,8 @@ public class PrefabHierarchy : VisualElement
             var row = CreateRow(item, VariableIcon, ObjectNames.NicifyVariableName(variable.Name), TypeName(item.ValueType),
                 "Variable: drag the name into the graph to Get or Set it; click it to find its nodes. The field is this object's starting value.");
             string variableName = variable.Name;
-            var field = new IMGUIContainer(() => SchematicBehaviorsHeaderGUI.DrawVariableGUI(_root, target, attachment, variableName));
+            var definition = variable;
+            var field = new IMGUIContainer(() => DrawVariableField(path, behaviorType, attachment, definition));
             ConstrainIMGUI(field);
             field.AddToClassList("dock-variable-value");
             row.Add(field);
@@ -326,7 +329,9 @@ public class PrefabHierarchy : VisualElement
             UnityEditor.Editor editor = null;
             var container = new IMGUIContainer(() =>
             {
-                var current = CurrentProperties(attachment, variable);
+                var current = _pendingEdits.TryGetValue(EditKey(path, behaviorType, variableName), out var pendingProperties) && !pendingProperties.Revert
+                    ? pendingProperties.Value as ScriptableObject
+                    : CurrentProperties(attachment, variable);
                 if (properties.Count > 1)
                     EditorGUILayout.LabelField(ObjectNames.NicifyVariableName(variableName), EditorStyles.boldLabel);
 
@@ -335,10 +340,7 @@ public class PrefabHierarchy : VisualElement
                 var picked = EditorGUILayout.ObjectField(current, type, false) as ScriptableObject;
                 if (EditorGUI.EndChangeCheck())
                 {
-                    Undo.RecordObject(_root, "Set Behavior Properties");
-                    attachment.SetOverride(variableName, picked, type);
-                    EditorUtility.SetDirty(_root);
-                    PrefabSaveQueue.Request(_root);
+                    QueueEdit(path, behaviorType, variableName, type, picked);
                     current = picked;
                 }
 
@@ -382,7 +384,7 @@ public class PrefabHierarchy : VisualElement
         }
 
         // Not in the middle of a compile, import or prefab save: come back once things are quiet.
-        if (PrefabSaveQueue.Busy || _editing)
+        if (EditorApplication.isCompiling || EditorApplication.isUpdating || _editing)
         {
             EditorApplication.delayCall += () => CreateProperties(target, path, behaviorType, attachment, variableName, type);
             return;
@@ -407,10 +409,8 @@ public class PrefabHierarchy : VisualElement
         if (asset == null)
             return;
 
-        Undo.RecordObject(_root, "Create Behavior Properties");
-        attachment.SetOverride(variableName, asset, type);
-        EditorUtility.SetDirty(_root);
-        PrefabSaveQueue.Request(_root);
+        QueueEdit(path, behaviorType, variableName, type, asset);
+        FlushPendingEdits();
     }
 
     // IMGUI asks for the width it would like; inside the dock it must take what it's given.
@@ -609,15 +609,19 @@ public class PrefabHierarchy : VisualElement
             return;
         }
 
-        PrefabSaveQueue.Flush(); // value edits waiting to be saved would otherwise be lost
         _editing = true;
-        PrefabSaveQueue.BeginExclusive();
+
+        // Value edits waiting to be written ride along with this save.
+        var pending = new List<PendingEdit>(_pendingEdits.Values);
+        _pendingEdits.Clear();
+        _flushScheduled?.Pause();
 
         GameObject contents = null;
         try
         {
             contents = PrefabUtility.LoadPrefabContents(_assetPath);
-            edit(contents);
+            ApplyEdits(contents, pending);
+            edit?.Invoke(contents);
         }
         catch (Exception exception)
         {
@@ -636,8 +640,126 @@ public class PrefabHierarchy : VisualElement
     private static void Finish()
     {
         _editing = false;
-        PrefabSaveQueue.EndExclusive();
     }
+
+    #region Value edits
+
+    // A Variable value (or Properties asset) waiting to be written to the prefab. Shown in the dock straight away,
+    // written with the next load-edit-save: after a short pause, when the mouse leaves the dock, or with a structural
+    // edit. The prefab asset in memory is never modified directly.
+    private sealed class PendingEdit
+    {
+        public string Path;
+        public Type Behavior;
+        public string Variable;
+        public Type ValueType;
+        public object Value;
+        public bool Revert;
+    }
+
+    private readonly Dictionary<string, PendingEdit> _pendingEdits = new();
+    private IVisualElementScheduledItem _flushScheduled;
+    private const long FlushDelayMs = 1500;
+
+    private static string EditKey(string path, Type behavior, string variable) => $"{path}|{behavior?.FullName}|{variable}";
+
+    private void QueueEdit(string path, Type behavior, string variable, Type valueType, object value, bool revert = false)
+    {
+        _pendingEdits[EditKey(path, behavior, variable)] = new PendingEdit
+        {
+            Path = path, Behavior = behavior, Variable = variable, ValueType = valueType, Value = value, Revert = revert,
+        };
+
+        // Restarted by every change, so typing finishes before anything is written.
+        _flushScheduled?.Pause();
+        _flushScheduled = schedule.Execute(FlushPendingEdits);
+        _flushScheduled.ExecuteLater(FlushDelayMs);
+    }
+
+    private void FlushPendingEdits()
+    {
+        _flushScheduled?.Pause();
+        if (_pendingEdits.Count == 0 || string.IsNullOrEmpty(_assetPath))
+            return;
+        if (_editing)
+        {
+            // Another save is still finishing; try again shortly.
+            _flushScheduled = schedule.Execute(FlushPendingEdits);
+            _flushScheduled.ExecuteLater(300);
+            return;
+        }
+        EditContents(null);
+    }
+
+    private void ApplyEdits(GameObject contents, List<PendingEdit> edits)
+    {
+        if (edits.Count == 0)
+            return;
+        var root = contents.GetComponent<SchematicObject>();
+        if (root == null)
+            return;
+
+        foreach (var edit in edits)
+        {
+            var target = Find(contents, edit.Path);
+            var attachment = target != null ? root.FindAttachment(edit.Behavior, target.gameObject) : null;
+            if (attachment == null)
+                continue;
+
+            if (edit.Revert)
+                attachment.Overrides.RemoveAll(o => o.Name == edit.Variable);
+            else
+                attachment.SetOverride(edit.Variable, ToContents(edit.Value, contents), edit.ValueType);
+        }
+    }
+
+    // A reference to one of the prefab's own objects has to point at the matching object in the loaded copy.
+    private object ToContents(object value, GameObject contents)
+    {
+        Transform source = value is GameObject gameObject ? gameObject.transform : value is Component component ? component.transform : null;
+        if (source == null || _prefab == null || source.root != _prefab.transform)
+            return value;
+
+        var match = Find(contents, AnimationUtility.CalculateTransformPath(source, _prefab.transform));
+        if (match == null)
+            return null;
+        return value is GameObject ? (object)match.gameObject : match.GetComponent(value.GetType());
+    }
+
+    // The field on a Variable's row: this object's value (or the default), edited through pending edits.
+    private void DrawVariableField(string path, Type behaviorType, BehaviorAttachment attachment, VariableDefinition definition)
+    {
+        var type = definition.Type.Type;
+        if (type == null)
+            return;
+
+        // Arrays, lists and classes are edited in Prefab Mode, where Unity's own drawers save them safely.
+        if (SchematicValue.IsBoxable(type))
+        {
+            if (GUILayout.Button(new GUIContent("Edit in Prefab…", "Opens the prefab; edit this value in the Inspector."), EditorStyles.miniButton))
+                AssetDatabase.OpenAsset(_prefab);
+            return;
+        }
+
+        _pendingEdits.TryGetValue(EditKey(path, behaviorType, definition.Name), out var pending);
+        var entry = attachment.FindOverride(definition.Name);
+        bool overridden = pending != null ? !pending.Revert : entry != null;
+        object current = pending != null && !pending.Revert ? pending.Value
+                       : entry != null && pending == null ? entry.Value.Get(type)
+                       : definition.Default?.Get(type);
+
+        using (new EditorGUILayout.HorizontalScope())
+        {
+            if (SchematicValueField.Draw(GUIContent.none, type, current, out var newValue))
+                QueueEdit(path, behaviorType, definition.Name, type, newValue);
+
+            using (new EditorGUI.DisabledScope(!overridden))
+                if (GUILayout.Button(new GUIContent("↺", "Back to the Behavior's default"), EditorStyles.miniButton, GUILayout.Width(20)))
+                    QueueEdit(path, behaviorType, definition.Name, type, null, revert: true);
+        }
+    }
+
+    #endregion
 
     private static Transform Find(GameObject contents, string path)
         => string.IsNullOrEmpty(path) ? contents.transform : contents.transform.Find(path);
