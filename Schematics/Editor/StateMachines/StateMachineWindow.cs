@@ -42,7 +42,7 @@ public class StateMachineWindow : EditorWindow
     [OnOpenAsset(1)]
     private static bool OnOpenAsset(int instanceId, int line)
     {
-        if (EditorUtility.InstanceIDToObject(instanceId) is StateMachineDefinition definition)
+        if (EditorObjectIds.ToObject(instanceId) is StateMachineDefinition definition)
         {
             Open(definition);
             return true;

@@ -14,7 +14,7 @@ public static class SchematicHierarchyDrawer
 
     static void OnHierarchyGUI(int instanceID, Rect selectionRect)
     {
-        GameObject go = EditorUtility.InstanceIDToObject(instanceID) as GameObject;
+        GameObject go = EditorObjectIds.ToObject(instanceID) as GameObject;
         if (go == null) return;
 
         var controller = go.GetComponent<SchematicObject>();

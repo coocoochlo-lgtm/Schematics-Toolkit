@@ -135,7 +135,8 @@ public partial class SignalData : ScriptableObject
     /// <returns></returns>
     protected void AddGlobalSubscriberID(UnityEngine.Object instance)
     {
-        int instanceID = instance.GetInstanceID();
+        // Object.GetHashCode is the object's identity (GetInstanceID is obsolete in Unity 6).
+        int instanceID = instance.GetHashCode();
         if (!AllSubscribers.ContainsKey(instanceID))
             AllSubscribers[instanceID] = instance;
     }

@@ -305,7 +305,7 @@ namespace BlueGraph.Editor
             var script = ReflectionData.NodeScript;
 
             if (script != null)
-                AssetDatabase.OpenAsset(script.GetInstanceID(), 0, 0);
+                AssetDatabase.OpenAsset(script);
         }
 
         /// <summary>
@@ -316,7 +316,7 @@ namespace BlueGraph.Editor
             var script = ReflectionData.NodeViewScript;
 
             if (script != null)
-                AssetDatabase.OpenAsset(script.GetInstanceID(), 0, 0);
+                AssetDatabase.OpenAsset(script);
         }
 
         private Status GetNodeScriptStatus(DropdownMenuAction action)

@@ -80,7 +80,7 @@ public static class SchematicBehaviorsHeaderGUI
                   : metadata != null ? $"{metadata.name} (Missing Script)"
                   : "(Missing Behavior)";
 
-        var foldoutKey = $"SchematicBehavior.{gameObject.GetInstanceID()}.{index}";
+        var foldoutKey = $"SchematicBehavior.{gameObject.GetHashCode()}.{index}";
 
         using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
         {
