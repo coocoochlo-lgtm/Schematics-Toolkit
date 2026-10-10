@@ -63,7 +63,8 @@ namespace Remedy.Schematics
         /// <returns></returns>
         public SchematicEventNode[] GetEventArray<TEventNode>() where TEventNode : SchematicEventNode
         {
-            return _eventNodesByType[typeof(TEventNode)];
+            // A graph without any node of this type has no entry.
+            return EventNodesByType.TryGetValue(typeof(TEventNode), out var nodes) ? nodes : null;
         }
 
         /// <summary>

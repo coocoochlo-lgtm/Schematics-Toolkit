@@ -155,6 +155,17 @@ public class PrefabHierarchy : VisualElement
         toggle.Add(handle);
         _rows[behaviorItem.Key] = toggle;
 
+        if (behaviorType == typeof(StateMachine))
+        {
+            var open = new Button(() =>
+            {
+                var definition = StateMachineEditorUtility.DefinitionFor(_root, target, create: true);
+                if (definition != null)
+                    StateMachineWindow.Open(definition);
+            }) { text = "Open State Machine", tooltip = "The State Manager and State Graph for this object (created if it has none)." };
+            section.Add(open);
+        }
+
         // The per-object values, as the Inspector shows them.
         if (metadata.Variables.Count > 0)
         {

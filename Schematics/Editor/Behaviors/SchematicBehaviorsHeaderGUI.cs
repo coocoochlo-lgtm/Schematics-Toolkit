@@ -118,6 +118,7 @@ public static class SchematicBehaviorsHeaderGUI
                 EditorGUI.indentLevel++;
                 DrawVariables(root, gameObject, index, attachment, metadata);
                 DrawSignals(metadata);
+                ExtraAttachmentGUI?.Invoke(root, gameObject, attachment);
                 EditorGUI.indentLevel--;
             }
         }
@@ -317,6 +318,12 @@ public static class SchematicBehaviorsHeaderGUI
 
     // Entries whose child GameObject was deleted would otherwise linger in the dictionary.
     #region API for other editors (the Schematic Graph's IO Dock)
+
+    /// <summary>
+    /// Extra Inspector GUI drawn under an expanded Behavior, for editors in other assemblies (e.g. the State Machine
+    /// Behavior's "Open State Machine" button).
+    /// </summary>
+    public static event Action<SchematicObject, GameObject, BehaviorAttachment> ExtraAttachmentGUI;
 
     /// <summary>Shows the "Add Schematic Behavior" dropdown for a GameObject of a Schematic Object.</summary>
     public static void ShowAddBehaviorDropdown(Rect rect, SchematicObject root, GameObject gameObject, Action<Type> onAdded = null)
