@@ -171,9 +171,12 @@ public static class SchematicBehaviorsHeaderGUI
         if (metadata.Signals.Count == 0)
             return;
 
-        EditorGUILayout.LabelField("Signals", EditorStyles.miniBoldLabel);
+        EditorGUILayout.LabelField(new GUIContent("Signals", "Drag a Signal into a Schematic Graph to send or receive it there."), EditorStyles.miniBoldLabel);
         foreach (var signal in metadata.Signals)
-            EditorGUILayout.LabelField(BehaviorMetadataEditor.DescribeSignal(signal), EditorStyles.miniLabel);
+        {
+            // The object field doubles as a drag handle for the Signal asset; whatever is dropped on it is ignored.
+            EditorGUILayout.ObjectField(new GUIContent(BehaviorMetadataEditor.DescribeSignal(signal)), signal.Asset, typeof(SignalData), false);
+        }
     }
 
     private static void DrawAddButton(SchematicObject root, GameObject gameObject, BehaviorAttachmentList list)

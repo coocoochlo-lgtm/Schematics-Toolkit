@@ -58,25 +58,7 @@ namespace Remedy.Schematics
             Assign(SchematicGraph);
 
             foreach (var oninvokeNode in SchematicGraph.FlowOnInvokeCache)
-            {
-                var isInvoking = false;
-
-                oninvokeNode.Signal.Subscribe(this, () =>
-                {
-                    if (isInvoking) return;
-                    try
-                    {
-                        isInvoking = true;
-                        oninvokeNode.Trigger(gameObject);
-                    }
-                    finally
-                    {
-                        isInvoking = false;
-                    }
-                });
-
                 oninvokeNode.UpdateCaches();
-            }
         }
 
         private void Start()
@@ -238,6 +220,41 @@ namespace Remedy.Schematics
             }
 
             return _behaviorInstances;
+        }
+
+        /// <summary>
+        /// Subscribes the graph's "On Signal Received" nodes under this object's UID, so they hear Signals sent to this
+        /// object from Behaviors or other graphs. Released by the Execution Context when the object despawns.
+        /// </summary>
+        internal void SubscribeGraphSignals()
+        {
+            if (SchematicGraph == null)
+                return;
+
+            foreach (var node in SchematicGraph.FlowOnInvokeCache)
+            {
+                if (node == null || node.Signal == null)
+                    continue;
+
+                var receiver = node;
+                var target = gameObject;
+                bool isInvoking = false;
+
+                node.Signal.Subscribe(UID, new GraphSignalListener(args =>
+                {
+                    // A graph that sends the Signal it listens to would otherwise recurse forever.
+                    if (isInvoking) return;
+                    try
+                    {
+                        isInvoking = true;
+                        receiver.Trigger(target, args);
+                    }
+                    finally
+                    {
+                        isInvoking = false;
+                    }
+                }));
+            }
         }
 
         /// <summary>

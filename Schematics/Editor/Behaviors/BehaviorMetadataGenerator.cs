@@ -1,3 +1,4 @@
+using Remedy.Framework;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -94,7 +95,7 @@ public static class BehaviorMetadataGenerator
 
         metadata.BehaviorType = type;
         RefreshVariables(behavior, metadata);
-        RefreshSignals(type, metadata);
+        RefreshSignals(behavior, metadata);
 
         if (created || EditorJsonUtility.ToJson(metadata) != before)
         {
@@ -127,48 +128,103 @@ public static class BehaviorMetadataGenerator
         metadata.Variables = variables;
     }
 
-    // Signals use the Runtime assembly's Signal types and attributes. They're matched by name so this
-    // editor assembly only needs to reference Schematics Core.
-    private static void RefreshSignals(Type type, BehaviorMetadata metadata)
+    // Signals are the SignalHandle fields the Behavior declared. Each gets a SignalData asset stored inside the
+    // Metadata asset, which both the Behavior and Schematic Graphs use. Existing assets are kept by name so graph
+    // nodes keep pointing at them.
+    private static void RefreshSignals(SchematicBehavior behavior, BehaviorMetadata metadata)
     {
-        const BindingFlags flags = BindingFlags.Static | BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+
+        var previous = new Dictionary<string, SignalDefinition>();
+        foreach (var definition in metadata.Signals)
+            if (definition != null && definition.Name != null)
+                previous[definition.Name] = definition;
 
         var signals = new List<SignalDefinition>();
-        for (var current = type; current != null && current != typeof(SchematicBehavior); current = current.BaseType)
+        foreach (var signal in behavior.Signals)
         {
-            foreach (var field in current.GetFields(flags))
+            var field = FindField(behavior.GetType(), signal.Name, flags);
+            var attributes = field != null ? field.GetCustomAttributes(true) : Array.Empty<object>();
+
+            previous.TryGetValue(signal.Name, out var existing);
+            var definition = new SignalDefinition
             {
-                if (field.FieldType.GetInterface("ISignal") == null)
-                    continue;
+                Name = signal.Name,
+                Direction = HasAttribute(attributes, "InputSignalAttribute") ? SignalDirection.Input
+                          : HasAttribute(attributes, "OutputSignalAttribute") ? SignalDirection.Output
+                          : SignalDirection.Unspecified,
+                Asset = existing?.Asset,
+            };
 
-                var attributes = field.GetCustomAttributes(true);
-                var definition = new SignalDefinition
+            // Parameter names come from [Parameter("Name", typeof(T))], in order.
+            var parameterNames = attributes
+                .Where(attribute => attribute.GetType().Name == "ParameterAttribute")
+                .Select(attribute => attribute.GetType().GetField("Name")?.GetValue(attribute) as string)
+                .ToArray();
+
+            for (int i = 0; i < signal.ParameterTypes.Length; i++)
+            {
+                definition.Parameters.Add(new SignalParameterDefinition
                 {
-                    Name = field.Name,
-                    Direction = HasAttribute(attributes, "InputSignalAttribute") ? SignalDirection.Input
-                              : HasAttribute(attributes, "OutputSignalAttribute") ? SignalDirection.Output
-                              : SignalDirection.Unspecified,
-                };
+                    Name = i < parameterNames.Length && !string.IsNullOrEmpty(parameterNames[i]) ? parameterNames[i] : $"Arg {i + 1}",
+                    Type = signal.ParameterTypes[i],
+                });
+            }
 
-                var parameterNames = attributes
-                    .Where(attribute => attribute.GetType().Name == "ParameterAttribute")
-                    .Select(attribute => attribute.GetType().GetField("Name")?.GetValue(attribute) as string)
-                    .ToArray();
+            definition.Asset = SyncSignalAsset(metadata, definition);
+            signals.Add(definition);
+            previous.Remove(signal.Name);
+        }
 
-                var parameterTypes = field.FieldType.IsGenericType ? field.FieldType.GetGenericArguments() : Type.EmptyTypes;
-                for (int i = 0; i < parameterTypes.Length; i++)
-                {
-                    definition.Parameters.Add(new SignalParameterDefinition
-                    {
-                        Name = i < parameterNames.Length && !string.IsNullOrEmpty(parameterNames[i]) ? parameterNames[i] : $"Arg {i + 1}",
-                        Type = parameterTypes[i],
-                    });
-                }
-
-                signals.Add(definition);
+        // Signals that were removed from code take their assets with them.
+        foreach (var removed in previous.Values)
+        {
+            if (removed.Asset != null && AssetDatabase.IsSubAsset(removed.Asset))
+            {
+                AssetDatabase.RemoveObjectFromAsset(removed.Asset);
+                UnityEngine.Object.DestroyImmediate(removed.Asset, true);
             }
         }
+
         metadata.Signals = signals;
+    }
+
+    private static SignalData SyncSignalAsset(BehaviorMetadata metadata, SignalDefinition definition)
+    {
+        var asset = definition.Asset;
+        var assetName = $"{metadata.BehaviorType.Type?.Name}.{definition.Name}";
+
+        if (asset == null)
+        {
+            asset = ScriptableObject.CreateInstance<SignalData>();
+            asset.name = assetName;
+            AssetDatabase.AddObjectToAsset(asset, metadata);
+        }
+
+        var before = EditorJsonUtility.ToJson(asset);
+
+        asset.name = assetName;
+        asset.Name = definition.Name;
+        asset.Parameters.Contents.Clear();
+        foreach (var parameter in definition.Parameters)
+            asset.Parameters.AddParameter(parameter.Name, new Union { Type = SignalArgs.ValueTypeOf(parameter.Type.Type) });
+        asset.RuntimeArgs = new Union[definition.Parameters.Count];
+
+        if (EditorJsonUtility.ToJson(asset) != before)
+            EditorUtility.SetDirty(asset);
+        return asset;
+    }
+
+    private static FieldInfo FindField(Type type, string name, BindingFlags flags)
+    {
+        for (var current = type; current != null && current != typeof(SchematicBehavior); current = current.BaseType)
+        {
+            var field = current.GetField(name, flags | BindingFlags.DeclaredOnly)
+                     ?? current.GetField($"<{name}>k__BackingField", flags | BindingFlags.DeclaredOnly);
+            if (field != null)
+                return field;
+        }
+        return null;
     }
 
     private static bool HasAttribute(object[] attributes, string typeName)

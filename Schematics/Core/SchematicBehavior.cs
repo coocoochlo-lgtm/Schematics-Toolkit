@@ -28,6 +28,8 @@ public abstract class SchematicBehavior
 {
     // Filled by VariableHandle<T>'s implicit conversion while a Behavior's field initializers run.
     [ThreadStatic] private static List<BehaviorVariable> _pendingVariables;
+    // Filled by DeclareSignal while a Behavior's field initializers run.
+    [ThreadStatic] private static List<BehaviorSignal> _pendingSignals;
 
     // The cursor of the Behavior being constructed, handed to the handles its field initializers create.
     [ThreadStatic] private static BehaviorCursor _constructingCursor;
@@ -51,6 +53,13 @@ public abstract class SchematicBehavior
     /// The Variables this Behavior declared, in declaration order. The index of each matches its <see cref="VariableHandle{T}"/>.
     /// </summary>
     public IReadOnlyList<BehaviorVariable> Variables => _variables;
+
+    private BehaviorSignal[] _signals = Array.Empty<BehaviorSignal>();
+
+    /// <summary>
+    /// The Signals this Behavior declared with <see cref="DeclareSignal()"/>, in declaration order.
+    /// </summary>
+    public IReadOnlyList<BehaviorSignal> Signals => _signals;
 
     /// <summary>
     /// The Runtime driving this Behavior. Null until the Execution Context creates one for it.
@@ -93,6 +102,8 @@ public abstract class SchematicBehavior
 
         var pending = _pendingVariables ??= new List<BehaviorVariable>();
         pending.Clear();
+        var pendingSignals = _pendingSignals ??= new List<BehaviorSignal>();
+        pendingSignals.Clear();
 
         var cursor = new BehaviorCursor();
         var previousCursor = _constructingCursor;
@@ -103,11 +114,13 @@ public abstract class SchematicBehavior
         {
             behavior = (SchematicBehavior)Activator.CreateInstance(behaviorType, nonPublic: true);
             behavior._variables = pending.ToArray();
+            behavior._signals = pendingSignals.ToArray();
             behavior.Cursor = cursor;
         }
         finally
         {
             pending.Clear();
+            pendingSignals.Clear();
             _constructingCursor = previousCursor;
         }
 
@@ -122,6 +135,24 @@ public abstract class SchematicBehavior
         var definition = new BehaviorVariable<T>(pending.Count, defaultValue, _constructingCursor ?? new BehaviorCursor());
         pending.Add(definition);
         return new VariableHandle<T>(definition.TypedColumn, definition.Index);
+    }
+
+    /// <summary>
+    /// Declares a Signal. Call it from a field initializer:
+    /// <code>public readonly SignalHandle&lt;float&gt; Damaged = DeclareSignal&lt;float&gt;();</code>
+    /// </summary>
+    protected static SignalHandle DeclareSignal() => new SignalHandle(PendSignal(SignalHandle.ParameterTypes));
+    protected static SignalHandle<T1> DeclareSignal<T1>() => new SignalHandle<T1>(PendSignal(SignalHandle<T1>.ParameterTypes));
+    protected static SignalHandle<T1, T2> DeclareSignal<T1, T2>() => new SignalHandle<T1, T2>(PendSignal(SignalHandle<T1, T2>.ParameterTypes));
+    protected static SignalHandle<T1, T2, T3> DeclareSignal<T1, T2, T3>() => new SignalHandle<T1, T2, T3>(PendSignal(SignalHandle<T1, T2, T3>.ParameterTypes));
+    protected static SignalHandle<T1, T2, T3, T4> DeclareSignal<T1, T2, T3, T4>() => new SignalHandle<T1, T2, T3, T4>(PendSignal(SignalHandle<T1, T2, T3, T4>.ParameterTypes));
+
+    private static BehaviorSignal PendSignal(Type[] parameterTypes)
+    {
+        var pending = _pendingSignals ??= new List<BehaviorSignal>();
+        var signal = new BehaviorSignal(pending.Count, parameterTypes, _constructingCursor ?? new BehaviorCursor());
+        pending.Add(signal);
+        return signal;
     }
 
     /// <summary>
@@ -143,6 +174,14 @@ public abstract class SchematicBehavior
             var fields = type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
             foreach (var field in fields)
             {
+                if (typeof(ISignalHandle).IsAssignableFrom(field.FieldType))
+                {
+                    var signal = ((ISignalHandle)field.GetValue(this)).Signal;
+                    if (signal != null && signal.Index < _signals.Length && _signals[signal.Index] == signal)
+                        signal.Name = CleanFieldName(field.Name);
+                    continue;
+                }
+
                 if (!field.FieldType.IsGenericType || field.FieldType.GetGenericTypeDefinition() != typeof(VariableHandle<>))
                     continue;
 
@@ -156,6 +195,8 @@ public abstract class SchematicBehavior
 
         for (int i = 0; i < _variables.Length; i++)
             _variables[i].Name ??= $"Variable {i}";
+        for (int i = 0; i < _signals.Length; i++)
+            _signals[i].Name ??= $"Signal {i}";
     }
 
     // Auto-property backing fields look like "<Speed>k__BackingField".

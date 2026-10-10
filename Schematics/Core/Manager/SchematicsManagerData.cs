@@ -47,7 +47,7 @@ public class SchematicManagerData : SingletonData<SchematicManagerData>
     /// <returns></returns>
     public static bool TryGetSignal(byte schemaID, byte signalID, out SignalData signalData)
     {
-        if(SchematicGraph.Lookup.Count <= schemaID && 
+        if(schemaID < SchematicGraph.Lookup.Count && 
             SchematicGraph.Lookup[schemaID].TryGetSignal(signalID, out signalData))
         {
             return true;

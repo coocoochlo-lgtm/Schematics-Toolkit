@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using System.Data.SqlTypes;
 
-public class SignalData : ScriptableObject
+public partial class SignalData : ScriptableObject
 {
     public string Name;
     private static Dictionary<int, UnityEngine.Object> _allSubscribers;
@@ -118,6 +118,9 @@ public class SignalData : ScriptableObject
             }
         }
     }
+
+    // Unity creates ScriptableObjects through the parameterless constructor.
+    public SignalData() { }
 
     public SignalData(string name)
     {
@@ -293,6 +296,9 @@ public class SignalData : ScriptableObject
             if (isGlobal || ReferenceEquals(sub.Parent, target))
                 sub?.Invoke(args);
         }
+
+        // Schematic Behaviors and Graphs listen by the UID of the object the target component belongs to.
+        DeliverComponentInvokeToListeners(target, args);
     }
 
     public void Subscribe(UnityEngine.Object instance, Action action)

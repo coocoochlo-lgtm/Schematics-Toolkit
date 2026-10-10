@@ -111,7 +111,7 @@ public static class IODockRegistry
 
                 if (attr == null)
                 {
-                    if (typeof(SignalBase).IsAssignableFrom(field.MemberType))
+                    if (typeof(ISignal).IsAssignableFrom(field.MemberType))
                     {
                         (fieldDrawn, element) = RenderElementForField(window, obj, parent, field.GetValue(parent), field, propertyPath, onModified, attr, typeof(SignalRenderer));
 

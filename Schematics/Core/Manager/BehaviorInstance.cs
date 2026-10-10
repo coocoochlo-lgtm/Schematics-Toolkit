@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Remedy.Schematics;
 using UnityEngine;
 
@@ -38,6 +39,9 @@ public sealed class BehaviorInstance
 
     // Components looked up through GetComponent, kept for the object's whole life (pooling included).
     private Component[] _componentCache = System.Array.Empty<Component>();
+
+    // Signal subscriptions this instance made, released when it despawns.
+    private readonly List<SignalSubscription> _subscriptions = new();
 
     // Attachment overrides resolved to column indices the first time the instance spawns.
     private int[] _overrideColumns;
@@ -84,6 +88,15 @@ public sealed class BehaviorInstance
     /// </summary>
     public TBehavior GetSchematicBehavior<TBehavior>() where TBehavior : SchematicBehavior
         => GameObject.GetSchematicBehavior<TBehavior>();
+
+    internal void TrackSubscription(SignalSubscription subscription) => _subscriptions.Add(subscription);
+
+    internal void ReleaseSubscriptions()
+    {
+        for (int i = 0; i < _subscriptions.Count; i++)
+            _subscriptions[i].Dispose();
+        _subscriptions.Clear();
+    }
 
     internal void ApplyOverrides(IVariableColumn[] columns)
     {

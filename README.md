@@ -204,6 +204,37 @@ ExecutionContext.Pick(uid).Enable();            // every Behavior on it
 SchematicsManager.Destroy(spinner);             // OnDisable → OnDestroy, then back into the pool
 ```
 
+### Signals
+Signals are declared on a Behavior like Variables and are addressed to a spawned Schematic Object by its UID, the same ID that `ExecutionContext.Pick`, Variables and `GetSchematicBehavior` use. Behaviors and Schematic Graphs on the same object send to and hear each other.
+
+```csharp
+public class Health : SchematicBehavior
+{
+    [OutputSignal, Parameter("Amount", typeof(float))]
+    public readonly SignalHandle<float> Damaged = DeclareSignal<float>();
+    public readonly VariableHandle<float> Current = 100f;
+
+    public void TakeDamage(float amount)
+    {
+        Current.Value -= amount;
+        Damaged.Invoke(amount);              // to the selected instance's object
+    }
+}
+
+public class HitFlash : SchematicBehavior
+{
+    private readonly VariableHandle<float> _flash = 0f;
+
+    protected override void OnStart(BehaviorInstance instance)
+    {
+        // Runs with this HitFlash instance selected, so _flash is this object's value.
+        instance.GetSchematicBehavior<Health>().Damaged.Subscribe(amount => _flash.Value = 1f);
+    }
+}
+```
+
+Each declared Signal has a Signal asset inside the Behavior's Metadata, shown under the Behavior in the Inspector; drag it into a Schematic Graph to make **Send a Signal** / **On Signal Received** nodes. Graph nodes send and listen under the UID of the object running the graph. Subscriptions made in a lifecycle method are released when the listener or the object it listens to despawns, so subscribe in `OnStart`.
+
 `GetSchematicBehavior<T>()` is the Behavior counterpart to `GetComponent`: it returns the Behavior with that object's instance selected, so its Variables act on that object, or null if the Behavior doesn't control it.
 
 ```csharp

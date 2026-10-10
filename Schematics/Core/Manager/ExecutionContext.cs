@@ -34,9 +34,16 @@ public static class ExecutionContext
     /// <summary>Every spawned Schematic Object, by UID.</summary>
     public static IReadOnlyDictionary<int, SchematicObject> Objects => _objects;
 
+    static ExecutionContext()
+    {
+        SignalData.UIDResolver = ResolveUID;
+    }
+
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     private static void ResetStatics()
     {
+        SignalData.UIDResolver = ResolveUID;
+        SignalData.ResetInstanceRouting();
         // Needed when Domain Reload is turned off in the Enter Play Mode settings.
         _runtimesByType.Clear();
         _runtimes.Clear();
@@ -107,6 +114,9 @@ public static class ExecutionContext
 
         var instances = schematicObject.GetOrCreateBehaviorInstances();
 
+        // Before any Behavior runs, so Signals sent from OnCreate/OnStart already reach the object's graph.
+        schematicObject.SubscribeGraphSignals();
+
         // Every Behavior gets its data before any callbacks run, so OnStart can read sibling Behaviors' Variables.
         for (int i = 0; i < instances.Count; i++)
             instances[i].Runtime.AddRow(instances[i]);
@@ -128,6 +138,9 @@ public static class ExecutionContext
         var instances = schematicObject.BehaviorInstances;
         for (int i = instances.Count - 1; i >= 0; i--)
             instances[i].Runtime.Remove(instances[i]);
+
+        // Everything listening to this object (its graph, other objects' Behaviors) stops with it.
+        SignalData.ReleaseUID(uid);
 
         _objects.Remove(uid);
         schematicObject.UID = 0;
@@ -153,6 +166,25 @@ public static class ExecutionContext
                 return instance;
         }
         return null;
+    }
+
+    /// <summary>
+    /// The UID of the spawned Schematic Object a GameObject or Component belongs to, or 0 if none.
+    /// This is how Signals sent from graphs and old-style components find their object.
+    /// </summary>
+    public static int ResolveUID(UnityEngine.Object obj)
+    {
+        var gameObject = obj as GameObject;
+        if (gameObject == null && obj is Component component && component != null)
+            gameObject = component.gameObject;
+        if (gameObject == null)
+            return 0;
+
+        if (_instancesByGameObject.TryGetValue(gameObject, out var instances) && instances.Count > 0)
+            return instances[0].UID;
+
+        var schematicObject = gameObject.GetComponentInParent<SchematicObject>();
+        return schematicObject != null ? schematicObject.UID : 0;
     }
 
     internal static void Track(BehaviorInstance instance)

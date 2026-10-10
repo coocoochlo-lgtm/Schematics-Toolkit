@@ -63,7 +63,7 @@ public class BehaviorMetadataEditor : Editor
         if (metadata.Signals.Count == 0)
             EditorGUILayout.LabelField("No Signals", EditorStyles.miniLabel);
         foreach (var signal in metadata.Signals)
-            EditorGUILayout.LabelField(DescribeSignal(signal));
+            EditorGUILayout.ObjectField(new GUIContent(DescribeSignal(signal)), signal.Asset, typeof(SignalData), false);
 
         EditorGUILayout.Space();
         if (behaviorType != null && GUILayout.Button("Refresh from Code"))

@@ -1,5 +1,6 @@
 ﻿using BlueGraph;
 using System;
+using System.Linq;
 using UnityEngine;
 
 namespace Remedy.Schematics
@@ -18,10 +19,13 @@ namespace Remedy.Schematics
 
         public void Trigger(GameObject instance, params Union[] arguments)
         {
+            // Copy the keys first: assigning while enumerating the dictionary would throw.
             int i = 0;
-            foreach(var kvp in _cachedOutputsByName)
+            foreach (var key in _cachedOutputsByName.Keys.ToArray())
             {
-                _cachedOutputsByName[kvp.Key] = arguments[i];
+                if (arguments == null || i >= arguments.Length)
+                    break;
+                _cachedOutputsByName[key] = arguments[i];
                 i++;
             }
 

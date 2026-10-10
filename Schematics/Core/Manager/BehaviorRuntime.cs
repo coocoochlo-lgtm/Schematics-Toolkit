@@ -62,6 +62,14 @@ public sealed class BehaviorRuntime
             _variableIndices[variables[i].Name] = i;
         }
 
+        // Signals carry on the asset generated into the Metadata, which graphs reference too.
+        foreach (var signal in behavior.Signals)
+        {
+            var asset = metadata != null ? metadata.FindSignal(signal.Name)?.Asset : null;
+            if (asset != null)
+                signal.Data = asset;
+        }
+
         if (metadata != null)
         {
             foreach (var definition in metadata.Variables)
@@ -185,6 +193,8 @@ public sealed class BehaviorRuntime
             Invoke(Callback.Destroy, instance);
             instance.Started = false;
         }
+
+        instance.ReleaseSubscriptions();
 
         if (_iterating > 0)
             _pendingRemovals.Add(instance);

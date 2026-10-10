@@ -52,6 +52,14 @@ public class BehaviorMetadata : ScriptableObjectWithID<BehaviorMetadata>
     /// </summary>
     public List<SignalDefinition> Signals = new();
 
+    public SignalDefinition FindSignal(string name)
+    {
+        foreach (var signal in Signals)
+            if (signal.Name == name)
+                return signal;
+        return null;
+    }
+
     public VariableDefinition FindVariable(string name)
     {
         foreach (var variable in Variables)
@@ -87,6 +95,12 @@ public class SignalDefinition
     public string Name;
     public SignalDirection Direction;
     public List<SignalParameterDefinition> Parameters = new();
+
+    /// <summary>
+    /// The Signal asset (stored inside the Metadata asset) that the Behavior sends and listens on. Drag it into a
+    /// Schematic Graph to send or receive this Signal there.
+    /// </summary>
+    public SignalData Asset;
 }
 
 [Serializable]
