@@ -217,6 +217,12 @@ public class PrefabHierarchy : VisualElement
         var row = new VisualElement { tooltip = tooltip };
         row.AddToClassList("dock-row");
         row.AddToClassList("dock-row-" + item.Kind.ToString().ToLowerInvariant());
+        // The IO Dock stylesheet's Signal container look, shared by Variables (with their own tint).
+        row.AddToClassList("event-container");
+        if (item.Kind == DockItem.ItemKind.Signal)
+            row.AddToClassList(item.Direction == SignalDirection.Output ? "event-container-output" : "event-container-input");
+        else
+            row.AddToClassList("event-container-variable");
         row.style.flexDirection = FlexDirection.Row;
         row.style.alignItems = Align.Center;
 
@@ -239,6 +245,7 @@ public class PrefabHierarchy : VisualElement
 
         var name = new Label(label);
         name.AddToClassList("dock-row-name");
+        name.AddToClassList("event-name");
         row.Add(name);
 
         var info = new Label(detail);

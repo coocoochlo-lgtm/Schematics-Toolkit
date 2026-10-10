@@ -43,6 +43,15 @@ namespace BlueGraph.Editor
             var ussSafeName = Regex.Replace(Target.Name, @"[^a-zA-Z0-9]+", "-").Trim('-');
             AddToClassList($"node-{ussSafeName}");
 
+            // Also a class for the node's type (e.g. `.node-On-Signal-Received`), so styles keep applying to nodes
+            // whose title was changed (like "On JumpInput").
+            if (ReflectionData != null && !string.IsNullOrEmpty(ReflectionData.Name))
+            {
+                var typeClass = Regex.Replace(ReflectionData.Name, @"[^a-zA-Z0-9]+", "-").Trim('-');
+                if (typeClass != ussSafeName)
+                    AddToClassList($"node-{typeClass}");
+            }
+
             var errorContainer = new VisualElement { name = "error" };
             errorContainer.Add(new VisualElement { name = "error-icon" });
 
