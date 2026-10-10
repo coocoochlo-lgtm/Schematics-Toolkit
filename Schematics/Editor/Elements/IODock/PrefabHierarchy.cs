@@ -33,6 +33,10 @@ public class PrefabHierarchy : VisualElement
         _root = prefab != null ? prefab.GetComponent<SchematicObject>() : null;
 
         AddToClassList("behavior-dock");
+        // IMGUI fields can ask for a lot of width; never let the dock grow over the graph.
+        style.overflow = Overflow.Hidden;
+        style.minWidth = 0;
+        style.flexShrink = 1;
         Rebuild();
     }
 
@@ -82,6 +86,14 @@ public class PrefabHierarchy : VisualElement
         toggle.Add(handle);
         _rows[item.Key] = toggle;
 
+        toggle.RegisterCallback<MouseDownEvent>(evt =>
+        {
+            if (evt.clickCount == 2 && evt.button == 0)
+            {
+                Rename(toggle, path, transform.name);
+                evt.StopPropagation();
+            }
+        });
         toggle.AddManipulator(new ContextualMenuManipulator(evt =>
         {
             evt.menu.AppendAction("Add Child", _ => AddChild(path));
@@ -104,7 +116,7 @@ public class PrefabHierarchy : VisualElement
             var content = new GUIContent("+ Add Behavior");
             var rect = GUILayoutUtility.GetRect(content, EditorStyles.miniButton);
             if (GUI.Button(rect, content, EditorStyles.miniButton))
-                SchematicBehaviorsHeaderGUI.ShowAddBehaviorDropdown(rect, _root, target, _ => _window.RedrawIODock());
+                SchematicBehaviorsHeaderGUI.ShowBehaviorDropdown(rect, AttachedTypes(target), type => AddBehavior(path, type));
         });
         addButton.AddToClassList("dock-add-behavior");
         foldout.Add(addButton);
@@ -137,11 +149,8 @@ public class PrefabHierarchy : VisualElement
         var toggle = section.Q<Toggle>();
         toggle.AddManipulator(new ContextualMenuManipulator(evt =>
         {
-            evt.menu.AppendAction("Remove Behavior", _ =>
-            {
-                SchematicBehaviorsHeaderGUI.RemoveWithUndo(_root, target, attachment);
-                _window.RedrawIODock();
-            });
+            if (behaviorType != null)
+                evt.menu.AppendAction("Remove Behavior", _ => RemoveBehavior(path, behaviorType));
             if (behaviorType != null)
                 evt.menu.AppendAction("Edit Script", _ => OpenScript(behaviorType));
         }));
@@ -166,27 +175,37 @@ public class PrefabHierarchy : VisualElement
             section.Add(open);
         }
 
-        // The per-object values, as the Inspector shows them.
-        if (metadata.Variables.Count > 0)
-        {
-            var values = new Foldout { text = "Values", value = false };
-            values.AddToClassList("dock-values");
-            values.Add(new IMGUIContainer(() => SchematicBehaviorsHeaderGUI.DrawVariablesGUI(_root, target, attachment)));
-            section.Add(values);
-        }
+        var reflection = BehaviorReflection.Get(behaviorType);
+        var properties = new List<VariableDefinition>();
 
-        if (metadata.Variables.Count > 0)
+        // Variables, each with this object's value right on its row.
+        bool anyVariable = false;
+        foreach (var variable in metadata.Variables)
         {
-            section.Add(SectionLabel("Variables"));
-            foreach (var variable in metadata.Variables)
+            if (reflection != null && reflection.IsPropertiesVariable(variable.Name))
             {
-                var item = new DockItem
-                {
-                    Kind = DockItem.ItemKind.Variable, Path = path, Behavior = behaviorType, GameObject = target,
-                    Name = variable.Name, ValueType = variable.Type.Type,
-                };
-                section.Add(CreateRow(item, VariableIcon, $"{ObjectNames.NicifyVariableName(variable.Name)}", TypeName(item.ValueType), "Variable: drag in to Get or Set it; click to find its nodes"));
+                properties.Add(variable);
+                continue;
             }
+            if (!anyVariable)
+            {
+                section.Add(SectionLabel("Variables"));
+                anyVariable = true;
+            }
+
+            var item = new DockItem
+            {
+                Kind = DockItem.ItemKind.Variable, Path = path, Behavior = behaviorType, GameObject = target,
+                Name = variable.Name, ValueType = variable.Type.Type,
+            };
+            var row = CreateRow(item, VariableIcon, ObjectNames.NicifyVariableName(variable.Name), TypeName(item.ValueType),
+                "Variable: drag the name into the graph to Get or Set it; click it to find its nodes. The field is this object's starting value.");
+            string variableName = variable.Name;
+            var field = new IMGUIContainer(() => SchematicBehaviorsHeaderGUI.DrawVariableGUI(_root, target, attachment, variableName));
+            ConstrainIMGUI(field);
+            field.AddToClassList("dock-variable-value");
+            row.Add(field);
+            section.Add(row);
         }
 
         if (metadata.Signals.Count > 0)
@@ -204,17 +223,22 @@ public class PrefabHierarchy : VisualElement
                     parameters.Add($"{TypeName(parameter.Type.Type)} {parameter.Name}");
                 var icon = signal.Direction == SignalDirection.Output ? OutputIcon : InputIcon;
                 string direction = signal.Direction == SignalDirection.Output ? "Output" : signal.Direction == SignalDirection.Input ? "Input" : "";
-                section.Add(CreateRow(item, icon, ObjectNames.NicifyVariableName(signal.Name), string.Join(", ", parameters),
-                    $"{direction} Signal: drag in to Send it or react to it; click to find its nodes"));
+                var row = CreateRow(item, icon, ObjectNames.NicifyVariableName(signal.Name), string.Join(", ", parameters),
+                    $"{direction} Signal: drag in to Send it or react to it; click to find its nodes");
+                section.Add(row);
             }
         }
+
+        // Properties last: the Behavior's tuning asset, created for this object if it has none, edited in place.
+        if (properties.Count > 0)
+            section.Add(CreatePropertiesFoldout(target, path, behaviorType, attachment, properties));
 
         return section;
     }
 
     private VisualElement CreateRow(DockItem item, Texture icon, string label, string detail, string tooltip)
     {
-        var row = new VisualElement { tooltip = tooltip };
+        var row = new VisualElement();
         row.AddToClassList("dock-row");
         row.AddToClassList("dock-row-" + item.Kind.ToString().ToLowerInvariant());
         // The IO Dock stylesheet's Signal container look, shared by Variables (with their own tint).
@@ -226,6 +250,14 @@ public class PrefabHierarchy : VisualElement
         row.style.flexDirection = FlexDirection.Row;
         row.style.alignItems = Align.Center;
 
+        // The handle: icon, name and type. Press and move to drag; click to find the item's nodes.
+        var handle = new VisualElement { tooltip = tooltip };
+        handle.AddToClassList("dock-row-handle");
+        handle.style.flexDirection = FlexDirection.Row;
+        handle.style.alignItems = Align.Center;
+        handle.style.flexShrink = 0;
+        row.Add(handle);
+
         if (item.Kind == DockItem.ItemKind.Variable)
         {
             var chip = new VisualElement();
@@ -234,26 +266,31 @@ public class PrefabHierarchy : VisualElement
             chip.style.height = 14;
             chip.style.marginRight = 4;
             chip.style.backgroundColor = ColorOf(item.ValueType);
-            row.Add(chip);
+            handle.Add(chip);
         }
 
         var image = new Image { image = icon };
         image.style.width = 16;
         image.style.height = 16;
         image.style.marginRight = 4;
-        row.Add(image);
+        handle.Add(image);
 
         var name = new Label(label);
         name.AddToClassList("dock-row-name");
         name.AddToClassList("event-name");
-        row.Add(name);
+        handle.Add(name);
 
         var info = new Label(detail);
         info.AddToClassList("dock-row-detail");
-        info.style.flexGrow = 1;
-        info.style.unityTextAlign = TextAnchor.MiddleRight;
         info.style.color = new Color(0.65f, 0.65f, 0.65f);
-        row.Add(info);
+        if (item.Kind == DockItem.ItemKind.Signal)
+        {
+            info.style.flexGrow = 1;
+            info.style.unityTextAlign = TextAnchor.MiddleRight;
+            row.Add(info);
+        }
+        else
+            handle.Add(info);
 
         if (item.Signal == null && item.Kind == DockItem.ItemKind.Signal)
         {
@@ -261,9 +298,107 @@ public class PrefabHierarchy : VisualElement
             row.tooltip = "This Signal has no asset yet. Use Tools/Remedy/Schematics/Refresh Behavior Metadata.";
         }
 
-        MakeDraggable(row, item, () => _window.FocusNodes(item));
+        MakeDraggable(item.Kind == DockItem.ItemKind.Signal ? row : handle, item, () => _window.FocusNodes(item));
         _rows[item.Key] = row;
         return row;
+    }
+
+    private Foldout CreatePropertiesFoldout(GameObject target, string path, Type behaviorType, BehaviorAttachment attachment, List<VariableDefinition> properties)
+    {
+        var foldout = new Foldout { text = "Properties", value = SessionState.GetBool(FoldoutKey("properties", path + behaviorType.FullName), false) };
+        foldout.AddToClassList("dock-properties");
+        foldout.RegisterValueChangedCallback(evt =>
+        {
+            if (evt.target == foldout)
+                SessionState.SetBool(FoldoutKey("properties", path + behaviorType.FullName), evt.newValue);
+        });
+
+        foreach (var variable in properties)
+        {
+            var type = variable.Type.Type;
+            string variableName = variable.Name;
+
+            // Every object gets its own Properties asset, as before; made the first time the dock shows it.
+            if (CurrentProperties(attachment, variable) == null && type != null && !type.IsAbstract)
+                EditorApplication.delayCall += () => CreateProperties(target, path, behaviorType, attachment, variableName, type);
+
+            UnityEditor.Editor editor = null;
+            var container = new IMGUIContainer(() =>
+            {
+                var current = CurrentProperties(attachment, variable);
+                if (properties.Count > 1)
+                    EditorGUILayout.LabelField(ObjectNames.NicifyVariableName(variableName), EditorStyles.boldLabel);
+
+                // The asset itself, swappable for another one.
+                EditorGUI.BeginChangeCheck();
+                var picked = EditorGUILayout.ObjectField(current, type, false) as ScriptableObject;
+                if (EditorGUI.EndChangeCheck())
+                {
+                    Undo.RecordObject(_root, "Set Behavior Properties");
+                    attachment.SetOverride(variableName, picked, type);
+                    EditorUtility.SetDirty(_root);
+                    PrefabSaveQueue.Request(_root);
+                    current = picked;
+                }
+
+                if (current == null)
+                {
+                    EditorGUILayout.LabelField("Creating…", EditorStyles.miniLabel);
+                    return;
+                }
+
+                UnityEditor.Editor.CreateCachedEditor(current, null, ref editor);
+                editor.OnInspectorGUI();
+            });
+            ConstrainIMGUI(container);
+            foldout.Add(container);
+        }
+        return foldout;
+    }
+
+    private static ScriptableObject CurrentProperties(BehaviorAttachment attachment, VariableDefinition variable)
+    {
+        var type = variable.Type.Type;
+        var entry = attachment.FindOverride(variable.Name);
+        if (entry?.Value != null && entry.Value.Get(type) is ScriptableObject own)
+            return own;
+        return variable.Default?.Get(type) as ScriptableObject;
+    }
+
+    private void CreateProperties(GameObject target, string path, Type behaviorType, BehaviorAttachment attachment, string variableName, Type type)
+    {
+        if (_root == null || attachment.FindOverride(variableName)?.Value?.Get(type) != null)
+            return;
+
+        // Stored with the prefab's other Schematic assets, one per Behavior (and GameObject) that uses it.
+        string scope = behaviorType.Name + (string.IsNullOrEmpty(path) ? "" : "_" + path.Replace('/', '_'));
+        var asset = SchematicAssets.SchematicAssetManager.Create(_prefab, scope, variableName, variableName, type);
+        if (asset == null)
+            return;
+
+        Undo.RecordObject(_root, "Create Behavior Properties");
+        attachment.SetOverride(variableName, asset, type);
+        EditorUtility.SetDirty(_root);
+        PrefabSaveQueue.Request(_root);
+    }
+
+    // IMGUI asks for the width it would like; inside the dock it must take what it's given.
+    private static void ConstrainIMGUI(IMGUIContainer container)
+    {
+        container.style.flexGrow = 1;
+        container.style.flexShrink = 1;
+        container.style.minWidth = 0;
+        container.style.overflow = Overflow.Hidden;
+    }
+
+    private HashSet<Type> AttachedTypes(GameObject target)
+    {
+        var attached = new HashSet<Type>();
+        if (_root.Behaviors.TryGetValue(target, out var list) && list != null)
+            foreach (var attachment in list.Items)
+                if (attachment?.Metadata != null && attachment.Metadata.BehaviorType.Type != null)
+                    attached.Add(attachment.Metadata.BehaviorType.Type);
+        return attached;
     }
 
     #endregion
@@ -290,21 +425,31 @@ public class PrefabHierarchy : VisualElement
         return true;
     }
 
+    private static readonly Dictionary<VisualElement, IVisualElementScheduledItem> _flashing = new();
+
     internal static void Flash(VisualElement element)
     {
-        var original = element.style.backgroundColor;
+        // A second click mid-flash restarts it instead of starting another one that would remember the
+        // half-faded colour as "original" and leave it on for good.
+        if (_flashing.TryGetValue(element, out var running))
+            running.Pause();
+
         float t = 0f;
         IVisualElementScheduledItem item = null;
         item = element.schedule.Execute(() =>
         {
             t += 0.06f;
-            element.style.backgroundColor = Color.Lerp(new Color(0f, 0.55f, 0.6f, 0.9f), new Color(0, 0, 0, 0), t);
             if (t >= 1f)
             {
-                element.style.backgroundColor = original;
+                // Back to whatever the stylesheet says.
+                element.style.backgroundColor = StyleKeyword.Null;
                 item.Pause();
+                _flashing.Remove(element);
+                return;
             }
+            element.style.backgroundColor = Color.Lerp(new Color(0f, 0.55f, 0.6f, 0.9f), new Color(0f, 0.55f, 0.6f, 0f), t);
         }).Every(16);
+        _flashing[element] = item;
     }
 
     #endregion
@@ -423,29 +568,51 @@ public class PrefabHierarchy : VisualElement
 
     #region Prefab editing
 
+    // Structural edits (children, Behaviors) go through the prefab's contents, as the original dock did: load it,
+    // change the copy, save it over the asset, then reimport and redraw.
+    private void EditContents(Action<GameObject> edit)
+    {
+        PrefabSaveQueue.Flush(); // value edits waiting to be saved would otherwise be lost
+        var contents = PrefabUtility.LoadPrefabContents(_assetPath);
+        try
+        {
+            edit(contents);
+        }
+        catch (Exception exception)
+        {
+            Debug.LogException(exception);
+            PrefabUtility.UnloadPrefabContents(contents);
+            return;
+        }
+        Save(contents);
+    }
+
+    private static Transform Find(GameObject contents, string path)
+        => string.IsNullOrEmpty(path) ? contents.transform : contents.transform.Find(path);
+
     private void AddChild(string parentPath)
     {
-        var contents = PrefabUtility.LoadPrefabContents(_assetPath);
-        var parent = string.IsNullOrEmpty(parentPath) ? contents.transform : contents.transform.Find(parentPath);
-        if (parent != null)
-            new GameObject("New Child").transform.SetParent(parent, false);
-        Save(contents);
+        EditContents(contents =>
+        {
+            var parent = Find(contents, parentPath);
+            if (parent != null)
+                new GameObject("New Child").transform.SetParent(parent, false);
+        });
     }
 
     private void DeleteObject(string path)
     {
-        var contents = PrefabUtility.LoadPrefabContents(_assetPath);
-        var target = contents.transform.Find(path);
-        if (target != null)
+        EditContents(contents =>
         {
+            var target = Find(contents, path);
+            if (target == null) return;
             // Drop the Behaviors attached to it (and its children) from the root's list first.
             var root = contents.GetComponent<SchematicObject>();
             if (root != null)
                 foreach (var t in target.GetComponentsInChildren<Transform>(true))
                     root.Behaviors.Remove(t.gameObject);
             UnityEngine.Object.DestroyImmediate(target.gameObject);
-        }
-        Save(contents);
+        });
     }
 
     private void Rename(VisualElement anchor, string path, string current)
@@ -455,19 +622,56 @@ public class PrefabHierarchy : VisualElement
                                        getOriginalValue: () => current,
                                        onFinishedEditting: (bool changed, object value) =>
                                        {
-                                           if (!changed || value == null) return;
-                                           var contents = PrefabUtility.LoadPrefabContents(_assetPath);
-                                           var target = string.IsNullOrEmpty(path) ? contents.transform : contents.transform.Find(path);
-                                           if (target != null)
-                                               target.name = value.ToString();
-                                           Save(contents);
+                                           string name = value?.ToString();
+                                           if (string.IsNullOrWhiteSpace(name) || name == current) return;
+                                           EditContents(contents =>
+                                           {
+                                               var target = Find(contents, path);
+                                               if (target != null)
+                                                   target.name = name;
+                                           });
                                        }));
     }
 
-    private void Save(GameObject contents)
+    private void AddBehavior(string path, Type behaviorType)
+    {
+        // Metadata first: attaching needs it, and generating it touches the asset database.
+        if (BehaviorMetadataGenerator.GetOrCreate(behaviorType) == null)
+            return;
+
+        EditContents(contents =>
+        {
+            var root = contents.GetComponent<SchematicObject>();
+            var target = Find(contents, path);
+            if (root != null && target != null)
+                root.AttachBehavior(behaviorType, target.gameObject);
+        });
+    }
+
+    private void RemoveBehavior(string path, Type behaviorType)
+    {
+        EditContents(contents =>
+        {
+            var root = contents.GetComponent<SchematicObject>();
+            var target = Find(contents, path);
+            if (root == null || target == null || !root.Behaviors.TryGetValue(target.gameObject, out var list) || list == null)
+                return;
+            list.Items.RemoveAll(a => a?.Metadata != null && a.Metadata.BehaviorType.Type == behaviorType);
+            if (list.Items.Count == 0)
+                root.Behaviors.Remove(target.gameObject);
+        });
+    }
+
+    private async void Save(GameObject contents)
     {
         PrefabUtility.SaveAsPrefabAsset(contents, _assetPath);
         PrefabUtility.UnloadPrefabContents(contents);
+
+        AssetDatabase.Refresh();
+
+        await EditorUtilities.NextEditorFrame();
+
+        PrefabRefreshUtility.ReimportAndResetPrefab(_prefab);
         _window.RedrawIODock();
     }
 

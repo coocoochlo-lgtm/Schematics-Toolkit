@@ -668,3 +668,16 @@ TextElement
 {
 	margin: 2px 8px 6px 8px;
 }
+
+.dock-row-handle
+{
+	max-width: 55%;
+}
+.dock-variable-value
+{
+	margin-left: 4px;
+}
+.dock-properties
+{
+	margin: 4px 4px 2px 8px;
+}

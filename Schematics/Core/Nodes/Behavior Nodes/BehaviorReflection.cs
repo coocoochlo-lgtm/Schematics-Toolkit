@@ -35,7 +35,9 @@ public sealed class BehaviorReflection
     {
         public readonly string Name;
         public readonly Type Type;
-        public VariableInfo(string name, Type type) { Name = name; Type = type; }
+        /// <summary>The Behavior's Properties asset (see <see cref="SchematicPropertiesAttribute"/>).</summary>
+        public readonly bool IsProperties;
+        public VariableInfo(string name, Type type, bool isProperties) { Name = name; Type = type; IsProperties = isProperties; }
     }
 
     public sealed class MethodEntry
@@ -81,7 +83,13 @@ public sealed class BehaviorReflection
         foreach (var type in chain)
             foreach (var field in type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
                 if (field.FieldType.IsGenericType && field.FieldType.GetGenericTypeDefinition() == typeof(VariableHandle<>))
-                    _variables.Add(new VariableInfo(SchematicBehavior.CleanFieldName(field.Name), field.FieldType.GetGenericArguments()[0]));
+                {
+                    var name = SchematicBehavior.CleanFieldName(field.Name);
+                    var valueType = field.FieldType.GetGenericArguments()[0];
+                    bool isProperties = typeof(UnityEngine.ScriptableObject).IsAssignableFrom(valueType)
+                        && (field.IsDefined(typeof(SchematicPropertiesAttribute), true) || name == "Properties");
+                    _variables.Add(new VariableInfo(name, valueType, isProperties));
+                }
 
         // Methods: public instance methods the Behavior itself declares (not lifecycle overrides or SchematicBehavior's own API).
         foreach (var method in behaviorType.GetMethods(BindingFlags.Instance | BindingFlags.Public))
@@ -111,6 +119,14 @@ public sealed class BehaviorReflection
 
     public MethodEntry FindMethod(string signature)
         => signature != null && _methodsBySignature.TryGetValue(signature, out var entry) ? entry : null;
+
+    public bool IsPropertiesVariable(string name)
+    {
+        foreach (var variable in _variables)
+            if (variable.Name == name)
+                return variable.IsProperties;
+        return false;
+    }
 
     public Type FindVariableType(string name)
     {

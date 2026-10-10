@@ -133,17 +133,22 @@ public static class SchematicBehaviorsHeaderGUI
         }
 
         foreach (var definition in metadata.Variables)
+            DrawVariable(root, gameObject, attachmentIndex, attachment, definition);
+    }
+
+    private static void DrawVariable(SchematicObject root, GameObject gameObject, int attachmentIndex, BehaviorAttachment attachment, VariableDefinition definition, bool showLabel = true)
+    {
         {
             var type = definition.Type.Type;
             var entry = attachment.FindOverride(definition.Name);
             var current = entry != null ? entry.Value.Get(type) : definition.Default?.Get(type);
-            var label = new GUIContent(ObjectNames.NicifyVariableName(definition.Name),
+            var label = new GUIContent(showLabel ? ObjectNames.NicifyVariableName(definition.Name) : "",
                 entry != null ? "Overridden on this object." : "Using the Behavior's default.");
 
             if (SchematicValue.IsBoxable(type))
             {
                 DrawBoxedVariable(root, gameObject, attachmentIndex, attachment, definition, entry, label);
-                continue;
+                return;
             }
 
             using (new EditorGUILayout.HorizontalScope())
@@ -341,6 +346,22 @@ public static class SchematicBehaviorsHeaderGUI
         }).Show(rect);
     }
 
+    /// <summary>One Variable's value field for this object (its override, or the default), for embedding in an IMGUIContainer.</summary>
+    public static void DrawVariableGUI(SchematicObject root, GameObject gameObject, BehaviorAttachment attachment, string variableName, bool showLabel = false)
+    {
+        if (!root.Behaviors.TryGetValue(gameObject, out var list) || list == null || attachment?.Metadata == null)
+            return;
+        int index = list.Items.IndexOf(attachment);
+        var definition = attachment.Metadata.FindVariable(variableName);
+        if (index < 0 || definition == null)
+            return;
+        DrawVariable(root, gameObject, index, attachment, definition, showLabel);
+    }
+
+    /// <summary>Shows the Behavior picker; what happens with the choice is up to the caller.</summary>
+    public static void ShowBehaviorDropdown(Rect rect, HashSet<Type> exclude, Action<Type> onPicked)
+        => new BehaviorDropdown(_dropdownState, exclude ?? new HashSet<Type>(), onPicked).Show(rect);
+
     /// <summary>Attaches a Behavior with Undo, as the Inspector's add button does (required Behaviors and components, OnSetup).</summary>
     public static void AttachWithUndo(SchematicObject root, GameObject gameObject, Type behaviorType) => AddBehavior(root, gameObject, behaviorType);
 
@@ -399,6 +420,9 @@ public static class SchematicBehaviorsHeaderGUI
         EditorUtility.SetDirty(root);
         if (PrefabUtility.IsPartOfPrefabInstance(root))
             PrefabUtility.RecordPrefabInstancePropertyModifications(root);
+        // A prefab asset edited directly (e.g. from the IO Dock) is written to disk right away, so a later
+        // reimport or a load-edit-save of the prefab's contents can't throw the edit away.
+        PrefabSaveQueue.Request(root);
     }
 
     #endregion
