@@ -31,6 +31,7 @@ public class PrefabHierarchy : VisualElement
         _window = window;
         _assetPath = AssetDatabase.GetAssetPath(prefab);
         _root = prefab != null ? prefab.GetComponent<SchematicObject>() : null;
+        PrefabSaveTrace.Step(0, "dock built", _assetPath, dockObject: prefab);
 
         AddToClassList("behavior-dock");
         RegisterCallback<MouseLeaveEvent>(_ => FlushPendingEdits());
@@ -623,13 +624,18 @@ public class PrefabHierarchy : VisualElement
         _pendingEdits.Clear();
         _flushScheduled?.Pause();
 
+        int trace = PrefabSaveTrace.Begin($"dock edit ({edits.Length} change(s), {pending.Count} value(s))", _assetPath);
+        PrefabSaveTrace.Step(trace, "1 before load", _assetPath, dockObject: _prefab);
+
         GameObject contents = null;
         try
         {
             contents = PrefabUtility.LoadPrefabContents(_assetPath);
+            PrefabSaveTrace.Step(trace, "2 loaded copy", _assetPath, dockObject: _prefab, contents: contents);
             ApplyEdits(contents, pending);
             foreach (var queued in edits)
                 queued(contents);
+            PrefabSaveTrace.Step(trace, "3 copy edited", _assetPath, dockObject: _prefab, contents: contents);
         }
         catch (Exception exception)
         {
@@ -639,7 +645,7 @@ public class PrefabHierarchy : VisualElement
             Finish();
             return;
         }
-        Save(contents);
+        Save(contents, trace);
     }
 
     private readonly List<Action<GameObject>> _queuedEdits = new();
@@ -854,19 +860,23 @@ public class PrefabHierarchy : VisualElement
         });
     }
 
-    private async void Save(GameObject contents)
+    private async void Save(GameObject contents, int trace = 0)
     {
         // Always finishes, even if a step throws: an unfinished save would hold every later save back.
         try
         {
             PrefabUtility.SaveAsPrefabAsset(contents, _assetPath);
+            PrefabSaveTrace.Step(trace, "4 saved copy over file", _assetPath, dockObject: _prefab, contents: contents);
             PrefabUtility.UnloadPrefabContents(contents);
 
             AssetDatabase.Refresh();
+            PrefabSaveTrace.Step(trace, "5 after Refresh", _assetPath, dockObject: _prefab);
 
             await EditorUtilities.NextEditorFrame();
+            PrefabSaveTrace.Step(trace, "6 next frame", _assetPath, dockObject: _prefab);
 
             PrefabRefreshUtility.ReimportAndResetPrefab(_prefab);
+            PrefabSaveTrace.Step(trace, "7 after ReimportAndResetPrefab", _assetPath, dockObject: _prefab);
         }
         catch (Exception exception)
         {
@@ -877,6 +887,7 @@ public class PrefabHierarchy : VisualElement
             Finish();
         }
         _window.RedrawIODock();
+        PrefabSaveTrace.Step(trace, "8 after dock redraw", _assetPath, dockObject: _window.Prefab);
     }
 
     #endregion

@@ -408,6 +408,7 @@ public class SchematicGraphEditorWindow : GraphEditorWindow
         {
             SchematicGraph.Prefab = prefabAsset;
         }
+        PrefabSaveTrace.Step(0, $"window redraw (path {_prefabPath})", _prefabPath, dockObject: SchematicGraph.Prefab);
 
         SchematicGraph.Prefab = Prefab;
 
