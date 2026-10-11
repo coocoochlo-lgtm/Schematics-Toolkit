@@ -14,8 +14,16 @@ namespace SchematicsAgent;
 public sealed class Planner
 {
     private readonly Llm _llm;
+    private readonly ReferenceStore _reference;
 
-    public Planner(Llm llm) { _llm = llm; }
+    public Planner(Llm llm, ReferenceStore reference) { _llm = llm; _reference = reference; }
+
+    // The toolkit pieces relevant to some text, as prompt lines.
+    private string ReferenceFor(string text, int count)
+    {
+        var cards = _reference.Search(text, count);
+        return cards.Count == 0 ? "" : "\n\nToolkit reference (what these pieces are and what they're for):\n- " + string.Join("\n- ", cards);
+    }
 
     /// <summary>The commands the editor understands, and the fields each uses.</summary>
     public static readonly IReadOnlyDictionary<string, string> Ops = new Dictionary<string, string>
@@ -86,7 +94,7 @@ ws      ::= [ \t\n]*
         // 1. Read and plan.
         string readerOutput = await _llm.CompleteAsync(
             Persona + "\n" + ReaderRules,
-            $"Editor state:\n{state}\n\nRequest: {utterance}",
+            $"Editor state:\n{state}{ReferenceFor(utterance + " " + state, 10)}\n\nRequest: {utterance}",
             ReaderGrammar, 320, cancellation);
 
         string say = "Okay.";
@@ -105,7 +113,7 @@ ws      ::= [ \t\n]*
         // 2. Act: the plan becomes commands.
         string actorOutput = await _llm.CompleteAsync(
             Persona + "\n" + ActorRules(),
-            $"Editor state:\n{state}\n\nRequest: {utterance}\nPlan:\n- {string.Join("\n- ", plan)}",
+            $"Editor state:\n{state}{ReferenceFor(utterance + " " + string.Join(" ", plan), 12)}\n\nRequest: {utterance}\nPlan:\n- {string.Join("\n- ", plan)}",
             ActorGrammar(), 900, cancellation);
 
         return Reply(say, NormalizeCommands(actorOutput));

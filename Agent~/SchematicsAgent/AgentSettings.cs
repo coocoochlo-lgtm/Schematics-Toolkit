@@ -25,6 +25,9 @@ public sealed class AgentSettings
         return Path.Combine(AppContext.BaseDirectory, "models");
     }
 
+    /// <summary>The Agent~ folder (the models' parent), where the API reference lives too.</summary>
+    public string AgentFolder => Path.GetFullPath(Path.Combine(Models, ".."));
+
     public string Resolve(string file) => Path.GetFullPath(Path.IsPathRooted(file) ? file : Path.Combine(Models, file));
 
     public static AgentSettings FromArgs(string[] args)

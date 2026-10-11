@@ -55,6 +55,7 @@ namespace Remedy.Schematics.Assistant
         private Vector3 _shownTranslate = new(float.NaN, 0, 0);
         private Color _shownTint;
         private SchematicGraphEditorWindow _lastGraph;
+        private EditorWindow _lastHost;
         private bool _blipShown;
 
         private bool Busy => _mood == Mood.Thinking || _mood == Mood.Working || (_mood == Mood.Talking && !_explaining);
@@ -235,6 +236,7 @@ namespace Remedy.Schematics.Assistant
             }
             if (window != _host)
             {
+                if (_host != null) _lastHost = _host;
                 Detach();
                 _host = window;
                 window.rootVisualElement.Add(this);
@@ -333,8 +335,25 @@ namespace Remedy.Schematics.Assistant
             _blipTime = 0f;
         }
 
-        private static EditorWindow RespawnWindow()
+        /// <summary>
+        /// Where it comes back: the window it was last in (if it's still showing), except the Hierarchy, which sends
+        /// it to the Scene view (or the Game view, if that's maximized). Otherwise a graph, then the Scene view.
+        /// </summary>
+        private EditorWindow RespawnWindow()
         {
+            var last = _host != null ? _host : _lastHost;
+            if (last != null && last.GetType().Name == "SceneHierarchyWindow")
+            {
+                var game = Resources.FindObjectsOfTypeAll<EditorWindow>().FirstOrDefault(w => w.GetType().Name == "GameView" && w.maximized);
+                if (game != null) return game;
+                var sceneView = SceneView.lastActiveSceneView;
+                if (sceneView != null && IsShownTab(sceneView)) return sceneView;
+                foreach (SceneView view in SceneView.sceneViews)
+                    if (view != null && IsShownTab(view)) return view;
+            }
+            else if (last != null && Allowed(last) && IsShownTab(last))
+                return last;
+
             var graph = Resources.FindObjectsOfTypeAll<SchematicGraphEditorWindow>().FirstOrDefault(g => g.SchematicGraph != null && IsShownTab(g));
             if (graph != null) return graph;
             var scene = SceneView.lastActiveSceneView;
@@ -869,6 +888,16 @@ namespace Remedy.Schematics.Assistant
                 Place(force: true);
                 if (_host != _dragWindow) _host.Repaint();
             }
+            if (allowed && EditorApplication.timeSinceStartup >= _nextPeek)
+            {
+                _nextPeek = EditorApplication.timeSinceStartup + 0.12;
+                int drag = _inspection;
+                SprocketInspect.Peek(under, pointer, name =>
+                {
+                    if (drag == _inspection && _dragging)
+                        _whatTag.text = string.IsNullOrEmpty(name) ? "? What is this?" : $"? What is this? · {name}";
+                });
+            }
             if (_host != null)
             {
                 var local = pointer - _host.position.position;
@@ -943,6 +972,7 @@ namespace Remedy.Schematics.Assistant
         }
 
         private int _inspection;
+        private double _nextPeek;
 
         /// <summary>"What is this?": finds what it was dropped on and explains it.</summary>
         private void Inspect(EditorWindow window, Vector2 screen)

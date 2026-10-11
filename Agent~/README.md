@@ -48,16 +48,19 @@ interrupt the install; Unity picks the progress back up.
     spin-blip back to the bottom right of a Schematic Graph, or of the Scene view if no graph is showing.
   - **Tools > Remedy > Schematics > Assistant > Bring Sprocket Here** calls it over.
   - It hops into the graph by itself when it has graph work to do, then goes back to where it was.
-- **"What is this?"** While you drag it, it turns see-through and the pointer asks "What is this?". Drop it on
-  something and it moves beside it, takes a look, and explains it out loud:
-  - a graph node;
-  - an IO Dock Behavior, Variable, Signal or object;
-  - an object in the Scene view.
+- **"What is this?"** While you drag it, it turns see-through, and the tag by the pointer names what it's over.
+  Drop it on something and it moves beside it, takes a look, and explains it out loud. It understands:
+  - graph nodes. Signal and Variable nodes say so, then describe the Signal or Variable itself;
+  - IO Dock Behaviors, Variables, Signals and objects;
+  - objects in the Scene view and rows in the Hierarchy, described with their Behaviors and components;
+  - assets in the Project window;
+  - whatever the Inspector shows.
 
-  In the Hierarchy, Project and Inspector, which have no way to point at a single row, it explains what's selected.
-  The explanations come from the documentation database, `Schematics/Editor/Assistant/Resources/SprocketDocs.asset`.
-  It's generated from the code's own summaries and tooltips with **Tools > Remedy > Schematics > Assistant >
-  Regenerate Documentation**. Write a **Description** on any entry to use your own words; regenerating keeps it.
+  The words come from each piece's `[SchematicDoc]`, from built-in descriptions of Unity's common components and
+  assets, or from a hand-written **Description** in `Schematics/Editor/Assistant/Resources/SprocketDocs.asset`,
+  which wins.
+- **Lost Sprocket.** It respawns at the bottom right of the last window it was in. If that was the Hierarchy, it goes
+  to the Scene view instead (or the Game view, if that's maximized).
 - **Talking to it.**
   - **Click** Sprocket to type a request.
   - **Hold Q** to talk. That's a rebindable shortcut in graph windows (**Edit > Shortcuts > Schematics/Assistant**).
@@ -97,6 +100,24 @@ The server is `SchematicsAgent/`, an ASP.NET minimal API. This folder ends in `~
 - `GET /voices` and `GET /health` report the available voices and the server's state.
 
 RE:Dox needs C# 14, so it compiles here and not in Unity. Its asmdef in Unity is switched off.
+
+### The API reference
+
+Every node, Behavior, Variable and Signal carries a `[SchematicDoc(@"{json}")]`: its name, kind, description, and
+what a small model needs to compose gameplay with it:
+- `flow` and ports for nodes;
+- `menu`, Variables and Signals for Behaviors;
+- `type` and `default` for Variables;
+- `direction` and `params` for Signals;
+- `use_for` gameplay hints and wiring `notes`.
+
+After every recompile, Unity sends the whole list to the server (`POST /reference/sync`). The server adds anything
+new or changed to `reference/api.json`. If it isn't running, the list waits in `reference/incoming.json` and is
+taken in on start.
+
+Each request pulls in the most relevant entries for the reader and actor prompts, scored by shared words, with name
+matches counting extra. `GET /reference/search?q=...` shows what a request would see. Document your own nodes and
+Behaviors the same way, and the assistant can use them after the next recompile.
 
 ### Server options
 

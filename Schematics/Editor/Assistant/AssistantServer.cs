@@ -239,6 +239,20 @@ namespace Remedy.Schematics.Assistant
             return await response.Content.ReadAsByteArrayAsync();
         }
 
+        /// <summary>Hands the server every [SchematicDoc] (see SchematicApiReference); returns its counts.</summary>
+        public static async Task<string> SyncReferenceAsync(string manifest)
+        {
+            try
+            {
+                var response = await _http.PostAsync(BaseUrl + "/reference/sync", new StringContent(manifest, Encoding.UTF8, "application/json"));
+                return response.IsSuccessStatusCode ? await response.Content.ReadAsStringAsync() : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         public static async Task<string[]> VoicesAsync()
         {
             try

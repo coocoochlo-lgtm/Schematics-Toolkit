@@ -6,6 +6,8 @@ using SchematicsAgent;
 //   POST /transcribe  WAV audio                   -> { text }
 //   POST /speak       { text, voice, speed }      -> WAV audio
 //   GET  /voices      Kokoro voice names
+//   POST /reference/sync    every [SchematicDoc] in the project (Unity sends it after each recompile)
+//   GET  /reference/search  ?q=text: the reference entries a request would see
 
 var settings = AgentSettings.FromArgs(args);
 var builder = WebApplication.CreateSlimBuilder(args);
@@ -15,6 +17,7 @@ builder.Services.AddSingleton(settings);
 builder.Services.AddSingleton<Llm>();
 builder.Services.AddSingleton<SpeechToText>();
 builder.Services.AddSingleton<TextToSpeech>();
+builder.Services.AddSingleton<ReferenceStore>();
 builder.Services.AddSingleton<Planner>();
 
 var app = builder.Build();
@@ -49,8 +52,22 @@ app.MapPost("/speak", async (HttpRequest request, TextToSpeech tts) =>
     return Results.File(wav, "audio/wav");
 });
 
+app.MapPost("/reference/sync", async (HttpRequest request, ReferenceStore reference) =>
+{
+    string body = await new StreamReader(request.Body).ReadToEndAsync();
+    var (added, updated, removed) = reference.Sync(body);
+    if (added + updated + removed > 0)
+        Console.WriteLine($"[reference] {added} new, {updated} updated, {removed} removed ({reference.Count} total)");
+    return Results.Text(Json.Object(w => w.Number("added", added).Number("updated", updated).Number("removed", removed).Number("total", reference.Count)), "application/json");
+});
+
+app.MapGet("/reference/search", (string q, ReferenceStore reference) =>
+    Results.Text(Json.Object(w => w.StringArray("results", reference.Search(q ?? "", 12))), "application/json"));
+
 app.MapGet("/voices", (TextToSpeech tts) =>
     Results.Text(Json.Object(w => w.StringArray("voices", tts.Voices)), "application/json"));
 
 Console.WriteLine($"Schematics assistant listening on http://127.0.0.1:{settings.Port}");
+// Loads the reference now, taking in anything Unity left while the server was stopped.
+app.Services.GetRequiredService<ReferenceStore>();
 app.Run();

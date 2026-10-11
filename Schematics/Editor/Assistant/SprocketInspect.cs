@@ -31,16 +31,65 @@ namespace Remedy.Schematics.Assistant
         #region Finding what's there
 
         /// <summary>
-        /// What's at a screen point in a window. Scene view picks arrive a moment later, so this calls back.
+        /// What's at a screen point in a window. Scene view picks arrive a moment later, so this calls back (with null
+        /// when there's nothing particular there).
         /// </summary>
         public static void At(EditorWindow window, Vector2 screen, Action<InspectTarget> done)
         {
-            if (window is SceneView sceneView)
+            switch (window)
             {
-                PickInScene(sceneView, screen, done);
-                return;
+                case SceneView sceneView:
+                    PickInScene(sceneView, screen, picked => done(picked != null ? Placed(ForGameObject(picked), sceneView, screen) : null));
+                    return;
+                case SchematicGraphEditorWindow graph:
+                    done(InGraph(graph, screen));
+                    return;
             }
-            done(window is SchematicGraphEditorWindow graph ? InGraph(graph, screen) : InWindow(window));
+            switch (window.GetType().Name)
+            {
+                case "SceneHierarchyWindow":
+                {
+                    var picked = Probe(window, screen) as GameObject;
+                    done(picked != null ? Placed(ForGameObject(picked), window, screen) : null);
+                    return;
+                }
+                case "ProjectBrowser":
+                {
+                    var asset = Probe(window, screen);
+                    done(asset != null ? Placed(ForAsset(asset), window, screen) : null);
+                    return;
+                }
+                case "InspectorWindow":
+                    done(Selection.activeObject != null ? Placed(Selection.activeObject is GameObject go ? ForGameObject(go) : ForAsset(Selection.activeObject), window, screen) : null);
+                    return;
+            }
+            done(null);
+        }
+
+        /// <summary>Just the name of what's under the pointer, for the "What is this?" tag while dragging.</summary>
+        public static void Peek(EditorWindow window, Vector2 screen, Action<string> done)
+        {
+            switch (window)
+            {
+                case SceneView sceneView:
+                    PickInScene(sceneView, screen, picked => done(picked != null ? picked.name : null));
+                    return;
+                case SchematicGraphEditorWindow graph:
+                    done(InGraph(graph, screen)?.Title);
+                    return;
+            }
+            string type = window.GetType().Name;
+            if (type == "SceneHierarchyWindow" || type == "ProjectBrowser")
+                done(Probe(window, screen)?.name);
+            else
+                done(null);
+        }
+
+        private static InspectTarget Placed(InspectTarget target, EditorWindow window, Vector2 screen)
+        {
+            target.Window = window;
+            target.ScreenRect = new Rect(screen - new Vector2(30, 12), new Vector2(60, 24));
+            return target;
         }
 
         private static InspectTarget InGraph(SchematicGraphEditorWindow window, Vector2 screen)
@@ -52,69 +101,214 @@ namespace Remedy.Schematics.Assistant
             {
                 // IO Dock rows carry their item.
                 if (element.userData is DockItem item)
-                    return Target(window, element, DockKey(item), DockTitle(item), DockFallback(item));
+                    return Target(window, element, ForDockItem(item));
                 if (element is NodeView view && view.Target != null)
-                {
-                    var node = view.Target;
-                    string key = NodeKey(node, out string title);
-                    return Target(window, view, key, title ?? node.Name, $"A {Nicify(node.GetType().Name)} node.");
-                }
+                    return Target(window, view, ForNode(view.Target));
             }
-            return Target(window, null, "window:" + window.GetType().Name, "The Schematic Graph", null);
+            return null;
         }
 
-        private static void PickInScene(SceneView view, Vector2 screen, Action<InspectTarget> done)
+        // Scene view picking needs its GUI, so it happens on its next repaint.
+        private static void PickInScene(SceneView view, Vector2 screen, Action<GameObject> done)
         {
-            // Picking needs the Scene view's GUI, so it happens on its next repaint.
             void Pick(SceneView sceneView)
             {
                 if (sceneView != view) return;
                 SceneView.duringSceneGui -= Pick;
                 GameObject picked = null;
-                try
-                {
-                    var guiPoint = GUIUtility.ScreenToGUIPoint(screen);
-                    picked = HandleUtility.PickGameObject(guiPoint, false);
-                }
-                catch (Exception exception)
-                {
-                    Debug.LogWarning("[Assistant] Couldn't pick in the Scene view: " + exception.Message);
-                }
-                var target = picked != null ? ForGameObject(picked) : InWindow(view);
-                target.Window = view;
-                target.ScreenRect = new Rect(screen - new Vector2(30, 30), new Vector2(60, 60));
-                done(target);
+                try { picked = HandleUtility.PickGameObject(GUIUtility.ScreenToGUIPoint(screen), false); }
+                catch (Exception exception) { Debug.LogWarning("[Assistant] Couldn't pick in the Scene view: " + exception.Message); }
+                done(picked);
             }
             SceneView.duringSceneGui += Pick;
             view.Repaint();
         }
 
-        // Windows with no public way to ask what's under a point (Hierarchy, Project, Inspector): what's selected.
-        private static InspectTarget InWindow(EditorWindow window)
+        #endregion
+
+        #region Hierarchy and Project: what's under a point
+
+        // The Hierarchy and Project window only say what's under the pointer to a drag. So Sprocket asks with a
+        // pretend drag: a single "drag hover" event at the point, answered through Unity's public drop handlers, then
+        // an exit so the windows forget it. Nothing is dropped and nothing changes.
+        private const string ProbeKey = "Sprocket.Probe";
+        private static bool _probing;
+        private static UnityEngine.Object _probed;
+
+        [InitializeOnLoadMethod]
+        private static void RegisterProbes()
         {
-            var selected = Selection.activeObject;
-            InspectTarget target;
-            if (selected is GameObject gameObject)
-                target = ForGameObject(gameObject);
-            else if (selected != null)
-                target = ForAsset(selected);
-            else
-                target = Window(window);
-            target.Window = window;
-            target.ScreenRect = window.position;
-            return target;
+            DragAndDrop.AddDropHandlerV2(OnHierarchyProbe);
+            DragAndDrop.AddDropHandlerV2(OnProjectProbe);
         }
 
-        private static InspectTarget Window(EditorWindow window)
+        private static DragAndDropVisualMode OnHierarchyProbe(EntityId target, HierarchyDropFlags flags, Transform parent, bool perform)
         {
-            var entry = Docs.Find("window:" + window.GetType().Name);
+            if (!_probing || DragAndDrop.GetGenericData(ProbeKey) == null)
+                return DragAndDropVisualMode.None;
+            _probed = EditorUtility.EntityIdToObject(target);
+            return DragAndDropVisualMode.Link;
+        }
+
+        private static DragAndDropVisualMode OnProjectProbe(EntityId dragged, string path, bool perform)
+        {
+            if (!_probing || DragAndDrop.GetGenericData(ProbeKey) == null)
+                return DragAndDropVisualMode.None;
+            if (!string.IsNullOrEmpty(path))
+                _probed = AssetDatabase.LoadMainAssetAtPath(path);
+            return DragAndDropVisualMode.Link;
+        }
+
+        /// <summary>The object or asset under a screen point in the Hierarchy or Project window (null if none).</summary>
+        public static UnityEngine.Object Probe(EditorWindow window, Vector2 screen)
+        {
+            if (_probing || window == null)
+                return null;
+            _probing = true;
+            _probed = null;
+            try
+            {
+                DragAndDrop.PrepareStartDrag();
+                DragAndDrop.SetGenericData(ProbeKey, true);
+                var local = screen - window.position.position;
+                window.SendEvent(new Event { type = EventType.DragUpdated, mousePosition = local });
+                window.SendEvent(new Event { type = EventType.DragExited, mousePosition = local });
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning("[Assistant] Couldn't see what's there: " + exception.Message);
+            }
+            finally
+            {
+                DragAndDrop.SetGenericData(ProbeKey, null);
+                _probing = false;
+            }
+            // A scene row is a Scene, not an object: nothing to say about it here.
+            return _probed is GameObject || (_probed != null && EditorUtility.IsPersistent(_probed)) ? _probed : null;
+        }
+
+        #endregion
+
+        #region Describing
+
+        private sealed class Description
+        {
+            public string Title, Text;
+        }
+
+        private static InspectTarget Target(EditorWindow window, VisualElement element, Description description)
+        {
+            var bounds = element != null ? element.worldBound : window.rootVisualElement.worldBound;
+            var local = window.rootVisualElement.WorldToLocal(bounds.position);
             return new InspectTarget
             {
-                Title = entry?.Title ?? window.titleContent.text,
-                Text = entry?.Text ?? "An editor window. Drop me on a node, an IO Dock row or something in the Scene view and I'll tell you what it is.",
+                Title = description.Title,
+                Text = description.Text,
                 Window = window,
-                ScreenRect = window.position,
+                ScreenRect = new Rect(window.position.position + local, bounds.size),
             };
+        }
+
+        // Hand-written words in the Sprocket Docs asset win; then the code's own [SchematicDoc].
+        private static string Override(string key) => Docs.Find(key) is { } entry && !string.IsNullOrWhiteSpace(entry.Description) ? entry.Description : null;
+
+        private static Description ForNode(Node node)
+        {
+            switch (node)
+            {
+                case SendSignalNode send when send.Signal != null:
+                    return ForSignalNode(send.Signal, "Signal Node (Send)", "Sends");
+                case OnSignalReceivedNode receive when receive.Signal != null:
+                    return ForSignalNode(receive.Signal, "Signal Node (On Received)", "Runs when this arrives");
+                case GetBehaviorVariableNode get when get.Target?.Type != null:
+                    return ForVariableNode(get.Target.Type, get.Variable, "Variable Node (Get)");
+                case SetBehaviorVariableNode set when set.Target?.Type != null:
+                    return ForVariableNode(set.Target.Type, set.Variable, "Variable Node (Set)");
+                case BehaviorReferenceNode behavior when behavior.Target?.Type != null:
+                    return ForBehavior(behavior.Target.Type);
+            }
+            var type = node.GetType();
+            var header = SchematicDocHeader.Of(type);
+            return new Description
+            {
+                Title = header?.name ?? node.Name,
+                Text = Override("node:" + type.FullName) ?? header?.Text ?? Docs.Find("node:" + type.FullName)?.Text ?? $"A {Nicify(type.Name)} node.",
+            };
+        }
+
+        // "Signal Node (Send): " and then what the Signal itself is.
+        private static Description ForSignalNode(SignalData signal, string label, string verb)
+        {
+            var (behavior, name) = SignalOwner(signal);
+            var field = behavior?.GetField(name ?? "", BindingFlags.Instance | BindingFlags.Public);
+            var header = SchematicDocHeader.Of(field);
+            string about = header?.description ?? (behavior != null ? $"a Signal of {Nicify(behavior.Name)}." : $"the \"{signal.name}\" Signal.");
+            return new Description
+            {
+                Title = $"{Nicify(name ?? signal.name)}" + (behavior != null ? $" ({Nicify(behavior.Name)})" : ""),
+                Text = $"<b>{label}.</b> {verb} {Nicify(name ?? signal.name)}: {about}",
+            };
+        }
+
+        private static Description ForVariableNode(Type behavior, string variable, string label)
+        {
+            var header = SchematicDocHeader.Of(behavior.GetField(variable ?? "", BindingFlags.Instance | BindingFlags.Public));
+            string about = header?.description ?? $"a Variable of {Nicify(behavior.Name)}.";
+            return new Description
+            {
+                Title = $"{Nicify(variable)} ({Nicify(behavior.Name)})",
+                Text = $"<b>{label}.</b> {Nicify(variable)}{(header?.type != null ? $" ({header.type})" : "")}: {about}",
+            };
+        }
+
+        private static Description ForBehavior(Type type)
+        {
+            var header = SchematicDocHeader.Of(type);
+            return new Description
+            {
+                Title = Nicify(type.Name),
+                Text = Override("behavior:" + type.FullName) ?? header?.Text ?? Docs.Find("behavior:" + type.FullName)?.Text ?? $"The {Nicify(type.Name)} Behavior.",
+            };
+        }
+
+        private static Description ForDockItem(DockItem item)
+        {
+            switch (item.Kind)
+            {
+                case DockItem.ItemKind.Behavior when item.Behavior != null:
+                    return ForBehavior(item.Behavior);
+                case DockItem.ItemKind.Variable when item.Behavior != null:
+                case DockItem.ItemKind.Signal when item.Behavior != null:
+                {
+                    bool signal = item.Kind == DockItem.ItemKind.Signal;
+                    var field = item.Behavior.GetField(item.Name ?? "", BindingFlags.Instance | BindingFlags.Public);
+                    var header = SchematicDocHeader.Of(field);
+                    string key = $"{(signal ? "signal" : "variable")}:{item.Behavior.FullName}.{item.Name}";
+                    string text = Override(key) ?? header?.description ?? Docs.Find(key)?.Text
+                        ?? (signal ? $"A Signal of {Nicify(item.Behavior.Name)}." : $"A Variable of {Nicify(item.Behavior.Name)}: a value it keeps for each object.");
+                    string how = signal
+                        ? (header?.direction == "input" ? "Drag it into the graph to send it." : "Drag it into the graph to react to it.")
+                        : "Drag it into the graph to Get or Set it.";
+                    return new Description { Title = $"{Nicify(item.Name)} ({Nicify(item.Behavior.Name)})", Text = $"<b>{(signal ? "Signal" : "Variable")}.</b> {text} {how}" };
+                }
+                case DockItem.ItemKind.GameObject:
+                    return new Description
+                    {
+                        Title = item.GameObject != null ? item.GameObject.name : "Prefab Object",
+                        Text = "One of this prefab's objects. Behaviors attach to it; drag it into the graph to refer to it.",
+                    };
+            }
+            return new Description { Title = item.DisplayName, Text = "Part of this prefab." };
+        }
+
+        /// <summary>The Behavior that declares a Signal asset, and the Signal's name there.</summary>
+        private static (Type behavior, string name) SignalOwner(SignalData signal)
+        {
+            if (signal != null && AssetDatabase.LoadMainAssetAtPath(AssetDatabase.GetAssetPath(signal)) is BehaviorMetadata metadata)
+                foreach (var definition in metadata.Signals)
+                    if (definition.Asset == signal)
+                        return (metadata.BehaviorType.Type, definition.Name);
+            return (null, signal != null ? signal.name : null);
         }
 
         private static InspectTarget ForGameObject(GameObject gameObject)
@@ -131,89 +325,47 @@ namespace Remedy.Schematics.Assistant
                     {
                         var type = attachment?.Metadata != null ? attachment.Metadata.BehaviorType.Type : null;
                         if (type == null) continue;
-                        var entry = Docs.Find("behavior:" + type.FullName);
-                        text.Append($"\n• <b>{Nicify(type.Name)}</b>: {FirstSentence(entry?.Text) ?? "a Behavior."}");
+                        text.Append($"\n• <b>{Nicify(type.Name)}</b>: {FirstSentence(ForBehavior(type).Text) ?? "a Behavior."}");
                     }
             }
-            else
+
+            // Its Unity components, described.
+            var components = gameObject.GetComponents<Component>().Where(c => c != null && !(c is Transform) && !(c is SchematicObject)).ToList();
+            if (schematic == null)
+                text.Append(components.Count == 0 ? "An empty object: just a position in the world, maybe a parent for others." : "An object with:");
+            else if (components.Count > 0)
+                text.Append("\nIts components:");
+            foreach (var component in components.Take(6))
             {
-                var components = gameObject.GetComponents<Component>().Where(c => c != null && !(c is Transform)).ToList();
-                text.Append(components.Count == 0 ? "An empty object (just a position in the world)." : "An object with:");
-                foreach (var component in components.Take(5))
-                {
-                    var entry = Docs.Find("component:" + component.GetType().FullName);
-                    text.Append($"\n• <b>{Nicify(component.GetType().Name)}</b>{(entry != null ? ": " + FirstSentence(entry.Text) : "")}");
-                }
+                var type = component.GetType();
+                var header = SchematicDocHeader.Of(type);
+                string about = Override("component:" + type.FullName) ?? header?.description ?? UnityObjectDocs.For(type, UnityObjectDocs.Components);
+                text.Append($"\n• <b>{Nicify(type.Name)}</b>{(about != null ? ": " + FirstSentence(about) : "")}");
+            }
+            if (components.Count > 6) text.Append($"\n…and {components.Count - 6} more.");
+            if (PrefabUtility.IsPartOfPrefabInstance(gameObject))
+            {
+                var source = PrefabUtility.GetCorrespondingObjectFromSource(gameObject);
+                if (source != null) text.Append($"\nIt comes from the prefab \"{source.transform.root.name}\".");
             }
             return new InspectTarget { Title = gameObject.name, Text = text.ToString() };
         }
 
         private static InspectTarget ForAsset(UnityEngine.Object asset)
         {
-            string key = asset is MonoScript script && script.GetClass() != null
-                ? (typeof(SchematicBehavior).IsAssignableFrom(script.GetClass()) ? "behavior:" : "node:") + script.GetClass().FullName
-                : "component:" + asset.GetType().FullName;
-            var entry = Docs.Find(key);
-            return new InspectTarget
+            string text = null;
+            if (asset is MonoScript script && script.GetClass() is Type scripted)
             {
-                Title = asset.name,
-                Text = entry?.Text ?? $"A {Nicify(asset.GetType().Name)} asset.",
-            };
-        }
-
-        private static InspectTarget Target(EditorWindow window, VisualElement element, string key, string title, string fallback)
-        {
-            var entry = Docs.Find(key);
-            var bounds = element != null ? element.worldBound : window.rootVisualElement.worldBound;
-            var local = window.rootVisualElement.WorldToLocal(bounds.position);
-            return new InspectTarget
-            {
-                Title = entry?.Title ?? title,
-                Text = entry?.Text ?? fallback ?? "I don't know much about this one yet. Its documentation entry can be written in the Sprocket Docs asset.",
-                Window = window,
-                ScreenRect = new Rect(window.position.position + local, bounds.size),
-            };
-        }
-
-        private static string NodeKey(Node node, out string title)
-        {
-            title = null;
-            switch (node)
-            {
-                case GetBehaviorVariableNode get when get.Target?.Type != null:
-                    title = $"{Nicify(get.Variable)} ({Nicify(get.Target.Type.Name)})";
-                    return $"variable:{get.Target.Type.FullName}.{get.Variable}";
-                case SetBehaviorVariableNode set when set.Target?.Type != null:
-                    title = $"{Nicify(set.Variable)} ({Nicify(set.Target.Type.Name)})";
-                    return $"variable:{set.Target.Type.FullName}.{set.Variable}";
-                case BehaviorReferenceNode behavior when behavior.Target?.Type != null:
-                    return "behavior:" + behavior.Target.Type.FullName;
+                var header = SchematicDocHeader.Of(scripted);
+                text = header != null ? $"A script: the {header.name} {header.kind}. {header.Text}" : null;
             }
-            return "node:" + node.GetType().FullName;
+            else if (asset is GameObject prefab && prefab.GetComponent<SchematicObject>() is SchematicObject schematic)
+                text = "A Schematic prefab: an object with Schematic Behaviors and a Schematic Graph. " + ForGameObject(prefab).Text;
+            else if (asset is GameObject model)
+                text = UnityObjectDocs.Assets["GameObject"] + (model.GetComponentsInChildren<Component>().Length > 1 ? " " + ForGameObject(model).Text : "");
+            text ??= Override("asset:" + asset.GetType().FullName) ?? UnityObjectDocs.For(asset.GetType(), UnityObjectDocs.Assets) ?? $"A {Nicify(asset.GetType().Name)} asset.";
+            return new InspectTarget { Title = asset.name, Text = text };
         }
-
-        private static string DockKey(DockItem item) => item.Kind switch
-        {
-            DockItem.ItemKind.Behavior => "behavior:" + item.Behavior?.FullName,
-            DockItem.ItemKind.Variable => $"variable:{item.Behavior?.FullName}.{item.Name}",
-            DockItem.ItemKind.Signal => $"signal:{item.Behavior?.FullName}.{item.Name}",
-            _ => "window:GameObject",
-        };
-
-        private static string DockTitle(DockItem item) => item.Kind switch
-        {
-            DockItem.ItemKind.Behavior => Nicify(item.Behavior?.Name),
-            DockItem.ItemKind.GameObject => item.GameObject != null ? item.GameObject.name : "Object",
-            _ => Nicify(item.Name),
-        };
-
-        private static string DockFallback(DockItem item) => item.Kind switch
-        {
-            DockItem.ItemKind.Variable => $"A Variable of {Nicify(item.Behavior?.Name)}: a value it keeps for each object. Drag it into the graph to Get or Set it.",
-            DockItem.ItemKind.Signal => $"A Signal of {Nicify(item.Behavior?.Name)}. Drag it into the graph to send it or react to it.",
-            DockItem.ItemKind.GameObject => "One of this prefab's objects. Behaviors attach to it; drag it into the graph to refer to it.",
-            _ => null,
-        };
 
         #endregion
 
@@ -267,7 +419,7 @@ namespace Remedy.Schematics.Assistant
             {
                 if (type?.Type == null) continue;
                 summaries.TryGetValue(type.Type.Name, out string summary);
-                var text = new StringBuilder(summary ?? type.Help ?? "");
+                var text = new StringBuilder(SchematicDocHeader.Of(type.Type)?.description ?? summary ?? type.Help ?? "");
                 var inputs = type.Ports.Where(p => p.Direction == PortDirection.Input && p.Type != typeof(ActionPort)).Select(p => p.Name).ToList();
                 var outputs = type.Ports.Where(p => p.Direction == PortDirection.Output && p.Type != typeof(ActionPort)).Select(p => p.Name).ToList();
                 if (inputs.Count > 0) text.Append($"\nIn: {string.Join(", ", inputs)}.");
@@ -279,7 +431,7 @@ namespace Remedy.Schematics.Assistant
             {
                 if (type.IsAbstract) continue;
                 summaries.TryGetValue(type.Name, out string summary);
-                Add("behavior:" + type.FullName, Nicify(type.Name), summary ?? $"The {Nicify(type.Name)} Behavior.");
+                Add("behavior:" + type.FullName, Nicify(type.Name), SchematicDocHeader.Of(type)?.description ?? summary ?? $"The {Nicify(type.Name)} Behavior.");
                 foreach (var field in type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly))
                 {
                     string fieldType = field.FieldType.Name;
@@ -289,7 +441,7 @@ namespace Remedy.Schematics.Assistant
                     string tooltip = field.GetCustomAttribute<TooltipAttribute>()?.tooltip;
                     summaries.TryGetValue(type.Name + "." + field.Name, out string fieldSummary);
                     Add($"{(signal ? "signal" : "variable")}:{type.FullName}.{field.Name}", $"{Nicify(field.Name)} ({Nicify(type.Name)})",
-                        tooltip ?? fieldSummary ?? (signal ? $"A Signal of {Nicify(type.Name)}." : $"A Variable of {Nicify(type.Name)}."));
+                        SchematicDocHeader.Of(field)?.description ?? tooltip ?? fieldSummary ?? (signal ? $"A Signal of {Nicify(type.Name)}." : $"A Variable of {Nicify(type.Name)}."));
                 }
             }
 
