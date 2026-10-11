@@ -4,3 +4,6 @@ obj/
 SchematicsAgent/bin/
 SchematicsAgent/obj/
 models/
+
+# The assistant server is a real .NET project, not a Unity-generated one.
+!SchematicsAgent.csproj
