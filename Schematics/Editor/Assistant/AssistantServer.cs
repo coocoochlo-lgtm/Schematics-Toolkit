@@ -73,7 +73,8 @@ namespace Remedy.Schematics.Assistant
             get
             {
                 string agent = AgentFolder;
-                return agent != null && File.Exists(ServerDll(agent)) && Directory.Exists(Path.Combine(agent, "models"));
+                return agent != null && File.Exists(ServerDll(agent))
+                    && File.Exists(Path.Combine(agent, "models", "kokoro-en-v0_19", "model.onnx"));
             }
         }
 
@@ -88,36 +89,6 @@ namespace Remedy.Schematics.Assistant
         #endregion
 
         #region Setup and lifetime
-
-        /// <summary>
-        /// Runs Agent~/setup (downloads the models, about 1.6 GB, and builds the server) in a terminal so its progress
-        /// shows. Needs the .NET 10 SDK.
-        /// </summary>
-        public static void RunSetup()
-        {
-            string agent = AgentFolder;
-            if (agent == null)
-            {
-                Debug.LogError("[Assistant] Couldn't find the Agent~ folder next to the toolkit.");
-                return;
-            }
-            string backend = AssistantSettings.Backend;
-            var info = Application.platform == RuntimePlatform.WindowsEditor
-                ? new ProcessStartInfo("powershell.exe", $"-NoExit -ExecutionPolicy Bypass -File \"{Path.Combine(agent, "setup.ps1")}\" -Backend {backend}")
-                : Application.platform == RuntimePlatform.OSXEditor
-                    ? new ProcessStartInfo("open", $"-a Terminal \"{Path.Combine(agent, "setup.sh")}\"")
-                    : new ProcessStartInfo("x-terminal-emulator", $"-e bash \"{Path.Combine(agent, "setup.sh")}\" {backend}");
-            info.WorkingDirectory = agent;
-            info.UseShellExecute = true;
-            try
-            {
-                Process.Start(info);
-            }
-            catch (Exception exception)
-            {
-                Debug.LogError($"[Assistant] Couldn't open a terminal for setup ({exception.Message}). Run {Path.Combine(agent, "setup")} yourself.");
-            }
-        }
 
         /// <summary>Starts the server if it isn't running, and waits until it answers. False if it can't.</summary>
         public static Task<bool> EnsureRunningAsync()
@@ -134,15 +105,16 @@ namespace Remedy.Schematics.Assistant
                 return true;
 
             string agent = AgentFolder;
-            if (agent == null || !File.Exists(ServerDll(agent)))
+            if (agent == null || !IsInstalled)
             {
-                Debug.LogWarning("[Assistant] The assistant isn't set up yet: Tools > Remedy > Schematics > Assistant > Set Up (downloads the models).");
+                // Installs itself; the overlay shows the progress and the server starts when it's done.
+                AssistantInstaller.EnsureInstalled();
                 return false;
             }
 
             if (!IsRunning)
             {
-                var info = new ProcessStartInfo("dotnet",
+                var info = new ProcessStartInfo(AssistantInstaller.DotnetPath,
                     $"\"{ServerDll(agent)}\" --port {AssistantSettings.Port} --models \"{Path.Combine(agent, "models")}\"")
                 {
                     WorkingDirectory = agent,

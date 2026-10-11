@@ -15,6 +15,13 @@ namespace Remedy.Schematics.Assistant
             set => EditorPrefs.SetBool(Prefix + "Enabled", value);
         }
 
+        /// <summary>Install the assistant's models and server automatically the first time it appears.</summary>
+        public static bool AutoInstall
+        {
+            get => EditorPrefs.GetBool(Prefix + "AutoInstall", true);
+            set => EditorPrefs.SetBool(Prefix + "AutoInstall", value);
+        }
+
         public static int Port
         {
             get => EditorPrefs.GetInt(Prefix + "Port", 5317);
@@ -112,12 +119,15 @@ namespace Remedy.Schematics.Assistant
                 EditorGUILayout.LabelField("Server", EditorStyles.boldLabel);
                 Port = EditorGUILayout.IntField("Port", Port);
                 int backend = System.Array.IndexOf(Backends, Backend);
-                Backend = Backends[EditorGUILayout.Popup(new GUIContent("Model Backend", "Used by Set Up: Cuda12 for NVIDIA GPUs, Vulkan for other GPUs."), Mathf.Max(0, backend), Backends)];
+                Backend = Backends[EditorGUILayout.Popup(new GUIContent("Model Backend", "Cuda12 for NVIDIA GPUs, Vulkan for other GPUs. Reinstall after changing it."), Mathf.Max(0, backend), Backends)];
                 VerboseLogging = EditorGUILayout.Toggle("Log Server Output", VerboseLogging);
-                EditorGUILayout.LabelField("Status", AssistantServer.IsRunning ? "Running" : AssistantServer.IsInstalled ? "Installed, stopped" : "Not set up");
+                AutoInstall = EditorGUILayout.Toggle(new GUIContent("Install Automatically", "Download the models (about 1.6 GB) and build the server the first time the assistant appears."), AutoInstall);
+                EditorGUILayout.LabelField("Status", AssistantInstaller.IsInstalling ? AssistantInstaller.Progress ?? "Installing…"
+                    : AssistantServer.IsRunning ? "Running" : AssistantServer.IsInstalled ? "Installed, stopped" : "Not installed");
                 using (new EditorGUILayout.HorizontalScope())
                 {
-                    if (GUILayout.Button("Set Up…")) AssistantServer.RunSetup();
+                    using (new EditorGUI.DisabledScope(AssistantInstaller.IsInstalling))
+                        if (GUILayout.Button(AssistantServer.IsInstalled ? "Reinstall" : "Install")) { AssistantServer.Stop(); AssistantInstaller.Reinstall(); }
                     if (GUILayout.Button("Start")) _ = AssistantServer.EnsureRunningAsync();
                     if (GUILayout.Button("Stop")) AssistantServer.Stop();
                 }
