@@ -31,7 +31,7 @@ namespace Remedy.Schematics
 
             for(int i = 1; i < arguments.Length; i++)
             {
-                _cachedOutputsByName[FunctionParameters[i].Name] = arguments[i];
+                SetOutputValue(FunctionParameters[i].Name, arguments[i]);
             }
         }
     }

@@ -17,9 +17,8 @@ namespace Remedy.Schematics
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
         {
-            _processChildren = false;
-            //await UniTask.Delay((int)(GetInputValue<float>("Wait Time") * 1000));
-            ProcessChildren(instance);
+            // The nodes after this one run once the time is up, seeing the values they'd have seen now.
+            ProcessChildrenAfter(instance, GetInputValue("Wait Time", waitTime));
         }
     }
 }

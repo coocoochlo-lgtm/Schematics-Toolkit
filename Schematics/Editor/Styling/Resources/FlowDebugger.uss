@@ -1,0 +1,153 @@
+/* --- Graph debugging: breakpoints, the stopped node's box, and the bottom panel --- */
+
+/* Red dot on a node's top-left corner while it has a breakpoint. */
+.flow-breakpoint
+{
+    position: absolute;
+    left: -7px;
+    top: -7px;
+    width: 14px;
+    height: 14px;
+    border-radius: 7px;
+    background-color: #e0393e;
+    border-width: 2px;
+    border-color: #1b1b1f;
+}
+
+/* The box around the node a flow is stopped at. */
+.flow-highlight
+{
+    position: absolute;
+    left: -7px;
+    top: -7px;
+    right: -7px;
+    bottom: -7px;
+    border-width: 3px;
+    border-radius: 10px;
+}
+
+.flow-highlight--paused
+{
+    border-color: #ff9a1f;
+    background-color: rgba(255, 154, 31, 0.08);
+}
+
+.flow-highlight--error
+{
+    border-color: #ff3b3b;
+    background-color: rgba(255, 59, 59, 0.08);
+}
+
+/* The panel along the bottom of the graph. */
+.flow-debug
+{
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    max-height: 45%;
+    padding: 6px 10px 8px 10px;
+    background-color: rgba(20, 20, 24, 0.96);
+    border-top-width: 3px;
+    border-color: #555555;
+}
+
+.flow-debug--paused
+{
+    border-color: #ff9a1f;
+}
+
+.flow-debug--error
+{
+    border-color: #ff3b3b;
+}
+
+.flow-debug-header
+{
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+}
+
+.flow-debug-status
+{
+    flex-grow: 1;
+    flex-shrink: 1;
+    -unity-font-style: bold;
+    font-size: 13px;
+    color: #f0f0f0;
+    white-space: normal;
+}
+
+.flow-debug--paused .flow-debug-status
+{
+    color: #ffb85c;
+}
+
+.flow-debug--error .flow-debug-status
+{
+    color: #ff7a7a;
+}
+
+.flow-debug-buttons
+{
+    flex-direction: row;
+    flex-shrink: 0;
+}
+
+.flow-debug-button
+{
+    min-width: 60px;
+}
+
+.flow-debug-body
+{
+    flex-shrink: 1;
+    margin-top: 4px;
+}
+
+.flow-debug-text
+{
+    margin: 2px 0;
+    white-space: normal;
+}
+
+.flow-debug-text > #unity-text-input
+{
+    background-color: rgba(0, 0, 0, 0.35);
+    border-width: 0;
+    white-space: normal;
+}
+
+.flow-debug-message > #unity-text-input
+{
+    color: #ffd0d0;
+    font-size: 12px;
+}
+
+.flow-debug-trace > #unity-text-input
+{
+    color: #b8b8b8;
+    font-size: 11px;
+}
+
+.flow-debug-value
+{
+    flex-direction: row;
+    padding: 1px 0;
+}
+
+.flow-debug-value-name
+{
+    width: 160px;
+    color: #9aa6ff;
+}
+
+.flow-debug-value-text
+{
+    flex-grow: 1;
+    flex-shrink: 1;
+    color: #e6e6e6;
+    white-space: normal;
+}

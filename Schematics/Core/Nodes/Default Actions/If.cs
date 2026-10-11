@@ -22,18 +22,18 @@ namespace Remedy.Schematics
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
         {
-            bool ogValue = GetInputValue<bool>(nameof(Condition)) != Not;
-            
-            if(TriggerOnce)
+            bool pass = GetInputValue<bool>(nameof(Condition)) != Not;
+
+            // Trigger Once: only the first time the condition passes.
+            if (TriggerOnce && pass)
             {
                 if (_triggered)
-                    ogValue = false;
-                else if(!ogValue)
-                    _triggered = false;
+                    pass = false;
+                else
+                    _triggered = true;
             }
 
-            if (ogValue)
-                _processChildren = ogValue;
+            _processChildren = pass;
         }
     }
 }

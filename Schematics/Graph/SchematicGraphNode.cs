@@ -37,6 +37,66 @@ namespace Remedy.Schematics
 
         private List<Union> _returnValList = new();
 
+        [SerializeField, HideInInspector]
+        private bool _breakpoint;
+
+        /// <summary>
+        /// Stops a flow before this node runs (in the editor, during Play Mode). Toggled from the graph window.
+        /// </summary>
+        public bool Breakpoint
+        {
+            get => _breakpoint;
+            set => _breakpoint = value;
+        }
+
+        #region Flow
+
+        /// <summary>The action nodes this node leads to.</summary>
+        internal List<SchematicActionNode> FlowChildren
+        {
+            get
+            {
+                if (IsDirty)
+                    UpdateCaches();
+                return _cachedChildren;
+            }
+        }
+
+        /// <summary>
+        /// Runs this node as a step of a flow. True if its children should run after it. Plain value nodes aren't steps.
+        /// </summary>
+        internal virtual bool ExecuteInFlow(Flow flow, FlowScope scope, Union[] arguments) => false;
+
+        /// <summary>Copies this node's output values from one scope to another.</summary>
+        internal void CopyOutputs(FlowScope from, FlowScope to)
+        {
+            foreach (var name in _cachedOutputsByName.Keys)
+                if (from.TryGet(this, name, out var value))
+                    to.Set(this, name, value);
+        }
+
+        /// <summary>The values a flow's running node reads and writes (null outside of a flow).</summary>
+        private static FlowScope CurrentScope => Flow.Current?.ExecutingScope;
+
+        /// <summary>An output's value as seen by a flow (for the debugger), or its last value.</summary>
+        public Union PeekOutput(string name, FlowScope scope)
+        {
+            if (scope != null && scope.TryGet(this, name, out var value))
+                return value;
+            return _cachedOutputsByName.TryGetValue(name, out value) ? value : default;
+        }
+
+        /// <summary>The value an input would read in a flow (for the debugger). False if nothing is connected to it.</summary>
+        public bool PeekInput(string name, FlowScope scope, out Union value)
+        {
+            if (IsDirty)
+                UpdateCaches();
+            value = default;
+            return _cachedInputValueSources.TryGetValue(name, out var sources) && TryMostRecent(sources, scope, out value);
+        }
+
+        #endregion
+
         public override void OnValidate()
         {
             UpdateCaches();
@@ -133,6 +193,7 @@ namespace Remedy.Schematics
 
             value.LastUpdateTick = StampTick();
             _cachedOutputsByName[name] = value;
+            CurrentScope?.Set(this, name, value);
         }
 
         /// <summary>
@@ -233,27 +294,41 @@ namespace Remedy.Schematics
         /// <param name="inputName"></param>
         private void PullMostRecentInputValue(string inputName)
         {
-            (SchematicGraphNode node, string name) mostRecentPort = (null, null);
-            byte mostRecentTick = 0;
-
             if (!_cachedInputValueSources.TryGetValue(inputName, out var sources))
                 return;
 
-            for(int i = 0; i < sources.Length; i++)
+            if (TryMostRecent(sources, CurrentScope, out var value))
+                _cachedInputsByName[inputName] = value;
+        }
+
+        // The newest value among the outputs feeding an input. Values written in this flow win over a node's last value,
+        // which may have come from another object running the same graph.
+        private static bool TryMostRecent((SchematicGraphNode node, string portName)[] sources, FlowScope scope, out Union value)
+        {
+            if (scope != null && TryMostRecent(sources, scope, fromFlow: true, out value))
+                return true;
+            return TryMostRecent(sources, scope, fromFlow: false, out value);
+        }
+
+        private static bool TryMostRecent((SchematicGraphNode node, string portName)[] sources, FlowScope scope, bool fromFlow, out Union value)
+        {
+            value = default;
+            bool found = false;
+            byte mostRecentTick = 0;
+
+            for (int i = 0; i < sources.Length; i++)
             {
                 var (node, portName) = sources[i];
-                if (!node._cachedOutputsByName.TryGetValue(portName, out var output))
+                Union output;
+                bool has = fromFlow ? scope.TryGet(node, portName, out output) : node._cachedOutputsByName.TryGetValue(portName, out output);
+                if (!has || !IsNewer(output.LastUpdateTick, mostRecentTick))
                     continue;
 
-                if (IsNewer(output.LastUpdateTick, mostRecentTick))
-                {
-                    mostRecentPort = (node, portName);
-                    mostRecentTick = output.LastUpdateTick;
-                }
+                value = output;
+                mostRecentTick = output.LastUpdateTick;
+                found = true;
             }
-
-            if(mostRecentPort.node != null)
-                _cachedInputsByName[inputName] = mostRecentPort.node._cachedOutputsByName[mostRecentPort.name];
+            return found;
         }
 
         /// <summary>
@@ -265,18 +340,16 @@ namespace Remedy.Schematics
         {
             _returnValList.Clear();
 
-            foreach(var kvp in _cachedInputValueSources)
-            {
-                Debug.Log(kvp.Key + ": " + kvp.Value);
-            }
-
             var sources = _cachedInputValueSources[inputName];
 
             for (int i = 0; i < sources.Length; i++)
             {
                 var (node, portName) = sources[i];
 
-                _returnValList.Add(node._cachedOutputsByName[portName]);
+                var scope = CurrentScope;
+                if (!(scope != null && scope.TryGet(node, portName, out var value)))
+                    value = node._cachedOutputsByName[portName];
+                _returnValList.Add(value);
             }
 
             _cachedInputsByName[inputName] = _returnValList;

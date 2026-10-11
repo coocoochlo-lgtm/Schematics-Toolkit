@@ -356,6 +356,18 @@ public class SchematicGraphEditorWindow : GraphEditorWindow
         _minimap = new SchematicMinimap(Canvas, _motion);
         Canvas.Add(_minimap);
 
+        // Graph debugging: breakpoints, the stopped node's box, and the panel along the bottom.
+        Canvas.styleSheets.Add(Resources.Load<StyleSheet>("FlowDebugger"));
+        _debugPanel = new FlowDebugPanel(this);
+        Canvas.Add(_debugPanel);
+        Canvas.RegisterCallback<ContextualMenuPopulateEvent>(OnDebugContextMenu);
+        rootVisualElement.RegisterCallback<KeyDownEvent>(OnDebugKey, TrickleDown.TrickleDown);
+        if (_nodeViewCreated != null)
+            graph.OnNodeViewCreated -= _nodeViewCreated;
+        _nodeViewCreated = _ => QueueDebugRefresh();
+        graph.OnNodeViewCreated += _nodeViewCreated;
+        RefreshDebugState(frame: false);
+
         if (!alreadyUpdated) Reload();
 
         Profiler.StopTracking(loadProcess);
@@ -367,6 +379,9 @@ public class SchematicGraphEditorWindow : GraphEditorWindow
 
     private void OnDisable()
     {
+        if (Graph != null && _nodeViewCreated != null)
+            Graph.OnNodeViewCreated -= _nodeViewCreated;
+
         if(Canvas != null)
         {
             Application.focusChanged -= Reload;
@@ -598,6 +613,225 @@ public class SchematicGraphEditorWindow : GraphEditorWindow
             _sidebarTabs.SelectTab("Prefab");
             _dock.Reveal(key);
         });
+    }
+
+    #endregion
+
+    #region Debugging
+
+    private FlowDebugPanel _debugPanel;
+    private Action<VisualElement> _nodeViewCreated;
+    private NodeView _boxedView;
+    private VisualElement _debugBox;
+    private bool _boxIsError;
+    private bool _debugRefreshQueued;
+
+    /// <summary>The open graph window showing the graph, if any.</summary>
+    internal static SchematicGraphEditorWindow FindOpen(SchematicGraph graph)
+    {
+        foreach (var window in Resources.FindObjectsOfTypeAll<SchematicGraphEditorWindow>())
+            if (window.SchematicGraph == graph && window.Canvas != null)
+                return window;
+        return null;
+    }
+
+    /// <summary>Opens (or focuses) the graph's window and frames the node.</summary>
+    internal static void ShowNodeInGraph(SchematicGraph graph, Node node)
+    {
+        var window = FindOpen(graph);
+        if (window == null)
+        {
+            GraphAssetHandler.OnOpenGraph(graph);
+            window = FindOpen(graph);
+        }
+        if (window == null)
+            return;
+        window.Focus();
+        // After the window has laid itself out, so framing knows its size.
+        EditorApplication.delayCall += () =>
+        {
+            if (window == null)
+                return;
+            window.RefreshDebugState(frame: false);
+            if (node != null)
+                window.FrameDebugNode(node);
+        };
+    }
+
+    private void QueueDebugRefresh()
+    {
+        if (_debugRefreshQueued || Canvas == null)
+            return;
+        _debugRefreshQueued = true;
+        Canvas.schedule.Execute(() =>
+        {
+            _debugRefreshQueued = false;
+            RefreshDebugState(frame: false);
+        });
+    }
+
+    /// <summary>Redraws breakpoint dots, the box around a stopped (or failed) node, and the debug panel.</summary>
+    internal void RefreshDebugState(bool frame)
+    {
+        if (Canvas == null || SchematicGraph == null)
+            return;
+
+        SyncBreakpointMarkers();
+        _debugPanel?.Refresh();
+
+        // The box goes on the node this graph's stopped flow is at, or else the error the panel is showing.
+        Node boxed = null;
+        bool error = false;
+        var flow = FlowDebugger.Current;
+        if (flow != null)
+        {
+            if (flow.Graph == SchematicGraph && flow.PausedNode != null)
+            {
+                boxed = flow.PausedNode;
+                error = flow.Paused == Flow.PauseReason.Error;
+            }
+        }
+        else if (_debugPanel?.ShownError != null)
+        {
+            boxed = SchematicGraph.GetNodeById(_debugPanel.ShownError.NodeId);
+            error = true;
+        }
+
+        var view = boxed != null ? ViewOf(boxed) : null;
+        SetDebugBox(view, error);
+        if (frame && view != null)
+            FrameDebugNode(boxed);
+    }
+
+    /// <summary>Selects the node and glides the view to it.</summary>
+    internal void FrameDebugNode(Node node)
+    {
+        var view = ViewOf(node);
+        if (view == null)
+            return;
+        Canvas.ClearSelection();
+        Canvas.AddToSelection(view);
+        if (_motion != null) _motion.Frame(view.GetPosition());
+        else Canvas.FrameSelection();
+    }
+
+    private NodeView ViewOf(Node node)
+    {
+        foreach (var view in Canvas.Query<NodeView>().ToList())
+            if (view.Target == node || (view.Target != null && node != null && view.Target.ID == node.ID))
+                return view;
+        return null;
+    }
+
+    // An orange (breakpoint) or red (error) box around the node: it pulses a few times to catch the eye, then stays.
+    private void SetDebugBox(NodeView view, bool error)
+    {
+        if (view == _boxedView && error == _boxIsError && _debugBox != null && _debugBox.parent == view)
+            return;
+
+        _debugBox?.RemoveFromHierarchy();
+        _debugBox = null;
+        _boxedView = view;
+        _boxIsError = error;
+        if (view == null)
+            return;
+
+        var box = new VisualElement { name = "flow-highlight", pickingMode = PickingMode.Ignore };
+        box.AddToClassList("flow-highlight");
+        box.AddToClassList(error ? "flow-highlight--error" : "flow-highlight--paused");
+        view.hierarchy.Add(box);
+        _debugBox = box;
+
+        float t = 0f;
+        IVisualElementScheduledItem pulse = null;
+        pulse = box.schedule.Execute(() =>
+        {
+            t += 0.016f;
+            if (t >= 1.5f || box.parent == null)
+            {
+                box.style.opacity = StyleKeyword.Null;
+                pulse.Pause();
+                return;
+            }
+            box.style.opacity = 0.6f + 0.4f * Mathf.Cos(t * Mathf.PI * 4f);
+        }).Every(16);
+    }
+
+    private void SyncBreakpointMarkers()
+    {
+        foreach (var view in Canvas.Query<NodeView>().ToList())
+        {
+            if (!(view.Target is SchematicGraphNode node))
+                continue;
+            var marker = view.Q("flow-breakpoint");
+            if (node.Breakpoint && marker == null)
+            {
+                marker = new VisualElement { name = "flow-breakpoint", pickingMode = PickingMode.Ignore, tooltip = "Breakpoint" };
+                marker.AddToClassList("flow-breakpoint");
+                view.hierarchy.Add(marker);
+            }
+            else if (!node.Breakpoint && marker != null)
+                marker.RemoveFromHierarchy();
+        }
+    }
+
+    private void ToggleBreakpoints(IEnumerable<SchematicGraphNode> nodes)
+    {
+        var list = nodes.ToList();
+        if (list.Count == 0)
+            return;
+        Undo.RecordObject(SchematicGraph, "Toggle Breakpoint");
+        // Several at once: all on, unless they all have one already.
+        bool on = list.Any(n => !n.Breakpoint);
+        foreach (var node in list)
+            node.Breakpoint = on;
+        EditorUtility.SetDirty(SchematicGraph);
+        SyncBreakpointMarkers();
+    }
+
+    private IEnumerable<SchematicGraphNode> SelectedGraphNodes() =>
+        Canvas.selection.OfType<NodeView>().Select(v => v.Target).OfType<SchematicGraphNode>();
+
+    private void OnDebugContextMenu(ContextualMenuPopulateEvent evt)
+    {
+        var view = (evt.target as VisualElement)?.GetFirstOfType<NodeView>();
+        if (view?.Target is SchematicGraphNode node)
+        {
+            var targets = view.selected ? SelectedGraphNodes().ToList() : new List<SchematicGraphNode> { node };
+            evt.menu.AppendAction("Breakpoint (F9)", _ => ToggleBreakpoints(targets),
+                targets.All(n => n.Breakpoint) ? DropdownMenuAction.Status.Checked : DropdownMenuAction.Status.Normal);
+            evt.menu.AppendSeparator();
+        }
+        else if (evt.target == Canvas && SchematicGraph.Nodes.OfType<SchematicGraphNode>().Any(n => n.Breakpoint))
+        {
+            evt.menu.AppendAction("Remove All Breakpoints", _ =>
+                ToggleBreakpoints(SchematicGraph.Nodes.OfType<SchematicGraphNode>().Where(n => n.Breakpoint)));
+        }
+    }
+
+    // F9 toggles breakpoints on the selected nodes; F5 continues (Shift+F5 stops) and F10 steps a stopped flow.
+    private void OnDebugKey(KeyDownEvent evt)
+    {
+        // Not while typing in a field.
+        if (evt.target is TextField || (evt.target as VisualElement)?.GetFirstOfType<TextField>() != null)
+            return;
+
+        switch (evt.keyCode)
+        {
+            case KeyCode.F9:
+                ToggleBreakpoints(SelectedGraphNodes());
+                break;
+            case KeyCode.F5 when FlowDebugger.Current != null:
+                if (evt.shiftKey) FlowDebugger.Stop();
+                else FlowDebugger.Continue();
+                break;
+            case KeyCode.F10 when FlowDebugger.Current != null:
+                FlowDebugger.Step();
+                break;
+            default:
+                return;
+        }
+        evt.StopPropagation();
     }
 
     #endregion
