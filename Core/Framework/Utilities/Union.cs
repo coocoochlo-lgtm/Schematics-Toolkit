@@ -94,15 +94,72 @@ namespace Remedy.Framework
             if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
                 return UnsafeUtility.As<object, T>(ref UnsafeUtility.As<ulong, object>(ref _storage[0]));
 
+            // Ints, bools, LayerMasks and Color32s are stored as floats (in a Vector4, like every other number) so maths
+            // and ToString treat them alike; read back, they're converted rather than reinterpreted. These typeof
+            // checks are resolved when the method is compiled for T, so other types pay nothing for them.
+            if (typeof(T) == typeof(int))
+            {
+                int number = (int)StoredVector().x;
+                return UnsafeUtility.As<int, T>(ref number);
+            }
+            if (typeof(T) == typeof(bool))
+            {
+                bool flag = StoredVector().x != 0f;
+                return UnsafeUtility.As<bool, T>(ref flag);
+            }
+            if (typeof(T) == typeof(LayerMask))
+            {
+                LayerMask mask = (int)StoredVector().x;
+                return UnsafeUtility.As<LayerMask, T>(ref mask);
+            }
+            if (typeof(T) == typeof(Color32))
+            {
+                var v = StoredVector();
+                Color32 color = new Color(v.x, v.y, v.z, v.w);
+                return UnsafeUtility.As<Color32, T>(ref color);
+            }
+
             return UnsafeUtility.As<ulong, T>(ref _storage[0]);
         }
         public unsafe void SetValue<T>(T value)
         {
             if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+            {
                 UnsafeUtility.As<ulong, object>(ref _storage[0]) = value;
-            else
-                UnsafeUtility.As<ulong, T>(ref _storage[0]) = value;
+                return;
+            }
+
+            // Stored the same way the constructors store them, so GetValue reads either back correctly.
+            if (typeof(T) == typeof(int))
+            {
+                Type = ValueType.Int;
+                SetValue(new Vector4(UnsafeUtility.As<T, int>(ref value), 0, 0, 0));
+                return;
+            }
+            if (typeof(T) == typeof(bool))
+            {
+                Type = ValueType.Bool;
+                SetValue(new Vector4(UnsafeUtility.As<T, bool>(ref value) ? 1f : 0f, 0, 0, 0));
+                return;
+            }
+            if (typeof(T) == typeof(LayerMask))
+            {
+                Type = ValueType.LayerMask;
+                SetValue(new Vector4(UnsafeUtility.As<T, LayerMask>(ref value).value, 0, 0, 0));
+                return;
+            }
+            if (typeof(T) == typeof(Color32))
+            {
+                Type = ValueType.Color32;
+                var c = UnsafeUtility.As<T, Color32>(ref value);
+                SetValue(new Vector4(c.r / 255f, c.g / 255f, c.b / 255f, c.a / 255f));
+                return;
+            }
+
+            UnsafeUtility.As<ulong, T>(ref _storage[0]) = value;
         }
+
+        private unsafe Vector4 StoredVector() => UnsafeUtility.As<ulong, Vector4>(ref _storage[0]);
 
 
         // Constructors
