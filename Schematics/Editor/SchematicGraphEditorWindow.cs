@@ -600,13 +600,19 @@ public class SchematicGraphEditorWindow : GraphEditorWindow
 
     private void OnCanvasMouseUp(MouseUpEvent evt)
     {
-        if (evt.button != 0 || _dock == null)
+        if (evt.button != 0)
             return;
 
         // After the canvas has updated its selection.
         Canvas.schedule.Execute(() =>
         {
             if (Canvas.selection.Count != 1 || !(Canvas.selection[0] is NodeView view) || view.Target == null)
+                return;
+
+            // The node's settings in the Inspector.
+            NodeInspectorTarget.Show(SchematicGraph, view.Target);
+
+            if (_dock == null)
                 return;
             string key = KeyOf(view.Target);
             if (key == null)

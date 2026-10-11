@@ -40,6 +40,16 @@ namespace Remedy.Schematics
         [SerializeField, HideInInspector]
         private bool _breakpoint;
 
+        [SerializeField, HideInInspector]
+        private NodeNetworkMode _networkMode;
+
+        /// <summary>In a networked graph: whether this node runs only where its flow runs, or on every peer.</summary>
+        public NodeNetworkMode NetworkMode
+        {
+            get => _networkMode;
+            set => _networkMode = value;
+        }
+
         /// <summary>
         /// Stops a flow before this node runs (in the editor, during Play Mode). Toggled from the graph window.
         /// </summary>
@@ -92,6 +102,8 @@ namespace Remedy.Schematics
             if (IsDirty)
                 UpdateCaches();
             value = default;
+            if (scope != null && scope.TryGetInput(this, name, out value))
+                return true;
             return _cachedInputValueSources.TryGetValue(name, out var sources) && TryMostRecent(sources, scope, out value);
         }
 
@@ -294,6 +306,14 @@ namespace Remedy.Schematics
         /// <param name="inputName"></param>
         private void PullMostRecentInputValue(string inputName)
         {
+            // Values handed to the flow from outside (a node replicated from another peer) win.
+            var scope = CurrentScope;
+            if (scope != null && scope.TryGetInput(this, inputName, out var given))
+            {
+                _cachedInputsByName[inputName] = given;
+                return;
+            }
+
             if (!_cachedInputValueSources.TryGetValue(inputName, out var sources))
                 return;
 

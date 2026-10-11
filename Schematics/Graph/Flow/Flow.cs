@@ -63,6 +63,9 @@ namespace Remedy.Schematics
         /// <summary>Runs an event node and everything it leads to.</summary>
         public static void Start(SchematicEventNode node, GameObject instance, Union[] arguments)
         {
+            // A networked graph's events run on the object's authority only.
+            if (!GraphNetwork.RunsEventsFor(node.Graph as SchematicGraph, instance))
+                return;
             var flow = Rent(node, instance);
             flow._stack.Add(new Step { Node = node, Scope = flow._rootScope, Arguments = arguments });
             flow.Run();
@@ -75,6 +78,24 @@ namespace Remedy.Schematics
             flow._stack.Add(new Step { Node = node, Scope = flow.Adopt(scope) });
             flow.Run();
         }
+
+        /// <summary>
+        /// Runs an action node with the given input values (instead of what's connected to it) and everything after it.
+        /// Used to run a node replicated from another peer.
+        /// </summary>
+        public static void StartWithInputs(SchematicActionNodeBase node, GameObject instance, string[] ports, Union[] values)
+        {
+            var scope = new FlowScope();
+            for (int i = 0; ports != null && i < ports.Length && i < values.Length; i++)
+                scope.SetInput(node, ports[i], values[i]);
+            var flow = Rent(node, instance);
+            flow._remote = true;
+            flow._stack.Add(new Step { Node = node, Scope = flow.Adopt(scope) });
+            flow.Run();
+        }
+
+        // Started from a replicated node: it mustn't be sent back out.
+        private bool _remote;
 
         /// <summary>Runs a node's children (and everything after them), e.g. once a Wait is over.</summary>
         public static void StartChildren(SchematicGraphNode node, GameObject instance, FlowScope scope = null)
@@ -119,6 +140,7 @@ namespace Remedy.Schematics
             Paused = PauseReason.None;
             Stepping = false;
             _skipBreakOnce = false;
+            _remote = false;
             _executing = default;
             if (_pool.Count < 64)
                 _pool.Push(this);
@@ -182,6 +204,10 @@ namespace Remedy.Schematics
             _pending.Clear();
             try
             {
+                // Nodes set to run on Everyone are sent to the other peers as the authority reaches them.
+                if (!_remote && step.Node.NetworkMode == NodeNetworkMode.Everyone)
+                    GraphNetwork.ReplicateIfNeeded(step.Node, Instance, step.Scope);
+
                 if (step.Node.ExecuteInFlow(this, step.Scope, step.Arguments))
                     Schedule(step.Node, step.Scope, fork: false);
             }
@@ -299,9 +325,25 @@ namespace Remedy.Schematics
 
         public void Set(SchematicGraphNode node, string port, Union value) => _values[(node, port)] = value;
 
+        // Input values given to the flow from outside, read before what's connected.
+        private Dictionary<(SchematicGraphNode, string), Union> _inputs;
+
+        public void SetInput(SchematicGraphNode node, string port, Union value)
+            => (_inputs ??= new Dictionary<(SchematicGraphNode, string), Union>())[(node, port)] = value;
+
+        public bool TryGetInput(SchematicGraphNode node, string port, out Union value)
+        {
+            for (var scope = this; scope != null; scope = scope.Parent)
+                if (scope._inputs != null && scope._inputs.TryGetValue((node, port), out value))
+                    return true;
+            value = default;
+            return false;
+        }
+
         internal void Clear()
         {
             _values.Clear();
+            _inputs?.Clear();
             Parent = null;
         }
 
@@ -314,8 +356,13 @@ namespace Remedy.Schematics
                 chain.Add(scope);
             // Outermost first, so nearer scopes win.
             for (int i = chain.Count - 1; i >= 0; i--)
+            {
                 foreach (var pair in chain[i]._values)
                     copy._values[pair.Key] = pair.Value;
+                if (chain[i]._inputs != null)
+                    foreach (var pair in chain[i]._inputs)
+                        copy.SetInput(pair.Key.Item1, pair.Key.Item2, pair.Value);
+            }
             return copy;
         }
     }

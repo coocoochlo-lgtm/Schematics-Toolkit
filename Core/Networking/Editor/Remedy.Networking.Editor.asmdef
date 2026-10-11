@@ -1,0 +1,31 @@
+{
+    "name": "Remedy.Networking.Editor",
+    "rootNamespace": "Remedy.Networking.Editor",
+    "references": [
+        "GUID:9b469131ff994e3b83f91ca46e632926",
+        "Unity.Netcode.Runtime",
+        "GUID:0a22d72520a82174ab746de6d8876564",
+        "GUID:6082862122ef11a49bf208ee4ec62519",
+        "GUID:8a4abcc8263c46c4a9aaeaa2747ac62c",
+        "GUID:dff8ecec7c9808447ae4528f8a364918"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "SCHEMATICS_NETCODE"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.unity.netcode.gameobjects",
+            "expression": "2.0.0",
+            "define": "SCHEMATICS_NETCODE"
+        }
+    ],
+    "noEngineReferences": false
+}

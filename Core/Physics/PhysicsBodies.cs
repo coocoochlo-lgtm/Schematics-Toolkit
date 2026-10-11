@@ -17,17 +17,42 @@ namespace Remedy.Box3DPhysics
 
         public static void SetVelocity(this Box3DBody body, Vector3 velocity)
         {
-            if (!body.IsLive()) return;
+            if (!body.IsLive() || IsNetworkProxy(body)) return;
             var native = body.Body;
             native.LinearVelocity = velocity;
         }
 
+        private static readonly System.Collections.Generic.HashSet<Box3DBody> _proxies = new();
+
+        /// <summary>
+        /// Marks a body as simulated by another peer: it's kept kinematic and follows its synced Transform, and the
+        /// toolkit's velocity changes are ignored. Set by the networking layer.
+        /// </summary>
+        public static void SetNetworkProxy(this Box3DBody body, bool proxy)
+        {
+            if (body == null) return;
+            if (proxy)
+            {
+                _proxies.Add(body);
+                if (body.BodyType != Box3DBodyType.Kinematic)
+                    body.BodyType = Box3DBodyType.Kinematic;
+            }
+            else
+                _proxies.Remove(body);
+        }
+
+        public static bool IsNetworkProxy(this Box3DBody body) => body != null && _proxies.Contains(body);
+
         public static bool IsKinematic(this Box3DBody body) => body != null && body.BodyType == Box3DBodyType.Kinematic;
 
-        /// <summary>Switches between kinematic (moved by its Transform) and dynamic (moved by the solver).</summary>
+        /// <summary>
+        /// Switches between kinematic (moved by its Transform) and dynamic (moved by the solver). Network proxies (bodies
+        /// another peer simulates) stay kinematic.
+        /// </summary>
         public static void SetKinematic(this Box3DBody body, bool kinematic)
         {
             if (body == null) return;
+            if (IsNetworkProxy(body)) kinematic = true;
             var type = kinematic ? Box3DBodyType.Kinematic : Box3DBodyType.Dynamic;
             if (body.BodyType != type)
                 body.BodyType = type;

@@ -28,6 +28,9 @@ namespace Remedy.Schematics
         [SerializeField]
         [TextArea(1, 3)]
         private string _description;
+
+        [Tooltip("Sync this graph over the network: its events run on the object's authority, and nodes set to Everyone run on every peer.")]
+        public bool Networked;
         
         [HideInInspector]
         public bool Returned;
@@ -75,8 +78,12 @@ namespace Remedy.Schematics
         {
             var eventArr = GetEventArray<TEventNode>();
 
-            if (eventArr != null && eventArr.Length > 0)
-                foreach (var node in eventArr) { node.Trigger(instance, args); }
+            if (eventArr == null || eventArr.Length == 0)
+                return;
+            // A networked graph's events run on the object's authority only; other peers run what it replicates.
+            if (!GraphNetwork.RunsEventsFor(this, instance))
+                return;
+            foreach (var node in eventArr) { node.Trigger(instance, args); }
         }
 
         protected override void ResetExtendedNodeCaches()
