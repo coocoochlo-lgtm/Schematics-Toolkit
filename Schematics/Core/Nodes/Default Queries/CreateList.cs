@@ -11,6 +11,7 @@ using System;
 
 namespace Remedy.Schematics
 {
+    [SchematicDoc(@"{""name"": ""Create List"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Collections"", ""description"": ""Makes a list from the values connected to it (lists connected are merged in)."", ""inputs"": [{""name"": ""Items"", ""type"": ""object""}], ""outputs"": [{""name"": ""value"", ""type"": ""List<object>""}], ""use_for"": [""grouping values for For Each or a brain input""], ""notes"": ""A value node: no flow arrows; connect its outputs to other nodes' inputs.""}")]
     [Serializable]
     [Node(Path = "Collections"), Tags("Default")]
     public class CreateList : SchematicGraphNode

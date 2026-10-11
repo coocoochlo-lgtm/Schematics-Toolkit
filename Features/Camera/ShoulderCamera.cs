@@ -2,13 +2,17 @@ using UnityEngine;
 
 namespace Remedy.Cameras
 {
+    [SchematicDoc(@"{""name"": ""Shoulder Camera"", ""kind"": ""behavior"", ""menu"": ""Cameras/Shoulder"", ""description"": ""An over-the-shoulder camera that peers past the character's left or right shoulder, switching sides automatically near walls. Reports its look direction and aim position."", ""variables"": [""Shoulder"", ""ShoulderOffset"", ""ShoulderSwitchSpeed"", ""AutoSwitch"", ""SwitchDistance"", ""FollowOffset"", ""HorizontalFollowSpeed"", ""VerticalFollowSpeed"", ""YDistanceAllowance"", ""MaxDistance"", ""OptimalDistancePush"", ""OptimalDistance"", ""Rigidbody"", ""LookaheadOrientationStrength"", ""CollisionLayers"", ""CollisionReactSpeed""], ""signals"": [""ActualLookDirection"", ""GoalLookDirection"", ""AimPosition""], ""use_for"": [""third-person shooters"", ""aiming cameras""]}")]
     [SchematicBehaviorPath("Cameras/Shoulder")]
     public class ShoulderCamera : CameraOperator
     {
+        [SchematicDoc(@"{""name"": ""ActualLookDirection"", ""kind"": ""signal"", ""behavior"": ""Shoulder Camera"", ""direction"": ""output"", ""params"": [{""name"": ""Direction"", ""type"": ""Vector3""}], ""description"": ""Sent by Shoulder Camera when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [OutputSignal, Parameter("Direction", typeof(Vector3))]
         public readonly SignalHandle<Vector3> ActualLookDirection;
+        [SchematicDoc(@"{""name"": ""GoalLookDirection"", ""kind"": ""signal"", ""behavior"": ""Shoulder Camera"", ""direction"": ""output"", ""params"": [{""name"": ""Direction"", ""type"": ""Vector3""}], ""description"": ""Sent by Shoulder Camera when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [OutputSignal, Parameter("Direction", typeof(Vector3))]
         public readonly SignalHandle<Vector3> GoalLookDirection;
+        [SchematicDoc(@"{""name"": ""AimPosition"", ""kind"": ""signal"", ""behavior"": ""Shoulder Camera"", ""direction"": ""output"", ""params"": [{""name"": ""Position"", ""type"": ""Vector3""}], ""description"": ""Sent by Shoulder Camera when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [OutputSignal, Parameter("Position", typeof(Vector3))]
         public readonly SignalHandle<Vector3> AimPosition;
 
@@ -18,30 +22,46 @@ namespace Remedy.Cameras
             Right
         }
 
+        [SchematicDoc(@"{""name"": ""Shoulder"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""Shoulders"", ""default"": ""Shoulders.Left"", ""description"": ""The shoulder the Camera is 'peering over'""}")]
         [Tooltip("The shoulder the Camera is 'peering over'")]
         public readonly VariableHandle<Shoulders> Shoulder = Shoulders.Left;
+        [SchematicDoc(@"{""name"": ""ShoulderOffset"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""Vector3"", ""default"": ""new Vector3(0.5f, 0f, 0f)"", ""description"": ""The distance offset from the character's shoulder.""}")]
         [Tooltip("The distance offset from the character's shoulder.")]
         public readonly VariableHandle<Vector3> ShoulderOffset = new Vector3(0.5f, 0f, 0f);
+        [SchematicDoc(@"{""name"": ""ShoulderSwitchSpeed"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""Shoulder Switch Speed (float) of Shoulder Camera.""}")]
         public readonly VariableHandle<float> ShoulderSwitchSpeed = 10f;
+        [SchematicDoc(@"{""name"": ""AutoSwitch"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""bool"", ""default"": ""true"", ""description"": ""Auto Switch (bool) of Shoulder Camera.""}")]
         public readonly VariableHandle<bool> AutoSwitch = true;
+        [SchematicDoc(@"{""name"": ""SwitchDistance"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""float"", ""default"": ""2f"", ""description"": ""Switch Distance (float) of Shoulder Camera.""}")]
         public readonly VariableHandle<float> SwitchDistance = 2f;
+        [SchematicDoc(@"{""name"": ""FollowOffset"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""Vector3"", ""default"": ""Vector3.zero"", ""description"": ""Follow Offset (Vector3) of Shoulder Camera.""}")]
         public readonly VariableHandle<Vector3> FollowOffset = Vector3.zero;
+        [SchematicDoc(@"{""name"": ""HorizontalFollowSpeed"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""Horizontal Follow Speed (float) of Shoulder Camera.""}")]
         public readonly VariableHandle<float> HorizontalFollowSpeed = 10f;
+        [SchematicDoc(@"{""name"": ""VerticalFollowSpeed"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""float"", ""default"": ""3f"", ""description"": ""Vertical Follow Speed (float) of Shoulder Camera.""}")]
         public readonly VariableHandle<float> VerticalFollowSpeed = 3f;
+        [SchematicDoc(@"{""name"": ""YDistanceAllowance"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""float"", ""default"": ""3f"", ""description"": ""The Camera sticks to the ground beneath the follow target until this distance is reached, then this is used as an offset from the Follow Target""}")]
         [Tooltip("The Camera sticks to the ground beneath the follow target until this distance is reached, then this is used as an offset from the Follow Target")]
         public readonly VariableHandle<float> YDistanceAllowance = 3f;
+        [SchematicDoc(@"{""name"": ""MaxDistance"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""float"", ""default"": ""5f"", ""description"": ""Max distance from the Followed Object.""}")]
         [Tooltip("Max distance from the Followed Object.")]
         public readonly VariableHandle<float> MaxDistance = 5f;
 
+        [SchematicDoc(@"{""name"": ""OptimalDistancePush"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""float"", ""default"": ""1f"", ""description"": ""An angular force applied to distance the Camera Rotation away from walls over time.""}")]
         [Tooltip("An angular force applied to distance the Camera Rotation away from walls over time.")]
         public readonly VariableHandle<float> OptimalDistancePush = 1f;
+        [SchematicDoc(@"{""name"": ""OptimalDistance"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""Optimal Distance (float) of Shoulder Camera.""}")]
         public readonly VariableHandle<float> OptimalDistance = 10f;
 
+        [SchematicDoc(@"{""name"": ""Rigidbody"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""Rigidbody"", ""default"": ""null"", ""description"": ""Rigidbody (Rigidbody) of Shoulder Camera.""}")]
         public readonly VariableHandle<Rigidbody> Rigidbody = (Rigidbody)null;
+        [SchematicDoc(@"{""name"": ""LookaheadOrientationStrength"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""float"", ""default"": ""1f"", ""description"": ""Lookahead Orientation Strength (float) of Shoulder Camera.""}")]
         public readonly VariableHandle<float> LookaheadOrientationStrength = 1f;
 
+        [SchematicDoc(@"{""name"": ""CollisionLayers"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""LayerMask"", ""default"": ""(-1)"", ""description"": ""What is collided with to move the Camera closer to the Player""}")]
         [Tooltip("What is collided with to move the Camera closer to the Player")]
         public readonly VariableHandle<LayerMask> CollisionLayers = (LayerMask)(-1);
+        [SchematicDoc(@"{""name"": ""CollisionReactSpeed"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""Collision React Speed (float) of Shoulder Camera.""}")]
         public readonly VariableHandle<float> CollisionReactSpeed = 10f;
 
         private readonly VariableHandle<float> _targetScale = 1f;

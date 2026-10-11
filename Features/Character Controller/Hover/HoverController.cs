@@ -5,14 +5,18 @@ namespace Remedy.CharacterControllers.Hover
     /// <summary>
     /// Flight: rises while there's Stamina, then hovers and plummets. Input comes from the Motion Context's Signals.
     /// </summary>
+    [SchematicDoc(@"{""name"": ""Hover Controller"", ""kind"": ""behavior"", ""menu"": ""Movement/3D/Flight and Hover Controller"", ""description"": ""Flight: rises while there's Stamina, then hovers and plummets. Input comes from the Motion Context's Signals."", ""variables"": [""Properties"", ""CurrentVerticalSpeed"", ""RotationVelocity""], ""use_for"": [""flying or hovering abilities"", ""jetpacks""]}")]
     [RequireComponent(typeof(Box3D.Hybrid.Box3DBody))]
     [RequireBehavior(typeof(CharacterMotionContext), typeof(CharacterRaycastContext))]
     [SchematicBehaviorPath("Movement/3D/Flight and Hover Controller")]
     public class HoverController : SchematicBehavior
     {
+        [SchematicDoc(@"{""name"": ""Properties"", ""kind"": ""variable"", ""behavior"": ""Hover Controller"", ""type"": ""HoverControllerProperties"", ""default"": ""null"", ""description"": ""Properties (HoverControllerProperties) of Hover Controller.""}")]
         public readonly VariableHandle<HoverControllerProperties> Properties = (HoverControllerProperties)null;
 
+        [SchematicDoc(@"{""name"": ""CurrentVerticalSpeed"", ""kind"": ""variable"", ""behavior"": ""Hover Controller"", ""type"": ""float"", ""default"": ""0f"", ""description"": ""Current Vertical Speed (float) of Hover Controller.""}")]
         public readonly VariableHandle<float> CurrentVerticalSpeed = 0f;
+        [SchematicDoc(@"{""name"": ""RotationVelocity"", ""kind"": ""variable"", ""behavior"": ""Hover Controller"", ""type"": ""float"", ""default"": ""0f"", ""description"": ""Rotation Velocity (float) of Hover Controller.""}")]
         public readonly VariableHandle<float> RotationVelocity = 0f;
 
         // state variables

@@ -6,10 +6,12 @@ namespace Remedy.Materials
     /// Drives material properties from Signals: each entry of its Properties maps a Signal to a shader property.
     /// Uses the Renderer's shared material unless the Properties name one.
     /// </summary>
+    [SchematicDoc(@"{""name"": ""Material Comunicator"", ""kind"": ""behavior"", ""menu"": ""Rendering/Material Communicator"", ""description"": ""Drives material properties from Signals: each entry of its Properties maps a Signal to a shader property. Uses the Renderer's shared material unless the Properties name one."", ""variables"": [""Properties""], ""use_for"": [""flashing on damage"", ""glow when powered up"", ""changing colors from gameplay""]}")]
     [SchematicBehaviorPath("Rendering/Material Communicator")]
     public class MaterialComunicator : SchematicBehavior
     {
         /// <summary>The Signal-to-shader-property mappings, assigned per object.</summary>
+        [SchematicDoc(@"{""name"": ""Properties"", ""kind"": ""variable"", ""behavior"": ""Material Comunicator"", ""type"": ""MaterialComunicatorProperties"", ""default"": ""null"", ""description"": ""The Signal-to-shader-property mappings, assigned per object.""}")]
         public readonly VariableHandle<MaterialComunicatorProperties> Properties = (MaterialComunicatorProperties)null;
 
         protected override void OnStart()

@@ -7,6 +7,7 @@ namespace Remedy.Damagables
     /// Health, damage and healing for an object. The methods act on the selected instance, e.g.
     /// <c>target.GetSchematicBehavior&lt;Damageable&gt;()?.Damage(instigation)</c>, or take the instance explicitly.
     /// </summary>
+    [SchematicDoc(@"{""name"": ""Damageable"", ""kind"": ""behavior"", ""menu"": ""Damageables/Damageable"", ""description"": ""Health, damage and healing for an object. The methods act on the selected instance, e.g. target.GetSchematicBehavior<Damageable>()?.Damage(instigation), or take the instance explicitly."", ""variables"": [""DamageLayer"", ""Health"", ""MaxHealth"", ""IsAlive""], ""signals"": [""OnKnockback""], ""use_for"": [""health for players, enemies and breakable objects"", ""death and healing""]}")]
     [SchematicBehaviorPath("Damageables/Damageable")]
     public class Damageable : SchematicBehavior
     {
@@ -17,6 +18,7 @@ namespace Remedy.Damagables
         [OutputSignal] public readonly SignalHandle OnHealContinued;
         [OutputSignal] public readonly SignalHandle OnDamageFinish;
         [OutputSignal] public readonly SignalHandle OnHealFinish;
+        [SchematicDoc(@"{""name"": ""OnKnockback"", ""kind"": ""signal"", ""behavior"": ""Damageable"", ""direction"": ""output"", ""params"": [{""name"": ""Direction"", ""type"": ""Vector3""}], ""description"": ""Not handled by the Damageable. This functionality must be uniquely implemented for each object that uses this Component. The given value is the direction from the instigation position to this object."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [Tooltip("Not handled by the Damageable. This functionality must be uniquely implemented for each object that uses this Component. The given value is the direction from the instigation position to this object.")]
         [OutputSignal, Parameter("Direction", typeof(Vector3))]
         public readonly SignalHandle<Vector3> OnKnockback;
@@ -24,9 +26,13 @@ namespace Remedy.Damagables
         [OutputSignal] public readonly SignalHandle OnFullHealth;
         [OutputSignal] public readonly SignalHandle OnRevive;
 
+        [SchematicDoc(@"{""name"": ""DamageLayer"", ""kind"": ""variable"", ""behavior"": ""Damageable"", ""type"": ""int"", ""default"": ""0"", ""description"": ""Damage Layer (int) of Damageable.""}")]
         public readonly VariableHandle<int> DamageLayer = 0;
+        [SchematicDoc(@"{""name"": ""Health"", ""kind"": ""variable"", ""behavior"": ""Damageable"", ""type"": ""float"", ""default"": ""100f"", ""description"": ""Health (float) of Damageable.""}")]
         public readonly VariableHandle<float> Health = 100f;
+        [SchematicDoc(@"{""name"": ""MaxHealth"", ""kind"": ""variable"", ""behavior"": ""Damageable"", ""type"": ""float"", ""default"": ""100f"", ""description"": ""Max Health (float) of Damageable.""}")]
         public readonly VariableHandle<float> MaxHealth = 100f;
+        [SchematicDoc(@"{""name"": ""IsAlive"", ""kind"": ""variable"", ""behavior"": ""Damageable"", ""type"": ""bool"", ""default"": ""true"", ""description"": ""Is Alive (bool) of Damageable.""}")]
         public readonly VariableHandle<bool> IsAlive = true;
 
         protected override void OnEnable() => DamageManager.AddDamageable(Self, DamageLayer.Value);

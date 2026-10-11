@@ -12,6 +12,7 @@ using System;
 
 namespace Remedy.Schematics
 {
+    [SchematicDoc(@"{""name"": ""For Each"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Loops"", ""description"": ""Runs the nodes after it once per item of a list, with the current item and its index as outputs."", ""inputs"": [{""name"": ""Items"", ""type"": ""List<Union>""}], ""outputs"": [{""name"": ""Index"", ""type"": ""int""}, {""name"": ""This"", ""type"": ""object""}], ""use_for"": [""acting on every enemy, pickup or target in a list""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next.""}")]
     [Serializable]
     [Node(Path = "Loops"), Tags("Default")] 
     public class ForEach : SchematicActionNode

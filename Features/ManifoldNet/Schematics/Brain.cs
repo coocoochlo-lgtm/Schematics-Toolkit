@@ -11,16 +11,20 @@ namespace Remedy.ManifoldNetwork.Schematics
     /// (Reward Brain), and it learns as it plays.
     /// <para>Shared: every instance of the object thinks with one brain (and learns together). Per Instance: each gets its own.</para>
     /// </summary>
+    [SchematicDoc(@"{""name"": ""Brain"", ""kind"": ""behavior"", ""menu"": ""AI/Brain"", ""description"": ""A learning brain for a Schematic Object, run by a Manifold Neuron Network. Its inputs and outputs are slots you define in the IO Dock; the graph feeds the inputs on OnThink (Set Brain Input) and reads the decisions on OnDecided (Get Brain Output). Teach it (Teach Brain Output), praise or punish it (Reward Brain), and it learns as it plays. Shared: every instance of the object thinks with one brain (and learns together). Per Instance: each gets its own."", ""variables"": [""Definition""], ""signals"": [""OnThink"", ""OnDecided""], ""use_for"": [""learning enemy AI"", ""creatures that are trained or bred"", ""bots that learn by watching the player""]}")]
     [SchematicBehaviorPath("AI/Brain")]
     public class Brain : SchematicBehavior
     {
+        [SchematicDoc(@"{""name"": ""Definition"", ""kind"": ""variable"", ""behavior"": ""Brain"", ""type"": ""BrainDefinition"", ""default"": ""null"", ""description"": ""The brain's design: its slots, how it learns, and what it has learned. Created next to the prefab from the IO Dock.""}")]
         [Tooltip("The brain's design: its slots, how it learns, and what it has learned. Created next to the prefab from the IO Dock.")]
         public readonly VariableHandle<BrainDefinition> Definition = (BrainDefinition)null;
 
+        [SchematicDoc(@"{""name"": ""OnThink"", ""kind"": ""signal"", ""behavior"": ""Brain"", ""direction"": ""output"", ""description"": ""Before the brain thinks: set its inputs here (Set Brain Input). Also a good time to teach it."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [Tooltip("Before the brain thinks: set its inputs here (Set Brain Input). Also a good time to teach it.")]
         [OutputSignal]
         public readonly SignalHandle OnThink;
 
+        [SchematicDoc(@"{""name"": ""OnDecided"", ""kind"": ""signal"", ""behavior"": ""Brain"", ""direction"": ""output"", ""description"": ""The brain has decided: read its outputs here (Get Brain Output) and act on them."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [Tooltip("The brain has decided: read its outputs here (Get Brain Output) and act on them.")]
         [OutputSignal]
         public readonly SignalHandle OnDecided;

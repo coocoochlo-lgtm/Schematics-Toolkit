@@ -7,36 +7,49 @@ namespace Remedy.Splines
     /// camera; the ship inside it moves freely on the plane in front of the camera, clamped so it never leaves the
     /// screen, banking and pitching as it goes. The camera drifts a little toward the ship, as in the games.
     /// </summary>
+    [SchematicDoc(@"{""name"": ""On Rails Rig"", ""kind"": ""behavior"", ""menu"": ""Splines/On Rails Rig"", ""description"": ""Star Fox-style on-rails movement. The object is a rig that travels along a spline (its Spline Agent) carrying a camera; the ship inside it moves freely on the plane in front of the camera, clamped so it never leaves the screen, banking and pitching as it goes. The camera drifts a little toward the ship, as in the games."", ""variables"": [""Camera"", ""Ship"", ""ShipDepth"", ""ShipSpeed"", ""ScreenMargin"", ""MaxBank"", ""MaxPitch"", ""TiltResponse"", ""CameraFollow"", ""InvertY"", ""ShipOffset""], ""signals"": [""MoveInput""], ""use_for"": [""Star Fox-style rail shooters"", ""on-rails sequences""]}")]
     [SchematicBehaviorPath("Splines/On Rails Rig")]
     [RequireBehavior(typeof(SplineAgent))]
     public class OnRailsRig : SchematicBehavior
     {
+        [SchematicDoc(@"{""name"": ""Camera"", ""kind"": ""variable"", ""behavior"": ""On Rails Rig"", ""type"": ""Camera"", ""default"": ""null"", ""description"": ""Camera (Camera) of On Rails Rig.""}")]
         public readonly VariableHandle<Camera> Camera = (Camera)null;
+        [SchematicDoc(@"{""name"": ""Ship"", ""kind"": ""variable"", ""behavior"": ""On Rails Rig"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""Ship (Transform) of On Rails Rig.""}")]
         public readonly VariableHandle<Transform> Ship = (Transform)null;
 
+        [SchematicDoc(@"{""name"": ""ShipDepth"", ""kind"": ""variable"", ""behavior"": ""On Rails Rig"", ""type"": ""float"", ""default"": ""12f"", ""description"": ""How far in front of the camera the ship flies.""}")]
         [Tooltip("How far in front of the camera the ship flies.")]
         public readonly VariableHandle<float> ShipDepth = 12f;
+        [SchematicDoc(@"{""name"": ""ShipSpeed"", ""kind"": ""variable"", ""behavior"": ""On Rails Rig"", ""type"": ""float"", ""default"": ""14f"", ""description"": ""How fast the ship moves across the screen, in units per second.""}")]
         [Tooltip("How fast the ship moves across the screen, in units per second.")]
         public readonly VariableHandle<float> ShipSpeed = 14f;
+        [SchematicDoc(@"{""name"": ""ScreenMargin"", ""kind"": ""variable"", ""behavior"": ""On Rails Rig"", ""type"": ""Vector2"", ""default"": ""new Vector2(0.08f, 0.1f)"", ""description"": ""Space kept between the ship and the screen edges, as a fraction of the screen (0-0.5).""}")]
         [Tooltip("Space kept between the ship and the screen edges, as a fraction of the screen (0-0.5).")]
         public readonly VariableHandle<Vector2> ScreenMargin = new Vector2(0.08f, 0.1f);
+        [SchematicDoc(@"{""name"": ""MaxBank"", ""kind"": ""variable"", ""behavior"": ""On Rails Rig"", ""type"": ""float"", ""default"": ""40f"", ""description"": ""Degrees the ship banks at full sideways input.""}")]
         [Tooltip("Degrees the ship banks at full sideways input.")]
         public readonly VariableHandle<float> MaxBank = 40f;
+        [SchematicDoc(@"{""name"": ""MaxPitch"", ""kind"": ""variable"", ""behavior"": ""On Rails Rig"", ""type"": ""float"", ""default"": ""20f"", ""description"": ""Degrees the ship pitches at full vertical input.""}")]
         [Tooltip("Degrees the ship pitches at full vertical input.")]
         public readonly VariableHandle<float> MaxPitch = 20f;
+        [SchematicDoc(@"{""name"": ""TiltResponse"", ""kind"": ""variable"", ""behavior"": ""On Rails Rig"", ""type"": ""float"", ""default"": ""8f"", ""description"": ""How quickly the ship's tilt follows the input.""}")]
         [Tooltip("How quickly the ship's tilt follows the input.")]
         public readonly VariableHandle<float> TiltResponse = 8f;
+        [SchematicDoc(@"{""name"": ""CameraFollow"", ""kind"": ""variable"", ""behavior"": ""On Rails Rig"", ""type"": ""float"", ""default"": ""0.3f"", ""description"": ""How much the camera drifts toward the ship (0 stays centred, 1 keeps the ship centred).""}")]
         [Tooltip("How much the camera drifts toward the ship (0 stays centred, 1 keeps the ship centred).")]
         public readonly VariableHandle<float> CameraFollow = 0.3f;
+        [SchematicDoc(@"{""name"": ""InvertY"", ""kind"": ""variable"", ""behavior"": ""On Rails Rig"", ""type"": ""bool"", ""default"": ""false"", ""description"": ""Invert vertical input (flight-style controls).""}")]
         [Tooltip("Invert vertical input (flight-style controls).")]
         public readonly VariableHandle<bool> InvertY = false;
 
         /// <summary>The ship's position on the screen plane, relative to the camera's centre.</summary>
+        [SchematicDoc(@"{""name"": ""ShipOffset"", ""kind"": ""variable"", ""behavior"": ""On Rails Rig"", ""type"": ""Vector2"", ""default"": ""Vector2.zero"", ""description"": ""The ship's position on the screen plane, relative to the camera's centre.""}")]
         public readonly VariableHandle<Vector2> ShipOffset = Vector2.zero;
         private readonly VariableHandle<Vector2> _input = Vector2.zero;
         private readonly VariableHandle<Vector2> _tilt = Vector2.zero;
         private readonly VariableHandle<Vector3> _cameraHome = Vector3.zero;
 
+        [SchematicDoc(@"{""name"": ""MoveInput"", ""kind"": ""signal"", ""behavior"": ""On Rails Rig"", ""direction"": ""input"", ""params"": [{""name"": ""Value"", ""type"": ""Vector2""}], ""description"": ""Tells On Rails Rig to act."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
         [InputSignal, Parameter("Value", typeof(Vector2))]
         public readonly SignalHandle<Vector2> MoveInput;
 

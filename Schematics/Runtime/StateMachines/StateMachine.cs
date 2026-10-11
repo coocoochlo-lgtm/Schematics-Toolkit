@@ -11,20 +11,25 @@ using UnityEngine;
 /// States nest: being in "Grounded" also means being in its parent "Alive", whose transitions (e.g. to "Dead") and
 /// Behavior settings apply too, unless the child overrides them.
 /// </summary>
+[SchematicDoc(@"{""name"": ""State Machine"", ""kind"": ""behavior"", ""menu"": ""Logic/State Machine"", ""description"": ""Runs a StateMachineDefinition on its Schematic Object: enters the initial state, turns the object's Behaviors on and off as states change, fires transitions on Signals or when their conditions hold, and runs each active state's graph (On State Enter / Update / Exit, plus its Signal nodes). States nest: being in \""Grounded\"" also means being in its parent \""Alive\"", whose transitions (e.g. to \""Dead\"") and Behavior settings apply too, unless the child overrides them."", ""variables"": [""Definition"", ""CurrentState""], ""signals"": [""SetState"", ""OnStateChanged""], ""use_for"": [""enemy AI states (patrol, chase, attack)"", ""player modes"", ""door/elevator states"", ""game flow""]}")]
 [SchematicBehaviorPath("Logic/State Machine")]
 public class StateMachine : SchematicBehavior
 {
+    [SchematicDoc(@"{""name"": ""SetState"", ""kind"": ""signal"", ""behavior"": ""State Machine"", ""direction"": ""input"", ""params"": [{""name"": ""State"", ""type"": ""string""}], ""description"": ""Goes to the state with this name (top-level or nested)."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
     [Tooltip("Goes to the state with this name (top-level or nested).")]
     [InputSignal, Parameter("State", typeof(string))]
     public readonly SignalHandle<string> SetState;
 
+    [SchematicDoc(@"{""name"": ""OnStateChanged"", ""kind"": ""signal"", ""behavior"": ""State Machine"", ""direction"": ""output"", ""params"": [{""name"": ""State"", ""type"": ""string""}], ""description"": ""Sent after every state change, with the name of the state now active (the innermost one)."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
     [Tooltip("Sent after every state change, with the name of the state now active (the innermost one).")]
     [OutputSignal, Parameter("State", typeof(string))]
     public readonly SignalHandle<string> OnStateChanged;
 
+    [SchematicDoc(@"{""name"": ""Definition"", ""kind"": ""variable"", ""behavior"": ""State Machine"", ""type"": ""StateMachineDefinition"", ""default"": ""null"", ""description"": ""Definition (StateMachineDefinition) of State Machine.""}")]
     public readonly VariableHandle<StateMachineDefinition> Definition = (StateMachineDefinition)null;
 
     /// <summary>The innermost active state's name.</summary>
+    [SchematicDoc(@"{""name"": ""CurrentState"", ""kind"": ""variable"", ""behavior"": ""State Machine"", ""type"": ""string"", ""default"": ""\""\"""", ""description"": ""The innermost active state's name.""}")]
     public readonly VariableHandle<string> CurrentState = "";
 
     private readonly VariableHandle<MachineState> _runtime = (MachineState)null;

@@ -9,6 +9,7 @@ using UnityEngine;
 
 namespace Remedy.Schematics
 {
+    [SchematicDoc(@"{""name"": ""List Count"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Collections"", ""description"": ""How many items a list has."", ""inputs"": [{""name"": ""List"", ""type"": ""List<object>""}], ""outputs"": [{""name"": ""Count"", ""type"": ""int""}], ""use_for"": [""checking if any targets remain"", ""counting enemies""], ""notes"": ""A value node: no flow arrows; connect its outputs to other nodes' inputs.""}")]
     [Serializable]
     [Node(Path = "Collections"), Tags("Default")]
     public class ListCount : SchematicGraphNode

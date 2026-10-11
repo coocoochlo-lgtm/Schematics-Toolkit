@@ -6,11 +6,13 @@ using UnityEngine;
 /// detection comes from the <see cref="CharacterRaycastContext"/>; both are attached along with it.<br/>
 /// Input arrives through the Motion Context's MoveInput and JumpInput Signals.
 /// </summary>
+[SchematicDoc(@"{""name"": ""Physics Based Character Controller"", ""kind"": ""behavior"", ""menu"": ""Movement/3D/Default Character Controller"", ""description"": ""Physics based character movement: rides at a hover height above the ground, jumps with a buffer and hang time, and falls with extra gravity. Movement itself is applied through the CharacterMotionContext and ground detection comes from the CharacterRaycastContext; both are attached along with it. Input arrives through the Motion Context's MoveInput and JumpInput Signals."", ""variables"": [""Properties""], ""signals"": [""MoveToPosition""], ""use_for"": [""the main player character's running and jumping"", ""platformer movement""], ""notes"": ""Needs Character Motion Context and Character Raycast Context on the same object.""}")]
 [SchematicBehaviorPath("Movement/3D/Default Character Controller")]
 [RequireComponent(typeof(Box3D.Hybrid.Box3DBody))]
 [RequireBehavior(typeof(CharacterMotionContext), typeof(CharacterRaycastContext))]
 public class PhysicsBasedCharacterController : SchematicBehavior
 {
+    [SchematicDoc(@"{""name"": ""MoveToPosition"", ""kind"": ""signal"", ""behavior"": ""Physics Based Character Controller"", ""direction"": ""input"", ""params"": [{""name"": ""Position"", ""type"": ""Vector3""}], ""description"": ""Tells Physics Based Character Controller to act."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
     [InputSignal]
     [Parameter("Position", typeof(Vector3))]
     public readonly SignalHandle<Vector3> MoveToPosition;
@@ -18,6 +20,7 @@ public class PhysicsBasedCharacterController : SchematicBehavior
     /// <summary>
     /// Tuning values, assigned per object in the Inspector.
     /// </summary>
+    [SchematicDoc(@"{""name"": ""Properties"", ""kind"": ""variable"", ""behavior"": ""Physics Based Character Controller"", ""type"": ""CharacterControllerProperties"", ""default"": ""null"", ""description"": ""Tuning values, assigned per object in the Inspector.""}")]
     public readonly VariableHandle<CharacterControllerProperties> Properties = (CharacterControllerProperties)null;
 
     // State

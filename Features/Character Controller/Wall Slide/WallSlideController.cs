@@ -5,21 +5,27 @@ namespace Remedy.CharacterControllers.WallSlide
     /// <summary>
     /// Slides down walls the character moves into, and jumps off them. Input comes from the Motion Context's Signals.
     /// </summary>
+    [SchematicDoc(@"{""name"": ""Wall Slide Controller"", ""kind"": ""behavior"", ""menu"": ""Movement/3D/Wall Slide Controller"", ""description"": ""Slides down walls the character moves into, and jumps off them. Input comes from the Motion Context's Signals."", ""variables"": [""Properties"", ""FacingRotation"", ""CurrentWallSide""], ""signals"": [""OnWallJump"", ""OnWallSlideExitted""], ""use_for"": [""wall sliding and wall jumps""]}")]
     [RequireComponent(typeof(Box3D.Hybrid.Box3DBody))]
     [RequireBehavior(typeof(CharacterMotionContext), typeof(CharacterRaycastContext))]
     [SchematicBehaviorPath("Movement/3D/Wall Slide Controller")]
     public class WallSlideController : SchematicBehavior
     {
+        [SchematicDoc(@"{""name"": ""OnWallJump"", ""kind"": ""signal"", ""behavior"": ""Wall Slide Controller"", ""direction"": ""output"", ""description"": ""Sent by Wall Slide Controller when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [OutputSignal]
         public readonly SignalHandle OnWallJump;
+        [SchematicDoc(@"{""name"": ""OnWallSlideExitted"", ""kind"": ""signal"", ""behavior"": ""Wall Slide Controller"", ""direction"": ""output"", ""params"": [{""name"": ""Sliding"", ""type"": ""bool""}], ""description"": ""Sent by Wall Slide Controller when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [OutputSignal, Parameter("Sliding", typeof(bool))]
         public readonly SignalHandle<bool> OnWallSlideExitted;
 
+        [SchematicDoc(@"{""name"": ""Properties"", ""kind"": ""variable"", ""behavior"": ""Wall Slide Controller"", ""type"": ""WallSlideControllerProperties"", ""default"": ""null"", ""description"": ""Properties (WallSlideControllerProperties) of Wall Slide Controller.""}")]
         public readonly VariableHandle<WallSlideControllerProperties> Properties = (WallSlideControllerProperties)null;
 
+        [SchematicDoc(@"{""name"": ""FacingRotation"", ""kind"": ""variable"", ""behavior"": ""Wall Slide Controller"", ""type"": ""Quaternion"", ""default"": ""Quaternion.identity"", ""description"": ""Facing Rotation (Quaternion) of Wall Slide Controller.""}")]
         public readonly VariableHandle<Quaternion> FacingRotation = Quaternion.identity;
 
         public enum WallSide { Left, Right }
+        [SchematicDoc(@"{""name"": ""CurrentWallSide"", ""kind"": ""variable"", ""behavior"": ""Wall Slide Controller"", ""type"": ""WallSide"", ""default"": ""WallSide.Left"", ""description"": ""Current Wall Side (WallSide) of Wall Slide Controller.""}")]
         public readonly VariableHandle<WallSide> CurrentWallSide = WallSide.Left;
 
         private readonly VariableHandle<RaycastHit> _lastWallHit = default(RaycastHit);

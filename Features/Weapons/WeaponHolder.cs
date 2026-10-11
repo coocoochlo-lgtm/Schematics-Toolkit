@@ -10,27 +10,34 @@ namespace Remedy.Weapons
     /// The WeaponHolder should be attached to a GameObject which is the child of a Character, Vehicle, or whatever, seperate from motion behaviour.
     /// It has a unique Collider (Trigger) that is used for interactions with Weapons that can be picked up
     /// </summary>
+    [SchematicDoc(@"{""name"": ""Weapon Holder"", ""kind"": ""behavior"", ""menu"": ""Weapons/Holder"", ""description"": ""The WeaponHolder should be attached to a GameObject which is the child of a Character, Vehicle, or whatever, seperate from motion behaviour. It has a unique Collider (Trigger) that is used for interactions with Weapons that can be picked up"", ""variables"": [""WeaponInputs"", ""AimBones"", ""WeaponSockets"", ""ActiveWeaponSlot""], ""signals"": [""EquipInput"", ""AimInput""], ""use_for"": [""characters picking up, holding, switching and firing weapons""]}")]
     [SchematicBehaviorPath("Weapons/Holder")]
     [RequireComponent(typeof(SphereCollider))]
     public class WeaponHolder : SchematicBehavior
     {
+        [SchematicDoc(@"{""name"": ""WeaponInputs"", ""kind"": ""variable"", ""behavior"": ""Weapon Holder"", ""type"": ""WeaponInputEvent[]"", ""default"": ""null"", ""description"": ""Device inputs that are passed to Equipped Weapons""}")]
         [Tooltip("Device inputs that are passed to Equipped Weapons")]
         public readonly VariableHandle<WeaponInputEvent[]> WeaponInputs = (WeaponInputEvent[])null;
 
+        [SchematicDoc(@"{""name"": ""EquipInput"", ""kind"": ""signal"", ""behavior"": ""Weapon Holder"", ""direction"": ""input"", ""params"": [{""name"": ""Weapon ID"", ""type"": ""int""}], ""description"": ""Equips the Weapon with the given ID (its ID within the WeaponData Lookup)."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
         [Tooltip("Equips the Weapon with the given ID (its ID within the WeaponData Lookup).")]
         [InputSignal, Parameter("Weapon ID", typeof(int))]
         public readonly SignalHandle<int> EquipInput;
+        [SchematicDoc(@"{""name"": ""AimInput"", ""kind"": ""signal"", ""behavior"": ""Weapon Holder"", ""direction"": ""input"", ""params"": [{""name"": ""Aim"", ""type"": ""Vector3""}], ""description"": ""The current Aim Forward, updated from the Camera Controller."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
         [Tooltip("The current Aim Forward, updated from the Camera Controller.")]
         [InputSignal, Parameter("Aim", typeof(Vector3))]
         public readonly SignalHandle<Vector3> AimInput;
 
+        [SchematicDoc(@"{""name"": ""AimBones"", ""kind"": ""variable"", ""behavior"": ""Weapon Holder"", ""type"": ""AimBone[]"", ""default"": ""null"", ""description"": ""Aim Bones (AimBone[]) of Weapon Holder.""}")]
         public readonly VariableHandle<AimBone[]> AimBones = (AimBone[])null;
 
         // The way a Weapon fills sockets is based on the number of (and SocketIndex of) WeaponHandles that are applied to the Weapon Prefab.
         // If there are two WeaponHandles, the weapon will need the two specified WeaponSockets open on the WeaponHolder for it to be equipped.
+        [SchematicDoc(@"{""name"": ""WeaponSockets"", ""kind"": ""variable"", ""behavior"": ""Weapon Holder"", ""type"": ""WeaponSocket[]"", ""default"": ""null"", ""description"": ""Weapon Sockets are parent Transforms for Weapons that are added to this Weapon Holder and determine the orientation of them""}")]
         [Tooltip("Weapon Sockets are parent Transforms for Weapons that are added to this Weapon Holder and determine the orientation of them")]
         public readonly VariableHandle<WeaponSocket[]> WeaponSockets = (WeaponSocket[])null;
 
+        [SchematicDoc(@"{""name"": ""ActiveWeaponSlot"", ""kind"": ""variable"", ""behavior"": ""Weapon Holder"", ""type"": ""int"", ""default"": ""0"", ""description"": ""The weapon we're currently using.""}")]
         [Tooltip("The weapon we're currently using.")]
         public readonly VariableHandle<int> ActiveWeaponSlot = 0;
 

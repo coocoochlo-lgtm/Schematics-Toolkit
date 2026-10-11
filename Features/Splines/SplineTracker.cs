@@ -7,25 +7,35 @@ namespace Remedy.Splines
     /// Keeps its object on the point of a spline closest to a target, like a camera dolly tracking the player or a
     /// guard pacing alongside them: the Schematic counterpart to Dreamteck's SplineProjector.
     /// </summary>
+    [SchematicDoc(@"{""name"": ""Spline Tracker"", ""kind"": ""behavior"", ""menu"": ""Splines/Spline Tracker"", ""description"": ""Keeps its object on the point of a spline closest to a target, like a camera dolly tracking the player or a guard pacing alongside them: the Schematic counterpart to Dreamteck's SplineProjector."", ""variables"": [""Spline"", ""FindNearestSpline"", ""Target"", ""Offset"", ""FaceAlongSpline"", ""LookAtTarget"", ""Smoothing"", ""Percent""], ""signals"": [""SetTarget""], ""use_for"": [""camera dollies following the player along a path"", ""guards pacing alongside a target""]}")]
     [SchematicBehaviorPath("Splines/Spline Tracker")]
     public class SplineTracker : SchematicBehavior
     {
+        [SchematicDoc(@"{""name"": ""Spline"", ""kind"": ""variable"", ""behavior"": ""Spline Tracker"", ""type"": ""SplineComputer"", ""default"": ""null"", ""description"": ""Spline (SplineComputer) of Spline Tracker.""}")]
         public readonly VariableHandle<SplineComputer> Spline = (SplineComputer)null;
+        [SchematicDoc(@"{""name"": ""FindNearestSpline"", ""kind"": ""variable"", ""behavior"": ""Spline Tracker"", ""type"": ""bool"", ""default"": ""true"", ""description"": ""With no spline set, use the nearest spline in the scene.""}")]
         [Tooltip("With no spline set, use the nearest spline in the scene.")]
         public readonly VariableHandle<bool> FindNearestSpline = true;
+        [SchematicDoc(@"{""name"": ""Target"", ""kind"": ""variable"", ""behavior"": ""Spline Tracker"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""What to stay closest to.""}")]
         [Tooltip("What to stay closest to.")]
         public readonly VariableHandle<Transform> Target = (Transform)null;
+        [SchematicDoc(@"{""name"": ""Offset"", ""kind"": ""variable"", ""behavior"": ""Spline Tracker"", ""type"": ""Vector3"", ""default"": ""Vector3.zero"", ""description"": ""Offset from the spline: x to its right, y up, z forward.""}")]
         [Tooltip("Offset from the spline: x to its right, y up, z forward.")]
         public readonly VariableHandle<Vector3> Offset = Vector3.zero;
+        [SchematicDoc(@"{""name"": ""FaceAlongSpline"", ""kind"": ""variable"", ""behavior"": ""Spline Tracker"", ""type"": ""bool"", ""default"": ""true"", ""description"": ""Face Along Spline (bool) of Spline Tracker.""}")]
         public readonly VariableHandle<bool> FaceAlongSpline = true;
+        [SchematicDoc(@"{""name"": ""LookAtTarget"", ""kind"": ""variable"", ""behavior"": ""Spline Tracker"", ""type"": ""bool"", ""default"": ""false"", ""description"": ""Turn to look at the target instead (for cameras).""}")]
         [Tooltip("Turn to look at the target instead (for cameras).")]
         public readonly VariableHandle<bool> LookAtTarget = false;
         [Tooltip("Roughly how many seconds it lags behind the closest point; 0 snaps there.")]
+        [SchematicDoc(@"{""name"": ""Smoothing"", ""kind"": ""variable"", ""behavior"": ""Spline Tracker"", ""type"": ""float"", ""default"": ""0f"", ""description"": ""Smoothing (float) of Spline Tracker.""}")]
         public readonly VariableHandle<float> Smoothing = 0f;
 
         /// <summary>The tracked point's position along the spline, 0-1.</summary>
+        [SchematicDoc(@"{""name"": ""Percent"", ""kind"": ""variable"", ""behavior"": ""Spline Tracker"", ""type"": ""double"", ""default"": ""0.0"", ""description"": ""The tracked point's position along the spline, 0-1.""}")]
         public readonly VariableHandle<double> Percent = 0.0;
 
+        [SchematicDoc(@"{""name"": ""SetTarget"", ""kind"": ""signal"", ""behavior"": ""Spline Tracker"", ""direction"": ""input"", ""params"": [{""name"": ""Target"", ""type"": ""Transform""}], ""description"": ""Tells Spline Tracker to act."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
         [InputSignal, Parameter("Target", typeof(Transform))]
         public readonly SignalHandle<Transform> SetTarget;
 

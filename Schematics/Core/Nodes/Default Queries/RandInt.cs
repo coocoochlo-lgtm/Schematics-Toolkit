@@ -8,6 +8,7 @@ using UnityEngine;
 
 namespace Remedy.Schematics
 {
+    [SchematicDoc(@"{""name"": ""Rand Int"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Random"", ""description"": ""A random whole number from Lower Bound up to (not including) Upper Bound."", ""inputs"": [{""name"": ""LowerBound"", ""type"": ""int""}, {""name"": ""UpperBound"", ""type"": ""int""}], ""outputs"": [{""name"": ""Value"", ""type"": ""int""}], ""use_for"": [""random choices"", ""loot rolls"", ""random spawn points""], ""notes"": ""A value node: no flow arrows; connect its outputs to other nodes' inputs.""}")]
     [Serializable]
     [Node(Path = "Random"), Tags("Default")]
     public class RandInt : SchematicGraphNode

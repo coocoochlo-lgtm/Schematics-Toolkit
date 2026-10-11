@@ -8,10 +8,12 @@ namespace Remedy.Animation
     /// Drives the Animator on its GameObject from Signals: each entry of its Properties maps a Signal to an Animator
     /// parameter (trigger, bool, float, or a Vector2 split into floats).
     /// </summary>
+    [SchematicDoc(@"{""name"": ""Animation Comunicator"", ""kind"": ""behavior"", ""menu"": ""Animation/Animation Communicator"", ""description"": ""Drives the Animator on its GameObject from Signals: each entry of its Properties maps a Signal to an Animator parameter (trigger, bool, float, or a Vector2 split into floats)."", ""variables"": [""Properties""], ""use_for"": [""driving Animator parameters from gameplay Signals (run, jump, attack animations)""]}")]
     [SchematicBehaviorPath("Animation/Animation Communicator")]
     public class AnimationComunicator : SchematicBehavior
     {
         /// <summary>The Signal-to-parameter mappings, assigned per object.</summary>
+        [SchematicDoc(@"{""name"": ""Properties"", ""kind"": ""variable"", ""behavior"": ""Animation Comunicator"", ""type"": ""AnimationComunicatorProperties"", ""default"": ""null"", ""description"": ""The Signal-to-parameter mappings, assigned per object.""}")]
         public readonly VariableHandle<AnimationComunicatorProperties> Properties = (AnimationComunicatorProperties)null;
 
         protected override void OnStart()

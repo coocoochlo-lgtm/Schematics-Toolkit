@@ -6,16 +6,21 @@ namespace Remedy.CharacterControllers.Gadgets
     /// <summary>
     /// Launches Rigidbodies that touch it along its up axis, after a short delay, squashing while it does.
     /// </summary>
+    [SchematicDoc(@"{""name"": ""Pusher"", ""kind"": ""behavior"", ""menu"": ""Level Design/Pusher"", ""description"": ""Launches Rigidbodies that touch it along its up axis, after a short delay, squashing while it does."", ""variables"": [""Force"", ""ScaleOnHit"", ""Delay""], ""signals"": [""OnHit""], ""use_for"": [""jump pads"", ""launchers"", ""bouncers""]}")]
     [SchematicBehaviorPath("Level Design/Pusher")]
     [RequireComponent(typeof(SphereCollider))]
     public class Pusher : SchematicBehavior
     {
+        [SchematicDoc(@"{""name"": ""OnHit"", ""kind"": ""signal"", ""behavior"": ""Pusher"", ""direction"": ""output"", ""params"": [{""name"": ""Hit"", ""type"": ""GameObject""}], ""description"": ""Invoked when a Rigidbody Collides with this."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [Tooltip("Invoked when a Rigidbody Collides with this.")]
         [OutputSignal, Parameter("Hit", typeof(GameObject))]
         public readonly SignalHandle<GameObject> OnHit;
 
+        [SchematicDoc(@"{""name"": ""Force"", ""kind"": ""variable"", ""behavior"": ""Pusher"", ""type"": ""float"", ""default"": ""0f"", ""description"": ""Force (float) of Pusher.""}")]
         public readonly VariableHandle<float> Force = 0f;
+        [SchematicDoc(@"{""name"": ""ScaleOnHit"", ""kind"": ""variable"", ""behavior"": ""Pusher"", ""type"": ""Vector3"", ""default"": ""Vector3.one"", ""description"": ""Scale On Hit (Vector3) of Pusher.""}")]
         public readonly VariableHandle<Vector3> ScaleOnHit = Vector3.one;
+        [SchematicDoc(@"{""name"": ""Delay"", ""kind"": ""variable"", ""behavior"": ""Pusher"", ""type"": ""int"", ""default"": ""30"", ""description"": ""Milliseconds before the push is applied.""}")]
         [Tooltip("Milliseconds before the push is applied.")]
         public readonly VariableHandle<int> Delay = 30;
 

@@ -6,6 +6,7 @@ namespace Remedy.Inventories
     /// Holds Inventory Items for its object and picks up Collectable Inventories on its Inventory Layer.
     /// Its Data asset is copied per spawn, so instances never write into the shared asset.
     /// </summary>
+    [SchematicDoc(@"{""name"": ""Inventory"", ""kind"": ""behavior"", ""menu"": ""Inventory/Inventory"", ""description"": ""Holds Inventory Items for its object and picks up Collectable Inventories on its Inventory Layer. Its Data asset is copied per spawn, so instances never write into the shared asset."", ""variables"": [""StartingData"", ""NavigationModes""], ""use_for"": [""carrying items"", ""collecting coins and keys""]}")]
     [SchematicBehaviorPath("Inventory/Inventory")]
     public class Inventory : SchematicBehavior
     {
@@ -21,9 +22,11 @@ namespace Remedy.Inventories
         [OutputSignal, Parameter("Item ID", typeof(int))] public readonly SignalHandle<int> OnItemAdded;
         [OutputSignal, Parameter("Item ID", typeof(int))] public readonly SignalHandle<int> OnItemRemoved;
 
+        [SchematicDoc(@"{""name"": ""StartingData"", ""kind"": ""variable"", ""behavior"": ""Inventory"", ""type"": ""InventoryData"", ""default"": ""null"", ""description"": ""The Inventory asset this object starts with. Copied per spawn.""}")]
         [Tooltip("The Inventory asset this object starts with. Copied per spawn.")]
         public readonly VariableHandle<InventoryData> StartingData = (InventoryData)null;
 
+        [SchematicDoc(@"{""name"": ""NavigationModes"", ""kind"": ""variable"", ""behavior"": ""Inventory"", ""type"": ""NavigationMode[]"", ""default"": ""null"", ""description"": ""Navigation Modes (NavigationMode[]) of Inventory.""}")]
         public readonly VariableHandle<NavigationMode[]> NavigationModes = (NavigationMode[])null;
 
         // This spawn's own copy of StartingData.

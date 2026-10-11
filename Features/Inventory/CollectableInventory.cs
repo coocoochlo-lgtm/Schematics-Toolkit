@@ -6,18 +6,22 @@ namespace Remedy.Inventories
     /// <summary>
     /// Items lying in the world, picked up by an <see cref="Inventory"/> on the same Inventory Layer.
     /// </summary>
+    [SchematicDoc(@"{""name"": ""Collectable Inventory"", ""kind"": ""behavior"", ""menu"": ""Inventory/Collectable"", ""description"": ""Items lying in the world, picked up by an Inventory on the same Inventory Layer."", ""variables"": [""CollectionData"", ""Items""], ""signals"": [""OnCollect""], ""use_for"": [""pickups lying in the world (coins, keys, ammo)""]}")]
     [SchematicBehaviorPath("Inventory/Collectable")]
     [RequireComponent(typeof(SphereCollider))]
     public class CollectableInventory : SchematicBehavior
     {
+        [SchematicDoc(@"{""name"": ""OnCollect"", ""kind"": ""signal"", ""behavior"": ""Collectable Inventory"", ""direction"": ""output"", ""params"": [{""name"": ""Collector"", ""type"": ""GameObject""}], ""description"": ""Sent when this Inventory is Collected, passing the GameObject whose Inventory picked it up."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [Tooltip("Sent when this Inventory is Collected, passing the GameObject whose Inventory picked it up.")]
         [OutputSignal, Parameter("Collector", typeof(GameObject))]
         public readonly SignalHandle<GameObject> OnCollect;
 
+        [SchematicDoc(@"{""name"": ""CollectionData"", ""kind"": ""variable"", ""behavior"": ""Collectable Inventory"", ""type"": ""CollectableInventoryData"", ""default"": ""null"", ""description"": ""The items this collectable holds, and how it's displayed and picked up.""}")]
         [Tooltip("The items this collectable holds, and how it's displayed and picked up.")]
         public readonly VariableHandle<CollectableInventoryData> CollectionData = (CollectableInventoryData)null;
 
         /// <summary>This spawn's items: a copy of the Collection Data's contents.</summary>
+        [SchematicDoc(@"{""name"": ""Items"", ""kind"": ""variable"", ""behavior"": ""Collectable Inventory"", ""type"": ""InventoryItemCollection"", ""default"": ""null"", ""description"": ""This spawn's items: a copy of the Collection Data's contents.""}")]
         public readonly VariableHandle<InventoryItemCollection> Items = (InventoryItemCollection)null;
         private readonly VariableHandle<GameObject> _renderedObject = (GameObject)null;
 

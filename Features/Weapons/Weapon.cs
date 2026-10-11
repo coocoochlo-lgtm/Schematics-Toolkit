@@ -18,50 +18,66 @@ namespace Remedy.Weapons
     /// <summary>
     /// A Weapon prefab: held in the Sockets of a <see cref="WeaponHolder"/>, firing Projectiles from its Fire Modes' Muzzles.
     /// </summary>
+    [SchematicDoc(@"{""name"": ""Weapon"", ""kind"": ""behavior"", ""menu"": ""Weapons/Weapon"", ""description"": ""A Weapon prefab: held in the Sockets of a WeaponHolder, firing Projectiles from its Fire Modes' Muzzles."", ""variables"": [""PrimaryHandle"", ""SecondHandle"", ""FireModeMuzzles"", ""InWorld"", ""UsePhysics"", ""Data"", ""Holder"", ""WeaponHolderRigidbody"", ""AttackDirection"", ""ID""], ""signals"": [""OnPickedup"", ""OnDropped"", ""OnPull"", ""OnRedirectDirection"", ""OnRedirectPosition""], ""use_for"": [""guns, launchers and other firing weapons""]}")]
     [SchematicBehaviorPath("Weapons/Weapon")]
     public class Weapon : SchematicBehavior
     {
+        [SchematicDoc(@"{""name"": ""OnPickedup"", ""kind"": ""signal"", ""behavior"": ""Weapon"", ""direction"": ""output"", ""params"": [{""name"": ""Holder"", ""type"": ""GameObject""}], ""description"": ""Invoked when the Weapon is picked up by a WeaponHolder. The GameObject possessing the WeaponHolder Component is passed."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [Tooltip("Invoked when the Weapon is picked up by a WeaponHolder. The GameObject possessing the WeaponHolder Component is passed.")]
         [OutputSignal, Parameter("Holder", typeof(GameObject))]
         public readonly SignalHandle<GameObject> OnPickedup;
+        [SchematicDoc(@"{""name"": ""OnDropped"", ""kind"": ""signal"", ""behavior"": ""Weapon"", ""direction"": ""output"", ""description"": ""Invoked when the Weapon is dropped by a WeaponHolder"", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [Tooltip("Invoked when the Weapon is dropped by a WeaponHolder")]
         [OutputSignal]
         public readonly SignalHandle OnDropped;
 
+        [SchematicDoc(@"{""name"": ""OnPull"", ""kind"": ""signal"", ""behavior"": ""Weapon"", ""direction"": ""output"", ""params"": [{""name"": ""Pull"", ""type"": ""Vector3""}], ""description"": ""Invoked after this Fire Mode shoots, intended to pull the Object containing the Weapon toward the direction it is Attacking."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [Tooltip("Invoked after this Fire Mode shoots, intended to pull the Object containing the Weapon toward the direction it is Attacking.")]
         [OutputSignal, Parameter("Pull", typeof(Vector3))]
         public readonly SignalHandle<Vector3> OnPull;
+        [SchematicDoc(@"{""name"": ""OnRedirectDirection"", ""kind"": ""signal"", ""behavior"": ""Weapon"", ""direction"": ""output"", ""params"": [{""name"": ""Direction"", ""type"": ""Vector3""}], ""description"": ""Invoked before this Fire Mode shoots, redirecting the object toward the best Target, rotationally (must be handled externally)"", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [Tooltip("Invoked before this Fire Mode shoots, redirecting the object toward the best Target, rotationally (must be handled externally)")]
         [OutputSignal, Parameter("Direction", typeof(Vector3))]
         public readonly SignalHandle<Vector3> OnRedirectDirection;
+        [SchematicDoc(@"{""name"": ""OnRedirectPosition"", ""kind"": ""signal"", ""behavior"": ""Weapon"", ""direction"": ""output"", ""params"": [{""name"": ""Direction"", ""type"": ""Vector3""}], ""description"": ""Invoked before this Fire Mode shoots, redirecting the object toward the best Target, positionally (must be handled externally)"", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [Tooltip("Invoked before this Fire Mode shoots, redirecting the object toward the best Target, positionally (must be handled externally)")]
         [OutputSignal, Parameter("Direction", typeof(Vector3))]
         public readonly SignalHandle<Vector3> OnRedirectPosition;
 
         // When two Handles are added to the Weapon, the Weapon will use the first for translation, and the angle to the next one for rotation.
+        [SchematicDoc(@"{""name"": ""PrimaryHandle"", ""kind"": ""variable"", ""behavior"": ""Weapon"", ""type"": ""WeaponHandle"", ""default"": ""null"", ""description"": ""The handles of the Weapon, used to place the Weapon into a Weapon Holder's Weapon Socket.""}")]
         [Tooltip("The handles of the Weapon, used to place the Weapon into a Weapon Holder's Weapon Socket.")]
         public readonly VariableHandle<WeaponHandle> PrimaryHandle = (WeaponHandle)null;
+        [SchematicDoc(@"{""name"": ""SecondHandle"", ""kind"": ""variable"", ""behavior"": ""Weapon"", ""type"": ""WeaponHandle"", ""default"": ""null"", ""description"": ""Second Handle (WeaponHandle) of Weapon.""}")]
         public readonly VariableHandle<WeaponHandle> SecondHandle = (WeaponHandle)null;
 
         // Muzzles are paired with their FireModes here (received from the Weapon Data). When a WeaponHolder fires or
         // reloads, it finds the FireMode to act upon by its index in this list.
+        [SchematicDoc(@"{""name"": ""FireModeMuzzles"", ""kind"": ""variable"", ""behavior"": ""Weapon"", ""type"": ""FireModeMuzzlePair[]"", ""default"": ""null"", ""description"": ""The Transforms of the Muzzles to use for the FireModes of the Weapons.""}")]
         [Tooltip("The Transforms of the Muzzles to use for the FireModes of the Weapons.")]
         public readonly VariableHandle<FireModeMuzzlePair[]> FireModeMuzzles = (FireModeMuzzlePair[])null;
 
+        [SchematicDoc(@"{""name"": ""InWorld"", ""kind"": ""variable"", ""behavior"": ""Weapon"", ""type"": ""bool"", ""default"": ""true"", ""description"": ""If true, the weapon will be placed in the world.""}")]
         [Tooltip("If true, the weapon will be placed in the world.")]
         public readonly VariableHandle<bool> InWorld = true;
+        [SchematicDoc(@"{""name"": ""UsePhysics"", ""kind"": ""variable"", ""behavior"": ""Weapon"", ""type"": ""bool"", ""default"": ""true"", ""description"": ""If the Weapon is not being held, and this is true, it will use Rigidbody physics.""}")]
         [Tooltip("If the Weapon is not being held, and this is true, it will use Rigidbody physics.")]
         public readonly VariableHandle<bool> UsePhysics = true;
+        [SchematicDoc(@"{""name"": ""Data"", ""kind"": ""variable"", ""behavior"": ""Weapon"", ""type"": ""WeaponData"", ""default"": ""null"", ""description"": ""The Data of the Weapon, as a Scriptable Object""}")]
         [Tooltip("The Data of the Weapon, as a Scriptable Object")]
         public readonly VariableHandle<WeaponData> Data = (WeaponData)null;
 
+        [SchematicDoc(@"{""name"": ""Holder"", ""kind"": ""variable"", ""behavior"": ""Weapon"", ""type"": ""GameObject"", ""default"": ""null"", ""description"": ""The object holding, controlling and managing this Weapon (the one with the Weapon Holder).""}")]
         [Tooltip("The object holding, controlling and managing this Weapon (the one with the Weapon Holder).")]
         public readonly VariableHandle<GameObject> Holder = (GameObject)null;
+        [SchematicDoc(@"{""name"": ""WeaponHolderRigidbody"", ""kind"": ""variable"", ""behavior"": ""Weapon"", ""type"": ""Rigidbody"", ""default"": ""null"", ""description"": ""The Rigidbody of the WeaponHolder""}")]
         [Tooltip("The Rigidbody of the WeaponHolder")]
         public readonly VariableHandle<Rigidbody> WeaponHolderRigidbody = (Rigidbody)null;
+        [SchematicDoc(@"{""name"": ""AttackDirection"", ""kind"": ""variable"", ""behavior"": ""Weapon"", ""type"": ""Vector3"", ""default"": ""Vector3.zero"", ""description"": ""Attack Direction (Vector3) of Weapon.""}")]
         public readonly VariableHandle<Vector3> AttackDirection = Vector3.zero;
 
         // TODO: Replace with a system that logs prefab ID's in Weapon Data to make Weapon Systems more clear.
+        [SchematicDoc(@"{""name"": ""ID"", ""kind"": ""variable"", ""behavior"": ""Weapon"", ""type"": ""int"", ""default"": ""0"", ""description"": ""ID (int) of Weapon.""}")]
         public readonly VariableHandle<int> ID = 0;
 
         private readonly VariableHandle<Quaternion> _aimTarget = Quaternion.identity;

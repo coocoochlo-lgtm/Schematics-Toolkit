@@ -10,6 +10,7 @@ using UnityEngine;
 
 namespace Remedy.Schematics
 {
+    [SchematicDoc(@"{""name"": ""Pick From List With Tag"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Collections"", ""description"": ""The objects of a list that have a tag."", ""inputs"": [{""name"": ""List"", ""type"": ""List<object>""}, {""name"": ""Tag"", ""type"": ""string""}], ""outputs"": [{""name"": ""Objects With Tag"", ""type"": ""List<object>""}], ""use_for"": [""filtering targets by tag""], ""notes"": ""A value node: no flow arrows; connect its outputs to other nodes' inputs.""}")]
     [Serializable]
     [Node(Path = "Collections"), Tags("Object")]
     public class PickFromListWithTag : SchematicGraphNode

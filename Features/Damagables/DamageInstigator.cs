@@ -5,12 +5,14 @@ namespace Remedy.Damagables
     /// <summary>
     /// Deals damage, either to Damageables in a radius when Instigate is sent, or on contact depending on its Data.
     /// </summary>
+    [SchematicDoc(@"{""name"": ""Damage Instigator"", ""kind"": ""behavior"", ""menu"": ""Damageables/Instigator"", ""description"": ""Deals damage, either to Damageables in a radius when Instigate is sent, or on contact depending on its Data."", ""variables"": [""Data""], ""use_for"": [""hazards like spikes and lava"", ""explosions"", ""melee hits"", ""bullets dealing damage""]}")]
     [SchematicBehaviorPath("Damageables/Instigator")]
     public class DamageInstigator : SchematicBehavior
     {
         [InputSignal] public readonly SignalHandle Instigate;
         [OutputSignal] public readonly SignalHandle OnInstigation;
 
+        [SchematicDoc(@"{""name"": ""Data"", ""kind"": ""variable"", ""behavior"": ""Damage Instigator"", ""type"": ""DamageInstigationData"", ""default"": ""null"", ""description"": ""Data (DamageInstigationData) of Damage Instigator.""}")]
         public readonly VariableHandle<DamageInstigationData> Data = (DamageInstigationData)null;
 
         protected override void OnStart()

@@ -8,6 +8,7 @@ using UnityEngine;
 
 namespace Remedy.Schematics
 {
+    [SchematicDoc(@"{""name"": ""Comparison"", ""kind"": ""node"", ""flow"": ""condition"", ""category"": ""Conditions"", ""description"": ""Compares two numbers (less than, equal to, greater than, ...) and outputs true or false. Its numbers can be typed in or connected."", ""inputs"": [{""name"": ""First Value"", ""type"": ""float""}, {""name"": ""Second Value"", ""type"": ""float""}], ""use_for"": [""health checks (health <= 0)"", ""distance checks"", ""score thresholds"", ""timers running out""], ""notes"": ""A true/false value: connect it to an If node's Condition. Pick the operator on the node. Feed its output into If.""}")]
     [Serializable]
     [Node(Path = "Conditions"), Tags("Default")]
     public class CompaCastrison : SchematicConditionalNode

@@ -7,21 +7,27 @@ namespace Remedy.CharacterControllers.LedgeGrab
     /// <summary>
     /// Hangs from a ledge in front of the character, and clambers up it on jump. Input comes from the Motion Context's Signals.
     /// </summary>
+    [SchematicDoc(@"{""name"": ""Ledge Grab Controller"", ""kind"": ""behavior"", ""menu"": ""Movement/3D/Ledge Grab Controller"", ""description"": ""Hangs from a ledge in front of the character, and clambers up it on jump. Input comes from the Motion Context's Signals."", ""variables"": [""Properties"", ""FacingRotation"", ""CurrentWallSide""], ""signals"": [""OnClamber"", ""OnLedgeGrabExitted""], ""use_for"": [""grabbing and climbing ledges""]}")]
     [RequireComponent(typeof(Box3D.Hybrid.Box3DBody))]
     [RequireBehavior(typeof(CharacterMotionContext), typeof(CharacterRaycastContext))]
     [SchematicBehaviorPath("Movement/3D/Ledge Grab Controller")]
     public class LedgeGrabController : SchematicBehavior
     {
+        [SchematicDoc(@"{""name"": ""OnClamber"", ""kind"": ""signal"", ""behavior"": ""Ledge Grab Controller"", ""direction"": ""output"", ""description"": ""Sent by Ledge Grab Controller when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [OutputSignal]
         public readonly SignalHandle OnClamber;
+        [SchematicDoc(@"{""name"": ""OnLedgeGrabExitted"", ""kind"": ""signal"", ""behavior"": ""Ledge Grab Controller"", ""direction"": ""output"", ""description"": ""Sent by Ledge Grab Controller when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [OutputSignal]
         public readonly SignalHandle OnLedgeGrabExitted;
 
+        [SchematicDoc(@"{""name"": ""Properties"", ""kind"": ""variable"", ""behavior"": ""Ledge Grab Controller"", ""type"": ""LedgeGrabControllerProperties"", ""default"": ""null"", ""description"": ""Properties (LedgeGrabControllerProperties) of Ledge Grab Controller.""}")]
         public readonly VariableHandle<LedgeGrabControllerProperties> Properties = (LedgeGrabControllerProperties)null;
 
+        [SchematicDoc(@"{""name"": ""FacingRotation"", ""kind"": ""variable"", ""behavior"": ""Ledge Grab Controller"", ""type"": ""Quaternion"", ""default"": ""Quaternion.identity"", ""description"": ""Facing Rotation (Quaternion) of Ledge Grab Controller.""}")]
         public readonly VariableHandle<Quaternion> FacingRotation = Quaternion.identity;
 
         public enum WallSide { Left, Right }
+        [SchematicDoc(@"{""name"": ""CurrentWallSide"", ""kind"": ""variable"", ""behavior"": ""Ledge Grab Controller"", ""type"": ""WallSide"", ""default"": ""WallSide.Left"", ""description"": ""Current Wall Side (WallSide) of Ledge Grab Controller.""}")]
         public readonly VariableHandle<WallSide> CurrentWallSide = WallSide.Left;
 
         private readonly VariableHandle<RaycastHit> _lastWallHit = default(RaycastHit);

@@ -14,6 +14,7 @@ namespace Remedy.Schematics
     /// True when a sphere cast from the object along its forward axis hits something (with the given tag, if set)
     /// within the distance. Uses Box3D; moved here from Schematics Core, so existing graphs keep it.
     /// </summary>
+    [SchematicDoc(@"{""name"": ""Has Collider Forward"", ""kind"": ""node"", ""flow"": ""condition"", ""category"": ""Collider"", ""description"": ""True when a sphere cast from the object along its forward axis hits something (with the given tag, if set) within the distance. Uses Box3D; moved here from Schematics Core, so existing graphs keep it."", ""inputs"": [{""name"": ""Object"", ""type"": ""GameObject""}, {""name"": ""Other Tag"", ""type"": ""string""}, {""name"": ""Distance"", ""type"": ""float""}, {""name"": ""Radius"", ""type"": ""float""}], ""outputs"": [{""name"": ""Other GameObject"", ""type"": ""GameObject""}], ""use_for"": [""detecting walls or enemies ahead"", ""AI obstacle checks""], ""notes"": ""A true/false value: connect it to an If node's Condition.""}")]
     [Serializable]
     [Node(Path = "Collider"), Tags("Object")]
     [MovedFrom(false, "Remedy.Schematics", "Remedy.Schematics.Core", "HasColliderForward")]

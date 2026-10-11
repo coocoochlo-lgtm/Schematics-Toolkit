@@ -8,6 +8,7 @@ using UnityEngine;
 
 namespace Remedy.Schematics
 {
+    [SchematicDoc(@"{""name"": ""Wait"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Time"", ""description"": ""Pauses the flow for Wait Time seconds, then continues with the nodes after it."", ""inputs"": [{""name"": ""Wait Time"", ""type"": ""float""}], ""use_for"": [""delays"", ""cooldowns"", ""timed sequences"", ""respawn timers""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next.""}")]
     [Serializable]
     [Node(Path = "Time"), Tags("Default")]
     public class Wait : SchematicActionNode

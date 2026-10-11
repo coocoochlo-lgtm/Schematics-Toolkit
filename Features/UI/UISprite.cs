@@ -8,6 +8,7 @@ namespace Remedy.UI
     /// A textured quad on the UI layer. Create one in code with <see cref="New"/>.
     /// Its methods act on the selected instance, as returned by <see cref="New"/> or <c>GetSchematicBehavior&lt;UISprite&gt;()</c>.
     /// </summary>
+    [SchematicDoc(@"{""name"": ""UI Sprite"", ""kind"": ""behavior"", ""menu"": ""UI/UI Sprite"", ""description"": ""A textured quad on the UI layer. Create one in code with New. Its methods act on the selected instance, as returned by New or GetSchematicBehavior<UISprite>()."", ""use_for"": [""HUD icons"", ""on-screen images""]}")]
     [SchematicBehaviorPath("UI/UI Sprite")]
     public class UISprite : UIComponent
     {

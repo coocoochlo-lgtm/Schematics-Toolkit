@@ -8,6 +8,7 @@ namespace Remedy.Splines
     /// train car. The object's Spline Agent moves the front point; the back point trails it. The object can sit between
     /// them facing from back to front, and Front/Back objects can be placed on each point.
     /// </summary>
+    [SchematicDoc(@"{""name"": ""Spline Pair Agent"", ""kind"": ""behavior"", ""menu"": ""Splines/Spline Pair Agent"", ""description"": ""Two points on a spline kept a set distance apart, like the front and back wheels of a cart or the two bogies of a train car. The object's Spline Agent moves the front point; the back point trails it. The object can sit between them facing from back to front, and Front/Back objects can be placed on each point."", ""variables"": [""Distance"", ""DistanceMeasure"", ""PlaceBetween"", ""Front"", ""Back"", ""BackPercent""], ""use_for"": [""carts, trains and vehicles with front and back wheels on a track""]}")]
     [SchematicBehaviorPath("Splines/Spline Pair Agent")]
     [RequireBehavior(typeof(SplineAgent))]
     public class SplinePairAgent : SchematicBehavior
@@ -20,17 +21,23 @@ namespace Remedy.Splines
             AlongSpline,
         }
 
+        [SchematicDoc(@"{""name"": ""Distance"", ""kind"": ""variable"", ""behavior"": ""Spline Pair Agent"", ""type"": ""float"", ""default"": ""2f"", ""description"": ""How far behind the front point the back point is.""}")]
         [Tooltip("How far behind the front point the back point is.")]
         public readonly VariableHandle<float> Distance = 2f;
+        [SchematicDoc(@"{""name"": ""DistanceMeasure"", ""kind"": ""variable"", ""behavior"": ""Spline Pair Agent"", ""type"": ""Measure"", ""default"": ""Measure.StraightLine"", ""description"": ""Distance Measure (Measure) of Spline Pair Agent.""}")]
         public readonly VariableHandle<Measure> DistanceMeasure = Measure.StraightLine;
+        [SchematicDoc(@"{""name"": ""PlaceBetween"", ""kind"": ""variable"", ""behavior"": ""Spline Pair Agent"", ""type"": ""bool"", ""default"": ""true"", ""description"": ""Put the object between the two points, facing from the back point to the front one.""}")]
         [Tooltip("Put the object between the two points, facing from the back point to the front one.")]
         public readonly VariableHandle<bool> PlaceBetween = true;
+        [SchematicDoc(@"{""name"": ""Front"", ""kind"": ""variable"", ""behavior"": ""Spline Pair Agent"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""Optional object placed on the front point.""}")]
         [Tooltip("Optional object placed on the front point.")]
         public readonly VariableHandle<Transform> Front = (Transform)null;
+        [SchematicDoc(@"{""name"": ""Back"", ""kind"": ""variable"", ""behavior"": ""Spline Pair Agent"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""Optional object placed on the back point.""}")]
         [Tooltip("Optional object placed on the back point.")]
         public readonly VariableHandle<Transform> Back = (Transform)null;
 
         /// <summary>The back point's position along the spline, 0-1.</summary>
+        [SchematicDoc(@"{""name"": ""BackPercent"", ""kind"": ""variable"", ""behavior"": ""Spline Pair Agent"", ""type"": ""double"", ""default"": ""0.0"", ""description"": ""The back point's position along the spline, 0-1.""}")]
         public readonly VariableHandle<double> BackPercent = 0.0;
 
         protected override void OnSetup(BehaviorSetupContext context)

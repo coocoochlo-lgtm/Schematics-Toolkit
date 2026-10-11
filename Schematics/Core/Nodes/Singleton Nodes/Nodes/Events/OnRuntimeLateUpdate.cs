@@ -6,6 +6,7 @@ using BlueGraph;
 using Remedy.Schematics;
 using UnityEngine;
 
+[SchematicDoc(@"{""name"": ""On Runtime Late Update"", ""kind"": ""node"", ""flow"": ""event"", ""category"": ""Events"", ""description"": ""In a singleton graph: starts a flow every frame, after all Updates."", ""use_for"": [""things that must happen after everything moved, like camera follow""], ""notes"": ""Starts a flow: connect its arrow to the actions that should run.""}")]
 [Node(Path = "Events"), Tags("Runtime")]
 public class OnRuntimeLateUpdate : SchematicEventNode
 { }

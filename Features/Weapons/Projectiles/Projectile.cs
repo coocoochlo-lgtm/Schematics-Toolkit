@@ -5,38 +5,50 @@ using UnityEngine;
 
 namespace Remedy.Weapons.Projectiles
 {
+    [SchematicDoc(@"{""name"": ""Projectile"", ""kind"": ""behavior"", ""menu"": ""Weapons/Projectile"", ""description"": ""A projectile fired by a Weapon: flies toward its target position, can home in on a Target, ricochets, and reports hits through its Signals."", ""variables"": [""Data"", ""Target"", ""TargetPosition"", ""Velocity"", ""CollisionCount"", ""ParentFireMode"", ""AimTargetPosition""], ""signals"": [""OnHit"", ""OnHitTarget"", ""OnRicochet"", ""OnDestroyed""], ""use_for"": [""bullets"", ""rockets"", ""homing missiles"", ""arrows""]}")]
     [SchematicBehaviorPath("Weapons/Projectile")]
     [RequireComponent(typeof(Rigidbody))]
     [RequireComponent(typeof(SphereCollider))]
     public class Projectile : SchematicBehavior
     {
+        [SchematicDoc(@"{""name"": ""OnHit"", ""kind"": ""signal"", ""behavior"": ""Projectile"", ""direction"": ""output"", ""params"": [{""name"": ""Material"", ""type"": ""PhysicsMaterial""}], ""description"": ""On hit anything collidable, passes the PhysicsMaterial of the collider that was hit."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [Tooltip("On hit anything collidable, passes the PhysicsMaterial of the collider that was hit.")]
         [OutputSignal, Parameter("Material", typeof(PhysicsMaterial))]
         public readonly SignalHandle<PhysicsMaterial> OnHit;
+        [SchematicDoc(@"{""name"": ""OnHitTarget"", ""kind"": ""signal"", ""behavior"": ""Projectile"", ""direction"": ""output"", ""params"": [{""name"": ""Target"", ""type"": ""GameObject""}], ""description"": ""On hit the Target Object, passes the reference of the Target Object that was hit."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [Tooltip("On hit the Target Object, passes the reference of the Target Object that was hit.")]
         [OutputSignal, Parameter("Target", typeof(GameObject))]
         public readonly SignalHandle<GameObject> OnHitTarget;
+        [SchematicDoc(@"{""name"": ""OnRicochet"", ""kind"": ""signal"", ""behavior"": ""Projectile"", ""direction"": ""output"", ""params"": [{""name"": ""Material"", ""type"": ""PhysicsMaterial""}], ""description"": ""On Hit of anything collidable, and the projectile bounced off, passes the PhysicsMaterial of the hit Collider"", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [Tooltip("On Hit of anything collidable, and the projectile bounced off, passes the PhysicsMaterial of the hit Collider")]
         [OutputSignal, Parameter("Material", typeof(PhysicsMaterial))]
         public readonly SignalHandle<PhysicsMaterial> OnRicochet;
+        [SchematicDoc(@"{""name"": ""OnDestroyed"", ""kind"": ""signal"", ""behavior"": ""Projectile"", ""direction"": ""output"", ""description"": ""Called when this is destroyed"", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [Tooltip("Called when this is destroyed")]
         [OutputSignal]
         public readonly SignalHandle OnDestroyed;
 
+        [SchematicDoc(@"{""name"": ""Data"", ""kind"": ""variable"", ""behavior"": ""Projectile"", ""type"": ""ProjectileData"", ""default"": ""null"", ""description"": ""Data (ProjectileData) of Projectile.""}")]
         public readonly VariableHandle<ProjectileData> Data = (ProjectileData)null;
 
+        [SchematicDoc(@"{""name"": ""Target"", ""kind"": ""variable"", ""behavior"": ""Projectile"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""Used for magnetization or orientation to the Target object.""}")]
         [Tooltip("Used for magnetization or orientation to the Target object.")]
         public readonly VariableHandle<Transform> Target = (Transform)null;
+        [SchematicDoc(@"{""name"": ""TargetPosition"", ""kind"": ""variable"", ""behavior"": ""Projectile"", ""type"": ""Vector3"", ""default"": ""Vector3.zero"", ""description"": ""The position to interpolate toward until it has been reached.""}")]
         [Tooltip("The position to interpolate toward until it has been reached.")]
         public readonly VariableHandle<Vector3> TargetPosition = Vector3.zero;
+        [SchematicDoc(@"{""name"": ""Velocity"", ""kind"": ""variable"", ""behavior"": ""Projectile"", ""type"": ""Vector3"", ""default"": ""Vector3.zero"", ""description"": ""Speed of motion""}")]
         [Tooltip("Speed of motion")]
         public readonly VariableHandle<Vector3> Velocity = Vector3.zero;
         // This should probably be deleted, Collisions should be handled by collision layer only
+        [SchematicDoc(@"{""name"": ""CollisionCount"", ""kind"": ""variable"", ""behavior"": ""Projectile"", ""type"": ""int"", ""default"": ""0"", ""description"": ""The current number of collisions""}")]
         [Tooltip("The current number of collisions")]
         public readonly VariableHandle<int> CollisionCount = 0;
 
         /// <summary>The Fire Mode that shot this Projectile. Set by the Weapon.</summary>
+        [SchematicDoc(@"{""name"": ""ParentFireMode"", ""kind"": ""variable"", ""behavior"": ""Projectile"", ""type"": ""FireMode"", ""default"": ""null"", ""description"": ""The Fire Mode that shot this Projectile. Set by the Weapon.""}")]
         public readonly VariableHandle<FireMode> ParentFireMode = (FireMode)null;
+        [SchematicDoc(@"{""name"": ""AimTargetPosition"", ""kind"": ""variable"", ""behavior"": ""Projectile"", ""type"": ""Vector3"", ""default"": ""Vector3.zero"", ""description"": ""Aim Target Position (Vector3) of Projectile.""}")]
         public readonly VariableHandle<Vector3> AimTargetPosition = Vector3.zero;
 
         private readonly VariableHandle<float> _timeAlive = 0f;
