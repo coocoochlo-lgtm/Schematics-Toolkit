@@ -1,0 +1,37 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='900' height='260' viewBox='0 0 900 260' font-family='Segoe UI, Helvetica, Arial, sans-serif'>
+<rect width='100%' height='100%' fill='#ffffff'/>
+<text x='20' y='28' font-size='18' font-weight='bold' fill='#111'>Deserialize: citm_catalog.json</text>
+<text x='20' y='48' font-size='12' fill='#666'>BenchmarkDotNet, .NET 10, AMD Ryzen Threadripper PRO 5975WX, Windows 11</text>
+<text x='20' y='76' font-size='14' font-weight='bold' fill='#333'>Mean time (lower is better)</text>
+<text x='162' y='106' font-size='12' text-anchor='end' fill='#333'>RE:Dox</text>
+<rect x='170' y='90' width='107' height='22' rx='3' fill='#e4572e'/>
+<text x='283' y='106' font-size='12' fill='#333'>2.281 ms</text>
+<text x='162' y='136' font-size='12' text-anchor='end' fill='#333'>RE:Dox (parallel)</text>
+<rect x='170' y='120' width='84' height='22' rx='3' fill='#f3a712'/>
+<text x='260' y='136' font-size='12' fill='#333'>1.796 ms</text>
+<text x='162' y='166' font-size='12' text-anchor='end' fill='#333'>System.Text.Json</text>
+<rect x='170' y='150' width='190' height='22' rx='3' fill='#4c78a8'/>
+<text x='366' y='166' font-size='12' fill='#333'>4.041 ms</text>
+<text x='162' y='196' font-size='12' text-anchor='end' fill='#333'>STJ (JsonTypeInfo)</text>
+<rect x='170' y='180' width='185' height='22' rx='3' fill='#72b7b2'/>
+<text x='361' y='196' font-size='12' fill='#333'>3.941 ms</text>
+<text x='162' y='226' font-size='12' text-anchor='end' fill='#333'>Utf8Json</text>
+<rect x='170' y='210' width='123' height='22' rx='3' fill='#9d9d9d'/>
+<text x='299' y='226' font-size='12' fill='#333'>2.606 ms</text>
+<text x='460' y='76' font-size='14' font-weight='bold' fill='#333'>Allocated (lower is better)</text>
+<text x='602' y='106' font-size='12' text-anchor='end' fill='#333'>RE:Dox</text>
+<rect x='610' y='90' width='89' height='22' rx='3' fill='#e4572e'/>
+<text x='705' y='106' font-size='12' fill='#333'>0.54 MB</text>
+<text x='602' y='136' font-size='12' text-anchor='end' fill='#333'>RE:Dox (parallel)</text>
+<rect x='610' y='120' width='102' height='22' rx='3' fill='#f3a712'/>
+<text x='718' y='136' font-size='12' fill='#333'>0.62 MB</text>
+<text x='602' y='166' font-size='12' text-anchor='end' fill='#333'>System.Text.Json</text>
+<rect x='610' y='150' width='190' height='22' rx='3' fill='#4c78a8'/>
+<text x='806' y='166' font-size='12' fill='#333'>1.15 MB</text>
+<text x='602' y='196' font-size='12' text-anchor='end' fill='#333'>STJ (JsonTypeInfo)</text>
+<rect x='610' y='180' width='190' height='22' rx='3' fill='#72b7b2'/>
+<text x='806' y='196' font-size='12' fill='#333'>1.15 MB</text>
+<text x='602' y='226' font-size='12' text-anchor='end' fill='#333'>Utf8Json</text>
+<rect x='610' y='210' width='182' height='22' rx='3' fill='#9d9d9d'/>
+<text x='798' y='226' font-size='12' fill='#333'>1.1 MB</text>
+</svg>

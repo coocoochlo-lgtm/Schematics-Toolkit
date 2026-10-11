@@ -26,15 +26,8 @@ MonoBehaviour:
         m_Interactions: 
         m_SingletonActionBindings: []
         m_Flags: 0
-      Output:
-        Name: 
-        DefaultDirectoryPath: 
-        ID: 90
-        Events:
-        - {fileID: 11400000, guid: 710c7b28ec748794e91c657cd7d98a58, type: 2}
-        Channel: 0
-        Await:
-          Events: []
+        m_Priority: 0
+      Output: {fileID: 0}
       OneShot: 0
     - Name: Jump
       Input:
@@ -46,15 +39,8 @@ MonoBehaviour:
         m_Interactions: 
         m_SingletonActionBindings: []
         m_Flags: 0
-      Output:
-        Name: 
-        DefaultDirectoryPath: 
-        ID: 88
-        Events:
-        - {fileID: 11400000, guid: 3f0b2e262b66c794eb243a293f1a893b, type: 2}
-        Channel: 0
-        Await:
-          Events: []
+        m_Priority: 0
+      Output: {fileID: 0}
       OneShot: 0
     - Name: Default text
       Input:
@@ -66,15 +52,49 @@ MonoBehaviour:
         m_Interactions: 
         m_SingletonActionBindings: []
         m_Flags: 0
-      Output:
-        Name: 
-        DefaultDirectoryPath: 
-        ID: 92
-        Events:
-        - {fileID: 11400000, guid: cb7dca67248007e4bb7031529a1a71d3, type: 2}
-        Channel: 0
-        Await:
-          Events: []
+        m_Priority: 0
+      Output: {fileID: 0}
+      OneShot: 0
+    - Name: Default text
+      Input:
+        m_Name: Input
+        m_Type: 0
+        m_ExpectedControlType: 
+        m_Id: 29a2d6db-f4cf-4443-9632-f8abbea68f03
+        m_Processors: 
+        m_Interactions: 
+        m_SingletonActionBindings: []
+        m_Flags: 0
+        m_Priority: 0
+      Output: {fileID: 0}
+      OneShot: 0
+    - Name: Default text
+      Input:
+        m_Name: Input
+        m_Type: 0
+        m_ExpectedControlType: 
+        m_Id: 954dd83a-2041-4422-ba55-6db2b859af5a
+        m_Processors: 
+        m_Interactions: 
+        m_SingletonActionBindings: []
+        m_Flags: 0
+        m_Priority: 0
+      Output: {fileID: 0}
+      OneShot: 0
+  - Name: Default text
+    Inputs:
+    - Name: Default text
+      Input:
+        m_Name: Input
+        m_Type: 0
+        m_ExpectedControlType: 
+        m_Id: d072410f-6ef5-41a9-91c9-9205d29d4168
+        m_Processors: 
+        m_Interactions: 
+        m_SingletonActionBindings: []
+        m_Flags: 0
+        m_Priority: 0
+      Output: {fileID: 0}
       OneShot: 0
   _currentActionMap:
     Name: Player
@@ -129,15 +149,8 @@ MonoBehaviour:
           m_Action: Input
           m_Flags: 8
         m_Flags: 0
-      Output:
-        Name: 
-        DefaultDirectoryPath: 
-        ID: 67
-        Events:
-        - {fileID: 0}
-        Channel: 0
-        Await:
-          Events: []
+        m_Priority: 0
+      Output: {fileID: 0}
       OneShot: 0
     - Name: Jump
       Input:
@@ -157,15 +170,8 @@ MonoBehaviour:
           m_Action: Input
           m_Flags: 0
         m_Flags: 0
-      Output:
-        Name: 
-        DefaultDirectoryPath: 
-        ID: 68
-        Events:
-        - {fileID: 11400000, guid: 3f0b2e262b66c794eb243a293f1a893b, type: 2}
-        Channel: 0
-        Await:
-          Events: []
+        m_Priority: 0
+      Output: {fileID: 0}
       OneShot: 0
     - Name: Camera Look
       Input:
@@ -185,13 +191,6 @@ MonoBehaviour:
           m_Action: Input
           m_Flags: 0
         m_Flags: 0
-      Output:
-        Name: 
-        DefaultDirectoryPath: 
-        ID: 857
-        Events:
-        - {fileID: 11400000, guid: cb7dca67248007e4bb7031529a1a71d3, type: 2}
-        Channel: 0
-        Await:
-          Events: []
+        m_Priority: 0
+      Output: {fileID: 0}
       OneShot: 0

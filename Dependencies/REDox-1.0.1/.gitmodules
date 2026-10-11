@@ -1,0 +1,12 @@
+[submodule "external/simdjson-data"]
+	path = external/simdjson-data
+	url = https://github.com/simdjson/simdjson-data.git
+[submodule "external/JSONTestSuite"]
+	path = external/JSONTestSuite
+	url = https://github.com/nst/JSONTestSuite.git
+[submodule "external/json5-tests"]
+	path = external/json5-tests
+	url = https://github.com/json5/json5-tests.git
+[submodule "external/toml-test"]
+	path = external/toml-test
+	url = https://github.com/toml-lang/toml-test
