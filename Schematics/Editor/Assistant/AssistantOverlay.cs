@@ -36,6 +36,8 @@ namespace Remedy.Schematics.Assistant
 
         private EditorWindow _host;
         private readonly VisualElement _sprite, _shadow, _bubble;
+        private readonly SprocketMarker _marker = new();
+        private int _bubbleAway;             // explaining: the bubble goes on this side (+1 right, -1 left), away from the thing
         private readonly Label _bubbleText;
         private readonly TextField _input;
         private readonly float _width, _height;
@@ -115,16 +117,28 @@ namespace Remedy.Schematics.Assistant
         }
 
         // The "What is this?" look, under whichever folder name it was given.
+        private static string _inspectFolder;
         private static Texture2D[] InspectFrames
         {
             get
             {
-                foreach (var name in new[] { "whatisthis", "what_is_this", "what-is-this", "whatIsThis", "WhatIsThis", "inspect", "curious" })
-                {
-                    var frames = Frames(name);
-                    if (frames.Length > 0) return frames;
-                }
-                return Frames("thinking");
+                if (_inspectFolder != null)
+                    return Frames(_inspectFolder);
+                foreach (var name in new[] { "whatisthis", "what_is_this", "what-is-this", "what is this", "whatIsThis", "WhatIsThis", "What Is This", "inspect", "inspecting", "curious" })
+                    if (Frames(name).Length > 0)
+                        return Frames(_inspectFolder = name);
+                // Any sibling folder of the idle frames that sounds like it.
+                var idle = Frames("idle");
+                string path = idle.Length > 0 ? AssetDatabase.GetAssetPath(idle[0]) : null;
+                string folder = !string.IsNullOrEmpty(path) ? System.IO.Path.GetDirectoryName(System.IO.Path.GetDirectoryName(path)) : null;
+                if (folder != null && System.IO.Directory.Exists(folder))
+                    foreach (var directory in System.IO.Directory.GetDirectories(folder))
+                    {
+                        string name = System.IO.Path.GetFileName(directory);
+                        if (Regex.IsMatch(name, "what|inspect|curious|explain", RegexOptions.IgnoreCase) && Frames(name).Length > 0)
+                            return Frames(_inspectFolder = name);
+                    }
+                return Frames("talking");
             }
         }
 
@@ -236,6 +250,7 @@ namespace Remedy.Schematics.Assistant
             }
             if (window != _host)
             {
+                _marker.Hide();
                 if (_host != null) _lastHost = _host;
                 Detach();
                 _host = window;
@@ -444,6 +459,7 @@ namespace Remedy.Schematics.Assistant
             _shadow.style.backgroundColor = new Color(0f, 0f, 0f, 0.22f);
             SetRadius(_shadow, 6f * scale);
             Add(_shadow);
+            Add(_marker);
 
             _sprite = new VisualElement { name = "assistant-sprite", tooltip = "Sprocket: click to ask, hold Q to talk, drag to move (drop on any window)" };
             _sprite.style.position = Position.Absolute;
@@ -600,6 +616,8 @@ namespace Remedy.Schematics.Assistant
         {
             if (Busy)
                 return;
+            if (_explaining)
+                HideBubble();   // stops the explanation
             ShowBubble("What should I make?", seconds: -1);
             _input.style.display = DisplayStyle.Flex;
             _input.value = "";
@@ -633,6 +651,8 @@ namespace Remedy.Schematics.Assistant
                 ShowBubble("I can't hear anything. Is a microphone connected?", 4f);
                 return;
             }
+            if (_explaining)
+                HideBubble();   // stops the explanation
             _mood = Mood.Listening;
             ShowBubble("<i>Listening…</i>", seconds: -1);
             _ = AssistantServer.EnsureRunningAsync(); // warm up while you talk
@@ -678,6 +698,9 @@ namespace Remedy.Schematics.Assistant
         /// <summary>Sends a request with what's on screen, says the reply and carries out its commands.</summary>
         public async Task AskAsync(string utterance)
         {
+            if (_explaining)
+                HideBubble();
+            _bubbleAway = 0;
             if (string.IsNullOrWhiteSpace(utterance) || Busy)
                 return;
 
@@ -991,27 +1014,27 @@ namespace Remedy.Schematics.Assistant
                 EnsureIn(target.Window);
             if (_host == null)
                 return;
+            _marker.Hide();
+            _bubbleAway = 0;
 
-            // To the side of it (not for whole windows, e.g. "what's selected").
+            // Hops to the side of it (not for whole windows), then talks with the bubble on his other side.
             var size = HostSize;
-            var rect = new Rect(target.ScreenRect.position - _host.position.position, target.ScreenRect.size);
-            if (rect.width < size.x * 0.8f)
+            var rect = new Rect(SprocketInspect.ScreenToRoot(_host, target.ScreenRect.position), target.ScreenRect.size);
+            bool whole = !target.Exact && rect.width >= size.x * 0.8f;
+            if (!whole && rect.width < size.x * 0.8f)
             {
-                float x = rect.xMax + 8f;
-                if (x + _width > size.x) x = rect.x - _width - 8f;
+                _mood = Mood.Idle;
+                bool right = rect.xMax + 10f + _width <= size.x || rect.x - _width - 10f < 0f;
+                float x = right ? rect.xMax + 10f : rect.x - _width - 10f;
                 await FlyToAsync(new Vector2(x, rect.center.y - _height * 0.5f));
                 if (id != _inspection) return;
+                _bubbleAway = right ? 1 : -1;
             }
 
-            // A good look at it...
             _mood = Mood.Inspecting;
-            float look = Mathf.Clamp(InspectFrames.Length / 12f, 0.8f, 2.5f);
-            await Task.Delay(TimeSpan.FromSeconds(look));
-            if (id != _inspection) return;
-
-            // ...then what it is.
-            _mood = Mood.Talking;
             _explaining = true;
+            if (!whole)
+                _marker.Show(rect, target.Exact, size);
             ShowBubble($"<b>{Escape(target.Title)}</b>\n{RichSafe(target.Text)}", 16f);
             try
             {
@@ -1020,13 +1043,13 @@ namespace Remedy.Schematics.Assistant
                 if (AssistantServer.IsInstalled && AssistantSettings.Speak)
                     await AssistantVoice.SayAsync(spoken);
                 else
-                    await Task.Delay(2500);
+                    await Task.Delay(3000);
             }
             catch (Exception exception)
             {
                 Debug.LogWarning("[Assistant] " + exception.Message);
             }
-            if (id == _inspection && _mood == Mood.Talking)
+            if (id == _inspection && _mood == Mood.Inspecting)
             {
                 _mood = Mood.Idle;
                 _explaining = false;
@@ -1137,6 +1160,7 @@ namespace Remedy.Schematics.Assistant
             }
 
             Place(force: _blipPhase != 0 || _blipShown);
+            _marker.Advance(dt, new Rect(_position, new Vector2(_width, _height)));
         }
 
         /// <summary>
@@ -1172,9 +1196,26 @@ namespace Remedy.Schematics.Assistant
             var size = HostSize;
             float bubbleWidth = float.IsNaN(_bubble.layout.width) ? 220f : _bubble.layout.width;
             float bubbleHeight = float.IsNaN(_bubble.layout.height) ? 40f : _bubble.layout.height;
-            bool left = size.x > 0 && _position.x + _width + 8 + bubbleWidth > size.x;
-            float x = left ? _position.x - bubbleWidth - 6 : _position.x + _width + 6;
-            float y = Mathf.Max(4f, _position.y + _height * 0.3f - bubbleHeight / 2f);
+            float x, y = Mathf.Max(4f, _position.y + _height * 0.3f - bubbleHeight / 2f);
+            if (_bubbleAway != 0)
+            {
+                // Explaining: on his far side from the thing, so it stays visible; above or below him if that side's full.
+                bool fits = _bubbleAway > 0 ? size.x <= 0 || _position.x + _width + 6 + bubbleWidth <= size.x : _position.x - bubbleWidth - 6 >= 0;
+                if (fits)
+                    x = _bubbleAway > 0 ? _position.x + _width + 6 : _position.x - bubbleWidth - 6;
+                else
+                {
+                    x = Mathf.Clamp(_position.x + _width * 0.5f - bubbleWidth * 0.5f, 4f, Mathf.Max(4f, size.x - bubbleWidth - 4f));
+                    y = _position.y - bubbleHeight - 10f;
+                    if (y < 4f) y = _position.y + _height + 12f;
+                }
+            }
+            else
+            {
+                bool left = size.x > 0 && _position.x + _width + 8 + bubbleWidth > size.x;
+                x = left ? _position.x - bubbleWidth - 6 : _position.x + _width + 6;
+            }
+            if (size.y > 0) y = Mathf.Min(y, Mathf.Max(4f, size.y - bubbleHeight - 4f));
             _bubble.style.translate = new Translate(Mathf.Round(x), Mathf.Round(y), 0f);
         }
 
@@ -1190,6 +1231,15 @@ namespace Remedy.Schematics.Assistant
         {
             _bubble.style.display = DisplayStyle.None;
             _input.style.display = DisplayStyle.None;
+            _marker.Hide();
+            _bubbleAway = 0;
+            if (_explaining)
+            {
+                _explaining = false;
+                _inspection++;
+                AssistantVoice.StopSpeaking();
+                if (_mood == Mood.Inspecting) _mood = Mood.Idle;
+            }
         }
 
         #endregion

@@ -20,6 +20,8 @@ namespace Remedy.Schematics.Assistant
         public string Title;
         public string Text;
         public Rect ScreenRect;
+        /// <summary>True when ScreenRect is the thing's real outline (false: just the spot it was found at).</summary>
+        public bool Exact;
         public EditorWindow Window;
     }
 
@@ -46,7 +48,7 @@ namespace Remedy.Schematics.Assistant
                 case SceneView sceneView:
                 {
                     var picked = PickInScene(sceneView, screen);
-                    Finish(picked != null ? Placed(ForGameObject(picked), window, screen) : null);
+                    Finish(picked != null ? Placed(ForGameObject(picked), window, screen, ScreenBoundsInScene(sceneView, picked)) : null);
                     return;
                 }
                 case SchematicGraphEditorWindow graph:
@@ -57,8 +59,8 @@ namespace Remedy.Schematics.Assistant
             {
                 case "HierarchyWindow":
                 {
-                    var picked = InNewHierarchy(window, screen);
-                    Finish(picked != null ? Placed(ForGameObject(picked), window, screen) : null);
+                    var picked = InNewHierarchy(window, screen, out var row);
+                    Finish(picked != null ? Placed(ForGameObject(picked), window, screen, ElementScreenRect(window, row)) : null);
                     return;
                 }
                 case "SceneHierarchyWindow":
@@ -92,7 +94,7 @@ namespace Remedy.Schematics.Assistant
             switch (window.GetType().Name)
             {
                 case "HierarchyWindow":
-                    done(InNewHierarchy(window, screen)?.name);
+                    done(InNewHierarchy(window, screen, out _)?.name);
                     return;
                 case "SceneHierarchyWindow":
                 case "ProjectBrowser":
@@ -105,11 +107,20 @@ namespace Remedy.Schematics.Assistant
             done(null);
         }
 
-        private static InspectTarget Placed(InspectTarget target, EditorWindow window, Vector2 screen)
+        private static InspectTarget Placed(InspectTarget target, EditorWindow window, Vector2 screen, Rect? outline = null)
         {
             target.Window = window;
-            target.ScreenRect = new Rect(screen - new Vector2(30, 12), new Vector2(60, 24));
+            target.Exact = outline.HasValue;
+            target.ScreenRect = outline ?? new Rect(screen - new Vector2(30, 12), new Vector2(60, 24));
             return target;
+        }
+
+        /// <summary>An element's rectangle on the screen.</summary>
+        private static Rect? ElementScreenRect(EditorWindow window, VisualElement element)
+        {
+            if (element == null || element.panel == null) return null;
+            var bounds = element.worldBound;
+            return new Rect(PanelToScreen(window, bounds.position), bounds.size);
         }
 
         #endregion
@@ -133,6 +144,13 @@ namespace Remedy.Schematics.Assistant
         {
             var outer = Outermost(window);
             return outer != null ? outer.LocalToWorld(screen - window.position.position) : screen - window.position.position;
+        }
+
+        /// <summary>A screen point in a window's root space (where Sprocket is placed).</summary>
+        public static Vector2 ScreenToRoot(EditorWindow window, Vector2 screen)
+        {
+            var root = window.rootVisualElement;
+            return root != null && root.panel != null ? root.WorldToLocal(ScreenToPanel(window, screen)) : screen - window.position.position;
         }
 
         /// <summary>A point in a window's panel space on the screen.</summary>
@@ -214,20 +232,10 @@ namespace Remedy.Schematics.Assistant
             if (camera == null)
                 return null;
 
-            // The point inside the camera's rectangle, 0..1 from the bottom left.
-            Rect viewport;
-            Vector2 local;
-            if (_cameraElement?.GetValue(view) is VisualElement cameraView && cameraView.panel != null)
-            {
-                var bounds = cameraView.worldBound;
-                viewport = new Rect(0, 0, bounds.width, bounds.height);
-                local = ScreenToPanel(view, screen) - bounds.position;
-            }
-            else
-            {
-                viewport = view.cameraViewport;
-                local = screen - view.position.position - new Vector2(0, view.position.height - viewport.height);
-            }
+            // The point inside the camera's rectangle.
+            var screenViewport = SceneViewport(view);
+            var viewport = new Rect(Vector2.zero, screenViewport.size);
+            var local = screen - screenViewport.position;
             if (viewport.width < 1f || viewport.height < 1f || !viewport.Contains(local))
                 return null;
             var pixels = camera.pixelRect;
@@ -292,6 +300,64 @@ namespace Remedy.Schematics.Assistant
             return best;
         }
 
+        // The Scene camera's rectangle on the screen.
+        private static Rect SceneViewport(SceneView view)
+        {
+            if (_cameraElement?.GetValue(view) is VisualElement cameraView && cameraView.panel != null)
+            {
+                var bounds = cameraView.worldBound;
+                return new Rect(PanelToScreen(view, bounds.position), bounds.size);
+            }
+            var viewport = view.cameraViewport;
+            return new Rect(view.position.position + new Vector2(0, view.position.height - viewport.height), viewport.size);
+        }
+
+        /// <summary>
+        /// An object's outline on the screen in a Scene view: its renderer's (or collider's) bounds, or its icon. Null
+        /// when it's partly behind the camera or fills most of the view (then there's no use framing it).
+        /// </summary>
+        public static Rect? ScreenBoundsInScene(SceneView view, GameObject gameObject)
+        {
+            var camera = view != null ? view.camera : null;
+            if (camera == null || gameObject == null)
+                return null;
+            var viewport = SceneViewport(view);
+            var pixels = camera.pixelRect;
+            if (viewport.width < 1f || pixels.width < 1f)
+                return null;
+
+            Vector2? ToScreen(Vector3 world)
+            {
+                var at = camera.WorldToScreenPoint(world);
+                if (at.z <= camera.nearClipPlane) return null;
+                return viewport.position + new Vector2((at.x - pixels.x) / pixels.width * viewport.width, (1f - (at.y - pixels.y) / pixels.height) * viewport.height);
+            }
+
+            Bounds? bounds = gameObject.GetComponent<Renderer>() is { } renderer ? renderer.bounds
+                : gameObject.GetComponent<Collider>() is { } collider ? collider.bounds : (Bounds?)null;
+            if (!bounds.HasValue)
+            {
+                // Drawn as an icon.
+                var icon = ToScreen(gameObject.transform.position);
+                return icon.HasValue ? new Rect(icon.Value - new Vector2(IconRadius, IconRadius), new Vector2(IconRadius * 2f, IconRadius * 2f)) : null;
+            }
+
+            var b = bounds.Value;
+            Vector2 min = new(float.MaxValue, float.MaxValue), max = new(float.MinValue, float.MinValue);
+            for (int i = 0; i < 8; i++)
+            {
+                var corner = b.center + Vector3.Scale(b.extents, new Vector3((i & 1) == 0 ? -1 : 1, (i & 2) == 0 ? -1 : 1, (i & 4) == 0 ? -1 : 1));
+                var at = ToScreen(corner);
+                if (!at.HasValue) return null;
+                min = Vector2.Min(min, at.Value);
+                max = Vector2.Max(max, at.Value);
+            }
+            var rect = Rect.MinMaxRect(Mathf.Max(min.x, viewport.xMin), Mathf.Max(min.y, viewport.yMin), Mathf.Min(max.x, viewport.xMax), Mathf.Min(max.y, viewport.yMax));
+            if (rect.width < 2f || rect.height < 2f || rect.width > viewport.width * 0.6f || rect.height > viewport.height * 0.6f)
+                return null;
+            return rect;
+        }
+
         private static PhysicsScene PhysicsSceneOf(StageHandle stage)
         {
             var prefabStage = PrefabStageUtility.GetCurrentPrefabStage();
@@ -326,8 +392,9 @@ namespace Remedy.Schematics.Assistant
 
         // Unity 6's Hierarchy window is made of UI elements: each row is a HierarchyViewItem whose handler knows its
         // GameObject. Read by reflection, so older editors (without it) are fine.
-        private static GameObject InNewHierarchy(EditorWindow window, Vector2 screen)
+        private static GameObject InNewHierarchy(EditorWindow window, Vector2 screen, out VisualElement row)
         {
+            row = null;
             for (var element = ElementAt(window, screen); element != null; element = element.parent)
             {
                 var type = element.GetType();
@@ -338,6 +405,7 @@ namespace Remedy.Schematics.Assistant
                     var handler = type.GetProperty("Handler")?.GetValue(element);
                     var node = type.GetField("m_Node", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(element);
                     var getGameObject = handler?.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public).FirstOrDefault(m => m.Name == "GetGameObject" && m.GetParameters().Length == 1);
+                    row = element;
                     return node != null && getGameObject != null ? getGameObject.Invoke(handler, new[] { node }) as GameObject : null;
                 }
                 catch
@@ -473,13 +541,13 @@ namespace Remedy.Schematics.Assistant
         private static InspectTarget Target(EditorWindow window, VisualElement element, Description description)
         {
             var bounds = element != null ? element.worldBound : window.rootVisualElement.worldBound;
-            var local = window.rootVisualElement.WorldToLocal(bounds.position);
             return new InspectTarget
             {
                 Title = description.Title,
                 Text = description.Text,
                 Window = window,
-                ScreenRect = new Rect(window.position.position + local, bounds.size),
+                ScreenRect = new Rect(PanelToScreen(window, bounds.position), bounds.size),
+                Exact = element != null,
             };
         }
 
