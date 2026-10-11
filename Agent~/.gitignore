@@ -11,3 +11,4 @@ models/
 dotnet-path.txt
 install-status.txt
 setup.log
+reference/
