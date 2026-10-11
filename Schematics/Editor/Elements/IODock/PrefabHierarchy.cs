@@ -87,6 +87,7 @@ public class PrefabHierarchy : VisualElement
         var handle = CreateHandle(EditorGUIUtility.IconContent("GameObject Icon").image, "Drag into the graph for a Prefab Object node");
         MakeDraggable(handle, item, click: null);
         toggle.Add(handle);
+        toggle.userData ??= item;
         _rows[item.Key] = toggle;
 
         toggle.RegisterCallback<MouseDownEvent>(evt =>
@@ -165,6 +166,7 @@ public class PrefabHierarchy : VisualElement
         var handle = CreateHandle(EditorGUIUtility.IconContent("cs Script Icon").image, "Drag into the graph for a Behavior node with all its Variables and methods");
         MakeDraggable(handle, behaviorItem, () => _window.FocusNodes(behaviorItem));
         toggle.Add(handle);
+        toggle.userData ??= behaviorItem;
         _rows[behaviorItem.Key] = toggle;
 
         if (behaviorType == typeof(StateMachine))
@@ -258,7 +260,7 @@ public class PrefabHierarchy : VisualElement
 
     private VisualElement CreateRow(DockItem item, Texture icon, string label, string detail, string tooltip)
     {
-        var row = new VisualElement();
+        var row = new VisualElement { userData = item }; // so Sprocket can tell what a row is
         row.AddToClassList("dock-row");
         row.AddToClassList("dock-row-" + item.Kind.ToString().ToLowerInvariant());
         // The IO Dock stylesheet's Signal container look, shared by Variables (with their own tint).
@@ -507,6 +509,7 @@ public class PrefabHierarchy : VisualElement
     // A press that moves starts a drag; one that doesn't is a click.
     private static void MakeDraggable(VisualElement element, DockItem item, Action click)
     {
+        element.userData ??= item;
         Vector2 start = default;
         bool pressed = false;
 

@@ -40,11 +40,24 @@ interrupt the install; Unity picks the progress back up.
 
 ## Using it
 
-- **Where it lives.** Sprocket appears with the first graph window and floats over any editor window: the Inspector,
-  Scene, Project, or a graph.
-  - **Drag** it anywhere in a window while it's idle. Drop it over another window to move it there.
-  - **Tools > Remedy > Schematics > Assistant > Bring Sprocket Here** calls it to the focused window.
+- **Where it lives.** Sprocket appears with the first graph window. It may be in the Scene view (including Prefab
+  Mode), the Game view, Schematic Graphs, the Inspector, the Hierarchy and the Project window, the places it can do
+  something about.
+  - **Drag** it around and over any of those windows. It moves into the one under the pointer straight away.
+  - **Dropping it** anywhere else, or losing its window (closed, covered by another tab, too small), makes it
+    spin-blip back to the bottom right of a Schematic Graph, or of the Scene view if no graph is showing.
+  - **Tools > Remedy > Schematics > Assistant > Bring Sprocket Here** calls it over.
   - It hops into the graph by itself when it has graph work to do, then goes back to where it was.
+- **"What is this?"** While you drag it, it turns see-through and the pointer asks "What is this?". Drop it on
+  something and it moves beside it, takes a look, and explains it out loud:
+  - a graph node;
+  - an IO Dock Behavior, Variable, Signal or object;
+  - an object in the Scene view.
+
+  In the Hierarchy, Project and Inspector, which have no way to point at a single row, it explains what's selected.
+  The explanations come from the documentation database, `Schematics/Editor/Assistant/Resources/SprocketDocs.asset`.
+  It's generated from the code's own summaries and tooltips with **Tools > Remedy > Schematics > Assistant >
+  Regenerate Documentation**. Write a **Description** on any entry to use your own words; regenerating keeps it.
 - **Talking to it.**
   - **Click** Sprocket to type a request.
   - **Hold Q** to talk. That's a rebindable shortcut in graph windows (**Edit > Shortcuts > Schematics/Assistant**).
@@ -54,7 +67,7 @@ interrupt the install; Unity picks the progress back up.
 - **Settings.** **Right-click** for preferences: its size (whole multiples keep the pixel art crisp), voice and
   speed, microphone, and the delay between steps.
 - **Its look.** The animations are the sprite frames in `Schematics/Editor/Styling/Resources/Textures/sprocket/`
-  (`idle`, `thinking`, `talking`, `confused`), named `sprocket_<animation><number>` and played in number order.
+  (`idle`, `thinking`, `talking`, `confused`, and `whatisthis` for inspecting), named `sprocket_<animation><number>` and played in number order.
   Sprocket is one sprite moved with a transform, so it never triggers a layout pass. It animates only while the
   editor has focus.
 

@@ -24,7 +24,7 @@ namespace Remedy.Schematics.Assistant
     /// </summary>
     internal sealed class AssistantOverlay : VisualElement
     {
-        public enum Mood { Idle, Listening, Thinking, Working, Talking, Confused }
+        public enum Mood { Idle, Listening, Thinking, Working, Talking, Inspecting }
 
         private const string HostKey = "Schematics.Assistant.Host";
         private const string PositionKey = "Schematics.Assistant.Position";
@@ -41,6 +41,7 @@ namespace Remedy.Schematics.Assistant
         private readonly float _width, _height;
 
         private Mood _mood = Mood.Idle;
+        private float _confusedUntil = -1f;  // the confused face, for a moment after an error
         private Vector2 _position;           // top-left, in the host window's root space
         private Vector2 _flyFrom, _flyTo;
         private float _flyTime = -1f, _flyDuration;
@@ -54,8 +55,12 @@ namespace Remedy.Schematics.Assistant
         private Vector3 _shownTranslate = new(float.NaN, 0, 0);
         private Color _shownTint;
         private SchematicGraphEditorWindow _lastGraph;
+        private bool _blipShown;
 
-        private bool Busy => _mood == Mood.Thinking || _mood == Mood.Working || _mood == Mood.Talking;
+        private bool Busy => _mood == Mood.Thinking || _mood == Mood.Working || (_mood == Mood.Talking && !_explaining);
+
+        // Talking about something it was dropped on (not a task, so it can be picked up again any time).
+        private bool _explaining;
 
         /// <summary>The graph it works on: the one you used last.</summary>
         public SchematicGraphEditorWindow GraphWindow
@@ -77,7 +82,7 @@ namespace Remedy.Schematics.Assistant
         {
             if (_animations.TryGetValue(name, out var frames) && frames.Length > 0 && frames[0] != null)
                 return frames;
-            var pattern = new Regex($"^sprocket_{name}(\\d+)$");
+            var pattern = new Regex(@"^sprocket_.*?(\d+)$");
             frames = Resources.LoadAll<Texture2D>($"Textures/sprocket/{name}")
                 .Select(t => (texture: t, match: pattern.Match(t.name)))
                 .Where(f => f.match.Success)
@@ -92,17 +97,49 @@ namespace Remedy.Schematics.Assistant
             return frames;
         }
 
-        private (Texture2D[] frames, float fps) Animation => _mood switch
+        private (Texture2D[] frames, float fps) Animation
         {
-            Mood.Thinking or Mood.Working => (Frames("thinking"), 12f),
-            Mood.Talking => (Frames("talking"), 8f),
-            Mood.Confused => (Frames("confused"), 1f),
-            _ => (Frames("idle"), 12f),
-        };
+            get
+            {
+                if (_time < _confusedUntil)
+                    return (Frames("confused"), 1f);
+                return _mood switch
+                {
+                    Mood.Thinking or Mood.Working => (Frames("thinking"), 12f),
+                    Mood.Talking => (Frames("talking"), 8f),
+                    Mood.Inspecting => (InspectFrames, 12f),
+                    _ => (Frames("idle"), 12f),
+                };
+            }
+        }
+
+        // The "What is this?" look, under whichever folder name it was given.
+        private static Texture2D[] InspectFrames
+        {
+            get
+            {
+                foreach (var name in new[] { "whatisthis", "what_is_this", "what-is-this", "whatIsThis", "WhatIsThis", "inspect", "curious" })
+                {
+                    var frames = Frames(name);
+                    if (frames.Length > 0) return frames;
+                }
+                return Frames("thinking");
+            }
+        }
 
         #endregion
 
         #region Attaching
+
+        // The windows Sprocket may be in: the ones it can do something about.
+        private static readonly HashSet<string> _allowedWindows = new()
+        {
+            "SceneView", "GameView", "InspectorWindow", "SceneHierarchyWindow", "ProjectBrowser",
+        };
+
+        /// <summary>The Scene view (and Prefab Mode), Game view, Inspector, Hierarchy, Project window and Schematic Graphs.</summary>
+        public static bool Allowed(EditorWindow window)
+            => window != null && (window is SchematicGraphEditorWindow || window is SceneView || _allowedWindows.Contains(window.GetType().Name));
 
         /// <summary>
         /// Shows Sprocket (once): in the given window, or wherever it was last time. Called when a graph window opens.
@@ -113,11 +150,13 @@ namespace Remedy.Schematics.Assistant
                 return null;
             if (Instance != null)
                 return Instance;
-            var host = RememberedHost() ?? window;
-            if (host == null)
-                return null;
+            var remembered = RememberedHost();
+            var host = Allowed(remembered) ? remembered : window;
             Instance = new AssistantOverlay();
-            Instance.HopTo(host, RememberedPosition(host));
+            if (Allowed(host))
+                Instance.HopTo(host, RememberedPosition(host));
+            else
+                Instance.Respawn(blip: false);
             // Out of the box: the first time it appears, it installs what it needs in the background.
             AssistantInstaller.EnsureInstalled();
             return Instance;
@@ -132,6 +171,11 @@ namespace Remedy.Schematics.Assistant
             {
                 Instance = new AssistantOverlay();
                 AssistantInstaller.EnsureInstalled();
+            }
+            if (!Allowed(window))
+            {
+                Instance.Respawn(blip: true);
+                return;
             }
             var size = window.rootVisualElement.layout.size;
             Instance.HopTo(window, float.IsNaN(size.x) ? new Vector2(40, 40) : new Vector2(size.x * 0.5f, size.y * 0.5f));
@@ -184,6 +228,11 @@ namespace Remedy.Schematics.Assistant
         {
             if (window == null)
                 return;
+            if (!Allowed(window))
+            {
+                Respawn(blip: false);
+                return;
+            }
             if (window != _host)
             {
                 Detach();
@@ -239,12 +288,112 @@ namespace Remedy.Schematics.Assistant
                 _rehoming = false;
                 if (Instance != this || panel != null) return;
                 _host = null;
-                var next = (EditorWindow)GraphWindow ?? EditorWindow.focusedWindow;
-                if (next != null) HopTo(next, new Vector2(40, 40));
+                Respawn(blip: false);
             };
         }
 
         private bool _rehoming;
+
+        // Spin blip: 1 spinning out of where it is, 2 spinning in at the new spot.
+        private int _blipPhase;
+        private float _blipTime;
+        private EditorWindow _blipWindow;
+        private Vector2 _blipPosition;
+        private const float BlipOut = 0.28f, BlipIn = 0.4f;
+        private double _nextWatch;
+
+        /// <summary>
+        /// Back to the bottom right of a Schematic Graph (if one is showing) or the Scene view: spinning out of where it
+        /// is and blooping in there, or instantly.
+        /// </summary>
+        public void Respawn(bool blip)
+        {
+            var window = RespawnWindow();
+            if (window == null)
+                return;
+            var size = window.rootVisualElement.layout.size;
+            if (float.IsNaN(size.x) || size.x < 1f) size = window.position.size;
+            var spot = new Vector2(size.x - _width - 24f, size.y - _height - 28f);
+            if (!blip || _host == null || panel == null)
+            {
+                _blipPhase = 0;
+                HopTo(window, spot);
+                if (blip) StartBlipIn();
+                return;
+            }
+            _blipWindow = window;
+            _blipPosition = spot;
+            _blipPhase = 1;
+            _blipTime = 0f;
+        }
+
+        private void StartBlipIn()
+        {
+            _blipPhase = 2;
+            _blipTime = 0f;
+        }
+
+        private static EditorWindow RespawnWindow()
+        {
+            var graph = Resources.FindObjectsOfTypeAll<SchematicGraphEditorWindow>().FirstOrDefault(g => g.SchematicGraph != null && IsShownTab(g));
+            if (graph != null) return graph;
+            var scene = SceneView.lastActiveSceneView;
+            if (scene != null && IsShownTab(scene)) return scene;
+            foreach (SceneView view in SceneView.sceneViews)
+                if (view != null && IsShownTab(view)) return view;
+            return Resources.FindObjectsOfTypeAll<EditorWindow>().FirstOrDefault(w => Allowed(w) && IsShownTab(w));
+        }
+
+        // Every second: if its window went away, got covered by another tab, or got too small, it comes back.
+        private void Watch()
+        {
+            if (EditorApplication.timeSinceStartup < _nextWatch || _pressed || _blipPhase != 0 || Busy)
+                return;
+            _nextWatch = EditorApplication.timeSinceStartup + 1.0;
+            var size = HostSize;
+            if (_host == null || !IsShownTab(_host) || !Allowed(_host) || size.x < _width || size.y < _height)
+                Respawn(blip: true);
+        }
+
+        private void AdvanceBlip(float dt)
+        {
+            if (_blipPhase == 0)
+                return;
+            _blipTime += dt;
+            if (_blipPhase == 1 && _blipTime >= BlipOut)
+            {
+                var window = _blipWindow;
+                _blipWindow = null;
+                _blipPhase = 0;
+                HopTo(window, _blipPosition);
+                StartBlipIn();
+                window?.Repaint();
+            }
+            else if (_blipPhase == 2 && _blipTime >= BlipIn)
+                _blipPhase = 0;
+        }
+
+        // Spin and size for the blip (1, 0 when not blipping).
+        private (float scale, float angle) BlipLook()
+        {
+            switch (_blipPhase)
+            {
+                case 1:
+                {
+                    float t = Mathf.Clamp01(_blipTime / BlipOut);
+                    return (1f - t * t, 540f * t);
+                }
+                case 2:
+                {
+                    float t = Mathf.Clamp01(_blipTime / BlipIn);
+                    // A little bloop: grows past full size, then settles.
+                    float scale = t < 0.7f ? Mathf.Lerp(0f, 1.15f, t / 0.7f) : Mathf.Lerp(1.15f, 1f, (t - 0.7f) / 0.3f);
+                    return (scale, -540f * (1f - t) * (1f - t));
+                }
+                default:
+                    return (1f, 0f);
+            }
+        }
 
         #endregion
 
@@ -322,6 +471,25 @@ namespace Remedy.Schematics.Assistant
             _input.RegisterCallback<KeyDownEvent>(OnInputKey, TrickleDown.TrickleDown);
             _bubble.Add(_input);
             _bubble.RegisterCallback<GeometryChangedEvent>(_ => Place(force: true));
+
+            // While it's being dragged: "What is this?" by the pointer.
+            _whatTag = new Label("? What is this?") { name = "assistant-what", pickingMode = PickingMode.Ignore };
+            _whatTag.style.position = Position.Absolute;
+            _whatTag.style.fontSize = 11;
+            _whatTag.style.unityFontStyleAndWeight = FontStyle.Bold;
+            _whatTag.style.color = Color.white;
+            _whatTag.style.backgroundColor = new Color(0.3f, 0.24f, 0.5f, 0.95f);
+            _whatTag.style.paddingLeft = 6; _whatTag.style.paddingRight = 6;
+            _whatTag.style.paddingTop = 2; _whatTag.style.paddingBottom = 3;
+            SetRadius(_whatTag, 7);
+            _whatTag.style.display = DisplayStyle.None;
+            Add(_whatTag);
+            _cursorLayer = new IMGUIContainer(() => EditorGUIUtility.AddCursorRect(new Rect(-10000, -10000, 20000, 20000), MouseCursor.Link))
+            {
+                pickingMode = PickingMode.Ignore,
+            };
+            _cursorLayer.style.position = Position.Absolute;
+            _cursorLayer.style.left = 0; _cursorLayer.style.top = 0; _cursorLayer.style.right = 0; _cursorLayer.style.bottom = 0;
 
             _sprite.RegisterCallback<PointerDownEvent>(OnPointerDown);
             _sprite.AddManipulator(new ContextualMenuManipulator(evt =>
@@ -546,8 +714,7 @@ namespace Remedy.Schematics.Assistant
             }
             finally
             {
-                if (_mood != Mood.Confused)
-                    _mood = Mood.Idle;
+                _mood = Mood.Idle;
             }
 
             // Back to where it was before the task.
@@ -565,13 +732,13 @@ namespace Remedy.Schematics.Assistant
 
         private void SetupNeeded()
         {
-            _mood = Mood.Confused;
+            _mood = Mood.Idle;
             if (AssistantInstaller.IsInstalling)
                 ShowBubble($"I'm still getting set up! {Escape(AssistantInstaller.Progress)}", 5f);
             else if (AssistantServer.IsInstalled)
-                ShowBubble("My server didn't start. Check the Console for why.", 8f);
+                Confused("My server didn't start. Check the Console for why.", raw: false);
             else
-                ShowBubble("My setup didn't finish. Check the Console, then right-click me and pick <b>Reinstall</b>.", 10f);
+                Confused("My setup didn't finish. Check the Console, then right-click me and pick <b>Reinstall</b>.", raw: true);
         }
 
         // Install progress, while nothing else is going on.
@@ -600,13 +767,15 @@ namespace Remedy.Schematics.Assistant
                 _mood = Mood.Idle;
             }
             else
-                Confused("My setup hit a snag. Check the Console, then right-click me and pick Reinstall.");
+                Confused("My setup hit a snag. Check the Console, then right-click me and pick <b>Reinstall</b>.", raw: true);
         }
 
-        private void Confused(string message)
+        /// <summary>Something went wrong: says so, with the confused face for a moment.</summary>
+        private void Confused(string message, bool raw = false)
         {
-            _mood = Mood.Confused;
-            ShowBubble(Escape(message), 6f);
+            _mood = Mood.Idle;
+            _confusedUntil = _time + 5f;
+            ShowBubble(raw ? message : Escape(message), 8f);
         }
 
         private static string Escape(string text) => (text ?? "").Replace("<", "&lt;").Replace(">", "&gt;");
@@ -648,6 +817,8 @@ namespace Remedy.Schematics.Assistant
         // window the mouse, even over other windows. So Sprocket can move into whichever window is under the pointer
         // right away, while the drag carries on.
         private VisualElement _dragRoot;
+        private readonly Label _whatTag;
+        private readonly IMGUIContainer _cursorLayer;
         private EditorWindow _dragWindow;
         private int _dragPointer;
 
@@ -678,11 +849,16 @@ namespace Remedy.Schematics.Assistant
             Vector2 screen = ScreenPoint(evt) - _dragOffset;
             if (!_dragging && _host != null && Vector2.Distance(screen - _host.position.position, _position) < 4f)
                 return;
+            if (!_dragging)
+                StartGhost();
             _dragging = true;
 
-            // Over another window: move into it now.
-            var under = WindowAt(ScreenPoint(evt));
-            if (under != null && under != _host)
+            // Over another window it may be in: move into it now.
+            Vector2 pointer = ScreenPoint(evt);
+            var under = WindowAt(pointer);
+            bool allowed = Allowed(under);
+            _whatTag.text = allowed ? "? What is this?" : "Let go to send me back";
+            if (allowed && under != _host)
             {
                 HopTo(under, screen - under.position.position);
                 under.Repaint();
@@ -693,6 +869,11 @@ namespace Remedy.Schematics.Assistant
                 Place(force: true);
                 if (_host != _dragWindow) _host.Repaint();
             }
+            if (_host != null)
+            {
+                var local = pointer - _host.position.position;
+                _whatTag.style.translate = new Translate(Mathf.Round(local.x + 14f), Mathf.Round(local.y + 16f), 0f);
+            }
             evt.StopPropagation();
         }
 
@@ -701,9 +882,20 @@ namespace Remedy.Schematics.Assistant
             if (!_pressed)
                 return;
             bool dragged = _dragging;
+            Vector2 pointer = _dragWindow != null ? ScreenPoint(evt) : Vector2.zero;
             EndDrag();
             if (dragged)
-                Remember();
+            {
+                // Dropped outside the windows it can be in: back home with a blip. On something: "What is this?"
+                var window = WindowAt(pointer);
+                if (!Allowed(window))
+                    Respawn(blip: true);
+                else
+                {
+                    Remember();
+                    Inspect(window, pointer);
+                }
+            }
             else if (_mood == Mood.Listening) { }
             else if (Busy) Cancel();
             else if (_input.style.display == DisplayStyle.Flex) { _input.style.display = DisplayStyle.None; HideBubble(); }
@@ -720,10 +912,24 @@ namespace Remedy.Schematics.Assistant
             }
         }
 
+        private void StartGhost()
+        {
+            _inspection++;          // a new drag interrupts an explanation
+            _explaining = false;
+            if (_mood == Mood.Talking || _mood == Mood.Inspecting) { _mood = Mood.Idle; AssistantVoice.StopSpeaking(); }
+            HideBubble();
+            _sprite.style.opacity = 0.5f;
+            _whatTag.style.display = DisplayStyle.Flex;
+            _dragRoot?.Add(_cursorLayer);
+        }
+
         private void EndDrag()
         {
             _pressed = false;
             _dragging = false;
+            _sprite.style.opacity = 1f;
+            _whatTag.style.display = DisplayStyle.None;
+            _cursorLayer.RemoveFromHierarchy();
             if (_dragRoot != null)
             {
                 _dragRoot.UnregisterCallback<PointerMoveEvent>(OnDragMove);
@@ -735,6 +941,71 @@ namespace Remedy.Schematics.Assistant
             _dragRoot = null;
             _dragWindow = null;
         }
+
+        private int _inspection;
+
+        /// <summary>"What is this?": finds what it was dropped on and explains it.</summary>
+        private void Inspect(EditorWindow window, Vector2 screen)
+        {
+            int id = ++_inspection;
+            SprocketInspect.At(window, screen, target =>
+            {
+                if (id == _inspection && target != null)
+                    _ = ExplainAsync(target, id);
+            });
+        }
+
+        private async Task ExplainAsync(InspectTarget target, int id)
+        {
+            if (target.Window != null && target.Window != _host && Allowed(target.Window))
+                EnsureIn(target.Window);
+            if (_host == null)
+                return;
+
+            // To the side of it (not for whole windows, e.g. "what's selected").
+            var size = HostSize;
+            var rect = new Rect(target.ScreenRect.position - _host.position.position, target.ScreenRect.size);
+            if (rect.width < size.x * 0.8f)
+            {
+                float x = rect.xMax + 8f;
+                if (x + _width > size.x) x = rect.x - _width - 8f;
+                await FlyToAsync(new Vector2(x, rect.center.y - _height * 0.5f));
+                if (id != _inspection) return;
+            }
+
+            // A good look at it...
+            _mood = Mood.Inspecting;
+            float look = Mathf.Clamp(InspectFrames.Length / 12f, 0.8f, 2.5f);
+            await Task.Delay(TimeSpan.FromSeconds(look));
+            if (id != _inspection) return;
+
+            // ...then what it is.
+            _mood = Mood.Talking;
+            _explaining = true;
+            ShowBubble($"<b>{Escape(target.Title)}</b>\n{RichSafe(target.Text)}", 16f);
+            try
+            {
+                string spoken = Regex.Replace($"{target.Title}. {target.Text}", "<[^>]+>", "").Replace("•", ",");
+                if (spoken.Length > 400) spoken = spoken.Substring(0, 400);
+                if (AssistantServer.IsInstalled && AssistantSettings.Speak)
+                    await AssistantVoice.SayAsync(spoken);
+                else
+                    await Task.Delay(2500);
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning("[Assistant] " + exception.Message);
+            }
+            if (id == _inspection && _mood == Mood.Talking)
+            {
+                _mood = Mood.Idle;
+                _explaining = false;
+            }
+        }
+
+        // Documentation text in the bubble: escaped, but its bold stays bold.
+        private static string RichSafe(string text)
+            => Escape(text).Replace("&lt;b&gt;", "<b>").Replace("&lt;/b&gt;", "</b>");
 
         /// <summary>The editor window showing at a screen point (the visible tab, if several are docked there).</summary>
         private static EditorWindow WindowAt(Vector2 screen)
@@ -783,6 +1054,8 @@ namespace Remedy.Schematics.Assistant
             _time += dt;
 
             HideOnFocusChange();
+            Watch();
+            AdvanceBlip(dt);
             var focused = EditorWindow.focusedWindow as SchematicGraphEditorWindow;
             if (focused != null)
                 _lastGraph = focused;
@@ -809,8 +1082,6 @@ namespace Remedy.Schematics.Assistant
             {
                 _hideBubbleAt = -1f;
                 HideBubble();
-                if (_mood == Mood.Confused)
-                    _mood = Mood.Idle;
             }
             if (AssistantInstaller.IsInstalling)
                 ShowInstallProgress();
@@ -835,7 +1106,7 @@ namespace Remedy.Schematics.Assistant
                 _sprite.style.unityBackgroundImageTintColor = tint;
             }
 
-            Place(force: false);
+            Place(force: _blipPhase != 0 || _blipShown);
         }
 
         /// <summary>
@@ -852,6 +1123,15 @@ namespace Remedy.Schematics.Assistant
             _shownTranslate = translate;
 
             _sprite.style.translate = new Translate(translate.x, translate.y, 0f);
+            var (blipScale, blipAngle) = BlipLook();
+            bool blipping = _blipPhase != 0;
+            if (blipping || _blipShown)
+            {
+                _sprite.style.scale = new Scale(new Vector3(blipScale, blipScale, 1f));
+                _sprite.style.rotate = new Rotate(blipAngle);
+                _shadow.style.opacity = blipScale;
+                _blipShown = blipping;
+            }
             float shadowY = _position.y + _height + 2f;
             float lift = 1f - bob / (BobHeight * scale * 4f);
             _shadow.style.translate = new Translate(Mathf.Round(_position.x + _width * 0.275f), Mathf.Round(shadowY), 0f);
