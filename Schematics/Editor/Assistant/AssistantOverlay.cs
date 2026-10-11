@@ -191,6 +191,7 @@ namespace Remedy.Schematics.Assistant
                 window.rootVisualElement.Add(this);
                 window.rootVisualElement.RegisterCallback<KeyDownEvent>(OnHostKeyDown, TrickleDown.TrickleDown);
                 window.rootVisualElement.RegisterCallback<KeyUpEvent>(OnHostKeyUp, TrickleDown.TrickleDown);
+                window.rootVisualElement.RegisterCallback<PointerDownEvent>(OnHostPointerDown, TrickleDown.TrickleDown);
                 if (window is SchematicGraphEditorWindow graph)
                     _lastGraph = graph;
             }
@@ -221,6 +222,7 @@ namespace Remedy.Schematics.Assistant
             {
                 _host.rootVisualElement.UnregisterCallback<KeyDownEvent>(OnHostKeyDown, TrickleDown.TrickleDown);
                 _host.rootVisualElement.UnregisterCallback<KeyUpEvent>(OnHostKeyUp, TrickleDown.TrickleDown);
+                _host.rootVisualElement.UnregisterCallback<PointerDownEvent>(OnHostPointerDown, TrickleDown.TrickleDown);
             }
             RemoveFromHierarchy();
             _host = null;
@@ -293,6 +295,22 @@ namespace Remedy.Schematics.Assistant
             _bubble.style.display = DisplayStyle.None;
             Add(_bubble);
 
+            // A little nameplate on top of the bubble, so everyone knows who's talking.
+            _bubble.style.marginTop = 0;
+            _bubble.style.paddingTop = 12;
+            var nameplate = new Label("Sprocket") { name = "assistant-nameplate", pickingMode = PickingMode.Ignore };
+            nameplate.style.position = Position.Absolute;
+            nameplate.style.top = -9;
+            nameplate.style.left = 10;
+            nameplate.style.paddingLeft = 7; nameplate.style.paddingRight = 7;
+            nameplate.style.paddingTop = 1; nameplate.style.paddingBottom = 2;
+            nameplate.style.fontSize = 10;
+            nameplate.style.unityFontStyleAndWeight = FontStyle.Bold;
+            nameplate.style.color = Color.white;
+            nameplate.style.backgroundColor = edge;
+            SetRadius(nameplate, 6);
+            _bubble.Add(nameplate);
+
             _bubbleText = new Label { enableRichText = true };
             _bubbleText.style.whiteSpace = WhiteSpace.Normal;
             _bubbleText.style.color = dark ? new Color(0.92f, 0.9f, 1f) : new Color(0.15f, 0.12f, 0.25f);
@@ -306,8 +324,6 @@ namespace Remedy.Schematics.Assistant
             _bubble.RegisterCallback<GeometryChangedEvent>(_ => Place(force: true));
 
             _sprite.RegisterCallback<PointerDownEvent>(OnPointerDown);
-            _sprite.RegisterCallback<PointerMoveEvent>(OnPointerMove);
-            _sprite.RegisterCallback<PointerUpEvent>(OnPointerUp);
             _sprite.AddManipulator(new ContextualMenuManipulator(evt =>
             {
                 evt.menu.AppendAction("Ask…", _ => OpenInput());
@@ -323,10 +339,35 @@ namespace Remedy.Schematics.Assistant
             AssistantInstaller.Finished += OnInstallFinished;
 
             _lastTick = EditorApplication.timeSinceStartup;
+            _lastFocused = EditorWindow.focusedWindow;
             schedule.Execute(Tick).Every(TickMs);
         }
 
         #region Keys
+
+        // A click anywhere but the bubble (or Sprocket) puts the bubble away.
+        private void OnHostPointerDown(PointerDownEvent evt)
+        {
+            if (_bubble.style.display == DisplayStyle.None || _mood == Mood.Listening)
+                return;
+            var target = evt.target as VisualElement;
+            if (target != null && (target == _bubble || _bubble.Contains(target) || target == _sprite))
+                return;
+            HideBubble();
+        }
+
+        // ...and so does clicking into another window.
+        private EditorWindow _lastFocused;
+
+        private void HideOnFocusChange()
+        {
+            var focused = EditorWindow.focusedWindow;
+            if (focused == _lastFocused)
+                return;
+            _lastFocused = focused;
+            if (focused != null && focused != _host && !_pressed && !Busy && _mood != Mood.Listening && _bubble.style.display != DisplayStyle.None)
+                HideBubble();
+        }
 
         private void OnHostKeyDown(KeyDownEvent evt)
         {
@@ -603,55 +644,127 @@ namespace Remedy.Schematics.Assistant
             return _flight.Task;
         }
 
+        // A drag is followed from the window it started in: while the button is held, the system keeps sending that
+        // window the mouse, even over other windows. So Sprocket can move into whichever window is under the pointer
+        // right away, while the drag carries on.
+        private VisualElement _dragRoot;
+        private EditorWindow _dragWindow;
+        private int _dragPointer;
+
         private void OnPointerDown(PointerDownEvent evt)
         {
-            if (evt.button != 0)
+            if (evt.button != 0 || _host == null)
                 return;
             _pressed = true;
             _dragging = false;
             _dragOffset = (Vector2)evt.localPosition;
-            _sprite.CapturePointer(evt.pointerId);
+            _dragWindow = _host;
+            _dragRoot = _host.rootVisualElement;
+            _dragPointer = evt.pointerId;
+            _dragRoot.CapturePointer(evt.pointerId);
+            _dragRoot.RegisterCallback<PointerMoveEvent>(OnDragMove);
+            _dragRoot.RegisterCallback<PointerUpEvent>(OnDragUp);
+            _dragRoot.RegisterCallback<PointerCaptureOutEvent>(OnDragLost);
             evt.StopPropagation();
         }
 
-        private void OnPointerMove(PointerMoveEvent evt)
+        // The pointer in screen space (from the window the drag started in).
+        private Vector2 ScreenPoint(IPointerEvent evt) => _dragWindow.position.position + (Vector2)_dragRoot.WorldToLocal(evt.position);
+
+        private void OnDragMove(PointerMoveEvent evt)
         {
-            if (!_pressed || !_sprite.HasPointerCapture(evt.pointerId) || Busy)
+            if (!_pressed || Busy || _dragWindow == null)
                 return;
-            var local = (Vector2)this.WorldToLocal(evt.position) - _dragOffset;
-            if (!_dragging && Vector2.Distance(local, _position) < 4f)
+            Vector2 screen = ScreenPoint(evt) - _dragOffset;
+            if (!_dragging && _host != null && Vector2.Distance(screen - _host.position.position, _position) < 4f)
                 return;
             _dragging = true;
-            // Free inside this window; past its edge it waits there until you let go over another window.
-            _position = Clamp(local);
-            Place(force: true);
+
+            // Over another window: move into it now.
+            var under = WindowAt(ScreenPoint(evt));
+            if (under != null && under != _host)
+            {
+                HopTo(under, screen - under.position.position);
+                under.Repaint();
+            }
+            else if (_host != null)
+            {
+                _position = Clamp(screen - _host.position.position);
+                Place(force: true);
+                if (_host != _dragWindow) _host.Repaint();
+            }
             evt.StopPropagation();
         }
 
-        private void OnPointerUp(PointerUpEvent evt)
+        private void OnDragUp(PointerUpEvent evt)
         {
-            if (!_sprite.HasPointerCapture(evt.pointerId))
+            if (!_pressed)
                 return;
-            _sprite.ReleasePointer(evt.pointerId);
-            _pressed = false;
-            if (_dragging)
-            {
-                // Dropped over another window: move there, under the pointer.
-                var over = EditorWindow.mouseOverWindow;
-                if (over != null && over != _host && _host != null)
-                {
-                    Vector2 screen = _host.position.position + (Vector2)this.WorldToLocal(evt.position) - _dragOffset;
-                    HopTo(over, screen - over.position.position);
-                }
-                else
-                    Remember();
-            }
+            bool dragged = _dragging;
+            EndDrag();
+            if (dragged)
+                Remember();
             else if (_mood == Mood.Listening) { }
             else if (Busy) Cancel();
             else if (_input.style.display == DisplayStyle.Flex) { _input.style.display = DisplayStyle.None; HideBubble(); }
             else OpenInput();
-            _dragging = false;
             evt.StopPropagation();
+        }
+
+        private void OnDragLost(PointerCaptureOutEvent evt)
+        {
+            if (_pressed)
+            {
+                EndDrag();
+                Remember();
+            }
+        }
+
+        private void EndDrag()
+        {
+            _pressed = false;
+            _dragging = false;
+            if (_dragRoot != null)
+            {
+                _dragRoot.UnregisterCallback<PointerMoveEvent>(OnDragMove);
+                _dragRoot.UnregisterCallback<PointerUpEvent>(OnDragUp);
+                _dragRoot.UnregisterCallback<PointerCaptureOutEvent>(OnDragLost);
+                if (_dragRoot.HasPointerCapture(_dragPointer))
+                    _dragRoot.ReleasePointer(_dragPointer);
+            }
+            _dragRoot = null;
+            _dragWindow = null;
+        }
+
+        /// <summary>The editor window showing at a screen point (the visible tab, if several are docked there).</summary>
+        private static EditorWindow WindowAt(Vector2 screen)
+        {
+            var over = EditorWindow.mouseOverWindow;
+            if (over != null && over.position.Contains(screen))
+                return over;
+            EditorWindow found = null;
+            foreach (var window in Resources.FindObjectsOfTypeAll<EditorWindow>())
+            {
+                if (!window.position.Contains(screen) || !IsShownTab(window))
+                    continue;
+                // Floating windows sit above docked ones; the focused one above the rest.
+                if (found == null || window == EditorWindow.focusedWindow || (!window.docked && found.docked))
+                    found = window;
+            }
+            return found;
+        }
+
+        private static readonly System.Reflection.FieldInfo _parentField =
+            typeof(EditorWindow).GetField("m_Parent", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+        // A docked window is only showing if it's its dock area's current tab.
+        private static bool IsShownTab(EditorWindow window)
+        {
+            var parent = _parentField?.GetValue(window);
+            if (parent == null)
+                return false;
+            var actualView = parent.GetType().GetProperty("actualView", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+            return actualView == null || ReferenceEquals(actualView.GetValue(parent), window);
         }
 
         #endregion
@@ -669,6 +782,7 @@ namespace Remedy.Schematics.Assistant
                 return;
             _time += dt;
 
+            HideOnFocusChange();
             var focused = EditorWindow.focusedWindow as SchematicGraphEditorWindow;
             if (focused != null)
                 _lastGraph = focused;
