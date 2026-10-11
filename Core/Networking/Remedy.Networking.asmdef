@@ -2,13 +2,14 @@
     "name": "Remedy.Networking",
     "rootNamespace": "Remedy.Networking",
     "references": [
-        "Unity.Netcode.Runtime",
+        "GUID:1491147abca9d7d4bb7105af628b223e",
         "GUID:9cef1c0784dad074282847b193c0d47b",
         "GUID:0a22d72520a82174ab746de6d8876564",
         "GUID:6082862122ef11a49bf208ee4ec62519",
         "GUID:dff8ecec7c9808447ae4528f8a364918",
         "GUID:8a4abcc8263c46c4a9aaeaa2747ac62c",
-        "GUID:2c3472ea9a5b43d3ae42d904816ba305"
+        "GUID:2c3472ea9a5b43d3ae42d904816ba305",
+        "GUID:c61f7966d20e38f45989bde55b098f00"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
