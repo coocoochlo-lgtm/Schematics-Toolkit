@@ -1,117 +1,286 @@
 using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEditor;
 using UnityEditor.ShortcutManagement;
+using UnityEditorInternal;
 using UnityEngine;
 using UnityEngine.UIElements;
 
 namespace Remedy.Schematics.Assistant
 {
     /// <summary>
-    /// Sprocket, the assistant: a little robot floating over a Schematic Graph window. Click it to type a request, or
-    /// hold Q to say one. It tells you what it's going to do, then flies around the graph doing it. Drag it anywhere
-    /// while it's idle; Esc stops it mid-task.
+    /// Sprocket, the assistant: a little robot that floats over any editor window. Click it to type a request, or hold
+    /// Q to say one. It tells you what it's going to do, then hops into the graph and flies around doing it. Drag it
+    /// anywhere while it's idle (drop it over another window to move it there); Esc stops it mid-task.
+    /// <para>
+    /// Kept light: it's one sprite moved with a transform (no layout), animated a few times a second, and it stops
+    /// animating while the editor isn't in focus.
+    /// </para>
     /// </summary>
     internal sealed class AssistantOverlay : VisualElement
     {
         public enum Mood { Idle, Listening, Thinking, Working, Talking, Confused }
 
-        private const float Width = 64f, Height = 76f;
-        private const string HomeKey = "Schematics.Assistant.Home";
+        private const string HostKey = "Schematics.Assistant.Host";
+        private const string PositionKey = "Schematics.Assistant.Position";
+        private const int TickMs = 33;          // ~30 updates a second, and only while the editor has focus
+        private const float BobHeight = 3f, BobSpeed = 2.2f;
 
-        private readonly SchematicGraphEditorWindow _window;
-        private readonly VisualElement _bot, _antennaBall, _leftEye, _rightEye, _mouth, _shadow;
-        private readonly VisualElement _bubble;
+        /// <summary>The one Sprocket, wherever it is (null when hidden).</summary>
+        public static AssistantOverlay Instance { get; private set; }
+
+        private EditorWindow _host;
+        private readonly VisualElement _sprite, _shadow, _bubble;
         private readonly Label _bubbleText;
         private readonly TextField _input;
+        private readonly float _width, _height;
 
         private Mood _mood = Mood.Idle;
-        private Vector2 _position;           // top-left, in the window root's space
+        private Vector2 _position;           // top-left, in the host window's root space
         private Vector2 _flyFrom, _flyTo;
         private float _flyTime = -1f, _flyDuration;
         private TaskCompletionSource<bool> _flight;
-        private float _time, _blinkAt = 3f, _hideBubbleAt = -1f;
-        private bool _dragging;
+        private float _time, _hideBubbleAt = -1f;
+        private bool _dragging, _pressed;
         private Vector2 _dragOffset;
         private CancellationTokenSource _work;
         private double _lastTick;
+        private Texture2D _shownFrame;
+        private Vector3 _shownTranslate = new(float.NaN, 0, 0);
+        private Color _shownTint;
+        private SchematicGraphEditorWindow _lastGraph;
 
         private bool Busy => _mood == Mood.Thinking || _mood == Mood.Working || _mood == Mood.Talking;
 
-        #region Attaching
-
-        /// <summary>Adds the assistant to a graph window (once).</summary>
-        public static AssistantOverlay Attach(SchematicGraphEditorWindow window)
+        /// <summary>The graph it works on: the one you used last.</summary>
+        public SchematicGraphEditorWindow GraphWindow
         {
-            if (window == null || !AssistantSettings.Enabled)
-                return null;
-            var existing = window.AssistantLayer.Q<AssistantOverlay>();
-            if (existing != null)
-                return existing;
-            var overlay = new AssistantOverlay(window);
-            window.AssistantLayer.Add(overlay);
-            // Out of the box: the first time it appears, it installs what it needs in the background.
-            AssistantInstaller.EnsureInstalled();
-            return overlay;
+            get
+            {
+                if (_lastGraph == null || _lastGraph.SchematicGraph == null)
+                    _lastGraph = Resources.FindObjectsOfTypeAll<SchematicGraphEditorWindow>().FirstOrDefault(w => w.SchematicGraph != null);
+                return _lastGraph;
+            }
         }
 
-        public static AssistantOverlay For(SchematicGraphEditorWindow window)
-            => window != null ? window.AssistantLayer.Q<AssistantOverlay>() : null;
+        #region Sprites
+
+        private static readonly Dictionary<string, Texture2D[]> _animations = new();
+
+        // Frames named sprocket_<name><number> in Resources/Textures/sprocket/<name>, in number order.
+        private static Texture2D[] Frames(string name)
+        {
+            if (_animations.TryGetValue(name, out var frames) && frames.Length > 0 && frames[0] != null)
+                return frames;
+            var pattern = new Regex($"^sprocket_{name}(\\d+)$");
+            frames = Resources.LoadAll<Texture2D>($"Textures/sprocket/{name}")
+                .Select(t => (texture: t, match: pattern.Match(t.name)))
+                .Where(f => f.match.Success)
+                .OrderBy(f => int.Parse(f.match.Groups[1].Value, CultureInfo.InvariantCulture))
+                .Select(f => f.texture)
+                .ToArray();
+            if (frames.Length == 0)
+                frames = Resources.LoadAll<Texture2D>($"Textures/sprocket/{name}").Take(1).ToArray();
+            foreach (var frame in frames)
+                frame.filterMode = FilterMode.Point; // crisp pixel art at any size
+            _animations[name] = frames;
+            return frames;
+        }
+
+        private (Texture2D[] frames, float fps) Animation => _mood switch
+        {
+            Mood.Thinking or Mood.Working => (Frames("thinking"), 12f),
+            Mood.Talking => (Frames("talking"), 8f),
+            Mood.Confused => (Frames("confused"), 1f),
+            _ => (Frames("idle"), 12f),
+        };
 
         #endregion
 
-        private AssistantOverlay(SchematicGraphEditorWindow window)
+        #region Attaching
+
+        /// <summary>
+        /// Shows Sprocket (once): in the given window, or wherever it was last time. Called when a graph window opens.
+        /// </summary>
+        public static AssistantOverlay Attach(EditorWindow window)
         {
-            _window = window;
+            if (!AssistantSettings.Enabled)
+                return null;
+            if (Instance != null)
+                return Instance;
+            var host = RememberedHost() ?? window;
+            if (host == null)
+                return null;
+            Instance = new AssistantOverlay();
+            Instance.HopTo(host, RememberedPosition(host));
+            // Out of the box: the first time it appears, it installs what it needs in the background.
+            AssistantInstaller.EnsureInstalled();
+            return Instance;
+        }
+
+        /// <summary>Brings Sprocket to a window (the focused one, from the menu).</summary>
+        public static void Summon(EditorWindow window)
+        {
+            if (window == null) return;
+            AssistantSettings.Enabled = true;
+            if (Instance == null)
+            {
+                Instance = new AssistantOverlay();
+                AssistantInstaller.EnsureInstalled();
+            }
+            var size = window.rootVisualElement.layout.size;
+            Instance.HopTo(window, float.IsNaN(size.x) ? new Vector2(40, 40) : new Vector2(size.x * 0.5f, size.y * 0.5f));
+        }
+
+        public static void Hide()
+        {
+            if (Instance == null) return;
+            var overlay = Instance;
+            Instance = null;
+            AssistantInstaller.Finished -= overlay.OnInstallFinished;
+            overlay.Detach();
+            overlay.RemoveFromHierarchy();
+        }
+
+        private static EditorWindow RememberedHost()
+        {
+            string type = SessionState.GetString(HostKey, "");
+            if (type.Length == 0) return null;
+            return Resources.FindObjectsOfTypeAll<EditorWindow>().FirstOrDefault(w => w.GetType().FullName == type);
+        }
+
+        private static Vector2 RememberedPosition(EditorWindow host)
+        {
+            var parts = SessionState.GetString(PositionKey, "").Split(',');
+            if (parts.Length == 2 && float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float x)
+                && float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float y))
+                return new Vector2(x, y);
+            var size = host != null ? host.rootVisualElement.layout.size : Vector2.zero;
+            return float.IsNaN(size.x) || size.x < 200 ? new Vector2(320, 60) : new Vector2(size.x - 100, size.y - 120);
+        }
+
+        private void Remember()
+        {
+            if (_host == null) return;
+            SessionState.SetString(HostKey, _host.GetType().FullName);
+            SessionState.SetString(PositionKey, string.Format(CultureInfo.InvariantCulture, "{0},{1}", _position.x, _position.y));
+        }
+
+        // After a script reload, Sprocket comes back where it was.
+        [InitializeOnLoadMethod]
+        private static void Restore() => EditorApplication.delayCall += () =>
+        {
+            if (Instance == null && AssistantSettings.Enabled && RememberedHost() != null)
+                Attach(null);
+        };
+
+        /// <summary>Moves into another window at a position in its root space (instantly).</summary>
+        public void HopTo(EditorWindow window, Vector2 position)
+        {
+            if (window == null)
+                return;
+            if (window != _host)
+            {
+                Detach();
+                _host = window;
+                window.rootVisualElement.Add(this);
+                window.rootVisualElement.RegisterCallback<KeyDownEvent>(OnHostKeyDown, TrickleDown.TrickleDown);
+                window.rootVisualElement.RegisterCallback<KeyUpEvent>(OnHostKeyUp, TrickleDown.TrickleDown);
+                if (window is SchematicGraphEditorWindow graph)
+                    _lastGraph = graph;
+            }
+            else
+                BringToFront();
+            _flyTime = -1f;
+            _flight?.TrySetResult(false);
+            _flight = null;
+            _position = position;
+            schedule.Execute(() => { _position = Clamp(_position); Place(force: true); Remember(); });
+            Place(force: true);
+            Remember();
+        }
+
+        /// <summary>Hops into a window (if it isn't there yet), entering from its nearest edge.</summary>
+        public void EnsureIn(EditorWindow window)
+        {
+            if (window == null || window == _host)
+                return;
+            // From the same screen spot, kept inside the new window.
+            Vector2 screen = _host != null ? _host.position.position + _position : window.position.center;
+            HopTo(window, screen - window.position.position);
+        }
+
+        private void Detach()
+        {
+            if (_host != null && _host.rootVisualElement != null)
+            {
+                _host.rootVisualElement.UnregisterCallback<KeyDownEvent>(OnHostKeyDown, TrickleDown.TrickleDown);
+                _host.rootVisualElement.UnregisterCallback<KeyUpEvent>(OnHostKeyUp, TrickleDown.TrickleDown);
+            }
+            RemoveFromHierarchy();
+            _host = null;
+        }
+
+        // If its window closes, it moves to another (a graph window if one is open) instead of vanishing.
+        private void OnDetached(DetachFromPanelEvent evt)
+        {
+            if (Instance != this || _rehoming)
+                return;
+            _rehoming = true;
+            EditorApplication.delayCall += () =>
+            {
+                _rehoming = false;
+                if (Instance != this || panel != null) return;
+                _host = null;
+                var next = (EditorWindow)GraphWindow ?? EditorWindow.focusedWindow;
+                if (next != null) HopTo(next, new Vector2(40, 40));
+            };
+        }
+
+        private bool _rehoming;
+
+        #endregion
+
+        private AssistantOverlay()
+        {
             name = "schematics-assistant";
             pickingMode = PickingMode.Ignore;
+            // A zero-size anchor at the window's top-left; everything inside is placed with transforms.
             style.position = Position.Absolute;
-            style.left = 0; style.top = 0; style.right = 0; style.bottom = 0;
+            style.left = 0;
+            style.top = 0;
+            style.width = 0;
+            style.height = 0;
+            style.overflow = Overflow.Visible;
+
+            var idle = Frames("idle");
+            float scale = Mathf.Max(1, AssistantSettings.SpriteScale);
+            _width = (idle.Length > 0 ? idle[0].width : 76) * scale;
+            _height = (idle.Length > 0 ? idle[0].height : 92) * scale;
 
             bool dark = EditorGUIUtility.isProSkin;
-            Color shell = new Color(0.78f, 0.70f, 0.96f);
-            Color shellEdge = new Color(0.47f, 0.38f, 0.72f);
-            Color screen = new Color(0.12f, 0.11f, 0.2f);
-            Color glow = new Color(0.45f, 0.95f, 0.95f);
+            Color edge = new Color(0.47f, 0.38f, 0.72f);
 
-            // The robot.
-            _bot = new VisualElement { name = "assistant-bot", tooltip = "Sprocket: click to ask, hold Q to talk, drag to move" };
-            _bot.style.position = Position.Absolute;
-            _bot.style.width = Width;
-            _bot.style.height = Height;
-            Add(_bot);
+            // A soft shadow below, so it reads as floating.
+            _shadow = new VisualElement { pickingMode = PickingMode.Ignore };
+            _shadow.style.position = Position.Absolute;
+            _shadow.style.width = _width * 0.45f;
+            _shadow.style.height = Mathf.Max(3f, 5f * scale);
+            _shadow.style.backgroundColor = new Color(0f, 0f, 0f, 0.22f);
+            SetRadius(_shadow, 6f * scale);
+            Add(_shadow);
 
-            _shadow = Box(new Rect(14, 70, 36, 6), new Color(0, 0, 0, 0.25f), 3);
-            _bot.Add(_shadow);
+            _sprite = new VisualElement { name = "assistant-sprite", tooltip = "Sprocket: click to ask, hold Q to talk, drag to move (drop on any window)" };
+            _sprite.style.position = Position.Absolute;
+            _sprite.style.width = _width;
+            _sprite.style.height = _height;
+            Add(_sprite);
 
-            var antenna = Box(new Rect(31, 4, 2, 12), shellEdge, 1);
-            _bot.Add(antenna);
-            _antennaBall = Box(new Rect(27, 0, 10, 10), new Color(1f, 0.55f, 0.75f), 5);
-            _bot.Add(_antennaBall);
-
-            var head = Box(new Rect(6, 14, 52, 44), shell, 16);
-            Border(head, shellEdge, 2);
-            _bot.Add(head);
-
-            var face = Box(new Rect(6, 7, 36, 24), screen, 9);
-            head.Add(face);
-            _leftEye = Box(new Rect(8, 6, 7, 10), glow, 3.5f);
-            _rightEye = Box(new Rect(21, 6, 7, 10), glow, 3.5f);
-            _mouth = Box(new Rect(14, 18, 8, 3), glow, 1.5f);
-            face.Add(_leftEye);
-            face.Add(_rightEye);
-            face.Add(_mouth);
-
-            // Little cheeks, for charm.
-            head.Add(Box(new Rect(2, 26, 6, 4), new Color(1f, 0.6f, 0.75f, 0.8f), 2));
-            head.Add(Box(new Rect(40, 26, 6, 4), new Color(1f, 0.6f, 0.75f, 0.8f), 2));
-
-            // Arms.
-            _bot.Add(Box(new Rect(0, 34, 8, 14), shellEdge, 4));
-            _bot.Add(Box(new Rect(56, 34, 8, 14), shellEdge, 4));
-
-            // Speech bubble and request field.
             _bubble = new VisualElement { name = "assistant-bubble", pickingMode = PickingMode.Position };
             _bubble.style.position = Position.Absolute;
             _bubble.style.maxWidth = 280;
@@ -119,7 +288,7 @@ namespace Remedy.Schematics.Assistant
             _bubble.style.paddingLeft = 10; _bubble.style.paddingRight = 10;
             _bubble.style.paddingTop = 7; _bubble.style.paddingBottom = 7;
             _bubble.style.backgroundColor = dark ? new Color(0.17f, 0.16f, 0.22f, 0.97f) : new Color(1f, 0.98f, 1f, 0.98f);
-            Border(_bubble, shellEdge, 1.5f);
+            Border(_bubble, edge, 1.5f);
             SetRadius(_bubble, 10);
             _bubble.style.display = DisplayStyle.None;
             Add(_bubble);
@@ -134,40 +303,68 @@ namespace Remedy.Schematics.Assistant
             _input.style.display = DisplayStyle.None;
             _input.RegisterCallback<KeyDownEvent>(OnInputKey, TrickleDown.TrickleDown);
             _bubble.Add(_input);
+            _bubble.RegisterCallback<GeometryChangedEvent>(_ => Place(force: true));
 
-            // Dragging and clicking.
-            _bot.RegisterCallback<PointerDownEvent>(OnPointerDown);
-            _bot.RegisterCallback<PointerMoveEvent>(OnPointerMove);
-            _bot.RegisterCallback<PointerUpEvent>(OnPointerUp);
-            _bot.AddManipulator(new ContextualMenuManipulator(evt =>
+            _sprite.RegisterCallback<PointerDownEvent>(OnPointerDown);
+            _sprite.RegisterCallback<PointerMoveEvent>(OnPointerMove);
+            _sprite.RegisterCallback<PointerUpEvent>(OnPointerUp);
+            _sprite.AddManipulator(new ContextualMenuManipulator(evt =>
             {
                 evt.menu.AppendAction("Ask…", _ => OpenInput());
                 evt.menu.AppendAction("Stop", _ => Cancel(), Busy ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
                 evt.menu.AppendAction("Preferences…", _ => SettingsService.OpenUserPreferences("Preferences/Schematics Assistant"));
                 evt.menu.AppendAction(AssistantServer.IsInstalled ? "Reinstall" : "Install", _ => { AssistantServer.Stop(); AssistantInstaller.Reinstall(); },
                     AssistantInstaller.IsInstalling ? DropdownMenuAction.Status.Disabled : DropdownMenuAction.Status.Normal);
-                evt.menu.AppendAction("Hide", _ => RemoveFromHierarchy());
+                evt.menu.AppendAction("Hide", _ => Hide());
                 evt.StopPropagation();
             }));
 
-            RegisterCallback<GeometryChangedEvent>(_ => ClampHome());
-            _window.AssistantLayer.RegisterCallback<KeyDownEvent>(evt =>
-            {
-                if (evt.keyCode == KeyCode.Escape && Busy)
-                {
-                    Cancel();
-                    evt.StopPropagation();
-                }
-            }, TrickleDown.TrickleDown);
-
+            RegisterCallback<DetachFromPanelEvent>(OnDetached);
             AssistantInstaller.Finished += OnInstallFinished;
-            RegisterCallback<DetachFromPanelEvent>(_ => AssistantInstaller.Finished -= OnInstallFinished);
 
-            _position = Home;
-            Place();
             _lastTick = EditorApplication.timeSinceStartup;
-            schedule.Execute(Tick).Every(16);
+            schedule.Execute(Tick).Every(TickMs);
         }
+
+        #region Keys
+
+        private void OnHostKeyDown(KeyDownEvent evt)
+        {
+            if (evt.keyCode == KeyCode.Escape && Busy)
+            {
+                Cancel();
+                evt.StopPropagation();
+                return;
+            }
+            // Push-to-talk outside graph windows (graph windows use the Q shortcut). Not in the Scene and Game views,
+            // where Q is a tool key, and not while typing.
+            if (PushToTalkHere(evt) && !_heldQ)
+            {
+                _heldQ = true;
+                BeginListening();
+                evt.StopPropagation();
+            }
+        }
+
+        private void OnHostKeyUp(KeyUpEvent evt)
+        {
+            if (evt.keyCode != KeyCode.Q || !_heldQ)
+                return;
+            _heldQ = false;
+            EndListening();
+            evt.StopPropagation();
+        }
+
+        private bool _heldQ;
+
+        private bool PushToTalkHere(KeyDownEvent evt)
+            => evt.keyCode == KeyCode.Q && !evt.ctrlKey && !evt.altKey && !evt.commandKey
+               && !(_host is SchematicGraphEditorWindow) && !(_host is SceneView)
+               && _host.GetType().Name != "GameView"
+               && !(evt.target is TextField) && (evt.target as VisualElement)?.GetFirstAncestorOfType<TextField>() == null
+               && !EditorGUIUtility.editingTextField;
+
+        #endregion
 
         #region Asking
 
@@ -259,7 +456,8 @@ namespace Remedy.Schematics.Assistant
             _work?.Dispose();
             _work = new CancellationTokenSource();
             var cancellation = _work.Token;
-            var home = Home;
+            var homeHost = _host;
+            var home = _position;
             _mood = Mood.Thinking;
             ShowBubble($"<i>“{Escape(utterance)}”</i>\nHmm, let me think…", seconds: -1);
 
@@ -271,7 +469,7 @@ namespace Remedy.Schematics.Assistant
                     return;
                 }
 
-                var context = new AssistantContext(_window);
+                var context = new AssistantContext(GraphWindow);
                 string json = await AssistantServer.AskAsync(utterance, context.Json, cancellation);
                 var reply = JsonUtility.FromJson<AssistantReply>(json) ?? new AssistantReply();
 
@@ -311,7 +509,11 @@ namespace Remedy.Schematics.Assistant
                     _mood = Mood.Idle;
             }
 
-            await FlyToAsync(home);
+            // Back to where it was before the task.
+            if (homeHost != null && homeHost != _host)
+                HopTo(homeHost, home);
+            else
+                await FlyToAsync(home);
         }
 
         public void Cancel()
@@ -372,38 +574,24 @@ namespace Remedy.Schematics.Assistant
 
         #region Moving
 
-        private Vector2 Home
+        private Vector2 HostSize
         {
             get
             {
-                string saved = SessionState.GetString(HomeKey, "");
-                var parts = saved.Split(',');
-                if (parts.Length == 2 && float.TryParse(parts[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float x)
-                    && float.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float y))
-                    return new Vector2(x, y);
-                var size = _window.AssistantLayer.layout.size;
-                return float.IsNaN(size.x) || size.x < 200 ? new Vector2(320, 60) : new Vector2(size.x - Width - 24, size.y - Height - 24);
+                var size = _host != null ? _host.rootVisualElement.layout.size : Vector2.zero;
+                return float.IsNaN(size.x) ? Vector2.zero : size;
             }
-            set => SessionState.SetString(HomeKey, string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0},{1}", value.x, value.y));
-        }
-
-        private void ClampHome()
-        {
-            if (Busy || _dragging || _flight != null)
-                return;
-            _position = Clamp(_position);
-            Place();
         }
 
         private Vector2 Clamp(Vector2 position)
         {
-            var size = _window.AssistantLayer.layout.size;
-            if (float.IsNaN(size.x) || size.x <= Width)
+            var size = HostSize;
+            if (size.x <= _width || size.y <= _height)
                 return position;
-            return new Vector2(Mathf.Clamp(position.x, 0, size.x - Width), Mathf.Clamp(position.y, 0, size.y - Height));
+            return new Vector2(Mathf.Clamp(position.x, 0, size.x - _width), Mathf.Clamp(position.y, 0, size.y - _height));
         }
 
-        /// <summary>Flies to a point (top-left of the robot, in the window root's space). Completes on arrival.</summary>
+        /// <summary>Flies to a point (top-left of the robot, in the host window's root space). Completes on arrival.</summary>
         public Task FlyToAsync(Vector2 target)
         {
             _flight?.TrySetResult(false);
@@ -419,32 +607,45 @@ namespace Remedy.Schematics.Assistant
         {
             if (evt.button != 0)
                 return;
+            _pressed = true;
             _dragging = false;
-            _dragOffset = (Vector2)evt.position - _bot.worldBound.position;
-            _bot.CapturePointer(evt.pointerId);
+            _dragOffset = (Vector2)evt.localPosition;
+            _sprite.CapturePointer(evt.pointerId);
             evt.StopPropagation();
         }
 
         private void OnPointerMove(PointerMoveEvent evt)
         {
-            if (!_bot.HasPointerCapture(evt.pointerId) || Busy)
+            if (!_pressed || !_sprite.HasPointerCapture(evt.pointerId) || Busy)
                 return;
-            var local = _window.AssistantLayer.WorldToLocal((Vector2)evt.position - _dragOffset);
+            var local = (Vector2)this.WorldToLocal(evt.position) - _dragOffset;
             if (!_dragging && Vector2.Distance(local, _position) < 4f)
                 return;
             _dragging = true;
+            // Free inside this window; past its edge it waits there until you let go over another window.
             _position = Clamp(local);
-            Place();
+            Place(force: true);
             evt.StopPropagation();
         }
 
         private void OnPointerUp(PointerUpEvent evt)
         {
-            if (!_bot.HasPointerCapture(evt.pointerId))
+            if (!_sprite.HasPointerCapture(evt.pointerId))
                 return;
-            _bot.ReleasePointer(evt.pointerId);
+            _sprite.ReleasePointer(evt.pointerId);
+            _pressed = false;
             if (_dragging)
-                Home = _position;
+            {
+                // Dropped over another window: move there, under the pointer.
+                var over = EditorWindow.mouseOverWindow;
+                if (over != null && over != _host && _host != null)
+                {
+                    Vector2 screen = _host.position.position + (Vector2)this.WorldToLocal(evt.position) - _dragOffset;
+                    HopTo(over, screen - over.position.position);
+                }
+                else
+                    Remember();
+            }
             else if (_mood == Mood.Listening) { }
             else if (Busy) Cancel();
             else if (_input.style.display == DisplayStyle.Flex) { _input.style.display = DisplayStyle.None; HideBubble(); }
@@ -462,7 +663,15 @@ namespace Remedy.Schematics.Assistant
             double now = EditorApplication.timeSinceStartup;
             float dt = Mathf.Min(0.1f, (float)(now - _lastTick));
             _lastTick = now;
+
+            // Nothing moves while the editor is in the background, so nothing redraws.
+            if (!InternalEditorUtility.isApplicationActive && _flyTime < 0f)
+                return;
             _time += dt;
+
+            var focused = EditorWindow.focusedWindow as SchematicGraphEditorWindow;
+            if (focused != null)
+                _lastGraph = focused;
 
             if (_flyTime >= 0f)
             {
@@ -489,83 +698,60 @@ namespace Remedy.Schematics.Assistant
                 if (_mood == Mood.Confused)
                     _mood = Mood.Idle;
             }
-
             if (AssistantInstaller.IsInstalling)
                 ShowInstallProgress();
 
-            Place();
-            AnimateFace();
-        }
-
-        private void AnimateFace()
-        {
-            // Blink now and then.
-            float eyeHeight = 10f;
-            if (_time >= _blinkAt)
+            // The current animation frame (only touched when it changes).
+            var (frames, fps) = Animation;
+            if (frames.Length > 0)
             {
-                float blink = (_time - _blinkAt) / 0.14f;
-                eyeHeight = blink < 1f ? Mathf.Lerp(10f, 1.5f, Mathf.Sin(blink * Mathf.PI)) : 10f;
-                if (blink >= 1f)
-                    _blinkAt = _time + UnityEngine.Random.Range(2.5f, 5.5f);
+                var frame = frames[(int)(_time * fps) % frames.Length];
+                if (frame != _shownFrame)
+                {
+                    _shownFrame = frame;
+                    _sprite.style.backgroundImage = frame;
+                }
             }
 
-            float lookX = 0f, lookY = 0f, mouthWidth = 8f;
-            Color ball = new Color(1f, 0.55f, 0.75f);
-            switch (_mood)
+            // Listening: a soft pink pulse.
+            Color tint = _mood == Mood.Listening ? Color.Lerp(Color.white, new Color(1f, 0.6f, 0.75f), 0.5f + 0.5f * Mathf.Sin(_time * 8f)) : Color.white;
+            if (tint != _shownTint)
             {
-                case Mood.Listening:
-                    ball = Color.Lerp(new Color(1f, 0.3f, 0.4f), new Color(1f, 0.75f, 0.8f), 0.5f + 0.5f * Mathf.Sin(_time * 10f));
-                    eyeHeight = Mathf.Max(eyeHeight, 11f);
-                    mouthWidth = 4f;
-                    break;
-                case Mood.Thinking:
-                    lookX = Mathf.Sin(_time * 3f) * 3f;
-                    lookY = -2f;
-                    ball = Color.Lerp(new Color(0.55f, 0.75f, 1f), Color.white, 0.5f + 0.5f * Mathf.Sin(_time * 6f));
-                    mouthWidth = 5f;
-                    break;
-                case Mood.Working:
-                    lookX = 2f;
-                    ball = new Color(0.55f, 1f, 0.7f);
-                    break;
-                case Mood.Talking:
-                    mouthWidth = 6f + 5f * Mathf.Abs(Mathf.Sin(_time * 14f));
-                    break;
-                case Mood.Confused:
-                    lookY = 1f;
-                    mouthWidth = 4f;
-                    ball = new Color(1f, 0.8f, 0.4f);
-                    break;
+                _shownTint = tint;
+                _sprite.style.unityBackgroundImageTintColor = tint;
             }
 
-            _leftEye.style.height = eyeHeight;
-            _rightEye.style.height = eyeHeight;
-            _leftEye.style.top = 6f + (10f - eyeHeight) / 2f + lookY;
-            _rightEye.style.top = 6f + (10f - eyeHeight) / 2f + lookY;
-            _leftEye.style.left = 8f + lookX;
-            _rightEye.style.left = 21f + lookX;
-            _mouth.style.width = mouthWidth;
-            _mouth.style.left = 18f - mouthWidth / 2f;
-            _antennaBall.style.backgroundColor = ball;
+            Place(force: false);
         }
 
-        private void Place()
+        /// <summary>
+        /// Positions everything with transforms (no layout). The bob moves in whole pixels of the sprite, so it only
+        /// changes a few times a second.
+        /// </summary>
+        private void Place(bool force)
         {
-            // Bob gently while hovering in place.
-            float bob = _flyTime < 0f && !_dragging ? Mathf.Sin(_time * 2.2f) * 3f : 0f;
-            _bot.style.left = _position.x;
-            _bot.style.top = _position.y + bob;
-            _shadow.style.top = 70f - bob;
-            _shadow.style.opacity = 0.6f + bob * 0.05f;
+            float scale = Mathf.Max(1, AssistantSettings.SpriteScale);
+            float bob = _flyTime < 0f && !_dragging ? Mathf.Round(Mathf.Sin(_time * BobSpeed) * BobHeight) * scale : 0f;
+            var translate = new Vector3(Mathf.Round(_position.x), Mathf.Round(_position.y + bob), 0f);
+            if (!force && translate == _shownTranslate)
+                return;
+            _shownTranslate = translate;
+
+            _sprite.style.translate = new Translate(translate.x, translate.y, 0f);
+            float shadowY = _position.y + _height + 2f;
+            float lift = 1f - bob / (BobHeight * scale * 4f);
+            _shadow.style.translate = new Translate(Mathf.Round(_position.x + _width * 0.275f), Mathf.Round(shadowY), 0f);
+            _shadow.style.scale = new Scale(new Vector3(lift, 1f, 1f));
 
             if (_bubble.style.display == DisplayStyle.None)
                 return;
-            var size = _window.AssistantLayer.layout.size;
+            var size = HostSize;
             float bubbleWidth = float.IsNaN(_bubble.layout.width) ? 220f : _bubble.layout.width;
             float bubbleHeight = float.IsNaN(_bubble.layout.height) ? 40f : _bubble.layout.height;
-            bool left = !float.IsNaN(size.x) && _position.x + Width + 8 + bubbleWidth > size.x;
-            _bubble.style.left = left ? _position.x - bubbleWidth - 6 : _position.x + Width + 6;
-            _bubble.style.top = Mathf.Max(4f, _position.y + 10 - bubbleHeight / 2f);
+            bool left = size.x > 0 && _position.x + _width + 8 + bubbleWidth > size.x;
+            float x = left ? _position.x - bubbleWidth - 6 : _position.x + _width + 6;
+            float y = Mathf.Max(4f, _position.y + _height * 0.3f - bubbleHeight / 2f);
+            _bubble.style.translate = new Translate(Mathf.Round(x), Mathf.Round(y), 0f);
         }
 
         private void ShowBubble(string text, float seconds)
@@ -573,6 +759,7 @@ namespace Remedy.Schematics.Assistant
             _bubbleText.text = text;
             _bubble.style.display = DisplayStyle.Flex;
             _hideBubbleAt = seconds > 0 ? _time + seconds : -1f;
+            Place(force: true);
         }
 
         private void HideBubble()
@@ -584,17 +771,6 @@ namespace Remedy.Schematics.Assistant
         #endregion
 
         #region Drawing helpers
-
-        private static VisualElement Box(Rect rect, Color color, float radius)
-        {
-            var box = new VisualElement { pickingMode = PickingMode.Ignore };
-            box.style.position = Position.Absolute;
-            box.style.left = rect.x; box.style.top = rect.y;
-            box.style.width = rect.width; box.style.height = rect.height;
-            box.style.backgroundColor = color;
-            SetRadius(box, radius);
-            return box;
-        }
 
         private static void SetRadius(VisualElement element, float radius)
         {
@@ -622,7 +798,7 @@ namespace Remedy.Schematics.Assistant
         private static void PushToTalk(ShortcutArguments args)
         {
             var window = args.context as SchematicGraphEditorWindow;
-            var overlay = AssistantOverlay.For(window) ?? AssistantOverlay.Attach(window);
+            var overlay = AssistantOverlay.Instance ?? AssistantOverlay.Attach(window);
             if (overlay == null)
                 return;
             if (args.stage == ShortcutStage.Begin) overlay.BeginListening();
@@ -653,6 +829,9 @@ namespace Remedy.Schematics.Assistant
             if (await AssistantServer.EnsureRunningAsync())
                 overlay?.OpenInput();
         }
+
+        [MenuItem(Menu + "Bring Sprocket Here", priority = 1)]
+        private static void BringHere() => AssistantOverlay.Summon(EditorWindow.focusedWindow ?? EditorWindow.mouseOverWindow);
 
         [MenuItem(Menu + "Reinstall", priority = 20)]
         private static void SetUp() { AssistantServer.Stop(); AssistantInstaller.Reinstall(); }

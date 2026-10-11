@@ -222,6 +222,7 @@ namespace Remedy.Schematics.Assistant
             }
             _lastPosition = position;
 
+            _overlay?.EnsureIn(Window);
             Window.AssistantShow(position);
             await Delay(0.25f, CancellationToken.None);
             if (_overlay != null)
@@ -231,6 +232,7 @@ namespace Remedy.Schematics.Assistant
 
         private async Task FlyToAsync(Node node)
         {
+            _overlay?.EnsureIn(Window);
             Window.AssistantShow(node.Position);
             await Delay(0.25f, CancellationToken.None);
             var rect = Window.RootRectOf(node);

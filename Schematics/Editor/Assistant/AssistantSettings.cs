@@ -22,6 +22,13 @@ namespace Remedy.Schematics.Assistant
             set => EditorPrefs.SetBool(Prefix + "AutoInstall", value);
         }
 
+        /// <summary>Sprocket's size: 1 = the sprite's own pixels, 2 = doubled, ...</summary>
+        public static int SpriteScale
+        {
+            get => EditorPrefs.GetInt(Prefix + "SpriteScale", 1);
+            set => EditorPrefs.SetInt(Prefix + "SpriteScale", value);
+        }
+
         public static int Port
         {
             get => EditorPrefs.GetInt(Prefix + "Port", 5317);
@@ -88,7 +95,14 @@ namespace Remedy.Schematics.Assistant
             guiHandler = searchContext =>
             {
                 EditorGUIUtility.labelWidth = 180;
-                Enabled = EditorGUILayout.Toggle(new GUIContent("Show in Graph Windows"), Enabled);
+                bool enabled = EditorGUILayout.Toggle(new GUIContent("Show Sprocket", "It appears with the first graph window, and stays wherever you drop it."), Enabled);
+                if (enabled != Enabled)
+                {
+                    Enabled = enabled;
+                    if (!enabled) AssistantOverlay.Hide();
+                }
+                int scale = EditorGUILayout.IntSlider(new GUIContent("Size", "Whole multiples keep the pixel art crisp. Applies the next time it appears."), SpriteScale, 1, 4);
+                if (scale != SpriteScale) SpriteScale = scale;
 
                 EditorGUILayout.Space();
                 EditorGUILayout.LabelField("Voice", EditorStyles.boldLabel);
