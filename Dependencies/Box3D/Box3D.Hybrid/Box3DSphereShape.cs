@@ -12,6 +12,9 @@ namespace Box3D.Hybrid
         [SerializeField, Min(0f), Tooltip("Sphere radius in local units.")]
         private float Radius = 0.5f;
 
+        /// <summary>Schematics addition: the radius in local units (before scale).</summary>
+        public float SphereRadius => Radius;
+
         protected override Shape CreateShape(Body body, float3 localPosition, quaternion localRotation, float3 scale)
         {
             return body.CreateSphereShape(BuildDef(), BuildSphere(localPosition, localRotation, scale));

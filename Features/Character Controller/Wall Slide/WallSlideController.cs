@@ -5,7 +5,7 @@ namespace Remedy.CharacterControllers.WallSlide
     /// <summary>
     /// Slides down walls the character moves into, and jumps off them. Input comes from the Motion Context's Signals.
     /// </summary>
-    [RequireComponent(typeof(Rigidbody))]
+    [RequireComponent(typeof(Box3D.Hybrid.Box3DBody))]
     [RequireBehavior(typeof(CharacterMotionContext), typeof(CharacterRaycastContext))]
     [SchematicBehaviorPath("Movement/3D/Wall Slide Controller")]
     public class WallSlideController : SchematicBehavior

@@ -1,9 +1,11 @@
+using Box3D.Hybrid;
+using Remedy.Box3DPhysics;
 using UnityEngine;
 
 namespace Remedy.LevelDesign
 {
     /// <summary>
-    /// Moves its object's Rigidbody to the position carried by the Respawn Signal.
+    /// Moves its object's Box3D body to the position carried by the Respawn Signal (stopping it there).
     /// </summary>
     [SchematicBehaviorPath("Level Design/Checkpoint Agent")]
     public class CheckpointAgent : SchematicBehavior
@@ -14,17 +16,17 @@ namespace Remedy.LevelDesign
 
         protected override void OnStart()
         {
-            var instance = Self;
             Respawn.Subscribe(position =>
             {
-                var rigidbody = instance.GetComponent<Rigidbody>();
-                if (rigidbody == null)
+                var body = Self.GetComponent<Box3DBody>();
+                if (body == null)
+                {
+                    Self.Transform.position = position;
                     return;
+                }
 
-                bool originallyKinematic = rigidbody.isKinematic;
-                rigidbody.isKinematic = true;
-                rigidbody.position = position;
-                rigidbody.isKinematic = originallyKinematic;
+                body.Teleport(position);
+                body.SetVelocity(Vector3.zero);
             });
         }
     }

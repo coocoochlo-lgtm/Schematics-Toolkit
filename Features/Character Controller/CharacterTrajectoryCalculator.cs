@@ -1,3 +1,4 @@
+using Remedy.Box3DPhysics;
 using Remedy.Framework;
 using UnityEngine;
 using System.Collections.Generic;
@@ -59,12 +60,12 @@ namespace Remedy.CharacterControllers
             if (raycastProperties == null)
                 return trajectoryPoints.ToArray();
 
-            Rigidbody rb = Instance.controller.GetComponent<Rigidbody>();
-            float mass = rb.mass;
+            float mass = Instance.controller.GetComponent<Box3D.Hybrid.Box3DBody>().GetMass();
 
             // Simulation parameters from controller
 
-            Vector3 baseGravity = (Physics.gravity * mass * 2f) + (Physics.gravity * mass * ((properties.FallSpeed + 1f))) ;
+            Vector3 worldGravity = SchematicPhysics.Gravity;
+            Vector3 baseGravity = (worldGravity * mass * 2f) + (worldGravity * mass * ((properties.FallSpeed + 1f))) ;
             Vector3 gravity = baseGravity;
             LayerMask terrainLayer = raycastProperties.CollisionMask;
 
@@ -148,13 +149,11 @@ namespace Remedy.CharacterControllers
             float rayLength,
             LayerMask terrainLayer)
         {
-            RaycastHit hit;
-            Ray ray = new Ray(position, Vector3.down);
-            bool hitGround = Physics.SphereCast(ray, 0.5f, out hit, rayLength, terrainLayer);
+            bool hitGround = SchematicPhysics.SphereCast(position, 0.5f, Vector3.down, out RaycastHit hit, out _, rayLength, terrainLayer);
 
             if (!hitGround)
             {
-                hitGround = Physics.SphereCast(ray, 0.15f, out hit, rayLength, terrainLayer);
+                hitGround = SchematicPhysics.SphereCast(position, 0.15f, Vector3.down, out hit, out _, rayLength, terrainLayer);
             }
 
             return (hitGround, hit);
@@ -176,12 +175,12 @@ namespace Remedy.CharacterControllers
             LayerMask wallLayer = raycastProperties != null ? raycastProperties.CollisionMask : (LayerMask)Physics.DefaultRaycastLayers;
             float wallSlideDistance = 2;
 
-            RaycastHit hit;
-            bool hitWall = Physics.SphereCast(
+            bool hitWall = SchematicPhysics.SphereCast(
                 position,
                 0.1f,
                 movementDirection,
-                out hit,
+                out RaycastHit hit,
+                out _,
                 wallSlideDistance,
                 wallLayer
             );

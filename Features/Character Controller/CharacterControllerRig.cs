@@ -1,3 +1,4 @@
+using Remedy.Box3DPhysics;
 using Remedy.CharacterControllers.Hover;
 using Remedy.CharacterControllers.LedgeGrab;
 using Remedy.CharacterControllers.WallSlide;
@@ -10,7 +11,7 @@ namespace Remedy.CharacterControllers
     /// and posing for whichever movement controller is enabled (Wall Slide, Hover, Ledge Grab, or the default).
     /// </summary>
     [SchematicBehaviorPath("Movement/3D/Character Controller Rig")]
-    [RequireComponent(typeof(Rigidbody))]
+    [RequireComponent(typeof(Box3D.Hybrid.Box3DBody))]
     public class CharacterControllerRig : SchematicBehavior
     {
         public readonly VariableHandle<LayerMask> CollisionLayer = (LayerMask)~0;
@@ -108,8 +109,7 @@ namespace Remedy.CharacterControllers
                 return;
 
             var transform = Self.Transform;
-            var rb = Self.GetComponent<Rigidbody>();
-            var velocity = rb.linearVelocity;
+            var velocity = Self.GetComponent<Box3D.Hybrid.Box3DBody>().GetVelocity();
             float dt = Time.deltaTime;
             float followSpeed = PositionFollowSpeed.Value;
             float turnDampening = TurnDamening.Value;
@@ -124,7 +124,7 @@ namespace Remedy.CharacterControllers
             var decal = ShadowDecal.Value;
             if (decal != null)
             {
-                if (Physics.Raycast(transform.position, Vector3.down, out RaycastHit hitInfo, 1000, CollisionLayer.Value))
+                if (SchematicPhysics.Raycast(transform.position, Vector3.down, out RaycastHit hitInfo, 1000, CollisionLayer.Value, Self.GetComponent<Box3D.Hybrid.Box3DBody>()))
                 {
                     float gap = Mathf.Clamp(hitInfo.distance / DecalScaleGap.Value, 0, DecalScaleGap.Value);
                     decal.SetFloat("_Scale", Mathf.Lerp(DecalMaxScale.Value, DecalMinScale.Value, gap));

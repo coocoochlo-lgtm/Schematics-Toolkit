@@ -44,6 +44,9 @@ public sealed class BehaviorRuntime
 
     /// <summary>True if the Behavior overrides any collision or trigger callback.</summary>
     public bool HasPhysicsCallbacks { get; }
+
+    /// <summary>Whether the Behavior overrides <see cref="SchematicBehavior.OnImpact"/>.</summary>
+    public bool HasImpactCallback { get; }
     /// <summary>True if the Behavior overrides OnCollisionStay or OnTriggerStay.</summary>
     public bool HasStayCallbacks { get; }
 
@@ -95,6 +98,7 @@ public sealed class BehaviorRuntime
         HasStayCallbacks = behavior.Overrides(nameof(SchematicBehavior.OnCollisionStay))
                         || behavior.Overrides(nameof(SchematicBehavior.OnTriggerStay));
         HasPhysicsCallbacks |= HasStayCallbacks;
+        HasImpactCallback = behavior.Overrides(nameof(SchematicBehavior.OnImpact));
     }
 
     public int IndexOfVariable(string name)
@@ -370,6 +374,31 @@ public sealed class BehaviorRuntime
     #endregion
 
     #region Physics
+
+    /// <summary>Delivers a physics impact to an enabled instance.</summary>
+    internal void DispatchImpact(BehaviorInstance instance, in Remedy.Schematics.PhysicsImpact impact)
+    {
+        if (!HasImpactCallback || !instance.Enabled || !instance.Started || !instance.IsSpawned)
+            return;
+
+        var previous = ExecutionContext.CurrentInstance;
+        var previousSelection = Behavior.Selected;
+        ExecutionContext.CurrentInstance = instance;
+        Behavior.Selected = instance;
+        try
+        {
+            Behavior.OnImpact(impact);
+        }
+        catch (Exception exception)
+        {
+            Debug.LogException(exception, instance.GameObject);
+        }
+        finally
+        {
+            ExecutionContext.CurrentInstance = previous;
+            Behavior.Selected = previousSelection;
+        }
+    }
 
     internal enum PhysicsMessage : byte
     {

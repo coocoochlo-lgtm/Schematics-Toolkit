@@ -5,7 +5,7 @@ namespace Remedy.CharacterControllers.Hover
     /// <summary>
     /// Flight: rises while there's Stamina, then hovers and plummets. Input comes from the Motion Context's Signals.
     /// </summary>
-    [RequireComponent(typeof(Rigidbody))]
+    [RequireComponent(typeof(Box3D.Hybrid.Box3DBody))]
     [RequireBehavior(typeof(CharacterMotionContext), typeof(CharacterRaycastContext))]
     [SchematicBehaviorPath("Movement/3D/Flight and Hover Controller")]
     public class HoverController : SchematicBehavior

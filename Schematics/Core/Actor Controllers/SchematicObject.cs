@@ -446,6 +446,26 @@ namespace Remedy.Schematics
         /// <summary>
         /// Sends a physics message to the enabled Behavior Instances attached to <paramref name="source"/>.
         /// </summary>
+        /// <summary>
+        /// Delivers a physics impact to the Behaviors attached to a GameObject (a Schematic Object or one of its
+        /// children). Called by physics bridges such as the Box3D impact relay.
+        /// </summary>
+        public static void SendImpact(GameObject target, in PhysicsImpact impact)
+        {
+            if (target == null)
+                return;
+            var owner = target.GetComponentInParent<SchematicObject>();
+            if (owner == null || owner._behaviorInstances == null)
+                return;
+
+            for (int i = 0; i < owner._behaviorInstances.Count; i++)
+            {
+                var instance = owner._behaviorInstances[i];
+                if (instance.GameObject == target)
+                    instance.Runtime.DispatchImpact(instance, impact);
+            }
+        }
+
         internal void ForwardPhysics(GameObject source, BehaviorRuntime.PhysicsMessage message, Collision collision, Collider other)
         {
             if (_behaviorInstances == null)

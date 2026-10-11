@@ -1,14 +1,18 @@
+using Box3D.Hybrid;
+using Remedy.Box3DPhysics;
+using Remedy.Schematics;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Applies forces, springs and gravity to a character's Rigidbody. Movement controllers on the same GameObject drive it
-/// through its methods (on the selected instance): <c>instance.GetSchematicBehavior&lt;CharacterMotionContext&gt;().ApplyForce(...)</c>.
+/// Applies forces, springs and gravity to a character's Box3D body. Movement controllers on the same GameObject drive it
+/// through its methods (on the selected instance): <c>Self.GetSchematicBehavior&lt;CharacterMotionContext&gt;().ApplyForce(...)</c>.
 /// </summary>
 [SchematicBehaviorPath("Movement/3D/Character Motion Context")]
-[RequireComponent(typeof(Rigidbody))]
-[RequireComponent(typeof(SphereCollider))]
+[RequireComponent(typeof(Box3DBody))]
+[RequireComponent(typeof(Box3DSphereShape))]
+[RequireComponent(typeof(SchematicImpactRelay))]
 public class CharacterMotionContext : SchematicBehavior
 {
     // IO
@@ -75,19 +79,32 @@ public class CharacterMotionContext : SchematicBehavior
     private readonly VariableHandle<bool> _isResting = false;
 
     private readonly VariableHandle<Vector3> _moveInput = Vector3.zero;
+    // The Box3D body is created in its own Awake, which may come after OnCreate: it's set up on the first physics step.
+    private readonly VariableHandle<bool> _bodyConfigured = false;
 
     private static float DeltaTime => Time.fixedDeltaTime;
 
     // Lifecycle
     protected override void OnCreate()
     {
-        var rb = Self.GetComponent<Rigidbody>();
-        rb.constraints = RigidbodyConstraints.FreezeRotation;
-        rb.useGravity = false;
-
+        // Friction and bounce from the Physics Material, applied to the Box3D shape.
         var properties = Properties.Value;
-        if (properties != null)
-            Self.GetComponent<SphereCollider>().sharedMaterial = properties.PhysicsMaterial;
+        var shape = Self.GetComponent<Box3DSphereShape>();
+        if (properties != null && properties.PhysicsMaterial != null && shape != null)
+        {
+            shape.SetFriction(properties.PhysicsMaterial.dynamicFriction);
+            shape.SetRestitution(properties.PhysicsMaterial.bounciness);
+        }
+    }
+
+    // Upright and gravity-free: this context applies gravity itself, along its own gravity direction.
+    private void ConfigureBody(Box3DBody body)
+    {
+        if (_bodyConfigured.Value || !body.IsLive())
+            return;
+        body.FreezeRotation();
+        body.SetGravityScale(0f);
+        _bodyConfigured.Value = true;
     }
 
     protected override void OnStart()
@@ -126,9 +143,10 @@ public class CharacterMotionContext : SchematicBehavior
         if (properties == null)
             return;
 
-        var rb = Self.GetComponent<Rigidbody>();
+        var body = Self.GetComponent<Box3DBody>();
+        ConfigureBody(body);
         var raycast = Self.GetSchematicBehavior<CharacterRaycastContext>();
-        rb.isKinematic = IsKinematic.Value;
+        body.SetKinematic(IsKinematic.Value);
 
         ref var velocity = ref _velocity.Ref;
         ref var horizontalVelocity = ref _horizontalVelocity.Ref;
@@ -201,13 +219,13 @@ public class CharacterMotionContext : SchematicBehavior
         // apply velocity
         if (!isResting)
         {
-            rb.WakeUp();
-            rb.linearVelocity = velocity;
+            body.WakeUp();
+            body.SetVelocity(velocity);
             OnMoveOnGround.Invoke(Self, horizontalVelocity);
         }
         else
         {
-            rb.Sleep();
+            body.Sleep();
             wallProjectedVelocity = Vector3.zero;
         }
 
@@ -216,43 +234,40 @@ public class CharacterMotionContext : SchematicBehavior
         Array.Clear(forces, 0, forces.Length);
     }
 
-    protected override void OnCollisionEnter(Collision collision)
+    // Box3D impacts (through the Schematic Impact Relay) push the character.
+    protected override void OnImpact(PhysicsImpact impact)
     {
         var properties = Properties.Value;
-        if (properties != null && _canBePushed.Value && collision.relativeVelocity.sqrMagnitude > properties.CollisionPushVelocityThreshold)
+        Vector3 push = impact.RelativeVelocity;
+        if (properties != null && _canBePushed.Value && push.sqrMagnitude > properties.CollisionPushVelocityThreshold)
         {
-            OnPushed.Value?.Invoke(collision.relativeVelocity);
-            _velocity.Value += collision.relativeVelocity * properties.CollisionPushInfluence;
+            OnPushed.Value?.Invoke(push);
+            _velocity.Value += push * properties.CollisionPushInfluence;
         }
     }
 
     // public api (acts on the selected instance)
 
     /// <summary>
-    /// Moves the Character to a specific position and forces the Rigidbody to Kinematic so that it can set the exact position of the Character without forces acting on it.
+    /// Moves the Character to a specific position and makes its body kinematic so that it holds the exact position without forces acting on it.
     /// </summary>
     /// <param name="position">The position to move to.</param>
-    /// <param name="canBePushed">Whether collisions from other objects can switch the Rigidbody out of Kinematic mode.</param>
+    /// <param name="canBePushed">Whether collisions from other objects can push the Character out of the locked position.</param>
     public void SetPositionLocked(Vector3 position, bool canBePushed = true)
     {
-        var rb = Selected.GetComponent<Rigidbody>();
-        rb.isKinematic = true;
-        rb.position = position;
+        var body = Selected.GetComponent<Box3DBody>();
+        body.SetKinematic(true);
+        body.Teleport(position);
         _canBePushed.Value = canBePushed;
     }
 
     public void SetRotationLocked(Quaternion rotation)
     {
-        var rb = Selected.GetComponent<Rigidbody>();
-        bool isKinematic = rb.isKinematic;
-
-        rb.isKinematic = true;
-        rb.rotation = rotation;
-        rb.isKinematic = isKinematic;
+        Selected.GetComponent<Box3DBody>().TeleportRotation(rotation);
     }
 
     /// <summary>
-    /// Applies the given force to the Rigidbody
+    /// Applies the given force to the character
     /// </summary>
     public void ApplyForce(Vector3 force, bool overrideOtherForces = false)
     {
@@ -290,13 +305,13 @@ public class CharacterMotionContext : SchematicBehavior
 
     public Vector3 PredictNextPosition()
     {
-        var rb = Selected.GetComponent<Rigidbody>();
-        return rb.position + rb.linearVelocity * DeltaTime * DeltaTime;
+        var body = Selected.GetComponent<Box3DBody>();
+        return Selected.Transform.position + body.GetVelocity() * DeltaTime * DeltaTime;
     }
 
     public void ApplyGravity()
     {
-        _velocity.Value += RotateByGravityDirection(Physics.gravity * DeltaTime);
+        _velocity.Value += RotateByGravityDirection(SchematicPhysics.Gravity * DeltaTime);
     }
 
     /// <summary>
@@ -330,7 +345,7 @@ public class CharacterMotionContext : SchematicBehavior
     }
 
     /// <summary>
-    /// Iterates through an array of positions to spring the rigidbody in a path
+    /// Iterates through an array of positions to spring the character along a path
     /// </summary>
     public void FollowSpringPath(float startPositionY, List<Vector3> path)
     {
@@ -340,7 +355,7 @@ public class CharacterMotionContext : SchematicBehavior
     }
 
     /// <summary>
-    /// Springs the Rigidbody toward the given position with the given force
+    /// Springs the character toward the given position with the given force
     /// </summary>
     public void SpringTo(float groundYPosition, Vector3 position, float strength, float damper, float maxForce)
     {
@@ -349,7 +364,7 @@ public class CharacterMotionContext : SchematicBehavior
     }
 
     /// <summary>
-    /// Springs the Rigidbody to the given HorizontalPosition
+    /// Springs the character to the given horizontal position
     /// </summary>
     public void SpringHorizontally(Vector3 targetPosition, float strength, float damper, float maxForce)
     {
@@ -362,7 +377,7 @@ public class CharacterMotionContext : SchematicBehavior
     }
 
     /// <summary>
-    /// Springs the Rigidbody to the given vertical position
+    /// Springs the character to the given vertical position
     /// </summary>
     public void SpringToVertically(float groundYPosition, float targetYPosition, float strength, float damper, float maxForce)
     {
@@ -374,10 +389,9 @@ public class CharacterMotionContext : SchematicBehavior
 
     public void TeleportToPosition(Vector3 position)
     {
-        var rb = Selected.GetComponent<Rigidbody>();
-        rb.isKinematic = true;
-        rb.position = position;
-        rb.isKinematic = false;
+        var body = Selected.GetComponent<Box3DBody>();
+        body.SetKinematic(false);
+        body.Teleport(position);
     }
 
     public void PoolJump()
@@ -443,15 +457,17 @@ public class CharacterMotionContext : SchematicBehavior
 
     protected override void OnDrawGizmos(BehaviorGizmoContext context)
     {
-        var rb = context.GetComponent<Rigidbody>();
-        var collider = context.GetComponent<SphereCollider>();
-        if (rb == null || collider == null)
+        var body = context.GetComponent<Box3DBody>();
+        var shape = context.GetComponent<Box3DSphereShape>();
+        if (body == null || shape == null)
             return;
 
         var position = context.Transform.position;
+        Vector3 bodyVelocity = body.GetVelocity();
+        Vector3 scale = context.Transform.lossyScale;
 
-        Gizmos.color = !rb.isKinematic ? new Color(0f, 0.3f, 1f, 0.75f) : new Color(1f, 0.3f, 0f, 0.75f);
-        Gizmos.DrawSphere(position + collider.center, collider.radius);
+        Gizmos.color = !body.IsKinematic() ? new Color(0f, 0.3f, 1f, 0.75f) : new Color(1f, 0.3f, 0f, 0.75f);
+        Gizmos.DrawSphere(position, shape.SphereRadius * Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z)));
 
         var instance = context.Instance;
         if (instance == null || !instance.IsSpawned)
@@ -471,10 +487,10 @@ public class CharacterMotionContext : SchematicBehavior
             var wallPosition = raycast.WallPosition[instance];
             Gizmos.color = Color.green;
             Gizmos.DrawLine(position, wallPosition);
-            CustomGizmos.DrawArrow(wallPosition, _wallProjectedVelocity[instance], rb.linearVelocity.magnitude, new Color(0, 1f, 0, 0.5f));
+            CustomGizmos.DrawArrow(wallPosition, _wallProjectedVelocity[instance], bodyVelocity.magnitude, new Color(0, 1f, 0, 0.5f));
         }
-        else if (rb.linearVelocity != Vector3.zero)
-            CustomGizmos.DrawArrow(position, rb.linearVelocity, rb.linearVelocity.magnitude * 0.5f, new Color(0, 1f, 0, 0.5f));
+        else if (bodyVelocity != Vector3.zero)
+            CustomGizmos.DrawArrow(position, bodyVelocity, bodyVelocity.magnitude * 0.5f, new Color(0, 1f, 0, 0.5f));
 
         CustomGizmos.DrawArrow(position, _moveInput[instance], 2f, new Color(1, 1f, 1, 0.5f));
     }

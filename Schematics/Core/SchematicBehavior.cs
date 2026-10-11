@@ -187,6 +187,13 @@ public abstract class SchematicBehavior
     protected internal virtual void OnTriggerStay(Collider other) { }
 
     /// <summary>
+    /// A physics impact on the instance's GameObject (from Box3D: a body hitting it faster than about 1 m/s; resting
+    /// and sliding contact doesn't fire). The object needs a Box3D body and a Schematic Impact Relay, which the
+    /// toolkit's physics Behaviors add for you.
+    /// </summary>
+    protected internal virtual void OnImpact(Remedy.Schematics.PhysicsImpact impact) { }
+
+    /// <summary>
     /// Creates a Behavior of the given type and collects the Variables its field initializers declared.
     /// </summary>
     public static SchematicBehavior Create(Type behaviorType)

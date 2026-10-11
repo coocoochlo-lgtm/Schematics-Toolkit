@@ -7,7 +7,7 @@ namespace Remedy.CharacterControllers.LedgeGrab
     /// <summary>
     /// Hangs from a ledge in front of the character, and clambers up it on jump. Input comes from the Motion Context's Signals.
     /// </summary>
-    [RequireComponent(typeof(Rigidbody))]
+    [RequireComponent(typeof(Box3D.Hybrid.Box3DBody))]
     [RequireBehavior(typeof(CharacterMotionContext), typeof(CharacterRaycastContext))]
     [SchematicBehaviorPath("Movement/3D/Ledge Grab Controller")]
     public class LedgeGrabController : SchematicBehavior

@@ -4,8 +4,9 @@ using UnityEngine;
 namespace Remedy.Framework
 {
     /// <summary>
-    /// Allocation-free wrapper around Physics casts that applies
-    /// common filtering logic and returns structured results.
+    /// Allocation-free wrapper around physics casts (Box3D, through <see cref="Remedy.Box3DPhysics.SchematicPhysics"/>) that
+    /// applies common filtering logic and returns structured results. Hits are RaycastHits carrying point, normal and
+    /// distance; the GameObject each hit belongs to is in <see cref="RaycastResult.HitObjects"/>.
     /// </summary>
     public static class RaycastUtility
     {
@@ -36,6 +37,10 @@ namespace Remedy.Framework
             public ReadOnlySpan<RaycastHit> Hits
                 => new ReadOnlySpan<RaycastHit>(s_ScratchBuffer, 0, HitCount);
 
+            /// <summary>The GameObject of each hit (its Box3D body's object; null for plain static geometry).</summary>
+            public ReadOnlySpan<GameObject> HitObjects
+                => new ReadOnlySpan<GameObject>(s_ObjectBuffer, 0, HitCount);
+
             /// <summary>Copies valid hits into a caller-provided array.</summary>
             public void CopyHits(RaycastHit[] target)
             {
@@ -47,10 +52,13 @@ namespace Remedy.Framework
         // Shared scratch buffer reused per thread.
         [ThreadStatic]
         private static RaycastHit[] s_ScratchBuffer;
+        [ThreadStatic]
+        private static GameObject[] s_ObjectBuffer;
 
         static RaycastUtility()
         {
             s_ScratchBuffer = new RaycastHit[MaxHitCapacity];
+            s_ObjectBuffer = new GameObject[MaxHitCapacity];
         }
 
         /// <summary>
@@ -69,17 +77,23 @@ namespace Remedy.Framework
         {
             if (s_ScratchBuffer == null)
                 s_ScratchBuffer = new RaycastHit[MaxHitCapacity];
+            if (s_ObjectBuffer == null)
+                s_ObjectBuffer = new GameObject[MaxHitCapacity];
 
             RaycastResult result = default;
             result.ClosestHitIndex = -1;
 
-            int hitCount = Physics.SphereCastNonAlloc(
+            // The caster's own body is skipped by the query.
+            var ignore = source != null ? source.GetComponentInParent<Box3D.Hybrid.Box3DBody>() : null;
+            int hitCount = Remedy.Box3DPhysics.SchematicPhysics.SphereCastAll(
                 origin -= direction * (radius * 0.5f),
                 radius,
                 direction,
-                s_ScratchBuffer,
                 distance,
-                mask
+                mask,
+                s_ScratchBuffer,
+                s_ObjectBuffer,
+                ignore
             );
 
             float minDot = (minAngleDeg > 0) ? Mathf.Cos(minAngleDeg * Mathf.Deg2Rad) : -1f;
@@ -91,8 +105,9 @@ namespace Remedy.Framework
             for (int i = 0; i < hitCount && validCount < MaxHitCapacity; i++)
             {
                 var hit = s_ScratchBuffer[i];
+                var hitObject = s_ObjectBuffer[i];
 
-                if (hit.transform == null || hit.transform == source) continue;
+                if (hitObject != null && source != null && hitObject.transform == source) continue;
                 if (hit.distance > validDistance) continue;
                 if (hit.point == default) continue;
 
@@ -109,6 +124,7 @@ namespace Remedy.Framework
                 }
 
                 // Store valid hit compacted in front
+                s_ObjectBuffer[validCount] = hitObject;
                 s_ScratchBuffer[validCount++] = hit;
             }
 

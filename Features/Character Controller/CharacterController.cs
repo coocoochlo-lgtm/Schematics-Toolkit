@@ -7,7 +7,7 @@ using UnityEngine;
 /// Input arrives through the Motion Context's MoveInput and JumpInput Signals.
 /// </summary>
 [SchematicBehaviorPath("Movement/3D/Default Character Controller")]
-[RequireComponent(typeof(Rigidbody))]
+[RequireComponent(typeof(Box3D.Hybrid.Box3DBody))]
 [RequireBehavior(typeof(CharacterMotionContext), typeof(CharacterRaycastContext))]
 public class PhysicsBasedCharacterController : SchematicBehavior
 {
