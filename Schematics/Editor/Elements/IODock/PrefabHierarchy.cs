@@ -831,7 +831,7 @@ public class PrefabHierarchy : VisualElement
                                        }));
     }
 
-    private void AddBehavior(string path, Type behaviorType)
+    internal void AddBehavior(string path, Type behaviorType)
     {
         // Metadata first: attaching needs it, and generating it touches the asset database.
         if (BehaviorMetadataGenerator.GetOrCreate(behaviorType) == null)

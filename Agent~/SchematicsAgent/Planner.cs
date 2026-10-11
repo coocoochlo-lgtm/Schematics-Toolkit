@@ -24,7 +24,7 @@ public sealed class Planner
         ["add_signal_node"] = "id, behavior, signal, mode (send|receive), path (object path, \"\" for the root), x, y",
         ["add_variable_node"] = "id, behavior, variable, mode (get|set), path, x, y",
         ["add_behavior_node"] = "id, behavior, path, x, y",
-        ["connect"] = "from (node id), from_port (\"\" for flow), to (node id), to_port (\"\" for flow)",
+        ["connect"] = "from (node id), from_port (\"flow\" for the flow arrow, or an output's name), to (node id), to_port (\"flow\" or an input's name)",
         ["set_value"] = "node, field, value",
         ["move_node"] = "node, x, y",
         ["delete_node"] = "node",
@@ -48,7 +48,7 @@ public sealed class Planner
     private static string ActorRules() =>
         "Turn the plan into editor commands, as a JSON array. Allowed ops and their fields:\n" +
         string.Join("\n", Ops.Select(op => $"- {op.Key}: {op.Value}")) +
-        "\nNew nodes get an id you choose (like \"a\", \"b\") that later commands can use. Place new nodes to the right " +
+        "\nFlow arrows run from an event or action node's \"flow\" output to the next action's \"flow\" input; value ports pass data. New nodes get an id you choose (like \"a\", \"b\") that later commands can use. Place new nodes to the right " +
         "of the nodes they follow (x + 300). Use only names and ids from the state. Output [] if there's nothing to do.";
 
     private const string ReaderGrammar = """

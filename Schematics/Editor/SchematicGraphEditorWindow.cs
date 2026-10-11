@@ -19,7 +19,7 @@ using UnityEngine.UIElements;
 /// Provides a visual interface for creating and managing schematic graphs with drag-and-drop functionality,
 /// event management, and real-time validation of flow connections.
 /// </summary>
-public class SchematicGraphEditorWindow : GraphEditorWindow
+public partial class SchematicGraphEditorWindow : GraphEditorWindow
 {
     internal string GlobalPath
     {
@@ -369,6 +369,9 @@ public class SchematicGraphEditorWindow : GraphEditorWindow
         RefreshDebugState(frame: false);
 
         if (!alreadyUpdated) Reload();
+
+        // Sprocket, the assistant (Preferences > Schematics Assistant).
+        Remedy.Schematics.Assistant.AssistantOverlay.Attach(this);
 
         Profiler.StopTracking(loadProcess);
 
@@ -943,7 +946,7 @@ public class SchematicGraphEditorWindow : GraphEditorWindow
 
     private T NewNode<T>() where T : Node => (T)NodeReflection.GetNodeTypes()[typeof(T).Name].CreateInstance();
 
-    private void CreateInvokeNode(SignalData signalAsset, Vector2 position)
+    private Node CreateInvokeNode(SignalData signalAsset, Vector2 position)
     {
         var node = NewNode<SendSignalNode>();
         node.Signal = signalAsset;
@@ -951,9 +954,10 @@ public class SchematicGraphEditorWindow : GraphEditorWindow
         SyncSignalPorts(node, signalAsset, PortDirection.Input);
         Canvas.AddNodeFromSearch(node, this.position.position + position, null);
         RedrawGraphIO();
+        return node;
     }
 
-    private void CreateOnInvokeNode(SignalData signalAsset, Vector2 position)
+    private Node CreateOnInvokeNode(SignalData signalAsset, Vector2 position)
     {
         var node = NewNode<OnSignalReceivedNode>();
         node.Signal = signalAsset;
@@ -961,9 +965,10 @@ public class SchematicGraphEditorWindow : GraphEditorWindow
         SyncSignalPorts(node, signalAsset, PortDirection.Output);
         Canvas.AddNodeFromSearch(node, this.position.position + position, null);
         RedrawGraphIO();
+        return node;
     }
 
-    private void CreateVariableNode(DockItem item, Vector2 position, bool set)
+    private Node CreateVariableNode(DockItem item, Vector2 position, bool set)
     {
         BehaviorNodeBase node;
         if (set)
@@ -984,9 +989,10 @@ public class SchematicGraphEditorWindow : GraphEditorWindow
         SyncBehaviorNodePorts(node);
         Canvas.AddNodeFromSearch(node, this.position.position + position, null);
         RedrawGraphIO();
+        return node;
     }
 
-    private void CreateBehaviorNode(DockItem item, Vector2 position)
+    private Node CreateBehaviorNode(DockItem item, Vector2 position)
     {
         var node = NewNode<BehaviorReferenceNode>();
         node.Target = new BehaviorTarget(item.Behavior, item.Path);
@@ -994,15 +1000,17 @@ public class SchematicGraphEditorWindow : GraphEditorWindow
         node.RebuildPorts();
         Canvas.AddNodeFromSearch(node, this.position.position + position, null);
         RedrawGraphIO();
+        return node;
     }
 
-    private void CreatePrefabObjectNode(DockItem item, Vector2 position)
+    private Node CreatePrefabObjectNode(DockItem item, Vector2 position)
     {
         var node = NewNode<PrefabObjectNode>();
         node.Path = item.Path;
         node.Name = item.GameObject != null ? item.GameObject.name : "Prefab Object";
         Canvas.AddNodeFromSearch(node, this.position.position + position, null);
         RedrawGraphIO();
+        return node;
     }
 
     #region Port syncing
