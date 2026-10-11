@@ -7,3 +7,7 @@ models/
 
 # The assistant server is a real .NET project, not a Unity-generated one.
 !SchematicsAgent.csproj
+.dotnet/
+dotnet-path.txt
+install-status.txt
+setup.log

@@ -51,6 +51,8 @@ namespace Remedy.Schematics.Assistant
                 return existing;
             var overlay = new AssistantOverlay(window);
             window.AssistantLayer.Add(overlay);
+            // Out of the box: the first time it appears, it installs what it needs in the background.
+            AssistantInstaller.EnsureInstalled();
             return overlay;
         }
 
@@ -142,6 +144,8 @@ namespace Remedy.Schematics.Assistant
                 evt.menu.AppendAction("Ask…", _ => OpenInput());
                 evt.menu.AppendAction("Stop", _ => Cancel(), Busy ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
                 evt.menu.AppendAction("Preferences…", _ => SettingsService.OpenUserPreferences("Preferences/Schematics Assistant"));
+                evt.menu.AppendAction(AssistantServer.IsInstalled ? "Reinstall" : "Install", _ => { AssistantServer.Stop(); AssistantInstaller.Reinstall(); },
+                    AssistantInstaller.IsInstalling ? DropdownMenuAction.Status.Disabled : DropdownMenuAction.Status.Normal);
                 evt.menu.AppendAction("Hide", _ => RemoveFromHierarchy());
                 evt.StopPropagation();
             }));
@@ -155,6 +159,9 @@ namespace Remedy.Schematics.Assistant
                     evt.StopPropagation();
                 }
             }, TrickleDown.TrickleDown);
+
+            AssistantInstaller.Finished += OnInstallFinished;
+            RegisterCallback<DetachFromPanelEvent>(_ => AssistantInstaller.Finished -= OnInstallFinished);
 
             _position = Home;
             Place();
@@ -316,9 +323,41 @@ namespace Remedy.Schematics.Assistant
         private void SetupNeeded()
         {
             _mood = Mood.Confused;
-            ShowBubble(AssistantServer.IsInstalled
-                ? "My server didn't start. Check the Console for why."
-                : "I'm not set up yet! <b>Tools > Remedy > Schematics > Assistant > Set Up</b> downloads my models (about 1.6 GB).", 10f);
+            if (AssistantInstaller.IsInstalling)
+                ShowBubble($"I'm still getting set up! {Escape(AssistantInstaller.Progress)}", 5f);
+            else if (AssistantServer.IsInstalled)
+                ShowBubble("My server didn't start. Check the Console for why.", 8f);
+            else
+                ShowBubble("My setup didn't finish. Check the Console, then right-click me and pick <b>Reinstall</b>.", 10f);
+        }
+
+        // Install progress, while nothing else is going on.
+        private string _lastProgress;
+
+        private void ShowInstallProgress()
+        {
+            if (Busy || _mood == Mood.Listening || _input.style.display == DisplayStyle.Flex)
+                return;
+            string progress = AssistantInstaller.Progress;
+            if (progress == null || progress == _lastProgress)
+                return;
+            _lastProgress = progress;
+            int percent = Mathf.RoundToInt(AssistantInstaller.Fraction * 100f);
+            ShowBubble($"<size=10>Setting myself up… {percent}%</size>\n{Escape(progress)}", seconds: -1);
+        }
+
+        private void OnInstallFinished(bool ok)
+        {
+            _lastProgress = null;
+            if (ok)
+            {
+                _mood = Mood.Talking;
+                ShowBubble("All set! Click me to type, or hold <b>Q</b> to talk.", 6f);
+                _ = AssistantVoice.SayAsync("All set! What should we build?");
+                _mood = Mood.Idle;
+            }
+            else
+                Confused("My setup hit a snag. Check the Console, then right-click me and pick Reinstall.");
         }
 
         private void Confused(string message)
@@ -450,6 +489,9 @@ namespace Remedy.Schematics.Assistant
                 if (_mood == Mood.Confused)
                     _mood = Mood.Idle;
             }
+
+            if (AssistantInstaller.IsInstalling)
+                ShowInstallProgress();
 
             Place();
             AnimateFace();
@@ -605,18 +647,15 @@ namespace Remedy.Schematics.Assistant
             var overlay = AssistantOverlay.Attach(window);
             if (!AssistantServer.IsInstalled)
             {
-                if (EditorUtility.DisplayDialog("Schematics Assistant",
-                    "The assistant runs on your computer with local models (Qwen 2.5 1.5B, Whisper base, Kokoro), about 1.6 GB to download. It needs the .NET 10 SDK.\n\nSet it up now?",
-                    "Set Up", "Later"))
-                    AssistantServer.RunSetup();
+                AssistantInstaller.Reinstall();
                 return;
             }
             if (await AssistantServer.EnsureRunningAsync())
                 overlay?.OpenInput();
         }
 
-        [MenuItem(Menu + "Set Up (Download Models)…", priority = 20)]
-        private static void SetUp() => AssistantServer.RunSetup();
+        [MenuItem(Menu + "Reinstall", priority = 20)]
+        private static void SetUp() { AssistantServer.Stop(); AssistantInstaller.Reinstall(); }
 
         [MenuItem(Menu + "Start Server", priority = 21)]
         private static void Start() => _ = AssistantServer.EnsureRunningAsync();

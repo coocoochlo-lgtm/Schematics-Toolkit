@@ -233,6 +233,22 @@ public class PrefabHierarchy : VisualElement
             }
         }
 
+        // Anything the Behavior adds itself (BehaviorDockSections).
+        var extra = BehaviorDockSections.Create(new BehaviorDockContext
+        {
+            Prefab = _prefab, Target = target, Path = path, BehaviorType = behaviorType, Attachment = attachment, Window = _window,
+            Read = (variable, type) =>
+            {
+                if (_pendingEdits.TryGetValue(EditKey(path, behaviorType, variable), out var pending))
+                    return pending.Revert ? metadata.FindVariable(variable)?.Default?.Get(type) : pending.Value;
+                var entry = attachment.FindOverride(variable);
+                return entry != null ? entry.Value.Get(type) : metadata.FindVariable(variable)?.Default?.Get(type);
+            },
+            Write = (variable, type, value) => QueueEdit(path, behaviorType, variable, type, value),
+        });
+        if (extra != null)
+            section.Add(extra);
+
         // Properties last: the Behavior's tuning asset, created for this object if it has none, edited in place.
         if (properties.Count > 0)
             section.Add(CreatePropertiesFoldout(target, path, behaviorType, attachment, properties));

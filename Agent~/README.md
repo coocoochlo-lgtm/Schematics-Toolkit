@@ -22,14 +22,21 @@ It runs fully on your computer. Nothing is sent anywhere.
 
 ## Setting up
 
-1. Install the [.NET 10 SDK](https://dotnet.microsoft.com/download).
-2. In Unity, run **Tools > Remedy > Schematics > Assistant > Set Up**. You can also run `setup.ps1` (Windows) or
-   `setup.sh` (macOS/Linux) in this folder yourself. Setup downloads the models into `models/` and builds the server
-   into `bin/`.
-   - For an NVIDIA GPU, pick **Cuda12** under **Preferences > Schematics Assistant > Model Backend** first.
-   - Or run `setup.ps1 -Backend Cuda12` (`Vulkan` for other GPUs).
-3. Open a Schematic Graph and run **Tools > Remedy > Schematics > Assistant > Open Assistant**. Unity starts the
-   server in the background, on `127.0.0.1:5317`, and stops it when the editor closes.
+Nothing to do. The first time Sprocket appears in a Schematic Graph window, it installs itself in the background and
+shows its progress in its speech bubble. It:
+
+1. uses your .NET 10 SDK, or fetches a private copy into `.dotnet/` if you don't have one;
+2. downloads the models into `models/` (about 1.6 GB);
+3. builds the server into `bin/`.
+
+Then Unity starts the server on `127.0.0.1:5317` and stops it when the editor closes. A script reload doesn't
+interrupt the install; Unity picks the progress back up.
+
+- **GPU speed-up:** in **Preferences > Schematics Assistant**, set **Model Backend** to **Cuda12** (NVIDIA) or
+  **Vulkan**, then press **Reinstall**.
+- **Turning it off:** the same page has **Install Automatically** and **Show in Graph Windows**.
+- **By hand:** `setup.ps1` (Windows) or `setup.sh` (macOS/Linux) in this folder do the same thing. Progress goes to
+  `install-status.txt` and the output to `setup.log`.
 
 ## Using it
 
