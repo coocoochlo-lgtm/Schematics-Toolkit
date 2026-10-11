@@ -37,7 +37,9 @@ namespace Remedy.Schematics.Assistant
         private EditorWindow _host;
         private readonly VisualElement _sprite, _shadow, _bubble;
         private readonly SprocketMarker _marker = new();
-        private int _bubbleAway;             // explaining: the bubble goes on this side (+1 right, -1 left), away from the thing
+        private int _bubbleAway;
+        private bool _returnHome;            // after a task: back to the window's bottom right once the bubble's gone
+        private float _idleSince = -1f;             // explaining: the bubble goes on this side (+1 right, -1 left), away from the thing
         private readonly Label _bubbleText;
         private readonly TextField _input;
         private readonly float _width, _height;
@@ -331,6 +333,8 @@ namespace Remedy.Schematics.Assistant
             var size = window.rootVisualElement.layout.size;
             if (float.IsNaN(size.x) || size.x < 1f) size = window.position.size;
             var spot = new Vector2(size.x - _width - 24f, size.y - _height - 28f);
+            if (window == _host && panel != null && Vector2.Distance(_position, spot) < 24f)
+                return;
             if (!blip || _host == null || panel == null)
             {
                 _blipPhase = 0;
@@ -376,6 +380,25 @@ namespace Remedy.Schematics.Assistant
             foreach (SceneView view in SceneView.sceneViews)
                 if (view != null && IsShownTab(view)) return view;
             return Resources.FindObjectsOfTypeAll<EditorWindow>().FirstOrDefault(w => Allowed(w) && IsShownTab(w));
+        }
+
+        // Done with a task (an explanation, a request) and nothing left to read: blip back to the bottom right.
+        private void ReturnHomeWhenDone()
+        {
+            bool settled = _returnHome && _mood == Mood.Idle && !_explaining && !_pressed && _flyTime < 0f && _blipPhase == 0
+                && _bubble.style.display == DisplayStyle.None && _input.style.display == DisplayStyle.None && !AssistantInstaller.IsInstalling;
+            if (!settled)
+            {
+                _idleSince = -1f;
+                return;
+            }
+            if (_idleSince < 0f)
+                _idleSince = _time;
+            if (_time - _idleSince < 0.5f)
+                return;
+            _returnHome = false;
+            _idleSince = -1f;
+            Respawn(blip: true);
         }
 
         // Every second: if its window went away, got covered by another tab, or got too small, it comes back.
@@ -703,12 +726,11 @@ namespace Remedy.Schematics.Assistant
             _bubbleAway = 0;
             if (string.IsNullOrWhiteSpace(utterance) || Busy)
                 return;
+            _returnHome = true;   // when it's done (and the bubble's read), back to the bottom right
 
             _work?.Dispose();
             _work = new CancellationTokenSource();
             var cancellation = _work.Token;
-            var homeHost = _host;
-            var home = _position;
             _mood = Mood.Thinking;
             ShowBubble($"<i>“{Escape(utterance)}”</i>\nHmm, let me think…", seconds: -1);
 
@@ -758,12 +780,6 @@ namespace Remedy.Schematics.Assistant
             {
                 _mood = Mood.Idle;
             }
-
-            // Back to where it was before the task.
-            if (homeHost != null && homeHost != _host)
-                HopTo(homeHost, home);
-            else
-                await FlyToAsync(home);
         }
 
         public void Cancel()
@@ -967,6 +983,7 @@ namespace Remedy.Schematics.Assistant
         private void StartGhost()
         {
             _inspection++;          // a new drag interrupts an explanation
+            _returnHome = false;    // and where it's put is where it stays
             _explaining = false;
             if (_mood == Mood.Talking || _mood == Mood.Inspecting) { _mood = Mood.Idle; AssistantVoice.StopSpeaking(); }
             HideBubble();
@@ -1016,6 +1033,7 @@ namespace Remedy.Schematics.Assistant
                 return;
             _marker.Hide();
             _bubbleAway = 0;
+            _returnHome = true;
 
             // Hops to the side of it (not for whole windows), then talks with the bubble on his other side.
             var size = HostSize;
@@ -1053,6 +1071,8 @@ namespace Remedy.Schematics.Assistant
             {
                 _mood = Mood.Idle;
                 _explaining = false;
+                // A moment to finish reading, then he gets out of the way.
+                if (_hideBubbleAt < 0f || _hideBubbleAt > _time + 4f) _hideBubbleAt = _time + 4f;
             }
         }
 
@@ -1159,6 +1179,7 @@ namespace Remedy.Schematics.Assistant
                 _sprite.style.unityBackgroundImageTintColor = tint;
             }
 
+            ReturnHomeWhenDone();
             Place(force: _blipPhase != 0 || _blipShown);
             _marker.Advance(dt, new Rect(_position, new Vector2(_width, _height)));
         }

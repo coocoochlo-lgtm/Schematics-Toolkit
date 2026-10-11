@@ -47,7 +47,7 @@ namespace Remedy.Schematics.Assistant
                     return;
                 case SceneView sceneView:
                 {
-                    var picked = PickInScene(sceneView, screen);
+                    var picked = SelectionBaseInScene(sceneView, PickInScene(sceneView, screen));
                     Finish(picked != null ? Placed(ForGameObject(picked), window, screen, ScreenBoundsInScene(sceneView, picked)) : null);
                     return;
                 }
@@ -85,7 +85,7 @@ namespace Remedy.Schematics.Assistant
                     done(null);
                     return;
                 case SceneView sceneView:
-                    done(PickInScene(sceneView, screen)?.name);
+                    done(SelectionBaseInScene(sceneView, PickInScene(sceneView, screen))?.name);
                     return;
                 case SchematicGraphEditorWindow graph:
                     done(InGraph(graph, screen)?.Title);
@@ -225,7 +225,10 @@ namespace Remedy.Schematics.Assistant
         }
         private const float IconRadius = 14f;
 
-        /// <summary>The object at a screen point in a Scene view (null if none).</summary>
+        /// <summary>
+        /// The object at a screen point in a Scene view (null if none). Forgiving: if nothing is right under the
+        /// point, it looks in widening rings around it and takes the closest thing.
+        /// </summary>
         public static GameObject PickInScene(SceneView view, Vector2 screen)
         {
             var camera = view != null ? view.camera : null;
@@ -239,65 +242,104 @@ namespace Remedy.Schematics.Assistant
             if (viewport.width < 1f || viewport.height < 1f || !viewport.Contains(local))
                 return null;
             var pixels = camera.pixelRect;
-            var pixel = new Vector2(pixels.x + local.x / viewport.width * pixels.width, pixels.y + (1f - local.y / viewport.height) * pixels.height);
-            float pointsPerPixel = viewport.width / Mathf.Max(1f, pixels.width);
-            var ray = camera.ScreenPointToRay(pixel);
+            float pixelsPerPoint = pixels.width / viewport.width;
+            Vector2 PixelAt(Vector2 point) => new(pixels.x + point.x * pixelsPerPoint, pixels.y + (viewport.height - point.y) * pixelsPerPoint);
+            var pixel = PixelAt(local);
 
             var stage = StageUtility.GetCurrentStageHandle();
             var visibility = SceneVisibilityManager.instance;
             bool Pickable(GameObject gameObject) => gameObject.activeInHierarchy && !visibility.IsHidden(gameObject) && !visibility.IsPickingDisabled(gameObject);
 
-            // Icons first: they're drawn over everything.
+            // Icons first: they're drawn over everything (and are generous targets).
             GameObject icon = null;
-            float iconDepth = float.MaxValue;
+            float iconDistance = float.MaxValue;
             if (view.drawGizmos)
                 foreach (var component in IconComponents(stage))
+                {
+                    if (component == null || component.TryGetComponent<Renderer>(out _) || !Pickable(component.gameObject))
+                        continue;
+                    var at = camera.WorldToScreenPoint(component.transform.position);
+                    if (at.z <= camera.nearClipPlane)
+                        continue;
+                    float distance = Vector2.Distance(new Vector2(at.x, at.y), pixel) / pixelsPerPoint;
+                    if (distance <= IconRadius + 6f && distance < iconDistance)
                     {
-                        if (component == null || component.GetComponent<Renderer>() != null || !Pickable(component.gameObject))
-                            continue;
-                        var at = camera.WorldToScreenPoint(component.transform.position);
-                        if (at.z <= camera.nearClipPlane || at.z >= iconDepth)
-                            continue;
-                        if (Vector2.Distance(new Vector2(at.x, at.y), pixel) * pointsPerPixel <= IconRadius)
-                        {
-                            icon = component.gameObject;
-                            iconDepth = at.z;
-                        }
+                        icon = component.gameObject;
+                        iconDistance = distance;
                     }
+                }
             if (icon != null)
                 return icon;
 
-            // Then surfaces: renderers whose bounds the ray crosses, nearest first, checked against their meshes.
-            var candidates = new List<(Renderer renderer, float distance)>();
+            var renderers = new List<Renderer>();
             foreach (var renderer in stage.FindComponentsOfType<Renderer>())
-            {
-                if (renderer == null || !renderer.enabled || renderer is ParticleSystemRenderer || !Pickable(renderer.gameObject))
-                    continue;
-                if (renderer.bounds.IntersectRay(ray, out float distance))
-                    candidates.Add((renderer, distance));
-            }
-            candidates.Sort((a, b) => a.distance.CompareTo(b.distance));
+                if (renderer != null && renderer.enabled && !(renderer is ParticleSystemRenderer) && Pickable(renderer.gameObject))
+                    renderers.Add(renderer);
+            var physics = PhysicsSceneOf(stage);
 
-            GameObject best = null;
-            float bestDistance = float.MaxValue;
-            foreach (var (renderer, boundsDistance) in candidates)
+            // Right under the point, then rings around it (8, 16, 24 points out).
+            var picked = Hit(camera.ScreenPointToRay(pixel));
+            for (int ring = 1; picked == null && ring <= 3; ring++)
             {
-                if (boundsDistance >= bestDistance)
-                    break;
-                float? hit = HitDistance(renderer, ray, boundsDistance);
-                if (hit.HasValue && hit.Value < bestDistance)
+                float radius = ring * 8f;
+                int samples = 8 * ring;
+                for (int i = 0; i < samples && picked == null; i++)
                 {
-                    best = renderer.gameObject;
-                    bestDistance = hit.Value;
+                    float angle = i * Mathf.PI * 2f / samples;
+                    var point = local + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * radius;
+                    if (viewport.Contains(point))
+                        picked = Hit(camera.ScreenPointToRay(PixelAt(point)));
                 }
             }
+            return picked;
 
-            // Terrain and other colliders without a renderer.
-            var physics = PhysicsSceneOf(stage);
-            if (physics.IsValid() && physics.Raycast(ray.origin, ray.direction, out var physicsHit, bestDistance)
-                && physicsHit.collider != null && Pickable(physicsHit.collider.gameObject))
-                best = physicsHit.collider.gameObject;
-            return best;
+            GameObject Hit(Ray ray)
+            {
+                // Renderers whose bounds the ray crosses, nearest first, checked against their meshes.
+                var candidates = new List<(Renderer renderer, float distance)>();
+                foreach (var renderer in renderers)
+                    if (renderer.bounds.IntersectRay(ray, out float distance))
+                        candidates.Add((renderer, distance));
+                candidates.Sort((a, b) => a.distance.CompareTo(b.distance));
+
+                GameObject best = null;
+                float bestDistance = float.MaxValue;
+                foreach (var (renderer, boundsDistance) in candidates)
+                {
+                    if (boundsDistance >= bestDistance)
+                        break;
+                    float? hit = HitDistance(renderer, ray, boundsDistance);
+                    if (hit.HasValue && hit.Value < bestDistance)
+                    {
+                        best = renderer.gameObject;
+                        bestDistance = hit.Value;
+                    }
+                }
+
+                // Terrain and other colliders without a renderer.
+                if (physics.IsValid() && physics.Raycast(ray.origin, ray.direction, out var physicsHit, bestDistance)
+                    && physicsHit.collider != null && Pickable(physicsHit.collider.gameObject))
+                    best = physicsHit.collider.gameObject;
+                return best;
+            }
+        }
+
+        /// <summary>
+        /// What a click there would select, like Unity does: the object marked [SelectionBase] above it, or the prefab
+        /// it's part of, as long as that isn't so big it fills the view.
+        /// </summary>
+        public static GameObject SelectionBaseInScene(SceneView view, GameObject picked)
+        {
+            if (picked == null)
+                return null;
+            for (var t = picked.transform; t != null; t = t.parent)
+                foreach (var component in t.GetComponents<MonoBehaviour>())
+                    if (component != null && component.GetType().IsDefined(typeof(SelectionBaseAttribute), true))
+                        return t.gameObject;
+            var root = PrefabUtility.GetOutermostPrefabInstanceRoot(picked);
+            if (root != null && root != picked && ScreenBoundsInScene(view, root).HasValue)
+                return root;
+            return picked;
         }
 
         // The Scene camera's rectangle on the screen.
@@ -313,8 +355,35 @@ namespace Remedy.Schematics.Assistant
         }
 
         /// <summary>
-        /// An object's outline on the screen in a Scene view: its renderer's (or collider's) bounds, or its icon. Null
-        /// when it's partly behind the camera or fills most of the view (then there's no use framing it).
+        /// The bounds Unity frames an object by (its renderers and its children's together), else its colliders'.
+        /// Null for objects with neither (lights, empties): they're shown as icons.
+        /// </summary>
+        public static Bounds? WorldBounds(GameObject gameObject)
+        {
+            Bounds? bounds = null;
+            foreach (var renderer in gameObject.GetComponentsInChildren<Renderer>())
+            {
+                if (renderer == null || !renderer.enabled || renderer is ParticleSystemRenderer) continue;
+                var b = renderer.bounds;
+                if (b.size == Vector3.zero) continue;
+                if (bounds.HasValue) { var all = bounds.Value; all.Encapsulate(b); bounds = all; }
+                else bounds = b;
+            }
+            if (bounds.HasValue)
+                return bounds;
+            foreach (var collider in gameObject.GetComponentsInChildren<Collider>())
+            {
+                if (collider == null || !collider.enabled) continue;
+                var b = collider.bounds;
+                if (bounds.HasValue) { var all = bounds.Value; all.Encapsulate(b); bounds = all; }
+                else bounds = b;
+            }
+            return bounds;
+        }
+
+        /// <summary>
+        /// An object's outline on the screen in a Scene view: the box around its (and its children's) bounds, or its
+        /// icon. Null when it's partly behind the camera or fills most of the view (then there's no use framing it).
         /// </summary>
         public static Rect? ScreenBoundsInScene(SceneView view, GameObject gameObject)
         {
@@ -333,8 +402,7 @@ namespace Remedy.Schematics.Assistant
                 return viewport.position + new Vector2((at.x - pixels.x) / pixels.width * viewport.width, (1f - (at.y - pixels.y) / pixels.height) * viewport.height);
             }
 
-            Bounds? bounds = gameObject.GetComponent<Renderer>() is { } renderer ? renderer.bounds
-                : gameObject.GetComponent<Collider>() is { } collider ? collider.bounds : (Bounds?)null;
+            var bounds = WorldBounds(gameObject);
             if (!bounds.HasValue)
             {
                 // Drawn as an icon.
@@ -369,7 +437,7 @@ namespace Remedy.Schematics.Assistant
         {
             Mesh mesh = renderer switch
             {
-                MeshRenderer => renderer.GetComponent<MeshFilter>() is { } filter ? filter.sharedMesh : null,
+                MeshRenderer => renderer.TryGetComponent<MeshFilter>(out var filter) ? filter.sharedMesh : null,
                 SkinnedMeshRenderer skinned => skinned.sharedMesh,
                 _ => null,
             };
@@ -738,7 +806,7 @@ namespace Remedy.Schematics.Assistant
                 var header = SchematicDocHeader.Of(scripted);
                 text = header != null ? $"A script: the {header.name} {header.kind}. {header.Text}" : null;
             }
-            else if (asset is GameObject prefab && prefab.GetComponent<SchematicObject>() is SchematicObject schematic)
+            else if (asset is GameObject prefab && prefab.TryGetComponent<SchematicObject>(out _))
                 text = "A Schematic prefab: an object with Schematic Behaviors and a Schematic Graph. " + ForGameObject(prefab).Text;
             else if (asset is GameObject model)
                 text = UnityObjectDocs.Assets["GameObject"] + (model.GetComponentsInChildren<Component>().Length > 1 ? " " + ForGameObject(model).Text : "");
