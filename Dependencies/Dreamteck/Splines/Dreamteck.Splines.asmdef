@@ -1,7 +1,8 @@
 {
     "name": "Dreamteck.Splines",
     "references": [
-        "Dreamteck.Utilities"
+        "Dreamteck.Utilities",
+        "UniTask"
     ],
     "optionalUnityReferences": [],
     "includePlatforms": [],

@@ -1220,7 +1220,8 @@ namespace Dreamteck.Splines
             {
                 if (editorUpdateMode == EditorUpdateMode.Default)
                 {
-                    RebuildImmediate(true);
+                    // Schematics: once per editor update instead of on every call (see SplineEditorRebuilds).
+                    SplineEditorRebuilds.Request(this);
                 }
                 return;
             }
@@ -1257,6 +1258,14 @@ namespace Dreamteck.Splines
             {
                 if (_subscribers[i] != null)
                 {
+#if UNITY_EDITOR
+                    // Schematics: a queued spline rebuild queues its users too, so each builds once.
+                    if (SplineEditorRebuilds.Flushing)
+                    {
+                        SplineEditorRebuilds.Request(_subscribers[i]);
+                        continue;
+                    }
+#endif
                     if (immediate)
                     {
                         _subscribers[i].RebuildImmediate();

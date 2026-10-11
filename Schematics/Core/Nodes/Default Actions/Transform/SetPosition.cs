@@ -16,10 +16,14 @@ namespace Remedy.Schematics
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
         {
-            Target = GetInputValue<GameObject>("Target");
-            Position = GetInputValue<Vector3>("Position");
+            // With nothing connected, it moves the object running the graph.
+            Target = GetInputValue<GameObject>("Target", instance);
+            if (Target == null)
+                Target = instance;
+            NewPosition = GetInputValue<Vector3>("Position", NewPosition);
 
-            Target.transform.position = Position;
+            // (This used to write Node.Position, the node's place on the canvas, and lost the Z axis.)
+            Target.transform.position = NewPosition;
         }
     }
 }

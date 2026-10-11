@@ -280,7 +280,8 @@ namespace Dreamteck.Splines {
 #if UNITY_EDITOR
             if (!Application.isPlaying)
             {
-                RebuildImmediate();
+                // Schematics: queued (OnEnable asks too; they merge into one build).
+                SplineEditorRebuilds.Request(this);
             }
 #endif
         }
@@ -302,7 +303,11 @@ namespace Dreamteck.Splines {
         protected virtual void OnEnable()
         {
 #if UNITY_EDITOR
-            if (!_isPlaying || buildOnEnable)
+            if (!_isPlaying)
+            {
+                SplineEditorRebuilds.Request(this);
+            }
+            else if (buildOnEnable)
             {
                 RebuildImmediate();
             }
@@ -444,7 +449,7 @@ namespace Dreamteck.Splines {
                 CacheTransform();
             }
 
-            //If it's the editor and it's not playing, then rebuild immediate
+            //If it's the editor and it's not playing, rebuild on the next editor update
             if (_isPlaying)
             {
                 if (!autoUpdate) return;
@@ -452,7 +457,7 @@ namespace Dreamteck.Splines {
             }
             else
             {
-                RebuildImmediate();
+                SplineEditorRebuilds.Request(this);
             }
 #else
              if (!autoUpdate) return;
@@ -471,6 +476,12 @@ namespace Dreamteck.Splines {
             {
                 CacheTransform();
             }
+            // A build is running on a worker thread with this user's buffers: build again once it's done instead.
+            if (_editorBuilding)
+            {
+                _editorBuildAgain = true;
+                return;
+            }
 #endif
             try
             {
@@ -485,6 +496,92 @@ namespace Dreamteck.Splines {
             rebuild = false;
             getSamples = false;
         }
+
+#if UNITY_EDITOR
+        // Schematics: Edit Mode builds requested through SplineEditorRebuilds.
+        private bool _editorBuilding, _editorBuildAgain;
+
+        internal void EditorBuildQueued()
+        {
+            if (_editorBuilding)
+            {
+                _editorBuildAgain = true;
+                return;
+            }
+            if (!_hasTransform)
+            {
+                CacheTransform();
+            }
+
+            try
+            {
+                GetSamples();
+                // Users marked multithreaded (the same flag Dreamteck uses at runtime) build off the main thread.
+                if (multithreaded && PrepareOffThreadBuild())
+                {
+                    EditorBuildOffThread().Forget();
+                    return;
+                }
+                Build();
+                PostBuild();
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogException(ex, this);
+            }
+            rebuild = false;
+            getSamples = false;
+        }
+
+        /// <summary>
+        /// Schematics: main-thread setup before <see cref="Build"/> runs on a worker thread in Edit Mode (create meshes
+        /// and the like). Return false to build on the main thread this time.
+        /// </summary>
+        protected virtual bool PrepareOffThreadBuild()
+        {
+            return true;
+        }
+
+        private async Cysharp.Threading.Tasks.UniTaskVoid EditorBuildOffThread()
+        {
+            _editorBuilding = true;
+            System.Exception error = null;
+
+            await Cysharp.Threading.Tasks.UniTask.SwitchToThreadPool();
+            try
+            {
+                Build();
+            }
+            catch (System.Exception ex)
+            {
+                error = ex;
+            }
+            await Cysharp.Threading.Tasks.UniTask.SwitchToMainThread();
+
+            _editorBuilding = false;
+            rebuild = false;
+            getSamples = false;
+            if (this == null)
+            {
+                return;
+            }
+            if (error != null)
+            {
+                Debug.LogException(error, this);
+            }
+            else
+            {
+                try { PostBuild(); }
+                catch (System.Exception ex) { Debug.LogException(ex, this); }
+            }
+
+            if (_editorBuildAgain)
+            {
+                _editorBuildAgain = false;
+                SplineEditorRebuilds.Request(this);
+            }
+        }
+#endif
 
         private void Update()
         {

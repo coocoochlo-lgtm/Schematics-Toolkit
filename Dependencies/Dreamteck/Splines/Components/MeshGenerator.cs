@@ -459,6 +459,18 @@ namespace Dreamteck.Splines
             WriteMesh();
         }
 
+#if UNITY_EDITOR
+        // Schematics: Unity meshes can only be created and cleared on the main thread.
+        protected override bool PrepareOffThreadBuild()
+        {
+            if (_tsMesh == null || _mesh == null)
+            {
+                CreateMesh();
+            }
+            return sampleCount > 1;
+        }
+#endif
+
         protected virtual void ClearMesh()
         {
             _tsMesh.Clear();
