@@ -12,8 +12,9 @@ namespace Remedy.Materials
         /// <summary>The Signal-to-shader-property mappings, assigned per object.</summary>
         public readonly VariableHandle<MaterialComunicatorProperties> Properties = (MaterialComunicatorProperties)null;
 
-        protected override void OnStart(BehaviorInstance instance)
+        protected override void OnStart()
         {
+            var instance = Self;
             var properties = Properties.Value;
             if (properties == null)
                 return;

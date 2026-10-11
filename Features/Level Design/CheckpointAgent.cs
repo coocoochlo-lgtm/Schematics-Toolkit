@@ -12,8 +12,9 @@ namespace Remedy.LevelDesign
         [Parameter("Position", typeof(Vector3))]
         public readonly SignalHandle<Vector3> Respawn;
 
-        protected override void OnStart(BehaviorInstance instance)
+        protected override void OnStart()
         {
+            var instance = Self;
             Respawn.Subscribe(position =>
             {
                 var rigidbody = instance.GetComponent<Rigidbody>();

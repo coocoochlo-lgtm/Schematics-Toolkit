@@ -23,9 +23,9 @@ namespace Remedy.Inventories
 
         public int InventoryLayer => CollectionData.Value != null ? CollectionData.Value.InventoryLayer : -1;
 
-        protected override void OnCreate(BehaviorInstance instance)
+        protected override void OnCreate()
         {
-            var pickupCollider = instance.GetComponent<SphereCollider>();
+            var pickupCollider = Self.GetComponent<SphereCollider>();
             if (pickupCollider != null)
             {
                 pickupCollider.isTrigger = true;
@@ -33,7 +33,7 @@ namespace Remedy.Inventories
             }
         }
 
-        protected override void OnEnable(BehaviorInstance instance)
+        protected override void OnEnable()
         {
             var data = CollectionData.Value;
 
@@ -45,14 +45,14 @@ namespace Remedy.Inventories
             Items.Value = items;
 
             if (data != null && data.RenderAsItem && data.Contents != null && data.Contents.Count > 0 && data.Contents[0].Prefab != null)
-                _renderedObject.Value = Object.Instantiate(data.Contents[0].Prefab, instance.Transform);
+                _renderedObject.Value = Object.Instantiate(data.Contents[0].Prefab, Self.Transform);
 
-            InventoryManager.AddCollectableInventory(instance, InventoryLayer);
+            InventoryManager.AddCollectableInventory(Self, InventoryLayer);
         }
 
-        protected override void OnDisable(BehaviorInstance instance)
+        protected override void OnDisable()
         {
-            InventoryManager.RemoveCollectableInventory(instance);
+            InventoryManager.RemoveCollectableInventory(Self);
             if (_renderedObject.Value != null)
                 Object.Destroy(_renderedObject.Value);
             _renderedObject.Value = null;

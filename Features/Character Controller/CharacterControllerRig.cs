@@ -76,8 +76,9 @@ namespace Remedy.CharacterControllers
 
         public bool HasDecal => ShadowDecal.Value != null;
 
-        protected override void OnStart(BehaviorInstance instance)
+        protected override void OnStart()
         {
+            var instance = Self;
             InputAim.Subscribe(value => _aimDirection[instance] = value);
             InputOrientToAim.Subscribe(value => _orientToDirection[instance] = value);
             OnGroundCast.Subscribe(value =>
@@ -88,9 +89,9 @@ namespace Remedy.CharacterControllers
             OnGroundCastHit.Subscribe(hit => _groundHit[instance] = hit);
         }
 
-        protected override void OnEnable(BehaviorInstance instance)
+        protected override void OnEnable()
         {
-            _position.Value = instance.Transform.position;
+            _position.Value = Self.Transform.position;
         }
 
         // Whether a movement controller on this object is attached and enabled.
@@ -100,14 +101,14 @@ namespace Remedy.CharacterControllers
             return controller != null && controller.Enabled;
         }
 
-        protected override void OnUpdate(BehaviorInstance instance)
+        protected override void OnUpdate()
         {
             var renderer = CharacterRenderer.Value;
             if (renderer == null)
                 return;
 
-            var transform = instance.Transform;
-            var rb = instance.GetComponent<Rigidbody>();
+            var transform = Self.Transform;
+            var rb = Self.GetComponent<Rigidbody>();
             var velocity = rb.linearVelocity;
             float dt = Time.deltaTime;
             float followSpeed = PositionFollowSpeed.Value;
@@ -141,11 +142,11 @@ namespace Remedy.CharacterControllers
             Vector3 direction = transform.position - renderer.position;
             direction.y = 0;
 
-            VerticalVelocity.Invoke(instance, velocity.y);
+            VerticalVelocity.Invoke(Self, velocity.y);
 
-            if (IsActive<WallSlideController>(instance))
+            if (IsActive<WallSlideController>(Self))
             {
-                var wallSlide = instance.GetSchematicBehavior<WallSlideController>();
+                var wallSlide = Self.GetSchematicBehavior<WallSlideController>();
 
                 position.x = Mathf.Lerp(position.x, transform.position.x, followSpeed * dt);
                 position.z = Mathf.Lerp(position.z, transform.position.z, followSpeed * dt);
@@ -156,9 +157,9 @@ namespace Remedy.CharacterControllers
 
                 renderer.localScale = new Vector3(wallSlide.CurrentWallSide.Value == WallSlideController.WallSide.Left ? 1 : -1, baseScale.y, baseScale.z);
 
-                IsWallSliding.Invoke(instance, true);
+                IsWallSliding.Invoke(Self, true);
             }
-            else if (IsActive<HoverController>(instance))
+            else if (IsActive<HoverController>(Self))
             {
                 var localVelocity = renderer.InverseTransformDirection(velocity);
 
@@ -180,12 +181,12 @@ namespace Remedy.CharacterControllers
 
                 renderer.position = position;
 
-                IsHovering.Invoke(instance, true);
-                IsWallSliding.Invoke(instance, false);
+                IsHovering.Invoke(Self, true);
+                IsWallSliding.Invoke(Self, false);
 
                 renderer.localScale = baseScale;
             }
-            else if (IsActive<LedgeGrabController>(instance))
+            else if (IsActive<LedgeGrabController>(Self))
             {
                 // Target position is LedgePosition - the hand's offset from the renderer, in world space
                 //_targetRendererPosition = LedgeGrabController.LedgePosition - CharacterRenderer.TransformVector(handLocalOffset);
@@ -198,15 +199,15 @@ namespace Remedy.CharacterControllers
 
                 renderer.localScale = baseScale;
 
-                IsLedgeGrabbing.Invoke(instance, true);
-                IsWallSliding.Invoke(instance, false);
-                IsHovering.Invoke(instance, false);
+                IsLedgeGrabbing.Invoke(Self, true);
+                IsWallSliding.Invoke(Self, false);
+                IsHovering.Invoke(Self, false);
             }
             else
             {
-                IsLedgeGrabbing.Invoke(instance, false);
-                IsWallSliding.Invoke(instance, false);
-                IsHovering.Invoke(instance, false);
+                IsLedgeGrabbing.Invoke(Self, false);
+                IsWallSliding.Invoke(Self, false);
+                IsHovering.Invoke(Self, false);
 
                 var groundHit = _groundHit.Value;
                 if (groundHit.point != Vector3.zero)

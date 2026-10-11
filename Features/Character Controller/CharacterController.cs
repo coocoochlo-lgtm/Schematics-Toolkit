@@ -46,8 +46,9 @@ public class PhysicsBasedCharacterController : SchematicBehavior
         return properties != null;
     }
 
-    protected override void OnStart(BehaviorInstance instance)
+    protected override void OnStart()
     {
+        var instance = Self;
         var motion = instance.GetSchematicBehavior<CharacterMotionContext>();
         if (motion == null)
             return;
@@ -83,9 +84,9 @@ public class PhysicsBasedCharacterController : SchematicBehavior
         });
     }
 
-    protected override void OnEnable(BehaviorInstance instance)
+    protected override void OnEnable()
     {
-        var motion = instance.GetSchematicBehavior<CharacterMotionContext>();
+        var motion = Self.GetSchematicBehavior<CharacterMotionContext>();
         if (motion != null)
             motion.IsKinematic.Value = false;
 
@@ -99,11 +100,11 @@ public class PhysicsBasedCharacterController : SchematicBehavior
         }
     }
 
-    protected override void OnFixedUpdate(BehaviorInstance instance)
+    protected override void OnFixedUpdate()
     {
         var properties = Properties.Value;
-        var motion = instance.GetSchematicBehavior<CharacterMotionContext>();
-        var raycast = instance.GetSchematicBehavior<CharacterRaycastContext>();
+        var motion = Self.GetSchematicBehavior<CharacterMotionContext>();
+        var raycast = Self.GetSchematicBehavior<CharacterRaycastContext>();
         if (properties == null || motion == null || raycast == null)
             return;
 
@@ -203,7 +204,7 @@ public class PhysicsBasedCharacterController : SchematicBehavior
         _jumpBufferTime.Value += dt;
     }
 
-    protected override void OnCollisionEnter(BehaviorInstance instance, Collision collision)
+    protected override void OnCollisionEnter(Collision collision)
     {
         var properties = Properties.Value;
         if (properties == null)

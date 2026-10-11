@@ -12,16 +12,16 @@ namespace Remedy.UI
         [Tooltip("The UI Layer to render this Prefab's Canvas on.")]
         public readonly VariableHandle<int> Layer = 0;
 
-        protected override void OnStart(BehaviorInstance instance)
+        protected override void OnStart()
         {
-            UIManager.AddUIComponent(instance, Layer.Value);
-            InitiateAndSubscribeEvents(instance);
+            UIManager.AddUIComponent(Self, Layer.Value);
+            InitiateAndSubscribeEvents(Self);
         }
 
-        protected override void OnDisable(BehaviorInstance instance)
+        protected override void OnDisable()
         {
-            UIManager.RemoveUIComponent(instance, Layer.Value);
-            UnSubscribeEvents(instance);
+            UIManager.RemoveUIComponent(Self, Layer.Value);
+            UnSubscribeEvents(Self);
         }
 
         protected virtual void InitiateAndSubscribeEvents(BehaviorInstance instance)

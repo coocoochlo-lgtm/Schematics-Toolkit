@@ -48,8 +48,9 @@ public class StateMachine : SchematicBehavior
 
     #region Lifecycle
 
-    protected override void OnStart(BehaviorInstance instance)
+    protected override void OnStart()
     {
+        var instance = Self;
         SetState.Subscribe(name => GoTo(instance, name));
 
         var definition = Definition.Value;
@@ -99,7 +100,7 @@ public class StateMachine : SchematicBehavior
         }
     }
 
-    protected override void OnEnable(BehaviorInstance instance)
+    protected override void OnEnable()
     {
         var definition = Definition.Value;
         if (definition == null || definition.Count == 0)
@@ -112,10 +113,10 @@ public class StateMachine : SchematicBehavior
             EnteredAt = new float[definition.Count],
         };
         _runtime.Value = runtime;
-        ChangeState(instance, runtime, definition.InitialIndex);
+        ChangeState(Self, runtime, definition.InitialIndex);
     }
 
-    protected override void OnUpdate(BehaviorInstance instance)
+    protected override void OnUpdate()
     {
         var runtime = _runtime.Value;
         if (runtime == null || runtime.Leaf < 0)
@@ -123,7 +124,7 @@ public class StateMachine : SchematicBehavior
 
         var definition = runtime.Definition;
         BuildPath(definition, runtime.Leaf, runtime.Path);
-        var root = instance.Owner.gameObject;
+        var root = Self.Owner.gameObject;
 
         // Outermost first: a parent's transition (e.g. Alive -> Dead) beats its children's.
         for (int p = runtime.Path.Count - 1; p >= 0; p--)
@@ -133,9 +134,9 @@ public class StateMachine : SchematicBehavior
             for (int t = 0; t < transitions.Count; t++)
             {
                 var transition = transitions[t];
-                if (transition.Trigger != TransitionTrigger.Conditions || !Passes(instance, runtime, stateIndex, transition))
+                if (transition.Trigger != TransitionTrigger.Conditions || !Passes(Self, runtime, stateIndex, transition))
                     continue;
-                ChangeState(instance, runtime, definition.IndexOf(transition.Target));
+                ChangeState(Self, runtime, definition.IndexOf(transition.Target));
                 return;
             }
         }
@@ -144,14 +145,14 @@ public class StateMachine : SchematicBehavior
             definition.States[runtime.Path[p]].Graph?.TriggerEvent<OnStateUpdate>(root);
     }
 
-    protected override void OnDisable(BehaviorInstance instance)
+    protected override void OnDisable()
     {
         var runtime = _runtime.Value;
         if (runtime == null || runtime.Leaf < 0)
             return;
 
         // Leave every active state, innermost first.
-        var root = instance.Owner.gameObject;
+        var root = Self.Owner.gameObject;
         BuildPath(runtime.Definition, runtime.Leaf, runtime.Path);
         foreach (int stateIndex in runtime.Path)
         {

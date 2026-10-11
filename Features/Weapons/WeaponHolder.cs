@@ -44,15 +44,16 @@ namespace Remedy.Weapons
             context.Set(WeaponSockets, new[] { new WeaponSocket(socket) { Name = "Primary" } });
         }
 
-        protected override void OnCreate(BehaviorInstance instance)
+        protected override void OnCreate()
         {
-            var collider = instance.GetComponent<SphereCollider>();
+            var collider = Self.GetComponent<SphereCollider>();
             collider.isTrigger = true;
             collider.includeLayers = 1 << GlobalWeaponData.Instance.WeaponCollisionLayer;
         }
 
-        protected override void OnStart(BehaviorInstance instance)
+        protected override void OnStart()
         {
+            var instance = Self;
             EquipInput.Subscribe(weaponID => Equip(instance, weaponID));
             AimInput.Subscribe(aim => _aimInput[instance] = aim);
 
@@ -74,7 +75,7 @@ namespace Remedy.Weapons
             }
         }
 
-        protected override void OnUpdate(BehaviorInstance instance)
+        protected override void OnUpdate()
         {
             var sockets = WeaponSockets.Value;
             if (sockets == null)
@@ -89,13 +90,13 @@ namespace Remedy.Weapons
             }
         }
 
-        protected override void OnDisable(BehaviorInstance instance)
+        protected override void OnDisable()
         {
             var sockets = WeaponSockets.Value;
             if (sockets == null)
                 return;
             for (int i = 0; i < sockets.Length; i++)
-                UnEquip(instance, i);
+                UnEquip(Self, i);
         }
 
         /// <summary>

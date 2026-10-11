@@ -53,32 +53,32 @@ namespace Remedy.Weapons.Projectiles
             return behavior != null ? behavior.Data.DefaultFor(prefab) : null;
         }
 
-        protected override void OnEnable(BehaviorInstance instance)
+        protected override void OnEnable()
         {
             var data = Data.Value;
-            var rigidbody = instance.GetComponent<Rigidbody>();
+            var rigidbody = Self.GetComponent<Rigidbody>();
             rigidbody.useGravity = false;
             rigidbody.isKinematic = true;
-            instance.GetComponent<SphereCollider>().isTrigger = true;
+            Self.GetComponent<SphereCollider>().isTrigger = true;
             if (data != null)
-                instance.GameObject.layer = data.Layer;
+                Self.GameObject.layer = data.Layer;
         }
 
-        protected override void OnDisable(BehaviorInstance instance)
+        protected override void OnDisable()
         {
             // Pooled projectiles are reused, so drop the joint a Fixed projectile was attached with.
-            var joint = instance.GetComponent<FixedJoint>();
+            var joint = Self.GetComponent<FixedJoint>();
             if (joint != null)
                 Object.Destroy(joint);
         }
 
-        protected override void OnUpdate(BehaviorInstance instance)
+        protected override void OnUpdate()
         {
             var data = Data.Value;
             if (data == null)
                 return;
 
-            var transform = instance.Transform;
+            var transform = Self.Transform;
             ref var velocity = ref Velocity.Ref;
 
             if (!_launched.Value)
@@ -99,9 +99,9 @@ namespace Remedy.Weapons.Projectiles
                     distanceTraveled = data.LineUpDistance;
             }
 
-            var radius = instance.GetComponent<SphereCollider>().radius;
+            var radius = Self.GetComponent<SphereCollider>().radius;
             if (Physics.SphereCast(transform.position, radius, velocity.normalized, out RaycastHit hit, velocity.magnitude * Time.deltaTime))
-                Hit(instance, hit.collider);
+                Hit(Self, hit.collider);
 
             transform.position += velocity * Time.deltaTime;
 
@@ -109,10 +109,10 @@ namespace Remedy.Weapons.Projectiles
             timeAlive += Time.deltaTime;
 
             if (timeAlive > data.LifeSpan)
-                Despawn(instance);
+                Despawn(Self);
         }
 
-        protected override void OnTriggerEnter(BehaviorInstance instance, Collider other) => Hit(instance, other);
+        protected override void OnTriggerEnter(Collider other) => Hit(Self, other);
 
         private void Hit(BehaviorInstance instance, Collider other)
         {

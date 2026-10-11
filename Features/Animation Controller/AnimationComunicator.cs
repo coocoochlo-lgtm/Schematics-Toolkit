@@ -14,8 +14,9 @@ namespace Remedy.Animation
         /// <summary>The Signal-to-parameter mappings, assigned per object.</summary>
         public readonly VariableHandle<AnimationComunicatorProperties> Properties = (AnimationComunicatorProperties)null;
 
-        protected override void OnStart(BehaviorInstance instance)
+        protected override void OnStart()
         {
+            var instance = Self;
             var properties = Properties.Value;
             var animator = instance.GetComponent<Animator>();
             if (properties == null || animator == null)

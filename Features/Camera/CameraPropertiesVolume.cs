@@ -31,9 +31,9 @@ namespace Remedy.Cameras
                 collider.isTrigger = true;
         }
 
-        protected override void OnCreate(BehaviorInstance instance)
+        protected override void OnCreate()
         {
-            var collider = instance.GetComponent<BoxCollider>();
+            var collider = Self.GetComponent<BoxCollider>();
             if (collider != null)
                 collider.isTrigger = true;
         }

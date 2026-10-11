@@ -67,16 +67,16 @@ namespace Remedy.Weapons
         private readonly VariableHandle<Quaternion> _aimTarget = Quaternion.identity;
         private readonly VariableHandle<float> _lastFireTime = float.NegativeInfinity;
 
-        protected override void OnEnable(BehaviorInstance instance)
+        protected override void OnEnable()
         {
             var primary = PrimaryHandle.Value;
             if (primary == null || primary.Transform == null)
             {
-                Debug.LogError("The Primary Handle of the Weapon hasn't been set, so it can't be used. Please set the Primary Handle Reference in the Inspector.", instance.GameObject);
-                instance.Disable();
+                Debug.LogError("The Primary Handle of the Weapon hasn't been set, so it can't be used. Please set the Primary Handle Reference in the Inspector.", Self.GameObject);
+                Self.Disable();
                 return;
             }
-            primary.Offset = instance.Transform.position - primary.Transform.position;
+            primary.Offset = Self.Transform.position - primary.Transform.position;
 
             var muzzles = FireModeMuzzles.Value;
             if (muzzles != null)
@@ -84,17 +84,17 @@ namespace Remedy.Weapons
                     if (muzzle != null)
                         muzzle.Data = Data.Value;
 
-            var rigidbody = instance.GetComponent<Rigidbody>();
+            var rigidbody = Self.GetComponent<Rigidbody>();
             if (rigidbody != null)
                 rigidbody.isKinematic = !UsePhysics.Value;
         }
 
-        protected override void OnUpdate(BehaviorInstance instance)
+        protected override void OnUpdate()
         {
             var primary = PrimaryHandle.Value;
             if (primary == null || primary.Socket == null || primary.Socket.Transform == null) return;
 
-            var transform = instance.Transform;
+            var transform = Self.Transform;
             var socket = primary.Socket;
             Vector3 offset = socket.Transform.rotation * socket.PositionOffset;
             transform.position = socket.Transform.position + offset;
@@ -115,9 +115,9 @@ namespace Remedy.Weapons
             }
         }
 
-        protected override void OnDisable(BehaviorInstance instance)
+        protected override void OnDisable()
         {
-            ReleaseSockets(instance);
+            ReleaseSockets(Self);
         }
 
         /// <summary>

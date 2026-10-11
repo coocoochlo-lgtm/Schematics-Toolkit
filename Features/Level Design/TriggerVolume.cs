@@ -17,14 +17,14 @@ namespace Remedy.LevelDesign
         [Tooltip("Index into the Trigger Types defined in the Level Design Data.")]
         public readonly VariableHandle<int> TriggerType = 0;
 
-        protected override void OnCreate(BehaviorInstance instance)
+        protected override void OnCreate()
         {
-            var collider = instance.GetComponent<BoxCollider>();
+            var collider = Self.GetComponent<BoxCollider>();
             if (collider != null)
                 collider.isTrigger = true;
         }
 
-        protected override void OnTriggerEnter(BehaviorInstance instance, Collider other)
+        protected override void OnTriggerEnter(Collider other)
         {
             if (other.CompareTag(GlobalSubsystem.PlayerTag))
                 OnTrigger.Invoke();

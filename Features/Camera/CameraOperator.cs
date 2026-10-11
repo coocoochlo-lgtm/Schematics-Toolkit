@@ -72,25 +72,26 @@ namespace Remedy.Cameras
             context.Set(Camera, camera);
         }
 
-        protected override void OnStart(BehaviorInstance instance)
+        protected override void OnStart()
         {
+            var instance = Self;
             LookInput.Subscribe(axis => Look(instance, axis));
             SetObjectToFollow.Subscribe(target => Follow.Value = target != null ? target.transform : null);
         }
 
-        protected override void OnEnable(BehaviorInstance instance)
+        protected override void OnEnable()
         {
             var camera = Camera.Value;
             if (camera != null && camera.TryGetComponent(out UnityEngine.Camera cameraComponent))
                 cameraComponent.enabled = false; // the Camera Manager's camera renders; this one is a target
 
-            CameraManager.AddOperator(instance);
-            CameraManager.SetCameraOperator(instance);
+            CameraManager.AddOperator(Self);
+            CameraManager.SetCameraOperator(Self);
         }
 
-        protected override void OnDisable(BehaviorInstance instance)
+        protected override void OnDisable()
         {
-            CameraManager.RemoveOperator(instance);
+            CameraManager.RemoveOperator(Self);
         }
 
         /// <summary>Updates the selected Operator's aim direction and applies pending look input.</summary>
@@ -128,14 +129,14 @@ namespace Remedy.Cameras
         }
 
         // Camera Properties Volumes the Operator moves through.
-        protected override void OnTriggerEnter(BehaviorInstance instance, Collider other)
+        protected override void OnTriggerEnter(Collider other)
         {
             var volume = ExecutionContext.FindInstance(other.gameObject, typeof(CameraPropertiesVolume));
             if (volume != null)
                 CurrentVolume.Value = volume;
         }
 
-        protected override void OnTriggerExit(BehaviorInstance instance, Collider other)
+        protected override void OnTriggerExit(Collider other)
         {
             var volume = ExecutionContext.FindInstance(other.gameObject, typeof(CameraPropertiesVolume));
             if (volume != null && volume == CurrentVolume.Value)

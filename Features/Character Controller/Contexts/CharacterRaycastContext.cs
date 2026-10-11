@@ -26,8 +26,9 @@ public class CharacterRaycastContext : SchematicBehavior
     private readonly VariableHandle<Vector3> _dirToWall = Vector3.zero;
     private readonly VariableHandle<Vector3> _wallNorm = Vector3.zero;
 
-    protected override void OnStart(BehaviorInstance instance)
+    protected override void OnStart()
     {
+        var instance = Self;
         CheckForWall.Subscribe(direction => PerformWallCast(instance, direction));
     }
 

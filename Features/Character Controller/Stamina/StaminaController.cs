@@ -29,20 +29,21 @@ namespace Remedy.CharacterControllers.Stamina
         public readonly VariableHandle<bool> Regenerating = false;
         public readonly VariableHandle<float> Stamina = 100f;
 
-        protected override void OnStart(BehaviorInstance instance)
+        protected override void OnStart()
         {
+            var instance = Self;
             UseStamina.Subscribe(value => ConsumeStamina(instance, value));
             RegenerateStamina.Subscribe(value => Regenerating[instance] = value);
         }
 
-        protected override void OnEnable(BehaviorInstance instance)
+        protected override void OnEnable()
         {
             var properties = Properties.Value;
             if (properties != null)
                 Stamina.Value = properties.MaxStamina;
         }
 
-        protected override void OnUpdate(BehaviorInstance instance)
+        protected override void OnUpdate()
         {
             var properties = Properties.Value;
             ref var stamina = ref Stamina.Ref;
@@ -53,7 +54,7 @@ namespace Remedy.CharacterControllers.Stamina
                 else
                     stamina = properties.MaxStamina;
             }
-            OnStaminaChanged.Invoke(instance, stamina);
+            OnStaminaChanged.Invoke(Self, stamina);
         }
 
         /// <summary>

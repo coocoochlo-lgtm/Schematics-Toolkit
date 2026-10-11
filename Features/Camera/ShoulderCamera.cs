@@ -50,7 +50,7 @@ namespace Remedy.Cameras
         private readonly VariableHandle<Vector3> _vertPos = Vector3.zero;
         private readonly VariableHandle<Vector3> _shoulderPosition = Vector3.zero;
 
-        protected override void OnUpdate(BehaviorInstance instance)
+        protected override void OnUpdate()
         {
             var follow = Follow.Value;
             var root = Root.Value;
@@ -80,7 +80,7 @@ namespace Remedy.Cameras
 
             // Keep the object at the Root without moving the Root.
             var prevRootPos = root.position;
-            instance.Transform.position = root.position;
+            Self.Transform.position = root.position;
             root.position = prevRootPos;
 
             horPos.x = Mathf.Lerp(root.position.x, follow.position.x + followOffset.x, HorizontalFollowSpeed.Value * dt);

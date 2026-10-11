@@ -20,8 +20,9 @@ namespace Remedy.CharacterControllers.Hover
         private readonly VariableHandle<float> _currentHoverTime = 0f;
         private readonly VariableHandle<float> _currentFallSpeed = 0f;
 
-        protected override void OnStart(BehaviorInstance instance)
+        protected override void OnStart()
         {
+            var instance = Self;
             var motion = instance.GetSchematicBehavior<CharacterMotionContext>();
             if (motion == null)
                 return;
@@ -31,9 +32,9 @@ namespace Remedy.CharacterControllers.Hover
             motion.JumpInput.Subscribe(instance, value => Jump(instance, value));
         }
 
-        protected override void OnEnable(BehaviorInstance instance)
+        protected override void OnEnable()
         {
-            var motion = instance.GetSchematicBehavior<CharacterMotionContext>();
+            var motion = Self.GetSchematicBehavior<CharacterMotionContext>();
             if (motion != null)
                 motion.IsKinematic.Value = false;
 
@@ -41,10 +42,10 @@ namespace Remedy.CharacterControllers.Hover
             _currentFallSpeed.Value = 0f;
         }
 
-        protected override void OnFixedUpdate(BehaviorInstance instance)
+        protected override void OnFixedUpdate()
         {
             var properties = Properties.Value;
-            var motion = instance.GetSchematicBehavior<CharacterMotionContext>();
+            var motion = Self.GetSchematicBehavior<CharacterMotionContext>();
             if (properties == null || motion == null)
                 return;
 

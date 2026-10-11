@@ -36,8 +36,9 @@ namespace Remedy.Inventories
         public InventoryItemCollection Contents => _data.Value != null ? _data.Value.Contents : null;
         public int InventoryLayer => _data.Value != null ? _data.Value.InventoryLayer : -1;
 
-        protected override void OnStart(BehaviorInstance instance)
+        protected override void OnStart()
         {
+            var instance = Self;
             var starting = StartingData.Value;
             _data.Value = starting != null ? Object.Instantiate(starting) : ScriptableObject.CreateInstance<InventoryData>();
             InventoryManager.AddInventory(instance, InventoryLayer);
@@ -75,9 +76,9 @@ namespace Remedy.Inventories
             SelectItem(instance, 0);
         }
 
-        protected override void OnDestroy(BehaviorInstance instance)
+        protected override void OnDestroy()
         {
-            InventoryManager.RemoveInventory(instance);
+            InventoryManager.RemoveInventory(Self);
             if (_data.Value != null)
                 Object.Destroy(_data.Value);
             _data.Value = null;
@@ -102,7 +103,7 @@ namespace Remedy.Inventories
         }
 
         // Pick up
-        protected override void OnTriggerEnter(BehaviorInstance instance, Collider other)
+        protected override void OnTriggerEnter(Collider other)
         {
             var collectable = other.gameObject.GetSchematicBehavior<CollectableInventory>();
             if (collectable == null || collectable.InventoryLayer != InventoryLayer)
@@ -111,13 +112,13 @@ namespace Remedy.Inventories
             var collectableInstance = collectable.Selected;
             int countBefore = Contents.Count;
             Contents.TransferFrom(collectable.Items.Value);
-            collectable.Collect(collectableInstance, instance.GameObject);
+            collectable.Collect(collectableInstance, Self.GameObject);
 
             if (Contents.Count != countBefore)
             {
                 OnInventoryChanged.Invoke();
                 if (Data.SwitchOnPickup)
-                    SelectItem(instance, Contents.Count - 1);
+                    SelectItem(Self, Contents.Count - 1);
             }
         }
 

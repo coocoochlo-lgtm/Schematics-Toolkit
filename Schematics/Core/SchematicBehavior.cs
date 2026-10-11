@@ -14,10 +14,16 @@ using UnityEngine;
 /// <code>
 /// private readonly VariableHandle&lt;float&gt; _speed = 5f;
 ///
-/// protected override void OnUpdate(BehaviorInstance instance)
+/// protected override void OnUpdate()
 /// {
-///     instance.Transform.position += Vector3.forward * _speed.Value * Time.deltaTime;
+///     Self.Transform.position += Vector3.forward * _speed.Value * Time.deltaTime;
 /// }
+/// </code>
+/// Lifecycle methods run once per instance with that instance as <see cref="Self"/>; Variables and Signals act on
+/// <see cref="Self"/>. To act on another object's instance of this Behavior, pick it for a moment:
+/// <code>
+/// using (Pick(otherUid))
+///     _speed.Value = 0f;   // the other object's speed; Self is back to normal after the block
 /// </code>
 /// Components are best fetched with <see cref="BehaviorInstance.GetComponent{T}"/>, which caches them for the object's life;
 /// Variables are reset every spawn, so they're the wrong place to cache anything.<br/>
@@ -46,7 +52,61 @@ public abstract class SchematicBehavior
     }
 
     /// <summary>
-    /// Selects one of this Behavior's instances, so its Variables and methods act on it. Returns this Behavior.
+    /// The instance this Behavior is acting on right now: the one whose lifecycle method is running, the one a Signal
+    /// handler was subscribed for, or one picked with <see cref="Pick(BehaviorInstance)"/>. Variables and Signals read
+    /// and write it. Null outside of those.
+    /// </summary>
+    public BehaviorInstance Self => Cursor.Instance;
+
+    /// <summary>
+    /// Makes another instance of this Behavior <see cref="Self"/> until the returned scope is disposed, so
+    /// <c>using (Pick(other)) { ... }</c> reads and writes the other object's Variables, then switches back.
+    /// </summary>
+    public SelfScope Pick(BehaviorInstance other)
+    {
+        if (other != null && other.Behavior != this)
+            throw new ArgumentException($"{other} belongs to a different Behavior.", nameof(other));
+        var scope = new SelfScope(this, Cursor.Instance);
+        Cursor.Select(other);
+        return scope;
+    }
+
+    /// <summary>Picks this Behavior's instance on the object with the given UID (Self is null if it has none).</summary>
+    public SelfScope Pick(int uid) => Pick(InstanceOn(uid));
+
+    /// <summary>Picks this Behavior's instance on the given GameObject (Self is null if it has none).</summary>
+    public SelfScope Pick(GameObject gameObject)
+        => Pick(gameObject != null ? ExecutionContext.FindInstance(gameObject, GetType()) : null);
+
+    /// <summary>This Behavior's instance on the object with the given UID, or null.</summary>
+    public BehaviorInstance InstanceOn(int uid)
+    {
+        if (!ExecutionContext.TryGetObject(uid, out var schematicObject) || schematicObject == null)
+            return null;
+        foreach (var instance in schematicObject.BehaviorInstances)
+            if (instance.Behavior == this)
+                return instance;
+        return null;
+    }
+
+    /// <summary>Restores the previous <see cref="Self"/> when disposed. Returned by <see cref="Pick(BehaviorInstance)"/>.</summary>
+    public readonly struct SelfScope : IDisposable
+    {
+        private readonly SchematicBehavior _behavior;
+        private readonly BehaviorInstance _previous;
+
+        internal SelfScope(SchematicBehavior behavior, BehaviorInstance previous)
+        {
+            _behavior = behavior;
+            _previous = previous;
+        }
+
+        public void Dispose() => _behavior?.Cursor.Select(_previous);
+    }
+
+    /// <summary>
+    /// Selects one of this Behavior's instances, so its Variables and methods act on it, and leaves it selected.
+    /// Returns this Behavior. Inside Behaviors, prefer <see cref="Pick(BehaviorInstance)"/>, which switches back.
     /// </summary>
     public SchematicBehavior Select(BehaviorInstance instance)
     {
@@ -82,19 +142,19 @@ public abstract class SchematicBehavior
     public virtual int ExecutionOrder => 0;
 
     /// <summary>Called once, the first time the instance's object is created (not again when reused from the pool).</summary>
-    protected internal virtual void OnCreate(BehaviorInstance instance) { }
+    protected internal virtual void OnCreate() { }
     /// <summary>Called each time the instance is spawned (fresh or from the pool), after its Variables are reset to their defaults.
     /// If the instance spawns disabled, this is deferred until it is first enabled.</summary>
-    protected internal virtual void OnStart(BehaviorInstance instance) { }
+    protected internal virtual void OnStart() { }
     /// <summary>Called whenever the instance becomes enabled, including right after <see cref="OnStart"/>.</summary>
-    protected internal virtual void OnEnable(BehaviorInstance instance) { }
-    protected internal virtual void OnUpdate(BehaviorInstance instance) { }
-    protected internal virtual void OnLateUpdate(BehaviorInstance instance) { }
-    protected internal virtual void OnFixedUpdate(BehaviorInstance instance) { }
+    protected internal virtual void OnEnable() { }
+    protected internal virtual void OnUpdate() { }
+    protected internal virtual void OnLateUpdate() { }
+    protected internal virtual void OnFixedUpdate() { }
     /// <summary>Called whenever the instance becomes disabled, including right before it is despawned.</summary>
-    protected internal virtual void OnDisable(BehaviorInstance instance) { }
+    protected internal virtual void OnDisable() { }
     /// <summary>Called when the instance is despawned. Pooled objects go back to their pool afterwards rather than being destroyed.</summary>
-    protected internal virtual void OnDestroy(BehaviorInstance instance) { }
+    protected internal virtual void OnDestroy() { }
 
     /// <summary>
     /// Called in the editor when this Behavior is attached to a GameObject through the Inspector, the counterpart to a
@@ -119,12 +179,12 @@ public abstract class SchematicBehavior
     protected internal virtual void OnDrawGizmos(BehaviorGizmoContext context) { }
 
     /// <summary>Unity physics messages from the instance's GameObject, while it is enabled.</summary>
-    protected internal virtual void OnCollisionEnter(BehaviorInstance instance, Collision collision) { }
-    protected internal virtual void OnCollisionExit(BehaviorInstance instance, Collision collision) { }
-    protected internal virtual void OnTriggerEnter(BehaviorInstance instance, Collider other) { }
-    protected internal virtual void OnTriggerExit(BehaviorInstance instance, Collider other) { }
-    protected internal virtual void OnCollisionStay(BehaviorInstance instance, Collision collision) { }
-    protected internal virtual void OnTriggerStay(BehaviorInstance instance, Collider other) { }
+    protected internal virtual void OnCollisionEnter(Collision collision) { }
+    protected internal virtual void OnCollisionExit(Collision collision) { }
+    protected internal virtual void OnTriggerEnter(Collider other) { }
+    protected internal virtual void OnTriggerExit(Collider other) { }
+    protected internal virtual void OnCollisionStay(Collision collision) { }
+    protected internal virtual void OnTriggerStay(Collider other) { }
 
     /// <summary>
     /// Creates a Behavior of the given type and collects the Variables its field initializers declared.

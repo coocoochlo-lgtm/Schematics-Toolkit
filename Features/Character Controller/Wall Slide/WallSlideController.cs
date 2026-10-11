@@ -24,17 +24,18 @@ namespace Remedy.CharacterControllers.WallSlide
 
         private readonly VariableHandle<RaycastHit> _lastWallHit = default(RaycastHit);
 
-        protected override void OnStart(BehaviorInstance instance)
+        protected override void OnStart()
         {
+            var instance = Self;
             var motion = instance.GetSchematicBehavior<CharacterMotionContext>();
             motion?.JumpInput.Subscribe(instance, value => Jump(instance, value));
         }
 
-        protected override void OnFixedUpdate(BehaviorInstance instance)
+        protected override void OnFixedUpdate()
         {
             var properties = Properties.Value;
-            var motion = instance.GetSchematicBehavior<CharacterMotionContext>();
-            var raycast = instance.GetSchematicBehavior<CharacterRaycastContext>();
+            var motion = Self.GetSchematicBehavior<CharacterMotionContext>();
+            var raycast = Self.GetSchematicBehavior<CharacterRaycastContext>();
             if (properties == null || motion == null || raycast == null)
                 return;
 
@@ -42,9 +43,9 @@ namespace Remedy.CharacterControllers.WallSlide
 
             motion.WallCheckInMoveDirection();
             if (raycast.WallCastResult.Value.TryGetClosestHit(out RaycastHit hit))
-                StickOnWall(instance, properties, motion, hit);
+                StickOnWall(Self, properties, motion, hit);
             else
-                OnWallSlideExitted.Invoke(instance, false);
+                OnWallSlideExitted.Invoke(Self, false);
         }
 
         public void Jump(BehaviorInstance instance, bool value)

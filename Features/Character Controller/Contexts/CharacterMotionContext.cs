@@ -79,19 +79,20 @@ public class CharacterMotionContext : SchematicBehavior
     private static float DeltaTime => Time.fixedDeltaTime;
 
     // Lifecycle
-    protected override void OnCreate(BehaviorInstance instance)
+    protected override void OnCreate()
     {
-        var rb = instance.GetComponent<Rigidbody>();
+        var rb = Self.GetComponent<Rigidbody>();
         rb.constraints = RigidbodyConstraints.FreezeRotation;
         rb.useGravity = false;
 
         var properties = Properties.Value;
         if (properties != null)
-            instance.GetComponent<SphereCollider>().sharedMaterial = properties.PhysicsMaterial;
+            Self.GetComponent<SphereCollider>().sharedMaterial = properties.PhysicsMaterial;
     }
 
-    protected override void OnStart(BehaviorInstance instance)
+    protected override void OnStart()
     {
+        var instance = Self;
         MoveInput.Subscribe(value =>
         {
             ref var input = ref _moveInput.For(instance);
@@ -103,7 +104,7 @@ public class CharacterMotionContext : SchematicBehavior
         SetDirectionOfGravity.Subscribe(value => _worldDirection[instance] = value);
     }
 
-    protected override void OnEnable(BehaviorInstance instance)
+    protected override void OnEnable()
     {
         var camera = CameraSubsystem.Camera != null ? CameraSubsystem.Camera.transform : null;
 
@@ -119,14 +120,14 @@ public class CharacterMotionContext : SchematicBehavior
         CameraTransform.Value = camera;
     }
 
-    protected override void OnFixedUpdate(BehaviorInstance instance)
+    protected override void OnFixedUpdate()
     {
         var properties = Properties.Value;
         if (properties == null)
             return;
 
-        var rb = instance.GetComponent<Rigidbody>();
-        var raycast = instance.GetSchematicBehavior<CharacterRaycastContext>();
+        var rb = Self.GetComponent<Rigidbody>();
+        var raycast = Self.GetSchematicBehavior<CharacterRaycastContext>();
         rb.isKinematic = IsKinematic.Value;
 
         ref var velocity = ref _velocity.Ref;
@@ -149,7 +150,7 @@ public class CharacterMotionContext : SchematicBehavior
 
                 SpringTo(_springStartY.Value, point, properties.SpringStrength, properties.SpringDamper, properties.SpringMaxForce);
 
-                if (Vector3.Distance(instance.Transform.position, point) < properties.SpringEpsilon)
+                if (Vector3.Distance(Self.Transform.position, point) < properties.SpringEpsilon)
                 {
                     index++;
                     SpringPathFinished.Value?.Invoke();
@@ -163,7 +164,7 @@ public class CharacterMotionContext : SchematicBehavior
         }
 
         if (raycast != null)
-            HandleWallSlidingMovement(instance, properties, raycast);
+            HandleWallSlidingMovement(Self, properties, raycast);
 
         // apply forces
         for (int i = 0; i < forcesCount; i++)
@@ -202,7 +203,7 @@ public class CharacterMotionContext : SchematicBehavior
         {
             rb.WakeUp();
             rb.linearVelocity = velocity;
-            OnMoveOnGround.Invoke(instance, horizontalVelocity);
+            OnMoveOnGround.Invoke(Self, horizontalVelocity);
         }
         else
         {
@@ -215,7 +216,7 @@ public class CharacterMotionContext : SchematicBehavior
         Array.Clear(forces, 0, forces.Length);
     }
 
-    protected override void OnCollisionEnter(BehaviorInstance instance, Collision collision)
+    protected override void OnCollisionEnter(Collision collision)
     {
         var properties = Properties.Value;
         if (properties != null && _canBePushed.Value && collision.relativeVelocity.sqrMagnitude > properties.CollisionPushVelocityThreshold)

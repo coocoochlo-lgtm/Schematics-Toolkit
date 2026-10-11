@@ -29,8 +29,8 @@ namespace Remedy.Damagables
         public readonly VariableHandle<float> MaxHealth = 100f;
         public readonly VariableHandle<bool> IsAlive = true;
 
-        protected override void OnEnable(BehaviorInstance instance) => DamageManager.AddDamageable(instance, DamageLayer.Value);
-        protected override void OnDisable(BehaviorInstance instance) => DamageManager.RemoveDamageable(instance);
+        protected override void OnEnable() => DamageManager.AddDamageable(Self, DamageLayer.Value);
+        protected override void OnDisable() => DamageManager.RemoveDamageable(Self);
 
         /// <summary>Damages the selected Damageable.</summary>
         public void Damage(DamageInstigation instigation) => Damage(Selected, instigation);

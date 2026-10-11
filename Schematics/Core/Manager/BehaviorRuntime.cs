@@ -331,9 +331,9 @@ public sealed class BehaviorRuntime
 
                         switch (callback)
                         {
-                            case Callback.Update: Behavior.OnUpdate(instance); break;
-                            case Callback.LateUpdate: Behavior.OnLateUpdate(instance); break;
-                            case Callback.FixedUpdate: Behavior.OnFixedUpdate(instance); break;
+                            case Callback.Update: Behavior.OnUpdate(); break;
+                            case Callback.LateUpdate: Behavior.OnLateUpdate(); break;
+                            case Callback.FixedUpdate: Behavior.OnFixedUpdate(); break;
                         }
                     }
                 }
@@ -393,12 +393,12 @@ public sealed class BehaviorRuntime
         {
             switch (message)
             {
-                case PhysicsMessage.CollisionEnter: Behavior.OnCollisionEnter(instance, collision); break;
-                case PhysicsMessage.CollisionExit: Behavior.OnCollisionExit(instance, collision); break;
-                case PhysicsMessage.TriggerEnter: Behavior.OnTriggerEnter(instance, other); break;
-                case PhysicsMessage.TriggerExit: Behavior.OnTriggerExit(instance, other); break;
-                case PhysicsMessage.CollisionStay: Behavior.OnCollisionStay(instance, collision); break;
-                case PhysicsMessage.TriggerStay: Behavior.OnTriggerStay(instance, other); break;
+                case PhysicsMessage.CollisionEnter: Behavior.OnCollisionEnter(collision); break;
+                case PhysicsMessage.CollisionExit: Behavior.OnCollisionExit(collision); break;
+                case PhysicsMessage.TriggerEnter: Behavior.OnTriggerEnter(other); break;
+                case PhysicsMessage.TriggerExit: Behavior.OnTriggerExit(other); break;
+                case PhysicsMessage.CollisionStay: Behavior.OnCollisionStay(collision); break;
+                case PhysicsMessage.TriggerStay: Behavior.OnTriggerStay(other); break;
             }
         }
         catch (Exception exception)
@@ -426,14 +426,14 @@ public sealed class BehaviorRuntime
         {
             switch (callback)
             {
-                case Callback.Create: Behavior.OnCreate(instance); break;
-                case Callback.Start: Behavior.OnStart(instance); break;
-                case Callback.Enable: Behavior.OnEnable(instance); break;
-                case Callback.Update: Behavior.OnUpdate(instance); break;
-                case Callback.LateUpdate: Behavior.OnLateUpdate(instance); break;
-                case Callback.FixedUpdate: Behavior.OnFixedUpdate(instance); break;
-                case Callback.Disable: Behavior.OnDisable(instance); break;
-                case Callback.Destroy: Behavior.OnDestroy(instance); break;
+                case Callback.Create: Behavior.OnCreate(); break;
+                case Callback.Start: Behavior.OnStart(); break;
+                case Callback.Enable: Behavior.OnEnable(); break;
+                case Callback.Update: Behavior.OnUpdate(); break;
+                case Callback.LateUpdate: Behavior.OnLateUpdate(); break;
+                case Callback.FixedUpdate: Behavior.OnFixedUpdate(); break;
+                case Callback.Disable: Behavior.OnDisable(); break;
+                case Callback.Destroy: Behavior.OnDestroy(); break;
             }
         }
         catch (Exception exception)

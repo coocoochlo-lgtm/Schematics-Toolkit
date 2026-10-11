@@ -28,21 +28,21 @@ namespace Remedy.CharacterControllers.Gadgets
                 collider.isTrigger = true;
         }
 
-        protected override void OnEnable(BehaviorInstance instance)
+        protected override void OnEnable()
         {
-            _defaultScale.Value = instance.Transform.localScale;
+            _defaultScale.Value = Self.Transform.localScale;
         }
 
-        protected override void OnTriggerEnter(BehaviorInstance instance, Collider other)
+        protected override void OnTriggerEnter(Collider other)
         {
             var rb = other.attachedRigidbody;
             if (rb == null)
                 return;
 
-            ApplyForce(instance, rb, instance.Transform.up * Force.Value, Delay.Value, _defaultScale.Value).Forget();
-            instance.Transform.localScale = Vector3.Scale(_defaultScale.Value, ScaleOnHit.Value);
+            ApplyForce(Self, rb, Self.Transform.up * Force.Value, Delay.Value, _defaultScale.Value).Forget();
+            Self.Transform.localScale = Vector3.Scale(_defaultScale.Value, ScaleOnHit.Value);
 
-            OnHit.Invoke(instance, rb.gameObject);
+            OnHit.Invoke(Self, rb.gameObject);
         }
 
         private static async UniTaskVoid ApplyForce(BehaviorInstance instance, Rigidbody rb, Vector3 velocity, int delay, Vector3 defaultScale)

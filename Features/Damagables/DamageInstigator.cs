@@ -13,8 +13,9 @@ namespace Remedy.Damagables
 
         public readonly VariableHandle<DamageInstigationData> Data = (DamageInstigationData)null;
 
-        protected override void OnStart(BehaviorInstance instance)
+        protected override void OnStart()
         {
+            var instance = Self;
             // Fires whatever the Signal carries.
             Instigate.Subscribe(() =>
             {
@@ -25,14 +26,14 @@ namespace Remedy.Damagables
             });
         }
 
-        protected override void OnTriggerStay(BehaviorInstance instance, Collider other)
-            => TryDamage(instance, other, DamageInstigationData.InstigationType.OnTriggerStay);
+        protected override void OnTriggerStay(Collider other)
+            => TryDamage(Self, other, DamageInstigationData.InstigationType.OnTriggerStay);
 
-        protected override void OnCollisionEnter(BehaviorInstance instance, Collision collision)
-            => TryDamage(instance, collision.collider, DamageInstigationData.InstigationType.OnCollisionEnter);
+        protected override void OnCollisionEnter(Collision collision)
+            => TryDamage(Self, collision.collider, DamageInstigationData.InstigationType.OnCollisionEnter);
 
-        protected override void OnTriggerEnter(BehaviorInstance instance, Collider other)
-            => TryDamage(instance, other, DamageInstigationData.InstigationType.OnCollisionEnter);
+        protected override void OnTriggerEnter(Collider other)
+            => TryDamage(Self, other, DamageInstigationData.InstigationType.OnCollisionEnter);
 
         private void TryDamage(BehaviorInstance instance, Collider other, DamageInstigationData.InstigationType when)
         {

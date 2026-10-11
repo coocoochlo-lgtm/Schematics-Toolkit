@@ -27,28 +27,29 @@ namespace Remedy.CharacterControllers.LedgeGrab
         private readonly VariableHandle<RaycastHit> _lastWallHit = default(RaycastHit);
         private readonly VariableHandle<List<Vector3>> _clamberPoints = new List<Vector3> { Vector3.zero, Vector3.zero };
 
-        protected override void OnStart(BehaviorInstance instance)
+        protected override void OnStart()
         {
+            var instance = Self;
             var motion = instance.GetSchematicBehavior<CharacterMotionContext>();
             motion?.JumpInput.Subscribe(instance, value => Jump(instance, value));
         }
 
-        protected override void OnEnable(BehaviorInstance instance)
+        protected override void OnEnable()
         {
             var properties = Properties.Value;
-            var motion = instance.GetSchematicBehavior<CharacterMotionContext>();
-            var raycast = instance.GetSchematicBehavior<CharacterRaycastContext>();
+            var motion = Self.GetSchematicBehavior<CharacterMotionContext>();
+            var raycast = Self.GetSchematicBehavior<CharacterRaycastContext>();
             if (properties == null || motion == null || raycast == null)
                 return;
 
             motion.WallCheckInMoveDirection();
             if (raycast.WallCastResult.Value.TryGetClosestHit(out RaycastHit hit))
-                StickOnWall(instance, properties, motion, raycast, hit);
+                StickOnWall(Self, properties, motion, raycast, hit);
         }
 
-        protected override void OnDisable(BehaviorInstance instance)
+        protected override void OnDisable()
         {
-            OnLedgeGrabExitted.Invoke(instance);
+            OnLedgeGrabExitted.Invoke(Self);
         }
 
         public void Jump(BehaviorInstance instance, bool value)

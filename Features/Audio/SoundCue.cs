@@ -50,8 +50,9 @@ namespace Remedy.Audio
         /// <summary>The Audio Definitions named by AudioName, looked up when the object is created.</summary>
         private readonly VariableHandle<List<AudioDefinition>> _audioContent = (List<AudioDefinition>)null;
 
-        protected override void OnStart(BehaviorInstance instance)
+        protected override void OnStart()
         {
+            var instance = Self;
             AudioData.AudioDefinitions.TryGetValue(AudioName.Value ?? "", out var content);
             _audioContent.Value = content;
 
@@ -118,15 +119,15 @@ namespace Remedy.Audio
         }
 
         // Collision Playback
-        protected override void OnCollisionEnter(BehaviorInstance instance, Collision collision)
+        protected override void OnCollisionEnter(Collision collision)
         {
             if (PlaybackMode.Value == Audio.PlaybackMode.OnCollisionEnter && !IsMusic)
-                PlayCollision(instance, collision);
+                PlayCollision(Self, collision);
         }
-        protected override void OnCollisionExit(BehaviorInstance instance, Collision collision)
+        protected override void OnCollisionExit(Collision collision)
         {
             if (PlaybackMode.Value == Audio.PlaybackMode.OnCollisionExit && !IsMusic)
-                PlayCollision(instance, collision);
+                PlayCollision(Self, collision);
         }
         private void PlayCollision(BehaviorInstance instance, Collision collision)
         {
@@ -145,15 +146,15 @@ namespace Remedy.Audio
         }
 
         // Trigger Playback
-        protected override void OnTriggerEnter(BehaviorInstance instance, Collider other)
+        protected override void OnTriggerEnter(Collider other)
         {
             if (PlaybackMode.Value == Audio.PlaybackMode.OnTriggerEnter && !IsMusic)
-                PlayTrigger(instance, other);
+                PlayTrigger(Self, other);
         }
-        protected override void OnTriggerExit(BehaviorInstance instance, Collider other)
+        protected override void OnTriggerExit(Collider other)
         {
             if (PlaybackMode.Value == Audio.PlaybackMode.OnTriggerExit && !IsMusic)
-                PlayTrigger(instance, other);
+                PlayTrigger(Self, other);
         }
         private void PlayTrigger(BehaviorInstance instance, Collider other)
         {

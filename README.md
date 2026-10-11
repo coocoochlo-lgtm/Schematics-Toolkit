@@ -183,16 +183,23 @@ public class Spinner : SchematicBehavior
     private readonly VariableHandle<float> _degreesPerSecond = 90f;
     private readonly VariableHandle<float> _spun = 0f;
 
-    protected override void OnStart(BehaviorInstance instance) { }   // every spawn, Variables already reset
-    protected override void OnEnable(BehaviorInstance instance) { }
+    protected override void OnStart() { }   // every spawn, Variables already reset
+    protected override void OnEnable() { }
 
-    protected override void OnUpdate(BehaviorInstance instance)
+    protected override void OnUpdate()
     {
         float step = _degreesPerSecond * Time.deltaTime;
         _spun.Value += step;
-        instance.Transform.Rotate(0f, step, 0f);
+        Self.Transform.Rotate(0f, step, 0f);
     }
 }
+```
+
+Lifecycle methods run once per object, with that object's instance as `Self`; Variables and Signals act on `Self`. To act on another object's instance of the same Behavior, pick it for a block. `Self` switches back afterwards:
+
+```csharp
+using (Pick(otherUid))          // also Pick(gameObject) or Pick(instance)
+    _spun.Value = 0f;           // the other object's Variable
 ```
 
 ```csharp
@@ -225,10 +232,10 @@ public class HitFlash : SchematicBehavior
 {
     private readonly VariableHandle<float> _flash = 0f;
 
-    protected override void OnStart(BehaviorInstance instance)
+    protected override void OnStart()
     {
-        // Runs with this HitFlash instance selected, so _flash is this object's value.
-        instance.GetSchematicBehavior<Health>().Damaged.Subscribe(amount => _flash.Value = 1f);
+        // The handler runs with this HitFlash instance as Self, so _flash is this object's value.
+        Self.GetSchematicBehavior<Health>().Damaged.Subscribe(amount => _flash.Value = 1f);
     }
 }
 ```
@@ -246,7 +253,7 @@ if (controller != null)
 ```
 
 Lifecycle order: `OnCreate` (first creation only) → `OnStart` → `OnEnable` → `OnUpdate`/`OnLateUpdate`/`OnFixedUpdate` → `OnDisable` → `OnDestroy`.
-Behaviors also receive `OnCollisionEnter`/`Exit` and `OnTriggerEnter`/`Exit` for the GameObject they're attached to. Variables reset on every spawn, so fetch components with `instance.GetComponent<T>()`, which caches them for the object's whole life.
+Behaviors also receive `OnCollisionEnter`/`Exit` and `OnTriggerEnter`/`Exit` for the GameObject they're attached to. Variables reset on every spawn, so fetch components with `Self.GetComponent<T>()`, which caches them for the object's whole life.
 
 `[RequireBehavior(typeof(Other))]` is the Behavior counterpart to `[RequireComponent]`: attaching the Behavior attaches the ones it needs too.
 
