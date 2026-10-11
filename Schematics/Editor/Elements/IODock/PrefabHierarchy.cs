@@ -603,14 +603,21 @@ public class PrefabHierarchy : VisualElement
     // change the copy, save it over the asset, then reimport and redraw.
     private void EditContents(Action<GameObject> edit)
     {
+        if (edit != null)
+            _queuedEdits.Add(edit);
+
+        // Busy (another save still finishing, a compile, or the import a save just started): the edit waits its turn
+        // instead of being dropped, and goes in with the next save.
         if (_editing || EditorApplication.isCompiling || EditorApplication.isUpdating)
         {
-            Debug.LogWarning("The prefab is busy (another change, a compile or an import is in progress); try again in a moment.");
+            ScheduleRetry();
             return;
         }
 
         _editing = true;
 
+        var edits = _queuedEdits.ToArray();
+        _queuedEdits.Clear();
         // Value edits waiting to be written ride along with this save.
         var pending = new List<PendingEdit>(_pendingEdits.Values);
         _pendingEdits.Clear();
@@ -621,7 +628,8 @@ public class PrefabHierarchy : VisualElement
         {
             contents = PrefabUtility.LoadPrefabContents(_assetPath);
             ApplyEdits(contents, pending);
-            edit?.Invoke(contents);
+            foreach (var queued in edits)
+                queued(contents);
         }
         catch (Exception exception)
         {
@@ -632,6 +640,23 @@ public class PrefabHierarchy : VisualElement
             return;
         }
         Save(contents);
+    }
+
+    private readonly List<Action<GameObject>> _queuedEdits = new();
+    private bool _retryScheduled;
+
+    // Tries again on the next editor update, until the prefab is free.
+    private void ScheduleRetry()
+    {
+        if (_retryScheduled)
+            return;
+        _retryScheduled = true;
+        EditorApplication.delayCall += () =>
+        {
+            _retryScheduled = false;
+            if (_queuedEdits.Count > 0 || _pendingEdits.Count > 0)
+                EditContents(null);
+        };
     }
 
     // One load-edit-save at a time; saving direct edits waits until it's done.
@@ -681,13 +706,6 @@ public class PrefabHierarchy : VisualElement
         _flushScheduled?.Pause();
         if (_pendingEdits.Count == 0 || string.IsNullOrEmpty(_assetPath))
             return;
-        if (_editing)
-        {
-            // Another save is still finishing; try again shortly.
-            _flushScheduled = schedule.Execute(FlushPendingEdits);
-            _flushScheduled.ExecuteLater(300);
-            return;
-        }
         EditContents(null);
     }
 
