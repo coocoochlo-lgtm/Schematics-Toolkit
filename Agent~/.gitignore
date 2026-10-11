@@ -1,0 +1,6 @@
+# Built server and downloaded models (setup.ps1 / setup.sh fetch them).
+bin/
+obj/
+SchematicsAgent/bin/
+SchematicsAgent/obj/
+models/
