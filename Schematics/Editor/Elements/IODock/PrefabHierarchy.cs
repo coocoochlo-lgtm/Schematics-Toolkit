@@ -55,7 +55,7 @@ public class PrefabHierarchy : VisualElement
                 Add(new Button(() =>
                 {
                     var contents = PrefabUtility.LoadPrefabContents(_assetPath);
-                    contents.AddComponent<SchematicObject>();
+                    contents.AddComponent<SchematicObject>().AssignObjectID(SchematicObjectIDs.For(_assetPath));
                     Save(contents);
                 }) { text = "Add Schematic Object" });
             return;

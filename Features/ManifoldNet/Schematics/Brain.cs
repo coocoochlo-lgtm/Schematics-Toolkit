@@ -38,7 +38,8 @@ namespace Remedy.ManifoldNetwork.Schematics
             }
             var agent = new BrainAgent(Self, definition);
             _agents[Self] = agent;
-            BrainHub.Join(this, agent, ObjectIdOf(Self, definition));
+            // Networks[objectID]: the Schematic Object (prefab) this instance is of.
+            BrainHub.Join(this, agent, Self.Owner != null ? Self.Owner.ObjectID : 0);
         }
 
         protected override void OnDestroy()
@@ -48,15 +49,6 @@ namespace Remedy.ManifoldNetwork.Schematics
                 BrainHub.Leave(agent);
                 _agents.Remove(Self);
             }
-        }
-
-        /// <summary>
-        /// Which Schematic Object this is, for <c>Networks[objectID]</c>: its graph (one per prefab) and the definition.
-        /// </summary>
-        private static int ObjectIdOf(BehaviorInstance instance, BrainDefinition definition)
-        {
-            var graph = instance.Owner != null ? instance.Owner.SchematicGraph : null;
-            unchecked { return (graph != null ? graph.GetInstanceID() : 0) * 486187739 + definition.GetInstanceID(); }
         }
 
         /// <summary>The brain of an instance (null if it has none, or no definition).</summary>

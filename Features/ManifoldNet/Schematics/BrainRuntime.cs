@@ -626,7 +626,8 @@ namespace Remedy.ManifoldNetwork.Schematics
     }
 
     /// <summary>
-    /// Every running brain: <c>Networks[objectID][networkID]</c>. A shared brain is network 0 of its Schematic Object;
+    /// Every running brain: <c>Networks[objectID][networkID]</c>, where objectID is the Schematic Object's
+    /// <see cref="SchematicObject.ObjectID"/> (its prefab). A shared brain is one network per definition on that object;
     /// per-instance brains add a network each. Ticks them all from Unity's frame loop.
     /// </summary>
     public static class BrainHub
@@ -672,13 +673,13 @@ namespace Remedy.ManifoldNetwork.Schematics
             BrainNetwork network;
             if (agent.Definition.Sharing == BrainSharing.Shared)
             {
-                // The first one is everyone's.
-                if (list.Count == 0 || list[0] == null)
+                // Everyone's: the object's network for this definition (an object can have more than one Brain).
+                network = list.Find(n => n != null && n.Definition == agent.Definition);
+                if (network == null)
                 {
-                    network = Create(agent.Definition, objectId, 0, 4);
-                    if (list.Count == 0) list.Add(network); else list[0] = network;
+                    network = Create(agent.Definition, objectId, list.Count, 4);
+                    list.Add(network);
                 }
-                network = list[0];
             }
             else
             {

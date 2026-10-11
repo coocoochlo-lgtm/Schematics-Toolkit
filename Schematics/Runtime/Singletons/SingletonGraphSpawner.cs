@@ -68,6 +68,8 @@ public static class SingletonGraphSpawner
 
         var schematic = gameObject.AddComponent<SchematicObject>();
         schematic.SchematicGraph = graph;
+        // Singletons have no prefab: they're identified by their graph.
+        schematic.AssignObjectID(SchematicObject.ObjectIDFor("singleton:" + graph.name));
 
         if (graph.StateMachine != null)
         {

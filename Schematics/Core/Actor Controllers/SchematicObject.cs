@@ -21,6 +21,35 @@ namespace Remedy.Schematics
         [HideInInspector]
         public SerializableDictionary<GameObject, BehaviorAttachmentList> Behaviors = new();
 
+        [SerializeField, HideInInspector]
+        private int _objectId;
+
+        /// <summary>
+        /// Which Schematic Object (prefab) this is, the same for every instance of it and stable across sessions.
+        /// Assigned in the editor when the Schematic is created, from the prefab asset's GUID (a duplicated prefab
+        /// gets its own). 0 for objects that aren't Schematic prefabs (built at runtime or placed by hand).
+        /// </summary>
+        public int ObjectID => _objectId;
+
+        /// <summary>Sets the ObjectID: the editor does this for prefabs; runtime-built objects (singletons) may too.</summary>
+        public void AssignObjectID(int id) => _objectId = id;
+
+        /// <summary>A stable, non-zero ObjectID for a key (e.g. a prefab asset GUID): FNV-1a, kept positive.</summary>
+        public static int ObjectIDFor(string key)
+        {
+            unchecked
+            {
+                uint hash = 2166136261;
+                foreach (char c in key ?? "")
+                {
+                    hash ^= c;
+                    hash *= 16777619;
+                }
+                int id = (int)(hash & 0x7FFFFFFF);
+                return id == 0 ? 1 : id;
+            }
+        }
+
         /// <summary>
         /// Identifies this object in the <see cref="ExecutionContext"/> while it is spawned; 0 otherwise.
         /// A new UID is assigned every time the object is spawned, including from its pool.
