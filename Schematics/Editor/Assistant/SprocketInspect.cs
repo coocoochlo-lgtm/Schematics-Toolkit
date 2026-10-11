@@ -8,6 +8,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.UIElements;
 
@@ -31,39 +32,46 @@ namespace Remedy.Schematics.Assistant
         #region Finding what's there
 
         /// <summary>
-        /// What's at a screen point in a window. Scene view picks arrive a moment later, so this calls back (with null
-        /// when there's nothing particular there).
+        /// What's at a screen point in a window. The Hierarchy and Project window answer a moment later, so this calls
+        /// back. When nothing in particular is there, it's the window itself.
         /// </summary>
         public static void At(EditorWindow window, Vector2 screen, Action<InspectTarget> done)
         {
+            void Finish(InspectTarget target) => done(target ?? ForWindow(window));
             switch (window)
             {
-                case SceneView sceneView:
-                    PickInScene(sceneView, screen, picked => done(picked != null ? Placed(ForGameObject(picked), sceneView, screen) : null));
+                case null:
+                    done(null);
                     return;
+                case SceneView sceneView:
+                {
+                    var picked = PickInScene(sceneView, screen);
+                    Finish(picked != null ? Placed(ForGameObject(picked), window, screen) : null);
+                    return;
+                }
                 case SchematicGraphEditorWindow graph:
-                    done(InGraph(graph, screen));
+                    Finish(InGraph(graph, screen));
                     return;
             }
             switch (window.GetType().Name)
             {
+                case "HierarchyWindow":
+                {
+                    var picked = InNewHierarchy(window, screen);
+                    Finish(picked != null ? Placed(ForGameObject(picked), window, screen) : null);
+                    return;
+                }
                 case "SceneHierarchyWindow":
-                {
-                    var picked = Probe(window, screen) as GameObject;
-                    done(picked != null ? Placed(ForGameObject(picked), window, screen) : null);
+                    Probe(window, screen, picked => Finish(picked is GameObject gameObject ? Placed(ForGameObject(gameObject), window, screen) : null));
                     return;
-                }
                 case "ProjectBrowser":
-                {
-                    var asset = Probe(window, screen);
-                    done(asset != null ? Placed(ForAsset(asset), window, screen) : null);
+                    Probe(window, screen, asset => Finish(asset != null ? Placed(ForAsset(asset), window, screen) : null));
                     return;
-                }
                 case "InspectorWindow":
-                    done(Selection.activeObject != null ? Placed(Selection.activeObject is GameObject go ? ForGameObject(go) : ForAsset(Selection.activeObject), window, screen) : null);
+                    Finish(InInspector(window, screen));
                     return;
             }
-            done(null);
+            Finish(null);
         }
 
         /// <summary>Just the name of what's under the pointer, for the "What is this?" tag while dragging.</summary>
@@ -71,18 +79,30 @@ namespace Remedy.Schematics.Assistant
         {
             switch (window)
             {
+                case null:
+                    done(null);
+                    return;
                 case SceneView sceneView:
-                    PickInScene(sceneView, screen, picked => done(picked != null ? picked.name : null));
+                    done(PickInScene(sceneView, screen)?.name);
                     return;
                 case SchematicGraphEditorWindow graph:
                     done(InGraph(graph, screen)?.Title);
                     return;
             }
-            string type = window.GetType().Name;
-            if (type == "SceneHierarchyWindow" || type == "ProjectBrowser")
-                done(Probe(window, screen)?.name);
-            else
-                done(null);
+            switch (window.GetType().Name)
+            {
+                case "HierarchyWindow":
+                    done(InNewHierarchy(window, screen)?.name);
+                    return;
+                case "SceneHierarchyWindow":
+                case "ProjectBrowser":
+                    Probe(window, screen, picked => done(picked?.name));
+                    return;
+                case "InspectorWindow":
+                    done(InInspector(window, screen)?.Title);
+                    return;
+            }
+            done(null);
         }
 
         private static InspectTarget Placed(InspectTarget target, EditorWindow window, Vector2 screen)
@@ -92,12 +112,67 @@ namespace Remedy.Schematics.Assistant
             return target;
         }
 
+        #endregion
+
+        #region Screen and panel points
+
+        // A window's UI starts at the top of its content (below the tab), where window.position starts. In some windows
+        // (the Scene view in Prefab Mode) the root sits lower, under a toolbar, so points go through the outermost
+        // element instead.
+        private static VisualElement Outermost(EditorWindow window)
+        {
+            var element = window.rootVisualElement;
+            var top = element?.panel?.visualTree;
+            while (element?.parent != null && element.parent != top)
+                element = element.parent;
+            return element;
+        }
+
+        /// <summary>A screen point in a window's panel space.</summary>
+        public static Vector2 ScreenToPanel(EditorWindow window, Vector2 screen)
+        {
+            var outer = Outermost(window);
+            return outer != null ? outer.LocalToWorld(screen - window.position.position) : screen - window.position.position;
+        }
+
+        /// <summary>A point in a window's panel space on the screen.</summary>
+        public static Vector2 PanelToScreen(EditorWindow window, Vector2 panelPoint)
+        {
+            var outer = Outermost(window);
+            return window.position.position + (outer != null ? outer.WorldToLocal(panelPoint) : panelPoint);
+        }
+
+        private static readonly List<VisualElement> _picks = new();
+
+        /// <summary>The topmost UI element at a screen point, looking past Sprocket himself.</summary>
+        private static VisualElement ElementAt(EditorWindow window, Vector2 screen)
+        {
+            var panel = window.rootVisualElement?.panel;
+            if (panel == null)
+                return null;
+            _picks.Clear();
+            panel.PickAll(ScreenToPanel(window, screen), _picks);
+            foreach (var element in _picks)
+                if (!IsSprocket(element))
+                    return element;
+            return null;
+        }
+
+        private static bool IsSprocket(VisualElement element)
+        {
+            for (; element != null; element = element.parent)
+                if (element is AssistantOverlay)
+                    return true;
+            return false;
+        }
+
+        #endregion
+
+        #region Schematic Graph
+
         private static InspectTarget InGraph(SchematicGraphEditorWindow window, Vector2 screen)
         {
-            var root = window.rootVisualElement;
-            var world = root.LocalToWorld(screen - window.position.position);
-            var picked = root.panel?.Pick(world);
-            for (var element = picked; element != null; element = element.parent)
+            for (var element = ElementAt(window, screen); element != null; element = element.parent)
             {
                 // IO Dock rows carry their item.
                 if (element.userData is DockItem item)
@@ -108,29 +183,222 @@ namespace Remedy.Schematics.Assistant
             return null;
         }
 
-        // Scene view picking needs its GUI, so it happens on its next repaint.
-        private static void PickInScene(SceneView view, Vector2 screen, Action<GameObject> done)
+        #endregion
+
+        #region Scene view
+
+        // Unity's own picking only works from inside the Scene view's GUI, and not while it's drawing (that's what
+        // flashed the view and logged rendering errors). So Sprocket looks for himself: a ray from the Scene camera
+        // through the point, against the objects' meshes (and bounds), plus the icons of objects that are drawn as
+        // icons (lights, cameras, sounds…), which sit on top.
+        private static readonly PropertyInfo _cameraElement =
+            typeof(SceneView).GetProperty("cameraViewVisualElement", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+        private static readonly MethodInfo _intersectRayMesh =
+            typeof(HandleUtility).GetMethod("IntersectRayMesh", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public,
+                null, new[] { typeof(Ray), typeof(Mesh), typeof(Matrix4x4), typeof(RaycastHit).MakeByRefType() }, null);
+        private static IEnumerable<Component> IconComponents(StageHandle stage)
         {
-            void Pick(SceneView sceneView)
+            foreach (var component in stage.FindComponentsOfType<Light>()) yield return component;
+            foreach (var component in stage.FindComponentsOfType<Camera>()) yield return component;
+            foreach (var component in stage.FindComponentsOfType<AudioSource>()) yield return component;
+            foreach (var component in stage.FindComponentsOfType<ReflectionProbe>()) yield return component;
+            foreach (var component in stage.FindComponentsOfType<LightProbeGroup>()) yield return component;
+            foreach (var component in stage.FindComponentsOfType<SchematicObject>()) yield return component;
+        }
+        private const float IconRadius = 14f;
+
+        /// <summary>The object at a screen point in a Scene view (null if none).</summary>
+        public static GameObject PickInScene(SceneView view, Vector2 screen)
+        {
+            var camera = view != null ? view.camera : null;
+            if (camera == null)
+                return null;
+
+            // The point inside the camera's rectangle, 0..1 from the bottom left.
+            Rect viewport;
+            Vector2 local;
+            if (_cameraElement?.GetValue(view) is VisualElement cameraView && cameraView.panel != null)
             {
-                if (sceneView != view) return;
-                SceneView.duringSceneGui -= Pick;
-                GameObject picked = null;
-                try { picked = HandleUtility.PickGameObject(GUIUtility.ScreenToGUIPoint(screen), false); }
-                catch (Exception exception) { Debug.LogWarning("[Assistant] Couldn't pick in the Scene view: " + exception.Message); }
-                done(picked);
+                var bounds = cameraView.worldBound;
+                viewport = new Rect(0, 0, bounds.width, bounds.height);
+                local = ScreenToPanel(view, screen) - bounds.position;
             }
-            SceneView.duringSceneGui += Pick;
-            view.Repaint();
+            else
+            {
+                viewport = view.cameraViewport;
+                local = screen - view.position.position - new Vector2(0, view.position.height - viewport.height);
+            }
+            if (viewport.width < 1f || viewport.height < 1f || !viewport.Contains(local))
+                return null;
+            var pixels = camera.pixelRect;
+            var pixel = new Vector2(pixels.x + local.x / viewport.width * pixels.width, pixels.y + (1f - local.y / viewport.height) * pixels.height);
+            float pointsPerPixel = viewport.width / Mathf.Max(1f, pixels.width);
+            var ray = camera.ScreenPointToRay(pixel);
+
+            var stage = StageUtility.GetCurrentStageHandle();
+            var visibility = SceneVisibilityManager.instance;
+            bool Pickable(GameObject gameObject) => gameObject.activeInHierarchy && !visibility.IsHidden(gameObject) && !visibility.IsPickingDisabled(gameObject);
+
+            // Icons first: they're drawn over everything.
+            GameObject icon = null;
+            float iconDepth = float.MaxValue;
+            if (view.drawGizmos)
+                foreach (var component in IconComponents(stage))
+                    {
+                        if (component == null || component.GetComponent<Renderer>() != null || !Pickable(component.gameObject))
+                            continue;
+                        var at = camera.WorldToScreenPoint(component.transform.position);
+                        if (at.z <= camera.nearClipPlane || at.z >= iconDepth)
+                            continue;
+                        if (Vector2.Distance(new Vector2(at.x, at.y), pixel) * pointsPerPixel <= IconRadius)
+                        {
+                            icon = component.gameObject;
+                            iconDepth = at.z;
+                        }
+                    }
+            if (icon != null)
+                return icon;
+
+            // Then surfaces: renderers whose bounds the ray crosses, nearest first, checked against their meshes.
+            var candidates = new List<(Renderer renderer, float distance)>();
+            foreach (var renderer in stage.FindComponentsOfType<Renderer>())
+            {
+                if (renderer == null || !renderer.enabled || renderer is ParticleSystemRenderer || !Pickable(renderer.gameObject))
+                    continue;
+                if (renderer.bounds.IntersectRay(ray, out float distance))
+                    candidates.Add((renderer, distance));
+            }
+            candidates.Sort((a, b) => a.distance.CompareTo(b.distance));
+
+            GameObject best = null;
+            float bestDistance = float.MaxValue;
+            foreach (var (renderer, boundsDistance) in candidates)
+            {
+                if (boundsDistance >= bestDistance)
+                    break;
+                float? hit = HitDistance(renderer, ray, boundsDistance);
+                if (hit.HasValue && hit.Value < bestDistance)
+                {
+                    best = renderer.gameObject;
+                    bestDistance = hit.Value;
+                }
+            }
+
+            // Terrain and other colliders without a renderer.
+            var physics = PhysicsSceneOf(stage);
+            if (physics.IsValid() && physics.Raycast(ray.origin, ray.direction, out var physicsHit, bestDistance)
+                && physicsHit.collider != null && Pickable(physicsHit.collider.gameObject))
+                best = physicsHit.collider.gameObject;
+            return best;
+        }
+
+        private static PhysicsScene PhysicsSceneOf(StageHandle stage)
+        {
+            var prefabStage = PrefabStageUtility.GetCurrentPrefabStage();
+            return prefabStage != null && stage == prefabStage.stageHandle ? prefabStage.scene.GetPhysicsScene() : Physics.defaultPhysicsScene;
+        }
+
+        // Where the ray meets the renderer's mesh; just its bounds for things that aren't plain meshes.
+        private static float? HitDistance(Renderer renderer, Ray ray, float boundsDistance)
+        {
+            Mesh mesh = renderer switch
+            {
+                MeshRenderer => renderer.GetComponent<MeshFilter>() is { } filter ? filter.sharedMesh : null,
+                SkinnedMeshRenderer skinned => skinned.sharedMesh,
+                _ => null,
+            };
+            if (mesh == null || _intersectRayMesh == null || renderer is SkinnedMeshRenderer)
+                return boundsDistance;
+            try
+            {
+                var args = new object[] { ray, mesh, renderer.transform.localToWorldMatrix, null };
+                return (bool)_intersectRayMesh.Invoke(null, args) ? ((RaycastHit)args[3]).distance : (float?)null;
+            }
+            catch
+            {
+                return boundsDistance;
+            }
         }
 
         #endregion
 
-        #region Hierarchy and Project: what's under a point
+        #region Hierarchy, Project and Inspector
 
-        // The Hierarchy and Project window only say what's under the pointer to a drag. So Sprocket asks with a
-        // pretend drag: a single "drag hover" event at the point, answered through Unity's public drop handlers, then
-        // an exit so the windows forget it. Nothing is dropped and nothing changes.
+        // Unity 6's Hierarchy window is made of UI elements: each row is a HierarchyViewItem whose handler knows its
+        // GameObject. Read by reflection, so older editors (without it) are fine.
+        private static GameObject InNewHierarchy(EditorWindow window, Vector2 screen)
+        {
+            for (var element = ElementAt(window, screen); element != null; element = element.parent)
+            {
+                var type = element.GetType();
+                if (type.Name != "HierarchyViewItem")
+                    continue;
+                try
+                {
+                    var handler = type.GetProperty("Handler")?.GetValue(element);
+                    var node = type.GetField("m_Node", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(element);
+                    var getGameObject = handler?.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public).FirstOrDefault(m => m.Name == "GetGameObject" && m.GetParameters().Length == 1);
+                    return node != null && getGameObject != null ? getGameObject.Invoke(handler, new[] { node }) as GameObject : null;
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+            return null;
+        }
+
+        // The Inspector: the component (or asset) under the pointer, and the setting under it if there is one.
+        private static InspectTarget InInspector(EditorWindow window, Vector2 screen)
+        {
+            string property = null;
+            for (var element = ElementAt(window, screen); element != null; element = element.parent)
+            {
+                if (property == null && element is IBindable bindable && !string.IsNullOrEmpty(bindable.bindingPath))
+                    property = bindable.bindingPath;
+                // Each component's block (an EditorElement) knows its Editor.
+                var editorProperty = element.GetType().GetProperty("editor", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (editorProperty == null || !typeof(Editor).IsAssignableFrom(editorProperty.PropertyType))
+                    continue;
+                if (!(editorProperty.GetValue(element) is Editor editor) || editor.target == null)
+                    continue;
+                var description = editor.target switch
+                {
+                    GameObject gameObject => ForGameObject(gameObject),
+                    SchematicObject schematic => ForGameObject(schematic.gameObject),
+                    Component component => ForComponent(component),
+                    var asset => ForAsset(asset),
+                };
+                if (property != null && FieldText(editor.target.GetType(), property) is { } field)
+                    description.Text += "\n" + field;
+                return Target(window, element, new Description { Title = description.Title, Text = description.Text });
+            }
+            var selected = Selection.activeObject;
+            if (selected == null)
+                return null;
+            var fallback = selected is GameObject go ? ForGameObject(go) : ForAsset(selected);
+            fallback.Window = window;
+            fallback.ScreenRect = window.position;
+            return fallback;
+        }
+
+        // A setting's own words: its [SchematicDoc], else its Tooltip.
+        private static string FieldText(Type type, string bindingPath)
+        {
+            string name = bindingPath.Split('.')[0];
+            FieldInfo field = null;
+            for (var t = type; t != null && field == null; t = t.BaseType)
+                field = t.GetField(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+            if (field == null)
+                return null;
+            string about = SchematicDocHeader.Of(field)?.description ?? field.GetCustomAttribute<TooltipAttribute>()?.tooltip;
+            return about != null ? $"<b>{Nicify(name)}:</b> {about}" : null;
+        }
+
+        // The Hierarchy (the classic one) and the Project window only say what's under the pointer to a drag. So
+        // Sprocket asks with a pretend drag: a single "drag hover" event at the point, answered through Unity's
+        // public drop handlers, then an exit so the windows forget it. Nothing is dropped and nothing changes. It's
+        // sent once the current event is done (sending it from inside another window's event upsets the GUI).
         private const string ProbeKey = "Sprocket.Probe";
         private static bool _probing;
         private static UnityEngine.Object _probed;
@@ -160,31 +428,37 @@ namespace Remedy.Schematics.Assistant
         }
 
         /// <summary>The object or asset under a screen point in the Hierarchy or Project window (null if none).</summary>
-        public static UnityEngine.Object Probe(EditorWindow window, Vector2 screen)
+        public static void Probe(EditorWindow window, Vector2 screen, Action<UnityEngine.Object> done)
         {
-            if (_probing || window == null)
-                return null;
-            _probing = true;
-            _probed = null;
-            try
+            EditorApplication.delayCall += () =>
             {
-                DragAndDrop.PrepareStartDrag();
-                DragAndDrop.SetGenericData(ProbeKey, true);
-                var local = screen - window.position.position;
-                window.SendEvent(new Event { type = EventType.DragUpdated, mousePosition = local });
-                window.SendEvent(new Event { type = EventType.DragExited, mousePosition = local });
-            }
-            catch (Exception exception)
-            {
-                Debug.LogWarning("[Assistant] Couldn't see what's there: " + exception.Message);
-            }
-            finally
-            {
-                DragAndDrop.SetGenericData(ProbeKey, null);
-                _probing = false;
-            }
-            // A scene row is a Scene, not an object: nothing to say about it here.
-            return _probed is GameObject || (_probed != null && EditorUtility.IsPersistent(_probed)) ? _probed : null;
+                UnityEngine.Object found = null;
+                if (window != null && !_probing)
+                {
+                    _probing = true;
+                    _probed = null;
+                    try
+                    {
+                        DragAndDrop.PrepareStartDrag();
+                        DragAndDrop.SetGenericData(ProbeKey, true);
+                        var at = ScreenToPanel(window, screen);
+                        window.SendEvent(new Event { type = EventType.DragUpdated, mousePosition = at });
+                        window.SendEvent(new Event { type = EventType.DragExited, mousePosition = at });
+                    }
+                    catch (Exception exception)
+                    {
+                        Debug.LogWarning("[Assistant] Couldn't see what's there: " + exception.Message);
+                    }
+                    finally
+                    {
+                        DragAndDrop.SetGenericData(ProbeKey, null);
+                        _probing = false;
+                    }
+                    // A scene row is a Scene, not an object: nothing to say about it here.
+                    found = _probed is GameObject || (_probed != null && EditorUtility.IsPersistent(_probed)) ? _probed : null;
+                }
+                done(found);
+            };
         }
 
         #endregion
@@ -351,6 +625,43 @@ namespace Remedy.Schematics.Assistant
             return new InspectTarget { Title = gameObject.name, Text = text.ToString() };
         }
 
+        private static InspectTarget ForComponent(Component component)
+        {
+            var type = component.GetType();
+            string about = Override("component:" + type.FullName) ?? SchematicDocHeader.Of(type)?.Text ?? UnityObjectDocs.For(type, UnityObjectDocs.Components)
+                ?? (component is MonoBehaviour ? "A script on this object." : $"A {Nicify(type.Name)} component.");
+            return new InspectTarget { Title = $"{Nicify(type.Name)} (on {component.gameObject.name})", Text = about };
+        }
+
+        /// <summary>The windows themselves, for when Sprocket is dropped on nothing in particular.</summary>
+        public static readonly Dictionary<string, (string title, string text)> Windows = new(StringComparer.Ordinal)
+        {
+            ["SchematicGraphEditorWindow"] = ("The Schematic Graph", "Where an object's logic lives. Events (On Start, On Signal Received…) start flows that run through action nodes along the arrows. The IO Dock on the left lists the prefab's objects with their Behaviors, Variables and Signals; drag any of them in to use them. Drop me on a node or a row and I'll tell you about it."),
+            ["SceneView"] = ("The Scene View", "Your level, where you place and arrange objects. Drop me on an object and I'll tell you what it is and which Behaviors it has."),
+            ["GameView"] = ("The Game View", "What the player sees through the game's camera. Press Play to run the game here."),
+            ["InspectorWindow"] = ("The Inspector", "The settings of whatever is selected, one block per component. Drop me on a block (or a setting in it) and I'll tell you what it does."),
+            ["SceneHierarchyWindow"] = ("The Hierarchy", "Every object in the open scenes, as a tree: children sit under their parents and move with them. Drop me on one to hear about it."),
+            ["HierarchyWindow"] = ("The Hierarchy", "Every object in the open scenes, as a tree: children sit under their parents and move with them. Drop me on one to hear about it."),
+            ["ProjectBrowser"] = ("The Project Window", "All of the project's files: prefabs, graphs, scripts, art, sounds. Drop me on one to hear what it is."),
+        };
+
+        private static InspectTarget ForWindow(EditorWindow window)
+        {
+            if (window == null)
+                return null;
+            string name = window.GetType().Name;
+            if (!Windows.TryGetValue(name, out var about))
+                about = (window.titleContent?.text ?? Nicify(name), "One of the editor's windows.");
+            string text = Override("window:" + name) ?? about.text;
+            if (window is SceneView && PrefabStageUtility.GetCurrentPrefabStage() is { } stage)
+                text = $"Prefab Mode: you're editing the prefab \"{stage.prefabContentsRoot.name}\" on its own. Changes save to the prefab, so every copy of it gets them. Drop me on a part of it to hear about it.";
+            else if (window is SchematicGraphEditorWindow graph && graph.SchematicGraph != null)
+                text = $"This is the graph \"{graph.SchematicGraph.name}\". " + text;
+            else if (name == "GameView" && EditorApplication.isPlaying)
+                text = "The game, running. " + text.Replace(" Press Play to run the game here.", "");
+            return new InspectTarget { Title = about.title, Text = text, Window = window, ScreenRect = window.position };
+        }
+
         private static InspectTarget ForAsset(UnityEngine.Object asset)
         {
             string text = null;
@@ -445,13 +756,8 @@ namespace Remedy.Schematics.Assistant
                 }
             }
 
-            Add("window:SchematicGraphEditorWindow", "The Schematic Graph",
-                "Where an object's logic lives. Events (On Start, On Signal Received…) start flows that run through action nodes along the arrows. The IO Dock on the left lists the prefab's objects with their Behaviors, Variables and Signals; drag any of them in to use them.");
-            Add("window:SceneView", "The Scene View", "Your level. Drop me on an object here and I'll tell you what it is and which Behaviors it has. In Prefab Mode, it shows the prefab you're editing.");
-            Add("window:GameView", "The Game View", "What the player sees through the game's camera. Press Play to run the game here.");
-            Add("window:InspectorWindow", "The Inspector", "The settings of whatever is selected. Select something and drop me here, and I'll tell you about it.");
-            Add("window:SceneHierarchyWindow", "The Hierarchy", "Every object in the open scenes, as a tree (children under their parents). Select one and drop me here to hear about it.");
-            Add("window:ProjectBrowser", "The Project Window", "All of the project's files: prefabs, graphs, scripts, art. Select one and drop me here to hear about it.");
+            foreach (var pair in Windows)
+                Add("window:" + pair.Key, pair.Value.title, pair.Value.text);
             Add("window:GameObject", "Prefab Object", "One of this prefab's objects. Behaviors attach to it; drag it into the graph to refer to it.");
 
             docs.Entries = entries.Values.OrderBy(e => e.Key, StringComparer.Ordinal).ToList();

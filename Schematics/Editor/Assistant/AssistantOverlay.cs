@@ -135,7 +135,7 @@ namespace Remedy.Schematics.Assistant
         // The windows Sprocket may be in: the ones it can do something about.
         private static readonly HashSet<string> _allowedWindows = new()
         {
-            "SceneView", "GameView", "InspectorWindow", "SceneHierarchyWindow", "ProjectBrowser",
+            "SceneView", "GameView", "InspectorWindow", "SceneHierarchyWindow", "HierarchyWindow", "ProjectBrowser",
         };
 
         /// <summary>The Scene view (and Prefab Mode), Game view, Inspector, Hierarchy, Project window and Schematic Graphs.</summary>
@@ -342,7 +342,7 @@ namespace Remedy.Schematics.Assistant
         private EditorWindow RespawnWindow()
         {
             var last = _host != null ? _host : _lastHost;
-            if (last != null && last.GetType().Name == "SceneHierarchyWindow")
+            if (last != null && last.GetType().Name is "SceneHierarchyWindow" or "HierarchyWindow")
             {
                 var game = Resources.FindObjectsOfTypeAll<EditorWindow>().FirstOrDefault(w => w.GetType().Name == "GameView" && w.maximized);
                 if (game != null) return game;
@@ -859,7 +859,7 @@ namespace Remedy.Schematics.Assistant
         }
 
         // The pointer in screen space (from the window the drag started in).
-        private Vector2 ScreenPoint(IPointerEvent evt) => _dragWindow.position.position + (Vector2)_dragRoot.WorldToLocal(evt.position);
+        private Vector2 ScreenPoint(IPointerEvent evt) => SprocketInspect.PanelToScreen(_dragWindow, evt.position);
 
         private void OnDragMove(PointerMoveEvent evt)
         {
