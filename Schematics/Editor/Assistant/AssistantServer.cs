@@ -25,7 +25,7 @@ namespace Remedy.Schematics.Assistant
         private static readonly HttpClient _slow = new() { Timeout = TimeSpan.FromMinutes(10) };
 
         /// <summary>The server version this editor code expects (AgentSettings.Version on the server).</summary>
-        private const int ServerVersion = 4;
+        private const int ServerVersion = 5;
         private const string RebuiltKey = "Schematics.Assistant.RebuiltForVersion";
 
         // A slow CPU (the server says) gets the fast model, when the choice is Auto: set up, then started with it.
@@ -609,6 +609,20 @@ namespace Remedy.Schematics.Assistant
                 throw new Exception(string.IsNullOrEmpty(error) ? $"the server answered {(int)response.StatusCode} (see {LogPath})" : error);
             }
             return await response.Content.ReadAsByteArrayAsync();
+        }
+
+        /// <summary>Clears the answers the server remembers (answers.json).</summary>
+        public static async Task ForgetAnswersAsync()
+        {
+            try
+            {
+                var response = await _http.PostAsync(BaseUrl + "/answers/clear", new StringContent("", Encoding.UTF8, "application/json"));
+                Debug.Log(response.IsSuccessStatusCode ? "[Assistant] Sprocket forgot his remembered answers." : $"[Assistant] Couldn't clear the answers ({(int)response.StatusCode}).");
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning("[Assistant] Couldn't clear the answers: " + exception.Message);
+            }
         }
 
         /// <summary>Hands the server every [SchematicDoc] (see SchematicApiReference); returns its counts.</summary>

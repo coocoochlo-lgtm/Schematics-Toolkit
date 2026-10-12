@@ -77,11 +77,34 @@ namespace Remedy.Schematics.Assistant
             set => EditorPrefs.SetBool(Prefix + "SlowCpu", value);
         }
 
+        public enum CompressionChoice { Q4, Q8 }
+
+        /// <summary>
+        /// How tightly the model is compressed. Q4: smaller, usually fastest at writing. Q8: bigger, but simpler to
+        /// unpack, which can make reading prompts faster on CPUs without AVX. Compare them with the [llm] lines in server.log.
+        /// </summary>
+        public static CompressionChoice Compression
+        {
+            get => (CompressionChoice)EditorPrefs.GetInt(Prefix + "Compression", 0);
+            set => EditorPrefs.SetInt(Prefix + "Compression", (int)value);
+        }
+
+        public static bool UsesFastModel => Model == ModelChoice.Fast || (Model == ModelChoice.Auto && SlowCpu);
+
         public const string StandardModel = "qwen2.5-1.5b-instruct-q4_k_m.gguf";
         public const string FastModel = "qwen2.5-0.5b-instruct-q4_k_m.gguf";
 
         /// <summary>The language model file to download and run.</summary>
-        public static string LlmFile => Model == ModelChoice.Fast || (Model == ModelChoice.Auto && SlowCpu) ? FastModel : StandardModel;
+        public static string LlmFile => $"qwen2.5-{(UsesFastModel ? "0.5b" : "1.5b")}-instruct-{(Compression == CompressionChoice.Q8 ? "q8_0" : "q4_k_m")}.gguf";
+
+        /// <summary>About how big <see cref="LlmFile"/> is, for the download progress bar.</summary>
+        public static long LlmBytes => (UsesFastModel, Compression) switch
+        {
+            (true, CompressionChoice.Q4) => 491_000_000L,
+            (true, CompressionChoice.Q8) => 676_000_000L,
+            (false, CompressionChoice.Q4) => 1_117_000_000L,
+            _ => 1_894_000_000L,
+        };
 
         public static bool Speak
         {
@@ -228,10 +251,14 @@ namespace Remedy.Schematics.Assistant
                 var model = (ModelChoice)EditorGUILayout.EnumPopup(new GUIContent("Language Model",
                     "Standard: Qwen2.5 1.5B, smarter. Fast: 0.5B, about three times quicker on a slow CPU. Auto: Fast when this CPU is slow"
                     + (SlowCpu ? " (it is)." : " (it isn't, as far as the server has seen).")), Model);
-                if (EditorGUI.EndChangeCheck() && model != Model)
+                var compression = (CompressionChoice)EditorGUILayout.EnumPopup(new GUIContent("Model Compression",
+                    "Q4: smaller, usually fastest. Q8: bigger, simpler to unpack: can read prompts faster on CPUs without AVX. "
+                    + "Compare the [llm] speed lines in server.log."), Compression);
+                if (EditorGUI.EndChangeCheck() && (model != Model || compression != Compression))
                 {
                     string before = LlmFile;
                     Model = model;
+                    Compression = compression;
                     // A model that isn't downloaded yet: set it up now (the server restarts with it).
                     if (LlmFile != before)
                     {
@@ -250,6 +277,9 @@ namespace Remedy.Schematics.Assistant
                         if (GUILayout.Button(AssistantServer.IsInstalled ? "Reinstall" : "Install")) { AssistantServer.Stop(); AssistantInstaller.Reinstall(); }
                     if (GUILayout.Button("Start")) _ = AssistantServer.EnsureRunningAsync();
                     if (GUILayout.Button("Stop")) AssistantServer.Stop();
+                    using (new EditorGUI.DisabledScope(!AssistantServer.IsRunning))
+                        if (GUILayout.Button(new GUIContent("Forget Answers", "Sprocket remembers his chat replies and explanations so asking again is instant. This clears them.")))
+                            _ = AssistantServer.ForgetAnswersAsync();
                 }
             },
         };

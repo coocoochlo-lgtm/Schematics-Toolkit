@@ -8,6 +8,7 @@ using SchematicsAgent;
 //   GET  /voices      Kokoro voice names
 //   POST /reference/sync    every [SchematicDoc] in the project (Unity sends it after each recompile)
 //   GET  /reference/search  ?q=text: the reference entries a request would see
+//   POST /answers/clear     forget the answers remembered in answers.json
 
 var settings = AgentSettings.FromArgs(args);
 ServerLog.Start(settings.AgentFolder);
@@ -22,6 +23,7 @@ builder.Services.AddSingleton<Llm>();
 builder.Services.AddSingleton<SpeechToText>();
 builder.Services.AddSingleton<TextToSpeech>();
 builder.Services.AddSingleton<ReferenceStore>();
+builder.Services.AddSingleton<AnswerCache>();
 builder.Services.AddSingleton<Planner>();
 
 var app = builder.Build();
@@ -96,6 +98,14 @@ app.MapPost("/speak", async (HttpRequest request, Readiness readiness, IServiceP
         Console.Error.WriteLine($"[tts] Couldn't speak: {exception}");
         return Results.Text(Json.Object(w => w.String("error", exception.Message)), "application/json", statusCode: 500);
     }
+});
+
+// Forgets every remembered answer (Preferences > Schematics Assistant > Forget Answers).
+app.MapPost("/answers/clear", (AnswerCache answers) =>
+{
+    answers.Clear();
+    Console.WriteLine("[cache] Forgot the remembered answers");
+    return Results.Text(Json.Object(w => w.Bool("ok", true)), "application/json");
 });
 
 app.MapPost("/reference/sync", async (HttpRequest request, ReferenceStore reference) =>

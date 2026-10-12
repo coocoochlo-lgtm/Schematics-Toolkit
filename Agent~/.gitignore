@@ -15,3 +15,4 @@ reference/
 build.log
 server.pid
 server.log
+answers.json

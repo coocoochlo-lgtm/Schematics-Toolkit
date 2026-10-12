@@ -20,7 +20,7 @@ namespace Remedy.Schematics.Assistant
         // Roughly how big each download is, for the progress bar.
         private static (string file, long bytes)[] Downloads => new[]
         {
-            AssistantSettings.LlmFile == AssistantSettings.FastModel ? (AssistantSettings.FastModel, 398_000_000L) : (AssistantSettings.StandardModel, 1_117_000_000L),
+            (AssistantSettings.LlmFile, AssistantSettings.LlmBytes),
             ("ggml-base.en.bin", 147_960_000),
             ("kokoro-en-v0_19.tar.bz2", 319_625_534),
         };

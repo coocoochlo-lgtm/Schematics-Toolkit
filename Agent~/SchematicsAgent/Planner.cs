@@ -16,8 +16,9 @@ public sealed class Planner
 {
     private readonly Llm _llm;
     private readonly ReferenceStore _reference;
+    private readonly AnswerCache _answers;
 
-    public Planner(Llm llm, ReferenceStore reference) { _llm = llm; _reference = reference; }
+    public Planner(Llm llm, ReferenceStore reference, AnswerCache answers) { _llm = llm; _reference = reference; _answers = answers; }
 
     // The toolkit pieces relevant to some text, as prompt lines.
     private string ReferenceFor(string text, int count)
@@ -102,10 +103,15 @@ ws      ::= [ \t\n]*
         switch (mode)
         {
             case Mode.Chat:
-                return Reply(await Answer("Chatting", ChatRules, utterance, 80, cancellation), "[]");
+                return Reply(await Remembered(Mode.Chat, utterance, "",
+                    () => Answer("Chatting", ChatRules, utterance, 80, cancellation)), "[]");
             case Mode.Explain:
-                return Reply(await Answer("Looking it up", ExplainRules,
-                    $"{ReferenceFor(utterance, references).TrimStart()}\n\nQuestion: {utterance}", 220, cancellation), "[]");
+            {
+                // What it reads is part of what makes the answer: a changed reference means a fresh answer.
+                string reference = ReferenceFor(utterance, references).TrimStart();
+                return Reply(await Remembered(Mode.Explain, utterance, reference,
+                    () => Answer("Looking it up", ExplainRules, $"{reference}\n\nQuestion: {utterance}", 220, cancellation)), "[]");
+            }
             case Mode.Look:
                 return Reply(await Answer("Looking around", LookRules,
                     $"Editor state:\n{state}{ReferenceFor(utterance + " " + state, Math.Max(2, references / 2))}\n\nQuestion: {utterance}", 220, cancellation), "[]");
@@ -137,6 +143,20 @@ ws      ::= [ \t\n]*
             ActorGrammar(), 900, cancellation);
 
         return Reply(say, NormalizeCommands(actorOutput));
+    }
+
+    // Answered before (with this model, from the same reference)? Then from memory; otherwise made and remembered.
+    private async Task<string> Remembered(Mode mode, string utterance, string basis, Func<Task<string>> make)
+    {
+        string fingerprint = AnswerCache.Fingerprint(basis);
+        if (_answers.Find(mode, _llm.ModelName, utterance, fingerprint) is { } remembered)
+        {
+            Console.WriteLine("[ask] Answered from memory");
+            return remembered;
+        }
+        string answer = await make();
+        _answers.Remember(mode, _llm.ModelName, utterance, fingerprint, answer);
+        return answer;
     }
 
     // Plain answers (no commands): a short reply in Sprocket's voice.
