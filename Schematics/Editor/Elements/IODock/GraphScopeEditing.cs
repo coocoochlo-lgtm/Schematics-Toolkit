@@ -149,7 +149,7 @@ public static class GraphScopeEditing
             Undo.RecordObject(signal.Asset, "Edit Graph Signal Parameters");
             signal.Asset.Parameters.Contents.Clear();
             foreach (var parameter in parameters)
-                signal.Asset.Parameters.AddParameter(parameter.Name, DefaultUnion(ReferenceEquals(parameter.Type, null) ? null : parameter.Type.Type));
+                signal.Asset.Parameters.AddParameter(parameter.Name, DefaultUnion(parameter.Type.Type));
             EditorUtility.SetDirty(signal.Asset);
         }
         Commit(graph);

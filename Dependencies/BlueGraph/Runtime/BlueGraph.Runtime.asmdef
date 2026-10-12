@@ -1,6 +1,8 @@
 {
     "name": "BlueGraph.Runtime",
-    "references": [],
+    "references": [
+        "GUID:9cef1c0784dad074282847b193c0d47b"
+    ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,

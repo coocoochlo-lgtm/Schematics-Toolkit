@@ -369,7 +369,7 @@ public static class SchematicBehaviorsHeaderGUI
                 if (signal?.Asset == null) continue;
                 var parameters = new List<string>();
                 foreach (var parameter in signal.Parameters)
-                    parameters.Add($"{InspectorRows.TypeName(ReferenceEquals(parameter.Type, null) ? null : parameter.Type.Type)} {parameter.Name}");
+                    parameters.Add($"{InspectorRows.TypeName(parameter.Type.Type)} {parameter.Name}");
                 InspectorRows.Begin(new InspectorRows.Row { Kind = InspectorRows.RowKind.Signal, Graph = graph, Name = signal.Name, Signal = signal.Asset },
                     signal.Name, string.Join(", ", parameters), signal.Description);
                 InspectorRows.End();

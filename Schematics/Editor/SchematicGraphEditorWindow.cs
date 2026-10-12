@@ -1223,7 +1223,7 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
         {
             foreach (var parameter in graphSignal.Parameters)
                 if (parameter != null && !string.IsNullOrEmpty(parameter.Name))
-                    result.Add((parameter.Name, (ReferenceEquals(parameter.Type, null) ? null : parameter.Type.Type) ?? typeof(object)));
+                    result.Add((parameter.Name, parameter.Type.Type ?? typeof(object)));
             return result;
         }
 

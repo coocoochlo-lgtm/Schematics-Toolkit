@@ -300,7 +300,7 @@ namespace Remedy.Schematics.TimelineGraphs
             for (int i = 0; i < args.Length; i++)
             {
                 var argument = marker.Arguments[i];
-                var type = ReferenceEquals(argument.Type, null) ? null : argument.Type.Type;
+                var type = argument.Type.Type;
                 args[i] = type != null ? SignalArgs.ToUnion<object>(argument.Value.Get(type)) : Union.Null;
             }
             marker.Signal.InvokeFromGraph(uid, args);

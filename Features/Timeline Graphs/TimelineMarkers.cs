@@ -1,4 +1,3 @@
-using BlueGraph.Utils;
 using Remedy.Framework;
 using System;
 using System.Collections.Generic;
@@ -39,7 +38,7 @@ namespace Remedy.Schematics.TimelineGraphs
         [Tooltip("The Variable's type (filled in when you pick it).")]
         public SerializableType Type;
 
-        public Type ValueType => ReferenceEquals(Type, null) ? null : Type.Type;
+        public Type ValueType => Type.Type;
 
         /// <summary>A short description for the Inspector and the Timeline.</summary>
         public string Describe(SchematicGraph timeline)
@@ -49,7 +48,7 @@ namespace Remedy.Schematics.TimelineGraphs
                 var graph = Graph != null ? Graph : timeline;
                 return graph != null && graph.FindVariable(VariableId) is { } variable ? variable.Name : "(pick a Variable)";
             }
-            var behavior = ReferenceEquals(Behavior, null) ? null : Behavior.Type;
+            var behavior = Behavior.Type;
             return behavior != null && !string.IsNullOrEmpty(Variable) ? $"{behavior.Name}.{Variable}" : "(pick a Variable)";
         }
 
@@ -66,7 +65,7 @@ namespace Remedy.Schematics.TimelineGraphs
                 return;
             }
 
-            var behavior = ReferenceEquals(Behavior, null) ? null : Behavior.Type;
+            var behavior = Behavior.Type;
             var target = string.IsNullOrEmpty(Path) ? host.transform : host.transform.Find(Path);
             var instance = behavior != null && target != null ? ExecutionContext.FindInstance(target.gameObject, behavior) : null;
             if (instance == null)

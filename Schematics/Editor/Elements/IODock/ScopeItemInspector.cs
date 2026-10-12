@@ -286,7 +286,7 @@ public class ScopeItemInspectorEditor : Editor
 
         EditorGUILayout.Space(6);
         EditorGUILayout.LabelField("Parameters", EditorStyles.boldLabel);
-        var edited = signal.Parameters.Select(p => new GraphSignalParameter { Name = p.Name, Type = ReferenceEquals(p.Type, null) ? typeof(float) : p.Type.Type }).ToList();
+        var edited = signal.Parameters.Select(p => new GraphSignalParameter { Name = p.Name, Type = p.Type.Type ?? typeof(float) }).ToList();
         bool changed = false;
         var types = GraphScopeEditing.VariableTypes;
         for (int i = 0; i < edited.Count; i++)

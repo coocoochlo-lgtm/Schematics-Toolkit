@@ -1,4 +1,3 @@
-using BlueGraph.Utils;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -23,7 +22,7 @@ namespace Remedy.Schematics
         [TextArea(1, 4)]
         public string Description;
 
-        public Type ValueType => ReferenceEquals(this.Type, null) ? null : this.Type.Type;
+        public Type ValueType => this.Type.Type;
     }
 
     /// <summary>A parameter of a graph Signal: a name and a type.</summary>

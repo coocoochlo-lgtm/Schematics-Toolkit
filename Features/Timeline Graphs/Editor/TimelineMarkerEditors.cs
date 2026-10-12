@@ -76,7 +76,7 @@ namespace Remedy.Schematics.TimelineGraphs
                     var behavior = metadata.BehaviorType.Type;
                     var p = path;
                     if (target.Kind == VariableTarget.TargetKind.BehaviorVariable
-                        && !ReferenceEquals(target.Behavior, null) && target.Behavior.Type == behavior && target.Path == p && target.Variable == v.Name)
+                        && target.Behavior.Type == behavior && target.Path == p && target.Variable == v.Name)
                         current = labels.Count;
                     labels.Add($"{(string.IsNullOrEmpty(p) ? "" : p + "/")}{behavior.Name}/{ObjectNames.NicifyVariableName(v.Name)}");
                     apply.Add(() =>
@@ -110,7 +110,7 @@ namespace Remedy.Schematics.TimelineGraphs
     [CustomEditor(typeof(SignalMarker))]
     internal class SignalMarkerEditor : Editor
     {
-        private static Type TypeOf(BlueGraph.Utils.SerializableType type) => ReferenceEquals(type, null) ? null : type.Type;
+        private static Type TypeOf(SerializableType type) => type.Type;
 
         public override void OnInspectorGUI()
         {

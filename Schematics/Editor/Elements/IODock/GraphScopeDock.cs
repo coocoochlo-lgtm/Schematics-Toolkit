@@ -113,7 +113,7 @@ public class GraphScopeDock : VisualElement
     private VisualElement SignalRow(SchematicGraph graph, GraphSignal signal, bool editable)
     {
         var item = SignalItem(graph, signal);
-        string detail = DockRows.Parameters(signal.Parameters.Where(p => p != null).Select(p => (p.Name, ReferenceEquals(p.Type, null) ? null : p.Type.Type)));
+        string detail = DockRows.Parameters(signal.Parameters.Where(p => p != null).Select(p => (p.Name, p.Type.Type)));
         var row = DockRows.Build(item, DockRows.InputIcon, signal.Name, detail,
             "Graph Signal: drag it in to Send it or react to it; click it to find its nodes and edit it in the Inspector."
             + (string.IsNullOrEmpty(signal.Description) ? "" : "\n\n" + signal.Description),

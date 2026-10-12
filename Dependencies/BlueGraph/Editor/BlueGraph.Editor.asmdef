@@ -1,7 +1,8 @@
 {
     "name": "BlueGraph.Editor",
     "references": [
-        "BlueGraph.Runtime"
+        "BlueGraph.Runtime",
+        "GUID:9cef1c0784dad074282847b193c0d47b"
     ],
     "includePlatforms": [
         "Editor"
