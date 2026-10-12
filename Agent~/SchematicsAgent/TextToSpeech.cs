@@ -17,8 +17,11 @@ public sealed class TextToSpeech : IDisposable
         "am_adam", "am_michael", "bf_emma", "bf_isabella", "bm_george", "bm_lewis",
     };
 
-    public TextToSpeech(AgentSettings settings)
+    private readonly VoiceCache _cache;
+
+    public TextToSpeech(AgentSettings settings, VoiceCache cache)
     {
+        _cache = cache;
         string folder = settings.Resolve(settings.KokoroFolder);
         string model = Path.Combine(folder, "model.onnx");
         if (!File.Exists(model))
@@ -41,13 +44,25 @@ public sealed class TextToSpeech : IDisposable
     /// <summary>Speaks the text with a voice (speaker id) and returns a 16-bit mono WAV.</summary>
     public byte[] Speak(string text, int voice, float speed)
     {
+        voice = Math.Clamp(voice, 0, Voices.Count - 1);
+        speed = speed <= 0f ? 1f : speed;
+        // Said this before (this voice, this speed): from the cache, no model time at all.
+        if (_cache.Find(text, voice, speed) is { } cached)
+        {
+            Console.WriteLine("[tts] Said from the voice cache");
+            return cached;
+        }
         if (_tts == null)
             throw new InvalidOperationException("Text to speech isn't loaded. Run setup to download Kokoro.");
 
         OfflineTtsGeneratedAudio audio;
         lock (_gate)
-            audio = _tts.Generate(text, speed <= 0f ? 1f : speed, Math.Clamp(voice, 0, Voices.Count - 1));
-        return Wav.Encode(audio.Samples, audio.SampleRate);
+            audio = _tts.Generate(text, speed, voice);
+        var samples = audio.Samples;
+        // Compressed in the background: the speech goes back to Unity without waiting for it.
+        int rate = audio.SampleRate;
+        _ = Task.Run(() => _cache.Remember(text, voice, speed, samples, rate));
+        return Wav.Encode(samples, audio.SampleRate);
     }
 
     public void Dispose() => _tts?.Dispose();

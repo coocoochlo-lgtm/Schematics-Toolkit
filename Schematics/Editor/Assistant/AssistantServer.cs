@@ -25,7 +25,7 @@ namespace Remedy.Schematics.Assistant
         private static readonly HttpClient _slow = new() { Timeout = TimeSpan.FromMinutes(10) };
 
         /// <summary>The server version this editor code expects (AgentSettings.Version on the server).</summary>
-        private const int ServerVersion = 6;
+        private const int ServerVersion = 7;
         private const string RebuiltKey = "Schematics.Assistant.RebuiltForVersion";
 
         // A slow CPU (the server says) gets the fast model, when the choice is Auto: set up, then started with it.
@@ -622,6 +622,20 @@ namespace Remedy.Schematics.Assistant
             catch (Exception exception)
             {
                 Debug.LogWarning("[Assistant] Couldn't clear the answers: " + exception.Message);
+            }
+        }
+
+        /// <summary>Empties the server's voice cache (speech it kept so saying it again is instant).</summary>
+        public static async Task ClearVoiceCacheAsync()
+        {
+            try
+            {
+                var response = await _http.PostAsync(BaseUrl + "/voice/clear", new StringContent("", Encoding.UTF8, "application/json"));
+                Debug.Log(response.IsSuccessStatusCode ? "[Assistant] Cleared Sprocket's voice cache." : $"[Assistant] Couldn't clear the voice cache ({(int)response.StatusCode}).");
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning("[Assistant] Couldn't clear the voice cache: " + exception.Message);
             }
         }
 

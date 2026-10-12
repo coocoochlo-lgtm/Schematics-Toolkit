@@ -20,6 +20,8 @@
     <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.27.0" Condition="'$(LlmBackend)' == 'Cpu'" />
     <PackageReference Include="LLamaSharp.Backend.Cuda12" Version="0.27.0" Condition="'$(LlmBackend)' == 'Cuda12'" />
     <PackageReference Include="LLamaSharp.Backend.Vulkan" Version="0.27.0" Condition="'$(LlmBackend)' == 'Vulkan'" />
+    <PackageReference Include="NVorbis" Version="0.10.5" />
+    <PackageReference Include="OggVorbisEncoder" Version="1.2.2" />
     <PackageReference Include="Whisper.net" Version="1.9.1" />
     <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" />
     <!-- For CPUs without AVX (older or low-power ones, some virtual machines): Whisper.net falls back to it. -->

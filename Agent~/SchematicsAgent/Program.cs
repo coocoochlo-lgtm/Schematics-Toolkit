@@ -9,6 +9,7 @@ using SchematicsAgent;
 //   POST /reference/sync    every [SchematicDoc] in the project (Unity sends it after each recompile)
 //   GET  /reference/search  ?q=text: the reference entries a request would see
 //   POST /answers/clear     forget the answers remembered in answers.json
+//   POST /voice/clear       empty the voice cache (GET /voice/cache: its size)
 
 var settings = AgentSettings.FromArgs(args);
 ServerLog.Start(settings.AgentFolder);
@@ -24,6 +25,7 @@ builder.Services.AddSingleton<SpeechToText>();
 builder.Services.AddSingleton<TextToSpeech>();
 builder.Services.AddSingleton<ReferenceStore>();
 builder.Services.AddSingleton<AnswerCache>();
+builder.Services.AddSingleton<VoiceCache>();
 builder.Services.AddSingleton<Planner>();
 
 var app = builder.Build();
@@ -98,6 +100,19 @@ app.MapPost("/speak", async (HttpRequest request, Readiness readiness, IServiceP
         Console.Error.WriteLine($"[tts] Couldn't speak: {exception}");
         return Results.Text(Json.Object(w => w.String("error", exception.Message)), "application/json", statusCode: 500);
     }
+});
+
+// Empties the voice cache (Preferences > Schematics Assistant > Clear Voice Cache); GET says how big it is.
+app.MapPost("/voice/clear", (VoiceCache voice) =>
+{
+    voice.Clear();
+    Console.WriteLine("[tts] Cleared the voice cache");
+    return Results.Text(Json.Object(w => w.Bool("ok", true)), "application/json");
+});
+app.MapGet("/voice/cache", (VoiceCache voice) =>
+{
+    var (files, bytes) = voice.Size();
+    return Results.Text(Json.Object(w => w.Number("files", files).Number("bytes", bytes)), "application/json");
 });
 
 // Forgets every remembered answer (Preferences > Schematics Assistant > Forget Answers).

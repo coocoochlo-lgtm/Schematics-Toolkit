@@ -302,6 +302,9 @@ namespace Remedy.Schematics.Assistant
                     using (new EditorGUI.DisabledScope(!AssistantServer.IsRunning))
                         if (GUILayout.Button(new GUIContent("Forget Answers", "Sprocket remembers his chat replies and explanations so asking again is instant. This clears them.")))
                             _ = AssistantServer.ForgetAnswersAsync();
+                    using (new EditorGUI.DisabledScope(!AssistantServer.IsRunning))
+                        if (GUILayout.Button(new GUIContent("Clear Voice Cache", "Speech Sprocket has said is kept (as small OGG files, up to 200 MB) so saying it again is instant. This clears it.")))
+                            _ = AssistantServer.ClearVoiceCacheAsync();
                 }
             },
         };

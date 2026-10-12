@@ -18,3 +18,4 @@ server.log
 answers.json
 nuget/
 tmp/
+voice-cache/
