@@ -110,7 +110,8 @@ ws      ::= [ \t\n]*
                 // What it reads is part of what makes the answer: a changed reference means a fresh answer.
                 string reference = ReferenceFor(utterance, references).TrimStart();
                 return Reply(await Remembered(Mode.Explain, utterance, reference,
-                    () => Answer("Looking it up", ExplainRules, $"{reference}\n\nQuestion: {utterance}", 220, cancellation)), "[]");
+                    () => Answer("Looking it up", ExplainRules, $"{reference}\n\nQuestion: {utterance}", 220, cancellation),
+                    fuse: true, references), "[]");
             }
             case Mode.Look:
                 return Reply(await Answer("Looking around", LookRules,
@@ -146,13 +147,27 @@ ws      ::= [ \t\n]*
     }
 
     // Answered before (with this model, from the same reference)? Then from memory; otherwise made and remembered.
-    private async Task<string> Remembered(Mode mode, string utterance, string basis, Func<Task<string>> make)
+    // Explanations can also be put together from several remembered ones that cover the question (no model).
+    private async Task<string> Remembered(Mode mode, string utterance, string basis, Func<Task<string>> make, bool fuse = false, int references = 0)
     {
         string fingerprint = AnswerCache.Fingerprint(basis);
         if (_answers.Find(mode, _llm.ModelName, utterance, fingerprint) is { } remembered)
         {
             Console.WriteLine("[ask] Answered from memory");
             return remembered;
+        }
+        if (fuse)
+        {
+            // A memory still holds when its question would read the same reference now.
+            var fusion = _answers.Fuse(_llm.ModelName, utterance,
+                (question, basisThen) => AnswerCache.Fingerprint(ReferenceFor(question, references).TrimStart()) == basisThen);
+            if (fusion.Answer != null)
+            {
+                Console.WriteLine($"[ask] Put together from {fusion.Sources} memories ({fusion.Coverage:P0} of the question covered)");
+                return fusion.Answer;
+            }
+            if (fusion.Sources > 0)
+                Console.WriteLine($"[ask] Memories covered {fusion.Coverage:P0} of the question; not enough, asking the model");
         }
         string answer = await make();
         _answers.Remember(mode, _llm.ModelName, utterance, fingerprint, answer);

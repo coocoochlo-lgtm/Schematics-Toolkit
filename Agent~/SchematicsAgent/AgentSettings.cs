@@ -4,7 +4,7 @@ namespace SchematicsAgent;
 public sealed class AgentSettings
 {
     /// <summary>Unity checks this against its own, and replaces a server left from an older version.</summary>
-    public const int Version = 5;
+    public const int Version = 6;
 
     public int Port = 5317;
     public string Models = FindModels();

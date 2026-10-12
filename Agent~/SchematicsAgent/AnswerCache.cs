@@ -96,6 +96,84 @@ public sealed class AnswerCache
         }
     }
 
+    /// <summary>What <see cref="Fuse"/> found: the answer (null if the memories don't cover the question), and how much they covered.</summary>
+    public readonly record struct Fusion(string? Answer, int Sources, double Coverage);
+
+    // Fusing is only trusted when the memories cover most of what the question is about.
+    private const double Covered = 0.75;
+    private const int MaxSources = 3, SentencesPerSource = 2;
+
+    /// <summary>
+    /// A "pseudo-memory": an answer to a new question put together from the sentences of earlier explanations that
+    /// cover it, without the model. "What's a Signal, and how do Variables work?" can be built from separate answers
+    /// about Signals and Variables. <paramref name="stillValid"/> says whether a memory's basis still holds (its
+    /// reference unchanged); stale memories aren't used. Fused answers are never remembered themselves, so they
+    /// can't be fused again (a copy of a copy).
+    /// </summary>
+    public Fusion Fuse(string model, string question, Func<string, string, bool> stillValid)
+    {
+        var wanted = Words(question).ToHashSet(StringComparer.Ordinal);
+        if (wanted.Count == 0)
+            return new Fusion(null, 0, 0);
+
+        List<Entry> candidates;
+        lock (_gate)
+            candidates = _entries.Where(e => e.Mode == SchematicsAgent.Mode.Explain.ToString() && e.Model == model && e.Answers.Count > 0
+                                             && e.Words.Any(wanted.Contains)).ToList();
+
+        // Greedy cover: each next memory is the one that covers the most words not covered yet.
+        var uncovered = new HashSet<string>(wanted, StringComparer.Ordinal);
+        var chosen = new List<(Entry entry, HashSet<string> covers)>();
+        while (chosen.Count < MaxSources && uncovered.Count > 0)
+        {
+            var best = candidates
+                .Where(e => !chosen.Any(c => c.entry == e))
+                .Select(e => (entry: e, covers: e.Words.Where(uncovered.Contains).ToHashSet(StringComparer.Ordinal)))
+                .Where(x => x.covers.Count > 0)
+                .OrderByDescending(x => x.covers.Count).ThenByDescending(x => x.entry.Used)
+                .FirstOrDefault();
+            if (best.entry == null)
+                break;
+            candidates.Remove(best.entry);
+            if (!stillValid(best.entry.Question, best.entry.Basis))
+                continue;   // its reference changed since: don't build on it
+            chosen.Add(best);
+            uncovered.ExceptWith(best.covers);
+        }
+
+        double coverage = 1.0 - (double)uncovered.Count / wanted.Count;
+        if (chosen.Count == 0 || coverage < Covered)
+            return new Fusion(null, chosen.Count, coverage);
+        if (chosen.Count > 1 && (Relating.IsMatch(question) || !SeveralAsks.IsMatch(question)))
+            return new Fusion(null, chosen.Count, coverage);
+
+        // In the order the question asks about them.
+        string lowered = question.ToLowerInvariant();
+        chosen = chosen.OrderBy(c => c.covers.Select(w => lowered.IndexOf(w, StringComparison.Ordinal)).Where(i => i >= 0).DefaultIfEmpty(int.MaxValue).Min()).ToList();
+
+        // From each memory, its sentences most about the question, in their own order; repeats dropped.
+        var sentences = new List<string>();
+        var said = new List<string[]>();
+        foreach (var (entry, covers) in chosen)
+        {
+            var parts = Regex.Split(entry.Answers[0].Trim(), @"(?<=[.!?])\s+").Where(p => p.Trim().Length > 0).ToList();
+            var keep = parts
+                .Select((text, index) => (text, index, words: Words(text), score: Words(text).Count(w => wanted.Contains(w)) + (index == 0 ? 0.5 : 0)))
+                .OrderByDescending(p => p.score).Take(SentencesPerSource)
+                .Where(p => !said.Any(s => Similarity(s, p.words) >= 0.7))
+                .OrderBy(p => p.index);
+            foreach (var part in keep)
+            {
+                sentences.Add(part.text.Trim());
+                said.Add(part.words);
+            }
+        }
+        lock (_gate)
+            foreach (var (entry, _) in chosen)
+                entry.Used = DateTime.UtcNow;
+        return sentences.Count == 0 ? new Fusion(null, chosen.Count, coverage) : new Fusion(string.Join(" ", sentences), chosen.Count, coverage);
+    }
+
     public void Clear()
     {
         lock (_gate)
@@ -134,7 +212,16 @@ public sealed class AnswerCache
     {
         "a", "an", "the", "is", "are", "was", "be", "do", "does", "to", "of", "in", "on", "for", "and", "or", "it", "its",
         "me", "you", "i", "my", "your", "please", "can", "could", "would", "tell", "about", "sprocket", "hey", "so", "um", "uh", "just",
+        // Question words say how it's asked, not what about.
+        "what", "how", "why", "which", "who", "also", "work", "works", "mean", "means", "explain", "thing", "use", "used", "using",
     };
+
+    // A question about how things relate ("how do Signals work with Variables?") isn't answered by putting separate
+    // answers side by side; only one that asks several things ("what's a Signal, and what's a Variable?") is.
+    private static readonly Regex Relating = new(
+        @"\b(with|together|between|differen\w*|vs\.?|versus|compare\w*|relat\w*|instead|better|same|connect\w*|inside|into|from)\b",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex SeveralAsks = new(@"\band\b|,|;|\balso\b|\?.+", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private static string[] Words(string text)
     {
