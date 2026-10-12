@@ -66,16 +66,68 @@ namespace Remedy.Schematics.Assistant
             }
         }
 
-        private static string ServerDll(string agent) => Path.Combine(agent, "bin", "SchematicsAgent.dll");
+        /// <summary>
+        /// Where the big files are (.NET, models, server): the Install Folder from Preferences, or Agent~. Setup's status
+        /// and log stay in Agent~ either way.
+        /// </summary>
+        public static string InstallRoot
+        {
+            get
+            {
+                string chosen = AssistantSettings.InstallFolder;
+                return !string.IsNullOrEmpty(chosen) ? Path.GetFullPath(chosen) : AgentFolder;
+            }
+        }
+
+        public static string ModelsFolder => InstallRoot != null ? Path.Combine(InstallRoot, "models") : null;
+
+        private static string ServerDll(string root) => Path.Combine(root, "bin", "SchematicsAgent.dll");
 
         public static bool IsInstalled
         {
             get
             {
-                string agent = AgentFolder;
-                return agent != null && File.Exists(ServerDll(agent))
-                    && File.Exists(Path.Combine(agent, "models", "kokoro-en-v0_19", "model.onnx"));
+                string root = InstallRoot;
+                return root != null && File.Exists(ServerDll(root))
+                    && File.Exists(Path.Combine(root, "models", "kokoro-en-v0_19", "model.onnx"));
             }
+        }
+
+        // What setup puts in an install folder.
+        private static readonly string[] InstallParts = { ".dotnet", "models", "bin", "nuget", "tmp" };
+
+        /// <summary>How many bytes an install takes in a folder (0 if there's none).</summary>
+        public static long InstallSize(string root)
+        {
+            long total = 0;
+            foreach (var part in InstallParts)
+            {
+                string path = Path.Combine(root, part);
+                if (!Directory.Exists(path)) continue;
+                try
+                {
+                    foreach (var file in new DirectoryInfo(path).EnumerateFiles("*", SearchOption.AllDirectories))
+                        total += file.Length;
+                }
+                catch (Exception) { }
+            }
+            return total;
+        }
+
+        /// <summary>Deletes an install from a folder (.NET, models, server, packages), keeping the folder's other files.</summary>
+        public static void DeleteInstall(string root)
+        {
+            if (root == InstallRoot) Stop();
+            foreach (var part in InstallParts)
+            {
+                string path = Path.Combine(root, part);
+                try { if (Directory.Exists(path)) Directory.Delete(path, true); }
+                catch (Exception exception) { Debug.LogWarning($"[Assistant] Couldn't delete {path}: {exception.Message}"); }
+            }
+            // A dotnet-path.txt pointing into the deleted copy would be stale.
+            string recorded = AgentFolder != null ? Path.Combine(AgentFolder, "dotnet-path.txt") : null;
+            if (recorded != null && File.Exists(recorded) && File.ReadAllText(recorded).Trim().StartsWith(Path.GetFullPath(root)))
+                File.Delete(recorded);
         }
 
         public static bool IsRunning => _process != null && !SafeHasExited(_process);
@@ -114,8 +166,9 @@ namespace Remedy.Schematics.Assistant
 
             if (!IsRunning)
             {
+                string root = InstallRoot;
                 var info = new ProcessStartInfo(AssistantInstaller.DotnetPath,
-                    $"\"{ServerDll(agent)}\" --port {AssistantSettings.Port} --models \"{Path.Combine(agent, "models")}\"")
+                    $"\"{ServerDll(root)}\" --port {AssistantSettings.Port} --models \"{Path.Combine(root, "models")}\" --reference \"{Path.Combine(agent, "reference")}\"")
                 {
                     WorkingDirectory = agent,
                     UseShellExecute = false,

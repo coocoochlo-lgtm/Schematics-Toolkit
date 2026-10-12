@@ -90,13 +90,21 @@ namespace Remedy.Schematics.Assistant
 
             File.WriteAllText(Path.Combine(agent, "install-status.txt"), "start|Getting ready");
             string backend = AssistantSettings.Backend;
+            string root = AssistantServer.InstallRoot;
+            try { Directory.CreateDirectory(root); }
+            catch (Exception exception)
+            {
+                Debug.LogError($"[Assistant] Can't use the install folder {root}: {exception.Message}. Pick another in Preferences > Schematics Assistant.");
+                File.WriteAllText(Path.Combine(agent, "install-status.txt"), $"error|Can't use the install folder ({exception.Message})");
+                return;
+            }
             ProcessStartInfo info;
             if (Application.platform == RuntimePlatform.WindowsEditor)
                 info = new ProcessStartInfo("powershell.exe",
-                    $"-NoProfile -ExecutionPolicy Bypass -Command \"& '{Path.Combine(agent, "setup.ps1")}' -Backend {backend} *> '{Path.Combine(agent, "setup.log")}'\"");
+                    $"-NoProfile -ExecutionPolicy Bypass -Command \"& '{Path.Combine(agent, "setup.ps1")}' -Backend {backend} -InstallDir '{root}' *> '{Path.Combine(agent, "setup.log")}'\"");
             else
                 info = new ProcessStartInfo("/bin/bash",
-                    $"-c \"bash '{Path.Combine(agent, "setup.sh")}' {backend} > '{Path.Combine(agent, "setup.log")}' 2>&1\"");
+                    $"-c \"bash '{Path.Combine(agent, "setup.sh")}' {backend} '{root}' > '{Path.Combine(agent, "setup.log")}' 2>&1\"");
             info.WorkingDirectory = agent;
             info.UseShellExecute = false;
             info.CreateNoWindow = true;
@@ -106,7 +114,7 @@ namespace Remedy.Schematics.Assistant
                 var process = Process.Start(info);
                 SessionState.SetInt(PidKey, process.Id);
                 Watch(process);
-                Debug.Log("[Assistant] Setting up in the background: .NET (if needed), the models (about 1.6 GB) and the server. Sprocket shows the progress.");
+                Debug.Log($"[Assistant] Setting up in the background, in {root}: .NET (if needed), the models (about 1.6 GB) and the server. Sprocket shows the progress.");
             }
             catch (Exception exception)
             {
@@ -156,15 +164,15 @@ namespace Remedy.Schematics.Assistant
 
         private static void UpdateProgress(string step, string message)
         {
-            string agent = AssistantServer.AgentFolder;
+            string models = AssistantServer.ModelsFolder;
             long done = 0, total = 0;
             string current = null;
             foreach (var (file, bytes) in Downloads)
             {
                 total += bytes;
-                if (agent == null) continue;
-                string path = Path.Combine(agent, "models", file);
-                if (File.Exists(path) || (file.EndsWith(".tar.bz2") && File.Exists(Path.Combine(agent, "models", "kokoro-en-v0_19", "model.onnx"))))
+                if (models == null) continue;
+                string path = Path.Combine(models, file);
+                if (File.Exists(path) || (file.EndsWith(".tar.bz2") && File.Exists(Path.Combine(models, "kokoro-en-v0_19", "model.onnx"))))
                     done += bytes;
                 else if (File.Exists(path + ".part"))
                 {

@@ -32,6 +32,11 @@ shows its progress in its speech bubble. It:
 Then Unity starts the server on `127.0.0.1:5317` and stops it when the editor closes. A script reload doesn't
 interrupt the install; Unity picks the progress back up.
 
+- **Another drive:** in **Preferences > Schematics Assistant**, **Install Folder > Choose…** puts everything big there
+  instead of here: .NET, the models, the server, the NuGet packages the build downloads (LLamaSharp's native libraries
+  are large) and temporary files. It installs into a `SchematicsAssistant` folder inside the one you pick. An older
+  install left here can be deleted from the same page. By hand: `setup.ps1 -InstallDir D:\Sprocket` or
+  `setup.sh Cpu /path/to/folder`.
 - **GPU speed-up:** in **Preferences > Schematics Assistant**, set **Model Backend** to **Cuda12** (NVIDIA) or
   **Vulkan**, then press **Reinstall**.
 - **Turning it off:** the same page has **Install Automatically** and **Show in Graph Windows**.

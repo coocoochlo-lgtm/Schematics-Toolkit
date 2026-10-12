@@ -28,6 +28,11 @@ public sealed class AgentSettings
     /// <summary>The Agent~ folder (the models' parent), where the API reference lives too.</summary>
     public string AgentFolder => Path.GetFullPath(Path.Combine(Models, ".."));
 
+    /// <summary>Where the API reference is kept (Unity leaves incoming.json there). Default: Agent~/reference.</summary>
+    public string? ReferenceFolder;
+
+    public string Reference => ReferenceFolder ?? Path.Combine(AgentFolder, "reference");
+
     public string Resolve(string file) => Path.GetFullPath(Path.IsPathRooted(file) ? file : Path.Combine(Models, file));
 
     public static AgentSettings FromArgs(string[] args)
@@ -40,6 +45,7 @@ public sealed class AgentSettings
             {
                 case "--port": settings.Port = int.Parse(value); i++; break;
                 case "--models": settings.Models = value; i++; break;
+                case "--reference": settings.ReferenceFolder = value; i++; break;
                 case "--llm": settings.LlmModel = value; i++; break;
                 case "--context": settings.ContextSize = int.Parse(value); i++; break;
                 case "--gpu-layers": settings.GpuLayers = int.Parse(value); i++; break;

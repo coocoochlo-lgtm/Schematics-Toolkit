@@ -35,6 +35,16 @@ namespace Remedy.Schematics.Assistant
             set => EditorPrefs.SetInt(Prefix + "Port", value);
         }
 
+        /// <summary>
+        /// Where the assistant's big files go (.NET, the models, the server, the build's packages). Empty: the toolkit's
+        /// Agent~ folder. Per machine, so each person can pick a drive with room.
+        /// </summary>
+        public static string InstallFolder
+        {
+            get => EditorPrefs.GetString(Prefix + "InstallFolder", "");
+            set => EditorPrefs.SetString(Prefix + "InstallFolder", value ?? "");
+        }
+
         /// <summary>Which Kokoro voice speaks (index into the server's voice list).</summary>
         public static int Voice
         {
@@ -95,6 +105,52 @@ namespace Remedy.Schematics.Assistant
 
         private static readonly string[] Backends = { "Cpu", "Cuda12", "Vulkan" };
 
+        // The install folder: pick a drive with room. Moving it stops the server; the next install goes there.
+        private static void DrawInstallFolder()
+        {
+            string agent = AssistantServer.AgentFolder;
+            string shown = string.IsNullOrEmpty(InstallFolder) ? (agent != null ? agent + "  (default)" : "Agent~ (default)") : InstallFolder;
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                EditorGUILayout.LabelField(new GUIContent("Install Folder", "Where .NET, the models (about 1.6 GB), the server and the build's packages go. Pick a drive with a few GB free."), new GUIContent(shown, shown));
+                using (new EditorGUI.DisabledScope(AssistantInstaller.IsInstalling))
+                {
+                    if (GUILayout.Button("Choose…", GUILayout.Width(70)))
+                    {
+                        string picked = EditorUtility.OpenFolderPanel("Where should the assistant install?", string.IsNullOrEmpty(InstallFolder) ? "" : InstallFolder, "");
+                        if (!string.IsNullOrEmpty(picked))
+                            ChangeInstallFolder(System.IO.Path.Combine(picked, "SchematicsAssistant"));
+                    }
+                    using (new EditorGUI.DisabledScope(string.IsNullOrEmpty(InstallFolder)))
+                        if (GUILayout.Button(new GUIContent("Default", "Back to the Agent~ folder"), GUILayout.Width(60)))
+                            ChangeInstallFolder("");
+                }
+            }
+
+            // What's left of an install somewhere it no longer goes (e.g. the old folder on a full C: drive).
+            string old = AssistantServer.InstallRoot != agent ? agent : null;
+            long leftover = old != null ? AssistantServer.InstallSize(old) : 0;
+            if (leftover > 0)
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    EditorGUILayout.HelpBox($"There's an older install in Agent~ ({leftover / 1048576f:0} MB).", MessageType.None);
+                    if (GUILayout.Button("Delete It", GUILayout.Width(80), GUILayout.Height(38))
+                        && EditorUtility.DisplayDialog("Delete the old install?", $"Deletes .NET, the models and the server from\n{old}\n(the new folder is unaffected).", "Delete", "Cancel"))
+                        AssistantServer.DeleteInstall(old);
+                }
+        }
+
+        private static void ChangeInstallFolder(string folder)
+        {
+            if (folder == InstallFolder)
+                return;
+            AssistantServer.Stop();
+            InstallFolder = folder;
+            if (!AssistantServer.IsInstalled && EditorUtility.DisplayDialog("Install there now?",
+                    $"The assistant will install into\n{AssistantServer.InstallRoot}\n(.NET if needed, about 1.6 GB of models, and the server).", "Install", "Later"))
+                AssistantInstaller.Reinstall();
+        }
+
         [SettingsProvider]
         private static SettingsProvider CreateProvider() => new SettingsProvider("Preferences/Schematics Assistant", SettingsScope.User)
         {
@@ -139,6 +195,7 @@ namespace Remedy.Schematics.Assistant
 
                 EditorGUILayout.Space();
                 EditorGUILayout.LabelField("Server", EditorStyles.boldLabel);
+                DrawInstallFolder();
                 Port = EditorGUILayout.IntField("Port", Port);
                 int backend = System.Array.IndexOf(Backends, Backend);
                 Backend = Backends[EditorGUILayout.Popup(new GUIContent("Model Backend", "Cuda12 for NVIDIA GPUs, Vulkan for other GPUs. Reinstall after changing it."), Mathf.Max(0, backend), Backends)];

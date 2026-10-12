@@ -30,7 +30,7 @@ public sealed class ReferenceStore
 
     public ReferenceStore(AgentSettings settings)
     {
-        string folder = Path.Combine(settings.AgentFolder, "reference");
+        string folder = settings.Reference;
         Directory.CreateDirectory(folder);
         _path = Path.Combine(folder, "api.json");
         _incoming = Path.Combine(folder, "incoming.json");
