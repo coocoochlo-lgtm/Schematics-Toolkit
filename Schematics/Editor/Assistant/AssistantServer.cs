@@ -180,6 +180,14 @@ namespace Remedy.Schematics.Assistant
             if (!state.alive && !IsRunning)
             {
                 string root = InstallRoot;
+                // A server left from before (an editor crash, an older version) can hold the port without answering.
+                StopStale(root);
+                if (!PortFree(AssistantSettings.Port))
+                {
+                    Debug.LogError($"[Assistant] Port {AssistantSettings.Port} is in use by another program, so the server can't start. "
+                        + "Pick another Port in Preferences > Schematics Assistant (or close whatever is using it).");
+                    return false;
+                }
                 var info = new ProcessStartInfo(AssistantInstaller.DotnetPath,
                     $"\"{ServerDll(root)}\" --port {AssistantSettings.Port} --models \"{Path.Combine(root, "models")}\" --reference \"{Path.Combine(agent, "reference")}\"")
                 {
@@ -209,7 +217,11 @@ namespace Remedy.Schematics.Assistant
             var started = DateTime.UtcNow;
             var lastChange = started;
             string lastSeen = null;
+            bool everAnswered = false, warned = false;
             StartupStatus = "starting";
+            StartupProgress = 0f;
+            StartupStep = StartupSteps = 0;
+            StartupElapsed = 0;
             try
             {
                 while (DateTime.UtcNow - lastChange < StallTimeout)
@@ -222,8 +234,22 @@ namespace Remedy.Schematics.Assistant
                             Debug.LogWarning("[Assistant] " + state.error);
                         return true;
                     }
+                    if (!state.alive)
+                    {
+                        // Not answering yet: the bar can't move, but the clock does.
+                        StartupStatus = "starting";
+                        StartupStep = StartupSteps = 0;
+                        StartupElapsed = (DateTime.UtcNow - started).TotalSeconds;
+                        if (!warned && StartupElapsed > 30)
+                        {
+                            warned = true;
+                            Debug.LogWarning($"[Assistant] The server has been running for 30 s but doesn't answer on port {AssistantSettings.Port}. "
+                                + "A firewall or antivirus may be blocking it, or it's stuck starting up; turn on Log Server Output in Preferences > Schematics Assistant to see what it's doing.");
+                        }
+                    }
                     if (state.alive)
                     {
+                        everAnswered = true;
                         StartupStatus = string.IsNullOrEmpty(state.loading) ? "starting" : state.loading;
                         StartupProgress = state.health?.progress ?? 0f;
                         StartupStep = state.health?.step ?? 0;
@@ -241,6 +267,13 @@ namespace Remedy.Schematics.Assistant
                         Debug.LogError("[Assistant] The server stopped while starting; see the messages above.");
                         return false;
                     }
+                }
+                if (!everAnswered)
+                {
+                    Debug.LogError($"[Assistant] The server never answered on port {AssistantSettings.Port} in {StallTimeout.TotalMinutes:0} minutes, so I stopped it. "
+                        + "Check for a firewall or antivirus prompt, or try another Port in Preferences > Schematics Assistant. Turn on Log Server Output there to see what it printed.");
+                    Stop();
+                    return false;
                 }
                 Debug.LogError($"[Assistant] The server has been stuck loading {StartupStatus} ({StartupProgress * 100f:0}%) for {StallTimeout.TotalMinutes:0} minutes. "
                     + "Is the disk or CPU very busy (an antivirus scanning the model files)? Turn on Log Server Output in Preferences > Schematics Assistant and press Start to see more.");
@@ -269,10 +302,56 @@ namespace Remedy.Schematics.Assistant
             };
         }
 
+        // The server writes its process id here, so one this editor lost track of can still be stopped.
+        private static string PidFile(string root) => Path.Combine(root, "server.pid");
+
+        private static void StopStale(string root)
+        {
+            try
+            {
+                string file = PidFile(root);
+                if (!File.Exists(file) || !int.TryParse(File.ReadAllText(file).Trim(), out int pid))
+                    return;
+                File.Delete(file);
+                if (_process != null && SafeId(_process) == pid)
+                    return;
+                var old = Process.GetProcessById(pid);
+                // Only a .NET process (the id may have been reused by something else since).
+                if (old.HasExited || !old.ProcessName.StartsWith("dotnet", StringComparison.OrdinalIgnoreCase))
+                    return;
+                old.Kill();
+                old.WaitForExit(3000);
+                Debug.Log($"[Assistant] Stopped an old server that was still running (process {pid}).");
+            }
+            catch { }
+        }
+
+        private static int SafeId(Process process)
+        {
+            try { return process.Id; }
+            catch { return -1; }
+        }
+
+        private static bool PortFree(int port)
+        {
+            try
+            {
+                var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, port);
+                listener.Start();
+                listener.Stop();
+                return true;
+            }
+            catch { return false; }
+        }
+
         public static void Stop()
         {
             if (_process == null)
+            {
+                if (InstallRoot is { } root)
+                    StopStale(root);
                 return;
+            }
             try
             {
                 if (!_process.HasExited)

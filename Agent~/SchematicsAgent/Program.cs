@@ -97,7 +97,12 @@ app.MapGet("/voices", async (HttpRequest request, Readiness readiness, IServiceP
     return Results.Text(Json.Object(w => w.StringArray("voices", services.GetRequiredService<TextToSpeech>().Voices)), "application/json");
 });
 
-Console.WriteLine($"[server] Listening on http://127.0.0.1:{settings.Port}; loading the models");
+// Unity stops a server it lost track of (after a crash or a restart) by this file, so the port and files are free.
+string pidFile = Path.Combine(settings.AgentFolder, "server.pid");
+try { File.WriteAllText(pidFile, Environment.ProcessId.ToString()); } catch { }
+app.Lifetime.ApplicationStopping.Register(() => { try { File.Delete(pidFile); } catch { } });
+
+Console.WriteLine($"[server] Listening on http://127.0.0.1:{settings.Port} (process {Environment.ProcessId}); loading the models");
 // The models (and the reference, taking in anything Unity left while the server was stopped) load in the background.
 app.Lifetime.ApplicationStarted.Register(() => app.Services.GetRequiredService<Readiness>().LoadInBackground(app.Services));
 app.Run();

@@ -44,6 +44,7 @@ public sealed class Readiness
         Step = step;
         Loading = what;
         _stepStarted = Elapsed;
+        Console.WriteLine($"[server] Loading {what} (step {step} of {Steps})");
     }
 
     private double _stepStarted;

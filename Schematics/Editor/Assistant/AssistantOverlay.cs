@@ -885,8 +885,12 @@ namespace Remedy.Schematics.Assistant
             float progress = AssistantServer.StartupProgress;
             int seconds = (int)AssistantServer.StartupElapsed;
             string step = AssistantServer.StartupSteps > 0 ? $"step {AssistantServer.StartupStep} of {AssistantServer.StartupSteps}, " : "";
-            string text = $"<i>Waking up… {Mathf.RoundToInt(progress * 100f)}%</i>\n{Bar(progress)}\n"
-                        + $"<size=10>Loading {Escape(loading)} ({step}{seconds / 60}:{seconds % 60:00})</size>";
+            string clock = $"{seconds / 60}:{seconds % 60:00}";
+            // Before the server answers there's no percentage to show, only that it's starting.
+            string text = AssistantServer.StartupSteps == 0
+                ? $"<i>Waking up…</i>\n<size=10>Starting the server ({clock})</size>"
+                : $"<i>Waking up… {Mathf.RoundToInt(progress * 100f)}%</i>\n{Bar(progress)}\n"
+                  + $"<size=10>Loading {Escape(loading)} ({step}{clock})</size>";
             // Redrawn only when something visible changed (about once a second).
             if (text == _wakingShown && _bubble.style.display == DisplayStyle.Flex)
                 return;
