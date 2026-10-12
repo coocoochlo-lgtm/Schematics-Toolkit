@@ -202,6 +202,7 @@ namespace Remedy.Schematics.Assistant
                 VerboseLogging = EditorGUILayout.Toggle("Log Server Output", VerboseLogging);
                 AutoInstall = EditorGUILayout.Toggle(new GUIContent("Install Automatically", "Download the models (about 1.6 GB) and build the server the first time the assistant appears."), AutoInstall);
                 EditorGUILayout.LabelField("Status", AssistantInstaller.IsInstalling ? AssistantInstaller.Progress ?? "Installing…"
+                    : AssistantServer.StartupStatus != null ? $"Starting: loading {AssistantServer.StartupStatus} ({AssistantServer.StartupProgress * 100f:0}%)"
                     : AssistantServer.IsRunning ? "Running" : AssistantServer.IsInstalled ? "Installed, stopped" : "Not installed");
                 using (new EditorGUILayout.HorizontalScope())
                 {

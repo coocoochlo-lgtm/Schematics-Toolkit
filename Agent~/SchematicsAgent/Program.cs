@@ -28,7 +28,9 @@ var app = builder.Build();
 app.MapGet("/health", (Readiness readiness, IServiceProvider services) =>
 {
     if (!readiness.IsReady)
-        return Results.Text(Json.Object(w => w.Bool("ok", true).Bool("ready", false).String("loading", readiness.Loading ?? "")), "application/json");
+        return Results.Text(Json.Object(w => w.Bool("ok", true).Bool("ready", false).String("loading", readiness.Loading ?? "")
+            .Number("progress", readiness.Progress).Number("step", readiness.Step).Number("steps", Readiness.Steps)
+            .Number("elapsed", readiness.Elapsed)), "application/json");
     var llm = services.GetRequiredService<Llm>();
     var stt = services.GetRequiredService<SpeechToText>();
     var tts = services.GetRequiredService<TextToSpeech>();

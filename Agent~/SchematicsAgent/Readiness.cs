@@ -13,6 +13,42 @@ public sealed class Readiness
     /// <summary>What's being loaded now ("language model", ...), or null when everything is.</summary>
     public string? Loading { get; private set; } = "starting";
     public string? Failure { get; private set; }
+
+    /// <summary>How far loading is overall, 0-1.</summary>
+    public float Progress => Math.Clamp(_done + _weight * _stepProgress, 0f, 1f);
+
+    /// <summary>Which step (1-based) of how many.</summary>
+    public int Step { get; private set; }
+    public const int Steps = 4;
+
+    /// <summary>Seconds since loading began.</summary>
+    public double Elapsed => _clock.Elapsed.TotalSeconds;
+
+    private readonly System.Diagnostics.Stopwatch _clock = new();
+    private float _done, _weight, _stepProgress;
+
+    /// <summary>Progress within the current step, from the libraries that report it (llama.cpp does).</summary>
+    private sealed class StepProgress : IProgress<float>
+    {
+        private readonly Readiness _owner;
+        public StepProgress(Readiness owner) => _owner = owner;
+        public void Report(float value) => _owner._stepProgress = Math.Clamp(value, 0f, 1f);
+    }
+
+    // Each step's share of the bar, roughly by how long it takes (the models' sizes).
+    private void Begin(int step, string what, float weight)
+    {
+        _done += _weight;
+        _weight = weight;
+        _stepProgress = 0f;
+        Step = step;
+        Loading = what;
+        _stepStarted = Elapsed;
+    }
+
+    private double _stepStarted;
+
+    private void Finished() => Console.WriteLine($"[server] Loaded {Loading} in {Elapsed - _stepStarted:0.0} s");
     public bool IsReady => _ready.Task.IsCompleted;
     public Task Ready => _ready.Task;
 
@@ -32,18 +68,25 @@ public sealed class Readiness
     /// <summary>Loads everything, one model after another, on a background thread.</summary>
     public void LoadInBackground(IServiceProvider services) => Task.Run(() =>
     {
+        _clock.Start();
         try
         {
-            Loading = "the API reference";
+            Begin(1, "the API reference", 0.02f);
             services.GetRequiredService<ReferenceStore>();
-            Loading = "the language model";
+            Finished();
+            Begin(2, "the language model", 0.70f);
+            Llm.LoadProgress = new StepProgress(this);
             services.GetRequiredService<Llm>();
-            Loading = "speech recognition";
+            Finished();
+            Begin(3, "speech recognition", 0.10f);
             services.GetRequiredService<SpeechToText>();
-            Loading = "the voice";
+            Finished();
+            Begin(4, "the voice", 0.18f);
             services.GetRequiredService<TextToSpeech>();
+            Finished();
+            _done = 1f; _weight = 0f;
             Loading = null;
-            Console.WriteLine("[server] Ready");
+            Console.WriteLine($"[server] Ready ({Elapsed:0.0} s)");
         }
         catch (Exception exception)
         {

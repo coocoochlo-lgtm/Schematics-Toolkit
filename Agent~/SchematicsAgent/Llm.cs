@@ -16,6 +16,9 @@ public sealed class Llm : IDisposable
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     public bool Available => _weights != null;
+
+    /// <summary>Told how far loading the model is (0-1). Set by <see cref="Readiness"/> before the model loads.</summary>
+    public static IProgress<float>? LoadProgress;
     public string ModelName { get; } = "";
 
     public Llm(AgentSettings settings)
@@ -33,7 +36,8 @@ public sealed class Llm : IDisposable
             GpuLayerCount = settings.GpuLayers,
             Threads = settings.Threads,
         };
-        _weights = LLamaWeights.LoadFromFile(_parameters);
+        // With progress (0-1) for /health: the model is the biggest thing the server loads.
+        _weights = LLamaWeights.LoadFromFileAsync(_parameters, CancellationToken.None, LoadProgress).GetAwaiter().GetResult();
         Console.WriteLine($"[llm] Loaded {ModelName}");
     }
 

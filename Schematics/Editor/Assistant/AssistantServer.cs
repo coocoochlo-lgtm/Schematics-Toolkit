@@ -154,8 +154,14 @@ namespace Remedy.Schematics.Assistant
         /// <summary>What the server is loading while it starts ("the language model"), or null.</summary>
         public static string StartupStatus { get; private set; }
 
-        // Loading the models can take a minute or two on a slow disk or CPU; past this, something's wrong.
-        private static readonly TimeSpan LoadTimeout = TimeSpan.FromMinutes(5);
+        /// <summary>How far the server's loading is (0-1), which step of how many, and for how long (seconds).</summary>
+        public static float StartupProgress { get; private set; }
+        public static int StartupStep { get; private set; }
+        public static int StartupSteps { get; private set; }
+        public static double StartupElapsed { get; private set; }
+
+        // Loading can take minutes on a slow disk or CPU; it only counts as stuck when nothing moves for this long.
+        private static readonly TimeSpan StallTimeout = TimeSpan.FromMinutes(3);
 
         private static async Task<bool> StartAsync()
         {
@@ -201,10 +207,12 @@ namespace Remedy.Schematics.Assistant
 
             // The server answers within seconds and loads its models in the background; wait until it says it's ready.
             var started = DateTime.UtcNow;
+            var lastChange = started;
+            string lastSeen = null;
             StartupStatus = "starting";
             try
             {
-                while (DateTime.UtcNow - started < LoadTimeout)
+                while (DateTime.UtcNow - lastChange < StallTimeout)
                 {
                     await Task.Delay(500);
                     state = await GetStateAsync();
@@ -215,14 +223,27 @@ namespace Remedy.Schematics.Assistant
                         return true;
                     }
                     if (state.alive)
+                    {
                         StartupStatus = string.IsNullOrEmpty(state.loading) ? "starting" : state.loading;
+                        StartupProgress = state.health?.progress ?? 0f;
+                        StartupStep = state.health?.step ?? 0;
+                        StartupSteps = state.health?.steps ?? 0;
+                        StartupElapsed = state.health?.elapsed ?? (DateTime.UtcNow - started).TotalSeconds;
+                        string seen = $"{StartupStatus}|{StartupProgress:0.000}";
+                        if (seen != lastSeen)
+                        {
+                            lastSeen = seen;
+                            lastChange = DateTime.UtcNow;
+                        }
+                    }
                     else if (!IsRunning)
                     {
                         Debug.LogError("[Assistant] The server stopped while starting; see the messages above.");
                         return false;
                     }
                 }
-                Debug.LogError($"[Assistant] The server was still loading {StartupStatus} after {LoadTimeout.TotalMinutes:0} minutes. Is the disk or CPU very busy? Try Start again in Preferences > Schematics Assistant.");
+                Debug.LogError($"[Assistant] The server has been stuck loading {StartupStatus} ({StartupProgress * 100f:0}%) for {StallTimeout.TotalMinutes:0} minutes. "
+                    + "Is the disk or CPU very busy (an antivirus scanning the model files)? Turn on Log Server Output in Preferences > Schematics Assistant and press Start to see more.");
                 return false;
             }
             finally
@@ -267,27 +288,36 @@ namespace Remedy.Schematics.Assistant
         #region Requests
 
         /// <summary>Whether the server answers (alive), has loaded its models (ready), and what it's loading.</summary>
-        public static async Task<(bool alive, bool ready, string loading, string error)> GetStateAsync()
+        public static async Task<(bool alive, bool ready, string loading, string error, HealthReply health)> GetStateAsync()
         {
             try
             {
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
                 var response = await _http.GetAsync(BaseUrl + "/health", cts.Token);
                 if (!response.IsSuccessStatusCode)
-                    return (false, false, null, null);
+                    return (false, false, null, null, null);
                 string text = await response.Content.ReadAsStringAsync();
                 var health = JsonUtility.FromJson<HealthReply>(text);
                 // Older servers didn't say "ready": answering meant loaded.
                 bool ready = health == null || health.ready || !text.Contains("\"ready\"");
-                return (true, ready, health?.loading, health?.error);
+                return (true, ready, health?.loading, health?.error, health);
             }
             catch
             {
-                return (false, false, null, null);
+                return (false, false, null, null, null);
             }
         }
 
-        [Serializable] private class HealthReply { public bool ready; public string loading; public string error; }
+        /// <summary>What /health says.</summary>
+        [Serializable]
+        public class HealthReply
+        {
+            public bool ready;
+            public string loading, error;
+            public float progress;
+            public int step, steps;
+            public double elapsed;
+        }
 
         /// <summary>Whether the server answers at all (it may still be loading its models).</summary>
         public static async Task<bool> IsHealthyAsync()

@@ -861,7 +861,7 @@ namespace Remedy.Schematics.Assistant
                 return;
             _lastProgress = progress;
             int percent = Mathf.RoundToInt(AssistantInstaller.Fraction * 100f);
-            ShowBubble($"<size=10>Setting myself up… {percent}%</size>\n{Escape(progress)}", seconds: -1);
+            ShowBubble($"<size=10>Setting myself up… {percent}%</size>\n{Bar(AssistantInstaller.Fraction)}\n{Escape(progress)}", seconds: -1);
         }
 
         private void OnInstallFinished(bool ok)
@@ -882,10 +882,23 @@ namespace Remedy.Schematics.Assistant
         private string _wakingShown;
         private void ShowWakingUp(string loading)
         {
-            if (loading == _wakingShown && _bubble.style.display == DisplayStyle.Flex)
+            float progress = AssistantServer.StartupProgress;
+            int seconds = (int)AssistantServer.StartupElapsed;
+            string step = AssistantServer.StartupSteps > 0 ? $"step {AssistantServer.StartupStep} of {AssistantServer.StartupSteps}, " : "";
+            string text = $"<i>Waking up… {Mathf.RoundToInt(progress * 100f)}%</i>\n{Bar(progress)}\n"
+                        + $"<size=10>Loading {Escape(loading)} ({step}{seconds / 60}:{seconds % 60:00})</size>";
+            // Redrawn only when something visible changed (about once a second).
+            if (text == _wakingShown && _bubble.style.display == DisplayStyle.Flex)
                 return;
-            _wakingShown = loading;
-            ShowBubble($"<i>Waking up… loading {Escape(loading)}.</i>\n<size=10>The first start can take a minute or two.</size>", seconds: -1);
+            _wakingShown = text;
+            ShowBubble(text, seconds: -1);
+        }
+
+        // A text progress bar that fits the bubble: ▰▰▰▰▱▱▱▱▱▱
+        private static string Bar(float fraction, int cells = 16)
+        {
+            int filled = Mathf.Clamp(Mathf.RoundToInt(fraction * cells), 0, cells);
+            return $"<color=#e88fc7>{new string('▰', filled)}</color><color=#77708a>{new string('▱', cells - filled)}</color>";
         }
 
         /// <summary>Something went wrong: says so, with the confused face for a moment.</summary>
@@ -1236,8 +1249,15 @@ namespace Remedy.Schematics.Assistant
             }
             if (AssistantInstaller.IsInstalling)
                 ShowInstallProgress();
-            else if (AssistantServer.StartupStatus != null && _mood == Mood.Thinking)
+            else if (AssistantServer.StartupStatus != null && (_mood == Mood.Thinking || _mood == Mood.Idle) && _input.style.display == DisplayStyle.None)
                 ShowWakingUp(AssistantServer.StartupStatus);
+            else if (AssistantServer.StartupStatus == null && _wakingShown != null)
+            {
+                // Loaded: the progress bubble goes (unless something else has replaced it since).
+                if (_mood == Mood.Idle && _bubbleText.text == _wakingShown)
+                    HideBubble();
+                _wakingShown = null;
+            }
 
             // The current animation frame (only touched when it changes).
             var (frames, fps) = Animation;
