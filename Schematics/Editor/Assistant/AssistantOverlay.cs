@@ -127,7 +127,7 @@ namespace Remedy.Schematics.Assistant
                     Mood.Thinking => (Frames("thinking"), 12f),
                     Mood.Working => (WorkFrames, 12f),
                     Mood.Talking => (Frames("talking"), 8f),
-                    Mood.Inspecting => (InspectFrames, 12f),
+                    Mood.Inspecting => (InspectFrames, 8f),
                     _ => (Frames("idle"), 12f),
                 };
             }
