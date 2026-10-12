@@ -69,6 +69,10 @@ public static class SchematicBehaviorsHeaderGUI
             }
         }
 
+        if (gameObject == root.gameObject)
+            using (new EditorGUI.DisabledScope(readOnlyAsset))
+                DrawGraphScope(root);
+
         if (!Application.isPlaying && !readOnlyAsset)
         {
             DrawAddButton(root, gameObject, list);
@@ -131,7 +135,7 @@ public static class SchematicBehaviorsHeaderGUI
             {
                 EditorGUI.indentLevel++;
                 DrawVariables(root, gameObject, index, attachment, metadata);
-                DrawSignals(metadata);
+                DrawSignals(root, gameObject, metadata);
                 ExtraAttachmentGUI?.Invoke(root, gameObject, attachment);
                 EditorGUI.indentLevel--;
             }
@@ -165,9 +169,18 @@ public static class SchematicBehaviorsHeaderGUI
                 return;
             }
 
-            using (new EditorGUILayout.HorizontalScope())
+            // As an IO Dock row; embedded single fields (showLabel off) stay plain.
+            if (showLabel)
+                InspectorRows.Begin(VariableRow(root, gameObject, attachment, definition), ObjectNames.NicifyVariableName(definition.Name),
+                    InspectorRows.TypeName(type) + (definition.Networked ? "  ⇅" : ""), entry != null ? "Overridden on this object. Click for details; drag into a graph." : null);
+            else
+                EditorGUILayout.BeginHorizontal();
             {
-                if (SchematicValueField.Draw(label, type, current, out var newValue))
+                int indent = EditorGUI.indentLevel;
+                EditorGUI.indentLevel = 0;
+                bool changed = SchematicValueField.Draw(GUIContent.none, type, current, out var newValue);
+                EditorGUI.indentLevel = indent;
+                if (changed)
                 {
                     Undo.RecordObject(root, "Set Schematic Variable Default");
                     if (entry == null)
@@ -189,8 +202,22 @@ public static class SchematicBehaviorsHeaderGUI
                     }
                 }
             }
+            if (showLabel) InspectorRows.End();
+            else EditorGUILayout.EndHorizontal();
         }
     }
+
+    private static string PathOf(SchematicObject root, GameObject gameObject)
+        => gameObject == root.gameObject ? "" : AnimationUtility.CalculateTransformPath(gameObject.transform, root.transform);
+
+    private static InspectorRows.Row VariableRow(SchematicObject root, GameObject gameObject, BehaviorAttachment attachment, VariableDefinition definition) => new()
+    {
+        Kind = InspectorRows.RowKind.BehaviorVariable,
+        Behavior = attachment?.Metadata != null ? attachment.Metadata.BehaviorType.Type : null,
+        Path = PathOf(root, gameObject),
+        Name = definition.Name,
+        ValueType = definition.Type.Type,
+    };
 
     // Arrays, lists and serializable classes are drawn with Unity's own property drawers, straight from the
     // Schematic Object's serialized data, so object references and nested lists behave like any other field.
@@ -255,7 +282,7 @@ public static class SchematicBehaviorsHeaderGUI
         }
     }
 
-    private static void DrawSignals(BehaviorMetadata metadata)
+    private static void DrawSignals(SchematicObject root, GameObject gameObject, BehaviorMetadata metadata)
     {
         if (metadata.Signals.Count == 0)
             return;
@@ -263,10 +290,94 @@ public static class SchematicBehaviorsHeaderGUI
         EditorGUILayout.LabelField(new GUIContent("Signals", "Drag a Signal into a Schematic Graph to send or receive it there."), EditorStyles.miniBoldLabel);
         foreach (var signal in metadata.Signals)
         {
-            // The object field doubles as a drag handle for the Signal asset; whatever is dropped on it is ignored.
-            EditorGUILayout.ObjectField(new GUIContent(BehaviorMetadataEditor.DescribeSignal(signal)), signal.Asset, typeof(SignalData), false);
+            var parameters = new List<string>();
+            foreach (var parameter in signal.Parameters)
+                parameters.Add($"{InspectorRows.TypeName(parameter.Type.Type)} {parameter.Name}");
+            InspectorRows.Begin(new InspectorRows.Row
+            {
+                Kind = InspectorRows.RowKind.Signal, Behavior = metadata.BehaviorType.Type, Path = PathOf(root, gameObject),
+                Name = signal.Name, Signal = signal.Asset, Direction = signal.Direction,
+            }, ObjectNames.NicifyVariableName(signal.Name), string.Join(", ", parameters));
+            InspectorRows.End();
         }
     }
+
+    #region Graph Variables
+
+    // The root's graph: its Variables (this object's starting values, or live values in Play Mode) and its Signals.
+    private static void DrawGraphScope(SchematicObject root)
+    {
+        var graph = root.SchematicGraph;
+        if (graph == null || (graph.Variables.Count == 0 && graph.Signals.Count == 0))
+            return;
+
+        using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+        {
+            var foldoutKey = $"SchematicGraphScope.{root.GetInstanceID()}";
+            bool expanded = EditorGUILayout.Foldout(SessionState.GetBool(foldoutKey, true), $"Graph: {graph.name}", true, EditorStyles.foldoutHeader);
+            SessionState.SetBool(foldoutKey, expanded);
+            if (!expanded)
+                return;
+
+            bool live = Application.isPlaying && root.IsSpawned;
+            var store = live ? root.GraphVariables(graph) : null;
+            if (graph.Variables.Count > 0)
+                EditorGUILayout.LabelField(new GUIContent("Variables", live ? "This object's current values." : "This object's starting values."), EditorStyles.miniBoldLabel);
+            for (int i = 0; i < graph.Variables.Count; i++)
+            {
+                var variable = graph.Variables[i];
+                var type = variable?.ValueType;
+                if (type == null)
+                    continue;
+                var row = new InspectorRows.Row { Kind = InspectorRows.RowKind.GraphVariable, Graph = graph, VariableId = variable.Id, Name = variable.Name, ValueType = type };
+                InspectorRows.Begin(row, variable.Name, InspectorRows.TypeName(type) + (variable.Networked ? "  ⇅" : ""), variable.Description);
+                int indent = EditorGUI.indentLevel;
+                EditorGUI.indentLevel = 0;
+                if (live)
+                {
+                    int index = store.IndexOf(variable.Id);
+                    if (SchematicValueField.Draw(GUIContent.none, type, store.Get(index), out var value))
+                        store.Set(index, value);
+                }
+                else if (SchematicValue.IsBoxable(type))
+                    EditorGUILayout.LabelField("(set in the graph)", EditorStyles.miniLabel);
+                else
+                {
+                    var own = root.FindGraphOverride(graph, variable.Id);
+                    if (SchematicValueField.Draw(GUIContent.none, type, (own ?? variable.Default)?.Get(type), out var value))
+                    {
+                        Undo.RecordObject(root, "Set Graph Variable");
+                        root.SetGraphOverride(graph, variable.Id, value, type);
+                        Commit(root);
+                    }
+                    using (new EditorGUI.DisabledScope(own == null))
+                        if (GUILayout.Button(new GUIContent("↺", "Back to the graph's starting value"), _revertStyle, GUILayout.Width(20)))
+                        {
+                            Undo.RecordObject(root, "Revert Graph Variable");
+                            root.SetGraphOverride(graph, variable.Id, null, null);
+                            Commit(root);
+                        }
+                }
+                EditorGUI.indentLevel = indent;
+                InspectorRows.End();
+            }
+
+            if (graph.Signals.Count > 0)
+                EditorGUILayout.LabelField("Signals", EditorStyles.miniBoldLabel);
+            foreach (var signal in graph.Signals)
+            {
+                if (signal?.Asset == null) continue;
+                var parameters = new List<string>();
+                foreach (var parameter in signal.Parameters)
+                    parameters.Add($"{InspectorRows.TypeName(ReferenceEquals(parameter.Type, null) ? null : parameter.Type.Type)} {parameter.Name}");
+                InspectorRows.Begin(new InspectorRows.Row { Kind = InspectorRows.RowKind.Signal, Graph = graph, Name = signal.Name, Signal = signal.Asset },
+                    signal.Name, string.Join(", ", parameters), signal.Description);
+                InspectorRows.End();
+            }
+        }
+    }
+
+    #endregion
 
     private static void DrawAddButton(SchematicObject root, GameObject gameObject, BehaviorAttachmentList list)
     {
@@ -483,9 +594,18 @@ public static class SchematicBehaviorsHeaderGUI
             var variables = runtime.Behavior.Variables;
             for (int i = 0; i < variables.Count; i++)
             {
-                var label = new GUIContent(ObjectNames.NicifyVariableName(variables[i].Name));
-                if (SchematicValueField.Draw(label, variables[i].ValueType, runtime.GetVariableBoxed(instance, i), out var newValue))
+                var definition = attachment?.Metadata != null ? attachment.Metadata.FindVariable(variables[i].Name) : null;
+                InspectorRows.Begin(new InspectorRows.Row
+                {
+                    Kind = InspectorRows.RowKind.BehaviorVariable, Behavior = instance.Behavior.GetType(), Path = PathOf(root, gameObject),
+                    Name = variables[i].Name, ValueType = variables[i].ValueType,
+                }, ObjectNames.NicifyVariableName(variables[i].Name), InspectorRows.TypeName(variables[i].ValueType) + (definition != null && definition.Networked ? "  ⇅" : ""));
+                int indent = EditorGUI.indentLevel;
+                EditorGUI.indentLevel = 0;
+                if (SchematicValueField.Draw(GUIContent.none, variables[i].ValueType, runtime.GetVariableBoxed(instance, i), out var newValue))
                     runtime.SetVariableBoxed(instance, i, newValue);
+                EditorGUI.indentLevel = indent;
+                InspectorRows.End();
             }
             EditorGUI.indentLevel--;
         }

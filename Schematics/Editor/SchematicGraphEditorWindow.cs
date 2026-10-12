@@ -537,6 +537,23 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
         _sidebarTabs["Graph"].Set(content);
     }
 
+    /// <summary>Shows a dock item's row (in the Prefab or Graph tab), without moving the canvas.</summary>
+    internal void Reveal(DockItem item)
+    {
+        string key = item.Key;
+        if (_graphRows.TryGetValue(key, out var row))
+        {
+            _sidebarTabs.SelectTab("Graph");
+            row.schedule.Execute(() =>
+            {
+                row.GetFirstAncestorOfType<ScrollView>()?.ScrollTo(row);
+                PrefabHierarchy.Flash(row);
+            }).StartingIn(30);
+        }
+        else if (_dock != null && _dock.Reveal(key))
+            _sidebarTabs.SelectTab("Prefab");
+    }
+
     /// <summary>A graph's Variables or Signals changed (here or in the Inspector): redraw, and re-pin nodes if needed.</summary>
     internal void OnGraphScopeChanged(SchematicGraph graph, bool structural)
     {
