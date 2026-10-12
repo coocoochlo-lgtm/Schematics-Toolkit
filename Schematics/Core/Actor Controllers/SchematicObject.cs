@@ -24,6 +24,60 @@ namespace Remedy.Schematics
         [SerializeField, HideInInspector]
         private int _objectId;
 
+        [SerializeField, HideInInspector]
+        private List<GraphVariableOverride> _graphOverrides = new();
+
+        /// <summary>This object's own starting values for graph Variables (any graph it runs).</summary>
+        public List<GraphVariableOverride> GraphOverrides => _graphOverrides ??= new();
+
+        public SchematicValue FindGraphOverride(SchematicGraph graph, string id)
+        {
+            foreach (var entry in GraphOverrides)
+                if (entry != null && entry.Graph == graph && entry.Id == id)
+                    return entry.Value;
+            return null;
+        }
+
+        /// <summary>Sets (or, with null, removes) this object's starting value for a graph Variable.</summary>
+        public void SetGraphOverride(SchematicGraph graph, string id, object value, Type type)
+        {
+            GraphOverrides.RemoveAll(e => e == null || (e.Graph == graph && e.Id == id));
+            if (type != null)
+                GraphOverrides.Add(new GraphVariableOverride { Graph = graph, Id = id, Value = new SchematicValue(value, type) });
+        }
+
+        private Dictionary<SchematicGraph, GraphVariableStore> _graphStores;
+
+        /// <summary>Raised when an object starts keeping values for one of its graphs (networking listens).</summary>
+        public static event Action<GraphVariableStore> GraphStoreCreated;
+
+        /// <summary>
+        /// This object's values for a graph's Variables: its own graph by default, or any other graph it runs (a state's
+        /// graph, a Timeline Graph). Made on first use; reset every time the object spawns.
+        /// </summary>
+        public GraphVariableStore GraphVariables(SchematicGraph graph = null)
+        {
+            graph ??= SchematicGraph;
+            if (graph == null)
+                return null;
+            _graphStores ??= new Dictionary<SchematicGraph, GraphVariableStore>();
+            if (_graphStores.TryGetValue(graph, out var store))
+            {
+                store.Refresh();
+                return store;
+            }
+            store = new GraphVariableStore(this, graph);
+            _graphStores[graph] = store;
+            GraphStoreCreated?.Invoke(store);
+            return store;
+        }
+
+        /// <summary>Every graph whose Variables this object is keeping right now.</summary>
+        public IEnumerable<GraphVariableStore> GraphStores => _graphStores != null ? _graphStores.Values : Array.Empty<GraphVariableStore>();
+
+        // A new spawn starts from the starting values.
+        internal void ResetGraphVariables() => _graphStores?.Clear();
+
         /// <summary>
         /// Which Schematic Object (prefab) this is, the same for every instance of it and stable across sessions.
         /// Assigned in the editor when the Schematic is created, from the prefab asset's GUID (a duplicated prefab

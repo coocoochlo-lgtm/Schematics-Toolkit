@@ -80,6 +80,9 @@ public class VariableDefinition
     /// </summary>
     public SchematicValue Default = new();
     public bool OverrideDefault;
+
+    /// <summary>Sync this Variable over the network: the object's authority sends its value to everyone else.</summary>
+    public bool Networked;
 }
 
 public enum SignalDirection

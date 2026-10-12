@@ -1,13 +1,15 @@
+using Remedy.Schematics;
 using System;
+using UnityEditor;
 using UnityEngine;
 
 /// <summary>
 /// Something in the IO Dock that can be dragged into a Schematic Graph or navigated to: a Behavior, one of its
-/// Variables or Signals, or a GameObject of the prefab's hierarchy.
+/// Variables or Signals, a GameObject of the prefab's hierarchy, or a graph's own Variable or Signal.
 /// </summary>
 public sealed class DockItem
 {
-    public enum ItemKind { Behavior, Variable, Signal, GameObject }
+    public enum ItemKind { Behavior, Variable, Signal, GameObject, GraphVariable }
 
     public const string DragKey = "SchematicDockItem";
 
@@ -21,12 +23,17 @@ public sealed class DockItem
     public SignalData Signal;
     public SignalDirection Direction;
     public GameObject GameObject;
+    /// <summary>For graph Variables and Signals: the graph that declares them.</summary>
+    public SchematicGraph Graph;
+    /// <summary>For graph Variables: the Variable's id.</summary>
+    public string VariableId;
 
     /// <summary>Identifies the item, so dock rows and graph nodes can find each other.</summary>
     public string Key => Kind switch
     {
         ItemKind.Signal => SignalKey(Signal),
         ItemKind.Variable => VariableKey(Behavior, Path, Name),
+        ItemKind.GraphVariable => GraphVariableKey(Graph, VariableId),
         ItemKind.Behavior => BehaviorKey(Behavior, Path),
         _ => ObjectKey(Path),
     };
@@ -42,4 +49,6 @@ public sealed class DockItem
     public static string VariableKey(Type behavior, string path, string name) => $"var:{behavior?.FullName}|{path}|{name}";
     public static string BehaviorKey(Type behavior, string path) => $"behavior:{behavior?.FullName}|{path}";
     public static string ObjectKey(string path) => "object:" + path;
+    public static string GraphVariableKey(SchematicGraph graph, string id)
+        => $"gvar:{(graph != null ? AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(graph)) : "")}|{id}";
 }

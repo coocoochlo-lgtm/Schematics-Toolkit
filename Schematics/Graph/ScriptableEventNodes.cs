@@ -6,13 +6,17 @@ using UnityEngine;
 
 /// <summary>
 /// Sends its Signal to the object running this graph, where Schematic Behaviors and other graphs hear it.
-/// Has an input pin per Signal parameter (added by the editor when the Signal is dropped in).
+/// Has an input pin per Signal parameter (added by the editor when the Signal is dropped in), and a "To" pin to send it
+/// to another object instead.
 /// </summary>
-[SchematicDoc(@"{""name"": ""Send a Signal"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""ScriptableEvents/Events"", ""description"": ""Sends its Signal to the object running this graph, where Schematic Behaviors and other graphs hear it. Has an input pin per Signal parameter (added by the editor when the Signal is dropped in)."", ""use_for"": [""tell a Behavior to do something (its Input Signals)"", ""notify other graphs"", ""pass values like damage amounts or targets""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next. Made by dragging a Signal from the IO Dock. An action: wire flow into it; its inputs are the Signal's parameters.""}")]
+[SchematicDoc(@"{""name"": ""Send a Signal"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""ScriptableEvents/Events"", ""description"": ""Sends its Signal to the object running this graph, where Schematic Behaviors and other graphs hear it. Has an input pin per Signal parameter (added by the editor when the Signal is dropped in)."", ""use_for"": [""tell a Behavior to do something (its Input Signals)"", ""notify other graphs"", ""pass values like damage amounts or targets"", ""send a Signal to another object (wire it into To)""], ""notes"": ""Wire an object into To to send it there instead of to this object. Runs when flow reaches it: connect an arrow into it, and from it to what runs next. Made by dragging a Signal from the IO Dock. An action: wire flow into it; its inputs are the Signal's parameters.""}")]
 [Serializable]
 [Node(Name = "Send a Signal", Path = "ScriptableEvents/Events"), Tags("Object")]
 public class SendSignalNode : SchematicActionNode
 {
+    /// <summary>The optional input naming the object to send to (empty: the object running this graph).</summary>
+    public const string ToPort = "To";
+
     [Editable]
     public SignalData Signal;
 
@@ -23,9 +27,19 @@ public class SendSignalNode : SchematicActionNode
         if (Signal == null)
             return;
 
-        // Sent to the object running this graph, by the same UID Schematic Behaviors and ExecutionContext.Pick use.
+        // "To" wired: that object (any Schematic Object, or one of its children). A wired but empty target sends nothing,
+        // rather than reaching everyone.
+        var target = instance;
+        if (GetPort(ToPort) != null && HasInputConnections(ToPort))
+        {
+            target = GetInputValue<GameObject>(ToPort, null);
+            if (target == null)
+                return;
+        }
+
+        // Sent to the object by the same UID Schematic Behaviors and ExecutionContext.Pick use.
         // With no spawned object (e.g. a Singleton Graph) the UID is 0, which reaches every instance.
-        int uid = instance != null && SignalData.UIDResolver != null ? SignalData.UIDResolver(instance) : 0;
+        int uid = target != null && SignalData.UIDResolver != null ? SignalData.UIDResolver(target) : 0;
 
         var parameters = Signal.Parameters.Contents;
         if (parameters.Count == 0)

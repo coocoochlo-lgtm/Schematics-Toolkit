@@ -113,6 +113,7 @@ public static class ExecutionContext
         _objects.Add(schematicObject.UID, schematicObject);
 
         var instances = schematicObject.GetOrCreateBehaviorInstances();
+        schematicObject.ResetGraphVariables();
 
         // Before any Behavior runs, so Signals sent from OnCreate/OnStart already reach the object's graph.
         schematicObject.SubscribeGraphSignals();

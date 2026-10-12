@@ -32,6 +32,44 @@ namespace Remedy.Schematics
         [Tooltip("Sync this graph over the network: its events run on the object's authority, and nodes set to Everyone run on every peer.")]
         public bool Networked;
         
+        [SerializeField, HideInInspector]
+        private List<GraphVariable> _variables = new();
+        [SerializeField, HideInInspector]
+        private List<GraphSignal> _signals = new();
+
+        /// <summary>This graph's own Variables: every object running it has its own values.</summary>
+        public List<GraphVariable> Variables => _variables ??= new();
+
+        /// <summary>This graph's own Signals, routed per object like Behavior Signals.</summary>
+        public List<GraphSignal> Signals => _signals ??= new();
+
+        /// <summary>A graph Variable by id (or, failing that, by name).</summary>
+        public GraphVariable FindVariable(string idOrName)
+        {
+            if (string.IsNullOrEmpty(idOrName)) return null;
+            foreach (var variable in Variables)
+                if (variable != null && variable.Id == idOrName) return variable;
+            foreach (var variable in Variables)
+                if (variable != null && variable.Name == idOrName) return variable;
+            return null;
+        }
+
+        public int IndexOfVariable(string id)
+        {
+            for (int i = 0; i < Variables.Count; i++)
+                if (Variables[i] != null && Variables[i].Id == id) return i;
+            return -1;
+        }
+
+        /// <summary>The graph Signal whose asset this is, or null.</summary>
+        public GraphSignal FindSignal(SignalData asset)
+        {
+            if (asset == null) return null;
+            foreach (var signal in Signals)
+                if (signal != null && signal.Asset == asset) return signal;
+            return null;
+        }
+
         [HideInInspector]
         public bool Returned;
         public object ReturnValue;

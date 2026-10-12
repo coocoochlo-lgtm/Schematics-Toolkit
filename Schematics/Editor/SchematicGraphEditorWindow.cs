@@ -487,17 +487,23 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
         }
     }
 
+    // Graph tab rows by DockItem key, so a clicked node can reveal its row.
+    private readonly Dictionary<string, VisualElement> _graphRows = new();
+
     /// <summary>
-    /// The Graph tab: every node in this graph that sends, hears, reads or writes something, grouped by what it uses.
-    /// Click one to jump to it.
+    /// The Graph tab: the graph's own Variables and Signals (and other graphs' you've pinned), then every node in this
+    /// graph that sends, hears, reads or writes something, grouped by what it uses. Click a node there to jump to it.
     /// </summary>
     private void RedrawGraphIO()
     {
         _sidebarTabs["Graph"].Clear();
+        _graphRows.Clear();
         if (SchematicGraph == null)
             return;
 
         var content = new VisualElement();
+        content.Add(new GraphScopeDock(this, SchematicGraph, _graphRows));
+
         var groups = new SortedDictionary<string, List<Node>>();
         foreach (var node in SchematicGraph.Nodes)
         {
@@ -508,8 +514,11 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
             list.Add(node);
         }
 
+        var used = new Foldout { text = "Used in This Graph", value = SessionState.GetBool("SchematicGraphScope.Used", false) };
+        used.AddToClassList("dock-object");
+        used.RegisterValueChangedCallback(evt => { if (evt.target == used) SessionState.SetBool("SchematicGraphScope.Used", evt.newValue); });
         if (groups.Count == 0)
-            content.Add(new Label("No Signal, Variable or Behavior nodes yet. Drag them in from the Prefab tab."));
+            used.Add(new Label("No Signal, Variable or Behavior nodes yet. Drag them in from the Prefab tab or above."));
 
         foreach (var group in groups)
         {
@@ -521,10 +530,24 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
                 button.style.unityTextAlign = TextAnchor.MiddleLeft;
                 foldout.Add(button);
             }
-            content.Add(foldout);
+            used.Add(foldout);
         }
+        content.Add(used);
 
         _sidebarTabs["Graph"].Set(content);
+    }
+
+    /// <summary>A graph's Variables or Signals changed (here or in the Inspector): redraw, and re-pin nodes if needed.</summary>
+    internal void OnGraphScopeChanged(SchematicGraph graph, bool structural)
+    {
+        if (SchematicGraph == null || Canvas == null)
+            return;
+        bool mine = graph == SchematicGraph || SchematicGraph.Nodes.Any(n => n is GraphVariableNodeBase v && v.Owner == graph);
+        if (!mine)
+            return;
+        if (structural)
+            SyncNodePorts();
+        RedrawGraphIO();
     }
 
     private static string DescribeUse(Node node) => node switch
@@ -535,6 +558,7 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
         SetBehaviorVariableNode set => "Variable: " + set.Variable + " (" + set.Target.Describe() + ")",
         BehaviorReferenceNode behavior => "Behavior: " + behavior.Target.Describe(),
         PrefabObjectNode obj => "Object: " + (string.IsNullOrEmpty(obj.Path) ? "(root)" : obj.Path),
+        GraphVariableNodeBase variable => "Graph Variable: " + (variable.Definition?.Name ?? "(missing)") + (variable.Owner != null ? " (" + variable.Owner.name + ")" : ""),
         _ => null,
     };
 
@@ -549,6 +573,7 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
         SetBehaviorVariableNode set => DockItem.VariableKey(set.Target.Type, set.Target.Path, set.Variable),
         BehaviorReferenceNode behavior => DockItem.BehaviorKey(behavior.Target.Type, behavior.Target.Path),
         PrefabObjectNode obj => DockItem.ObjectKey(obj.Path),
+        GraphVariableNodeBase variable => DockItem.GraphVariableKey(variable.DeclaringGraph, variable.VariableId),
         _ => null,
     };
 
@@ -615,10 +640,20 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
             // The node's settings in the Inspector.
             NodeInspectorTarget.Show(SchematicGraph, view.Target);
 
-            if (_dock == null)
-                return;
             string key = KeyOf(view.Target);
             if (key == null)
+                return;
+            if (_graphRows.TryGetValue(key, out var row))
+            {
+                _sidebarTabs.SelectTab("Graph");
+                row.schedule.Execute(() =>
+                {
+                    row.GetFirstAncestorOfType<ScrollView>()?.ScrollTo(row);
+                    PrefabHierarchy.Flash(row);
+                }).StartingIn(30);
+                return;
+            }
+            if (_dock == null)
                 return;
             _sidebarTabs.SelectTab("Prefab");
             _dock.Reveal(key);
@@ -875,6 +910,7 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
             {
                 case DockItem.ItemKind.Signal: DropSignal(item.Signal, item.Direction, dropPosition); break;
                 case DockItem.ItemKind.Variable: ShowVariableDropMenu(item, dropPosition); break;
+                case DockItem.ItemKind.GraphVariable: ShowGraphVariableDropMenu(item, dropPosition); break;
                 case DockItem.ItemKind.Behavior: CreateBehaviorNode(item, dropPosition); break;
                 case DockItem.ItemKind.GameObject: CreatePrefabObjectNode(item, dropPosition); break;
             }
@@ -942,6 +978,26 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
         menu.AddItem(new GUIContent($"Query ► Get {item.Name}"), false, () => CreateVariableNode(item, position, set: false));
         menu.AddItem(new GUIContent($"Action ► Set {item.Name}"), false, () => CreateVariableNode(item, position, set: true));
         menu.ShowAsContext();
+    }
+
+    private void ShowGraphVariableDropMenu(DockItem item, Vector2 position)
+    {
+        GenericMenu menu = new GenericMenu();
+        menu.AddItem(new GUIContent($"Query ► Get {item.Name}"), false, () => CreateGraphVariableNode(item, position, set: false));
+        menu.AddItem(new GUIContent($"Action ► Set {item.Name}"), false, () => CreateGraphVariableNode(item, position, set: true));
+        menu.ShowAsContext();
+    }
+
+    private Node CreateGraphVariableNode(DockItem item, Vector2 position, bool set)
+    {
+        GraphVariableNodeBase node = set ? NewNode<SetGraphVariableNode>() : NewNode<GetGraphVariableNode>();
+        node.Owner = item.Graph == SchematicGraph ? null : item.Graph;
+        node.VariableId = item.VariableId;
+        node.Name = (set ? "Set " : "Get ") + ObjectNames.NicifyVariableName(item.Name);
+        node.SyncPorts();
+        Canvas.AddNodeFromSearch(node, this.position.position + position, null);
+        RedrawGraphIO();
+        return node;
     }
 
     private T NewNode<T>() where T : Node => (T)NodeReflection.GetNodeTypes()[typeof(T).Name].CreateInstance();
@@ -1042,6 +1098,9 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
                 case BehaviorNodeBase variableNode:
                     changed |= SyncBehaviorNodePorts(variableNode);
                     break;
+                case GraphVariableNodeBase graphVariable:
+                    changed |= graphVariable.SyncPorts();
+                    break;
             }
         }
 
@@ -1057,6 +1116,19 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
         var parameters = SignalParameters(signal);
         var wanted = new HashSet<string>();
         bool changed = false;
+
+        // Send nodes can be aimed at another object.
+        if (node is SendSignalNode)
+        {
+            wanted.Add(SendSignalNode.ToPort);
+            var to = node.GetPort(SendSignalNode.ToPort);
+            if (to == null || to.Type != typeof(GameObject) || to.Direction != PortDirection.Input)
+            {
+                if (to != null) node.RemovePort(to);
+                node.AddPort(new Port { Type = typeof(GameObject), Name = SendSignalNode.ToPort, Capacity = PortCapacity.Single, Direction = PortDirection.Input });
+                changed = true;
+            }
+        }
 
         foreach (var (name, type) in parameters)
         {
@@ -1120,6 +1192,14 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
                         result.Add((parameter.Name, parameter.Type.Type ?? typeof(object)));
                     return result;
                 }
+
+        if (AssetDatabase.LoadMainAssetAtPath(AssetDatabase.GetAssetPath(signal)) is SchematicGraph owner && owner.FindSignal(signal) is { } graphSignal)
+        {
+            foreach (var parameter in graphSignal.Parameters)
+                if (parameter != null && !string.IsNullOrEmpty(parameter.Name))
+                    result.Add((parameter.Name, (ReferenceEquals(parameter.Type, null) ? null : parameter.Type.Type) ?? typeof(object)));
+            return result;
+        }
 
         foreach (var parameter in signal.Parameters.Contents)
         {

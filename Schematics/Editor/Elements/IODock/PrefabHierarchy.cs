@@ -20,10 +20,9 @@ public class PrefabHierarchy : VisualElement
     // Every row by its DockItem key, so the graph can reveal the row a node uses.
     private readonly Dictionary<string, VisualElement> _rows = new();
 
-    private static Texture2D _inputIcon, _outputIcon, _variableIcon;
-    private static Texture2D InputIcon => _inputIcon ??= Resources.Load<Texture2D>("Icons/Input");
-    private static Texture2D OutputIcon => _outputIcon ??= Resources.Load<Texture2D>("Icons/Output");
-    internal static Texture2D VariableIcon => _variableIcon ??= MakeDot(new Color(0.55f, 0.85f, 1f));
+    private static Texture2D InputIcon => DockRows.InputIcon;
+    private static Texture2D OutputIcon => DockRows.OutputIcon;
+    internal static Texture2D VariableIcon => DockRows.VariableIcon;
 
     public PrefabHierarchy(GameObject prefab, SchematicGraphEditorWindow window)
     {
@@ -260,67 +259,11 @@ public class PrefabHierarchy : VisualElement
 
     private VisualElement CreateRow(DockItem item, Texture icon, string label, string detail, string tooltip)
     {
-        var row = new VisualElement { userData = item }; // so Sprocket can tell what a row is
-        row.AddToClassList("dock-row");
-        row.AddToClassList("dock-row-" + item.Kind.ToString().ToLowerInvariant());
-        // The IO Dock stylesheet's Signal container look, shared by Variables (with their own tint).
-        row.AddToClassList("event-container");
-        if (item.Kind == DockItem.ItemKind.Signal)
-            row.AddToClassList(item.Direction == SignalDirection.Output ? "event-container-output" : "event-container-input");
-        else
-            row.AddToClassList("event-container-variable");
-        row.style.flexDirection = FlexDirection.Row;
-        row.style.alignItems = Align.Center;
-
-        // The handle: icon, name and type. Press and move to drag; click to find the item's nodes.
-        var handle = new VisualElement { tooltip = tooltip };
-        handle.AddToClassList("dock-row-handle");
-        handle.style.flexDirection = FlexDirection.Row;
-        handle.style.alignItems = Align.Center;
-        handle.style.flexShrink = 0;
-        row.Add(handle);
-
-        if (item.Kind == DockItem.ItemKind.Variable)
+        var row = DockRows.Build(item, icon, label, detail, tooltip, () =>
         {
-            var chip = new VisualElement();
-            chip.AddToClassList("dock-type-chip");
-            chip.style.width = 4;
-            chip.style.height = 14;
-            chip.style.marginRight = 4;
-            chip.style.backgroundColor = ColorOf(item.ValueType);
-            handle.Add(chip);
-        }
-
-        var image = new Image { image = icon };
-        image.style.width = 16;
-        image.style.height = 16;
-        image.style.marginRight = 4;
-        handle.Add(image);
-
-        var name = new Label(label);
-        name.AddToClassList("dock-row-name");
-        name.AddToClassList("event-name");
-        handle.Add(name);
-
-        var info = new Label(detail);
-        info.AddToClassList("dock-row-detail");
-        info.style.color = new Color(0.65f, 0.65f, 0.65f);
-        if (item.Kind == DockItem.ItemKind.Signal)
-        {
-            info.style.flexGrow = 1;
-            info.style.unityTextAlign = TextAnchor.MiddleRight;
-            row.Add(info);
-        }
-        else
-            handle.Add(info);
-
-        if (item.Signal == null && item.Kind == DockItem.ItemKind.Signal)
-        {
-            row.SetEnabled(false);
-            row.tooltip = "This Signal has no asset yet. Use Tools/Remedy/Schematics/Refresh Behavior Metadata.";
-        }
-
-        MakeDraggable(item.Kind == DockItem.ItemKind.Signal ? row : handle, item, () => _window.FocusNodes(item));
+            _window.FocusNodes(item);
+            ScopeItemInspector.Show(item);
+        });
         _rows[item.Key] = row;
         return row;
     }
@@ -506,41 +449,7 @@ public class PrefabHierarchy : VisualElement
 
     #region Helpers
 
-    // A press that moves starts a drag; one that doesn't is a click.
-    private static void MakeDraggable(VisualElement element, DockItem item, Action click)
-    {
-        element.userData ??= item;
-        Vector2 start = default;
-        bool pressed = false;
-
-        element.RegisterCallback<MouseDownEvent>(evt =>
-        {
-            if (evt.button != 0) return;
-            pressed = true;
-            start = evt.mousePosition;
-            evt.StopPropagation();
-        });
-        element.RegisterCallback<MouseMoveEvent>(evt =>
-        {
-            if (!pressed || (evt.mousePosition - start).sqrMagnitude < 16f) return;
-            pressed = false;
-            DragAndDrop.PrepareStartDrag();
-            DragAndDrop.SetGenericData(DockItem.DragKey, item);
-            DragAndDrop.objectReferences = item.Signal != null ? new UnityEngine.Object[] { item.Signal }
-                                         : item.GameObject != null ? new UnityEngine.Object[] { item.GameObject }
-                                         : Array.Empty<UnityEngine.Object>();
-            DragAndDrop.StartDrag(item.DisplayName);
-            evt.StopPropagation();
-        });
-        element.RegisterCallback<MouseUpEvent>(evt =>
-        {
-            if (!pressed) return;
-            pressed = false;
-            click?.Invoke();
-            evt.StopPropagation();
-        });
-        element.RegisterCallback<MouseLeaveEvent>(_ => pressed = false);
-    }
+    private static void MakeDraggable(VisualElement element, DockItem item, Action click) => DockRows.MakeDraggable(element, item, click);
 
     private static Image CreateHandle(Texture icon, string tooltip)
     {
@@ -552,32 +461,11 @@ public class PrefabHierarchy : VisualElement
         return handle;
     }
 
-    private static Label SectionLabel(string text)
-    {
-        var label = new Label(text);
-        label.AddToClassList("dock-section-label");
-        label.style.unityFontStyleAndWeight = FontStyle.Bold;
-        label.style.marginTop = 4;
-        label.style.color = new Color(0.75f, 0.75f, 0.75f);
-        return label;
-    }
+    private static Label SectionLabel(string text) => DockRows.SectionLabel(text);
 
-    internal static Color ColorOf(Type type)
-    {
-        if (type != null && SchematicGraphEditorWindow.ColorLookupValueType.TryGetValue(type, out var color))
-            return color;
-        if (type != null && type.IsEnum) return new Color(0.4f, 0.8f, 0.7f);
-        if (type != null && typeof(UnityEngine.Object).IsAssignableFrom(type)) return new Color(0.95f, 0.85f, 0.4f);
-        return Color.gray;
-    }
+    internal static Color ColorOf(Type type) => DockRows.ColorOf(type);
 
-    private static string TypeName(Type type)
-    {
-        if (type == null) return "?";
-        if (type.IsArray) return TypeName(type.GetElementType()) + "[]";
-        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>)) return "List<" + TypeName(type.GetGenericArguments()[0]) + ">";
-        return type.Name switch { "Single" => "float", "Int32" => "int", "Boolean" => "bool", "String" => "string", _ => type.Name };
-    }
+    private static string TypeName(Type type) => DockRows.TypeName(type);
 
     private string PathOf(Transform transform) => AnimationUtility.CalculateTransformPath(transform, _prefab.transform);
 
@@ -594,25 +482,6 @@ public class PrefabHierarchy : VisualElement
                 return;
             }
         }
-    }
-
-    private static Texture2D MakeDot(Color color)
-    {
-        const int size = 16;
-        var texture = new Texture2D(size, size, TextureFormat.RGBA32, false) { hideFlags = HideFlags.HideAndDontSave };
-        float radius = size * 0.5f - 1.5f;
-        for (int y = 0; y < size; y++)
-            for (int x = 0; x < size; x++)
-            {
-                float d = Vector2.Distance(new Vector2(x + 0.5f, y + 0.5f), new Vector2(size * 0.5f, size * 0.5f));
-                float a = Mathf.Clamp01(radius - d + 0.5f);
-                // A ring with a dimmer centre reads as "a value" next to the Signal arrows.
-                var c = d < radius - 3f ? color * new Color(1, 1, 1, 0.45f) : color;
-                c.a *= a;
-                texture.SetPixel(x, y, c);
-            }
-        texture.Apply();
-        return texture;
     }
 
     #endregion
