@@ -106,6 +106,13 @@ namespace Remedy.Schematics.Assistant
             _ => 1_894_000_000L,
         };
 
+        /// <summary>Push-to-talk's key wins over any other shortcut on it (they're unbound, and can be put back).</summary>
+        public static bool PushToTalkWins
+        {
+            get => EditorPrefs.GetBool(Prefix + "PushToTalkWins", true);
+            set => EditorPrefs.SetBool(Prefix + "PushToTalkWins", value);
+        }
+
         public static bool Speak
         {
             get => EditorPrefs.GetBool(Prefix + "Speak", true);
@@ -218,6 +225,21 @@ namespace Remedy.Schematics.Assistant
                 EditorGUILayout.Space();
                 EditorGUILayout.LabelField("Voice", EditorStyles.boldLabel);
                 Speak = EditorGUILayout.Toggle("Speak Replies", Speak);
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    EditorGUILayout.LabelField(new GUIContent("Push To Talk", "Hold it in any editor window to talk to Sprocket. Change it in Edit > Shortcuts (Schematics > Assistant)."),
+                        new GUIContent(AssistantShortcuts.KeyName));
+                    if (GUILayout.Button("Change…", GUILayout.Width(70)))
+                        EditorApplication.ExecuteMenuItem(Application.platform == RuntimePlatform.OSXEditor ? "Unity/Shortcuts..." : "Edit/Shortcuts...");
+                }
+                EditorGUI.BeginChangeCheck();
+                bool wins = EditorGUILayout.Toggle(new GUIContent("Push To Talk Key Wins",
+                    "Unbind any other shortcut on the push-to-talk key (like the View tool's Q), so it works everywhere. Off: give them back."), PushToTalkWins);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    PushToTalkWins = wins;
+                    if (wins) AssistantShortcuts.Claim(); else AssistantShortcuts.Restore();
+                }
                 using (new EditorGUI.DisabledScope(!Speak))
                 {
                     Voice = EditorGUILayout.Popup("Voice", Mathf.Clamp(Voice, 0, DefaultVoices.Length - 1), DefaultVoices);

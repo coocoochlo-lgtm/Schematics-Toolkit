@@ -134,9 +134,25 @@ namespace Remedy.Schematics.Assistant
                 if (!await AssistantServer.EnsureRunningAsync())
                     return;
                 byte[] wav = await AssistantServer.SpeakAsync(text, AssistantSettings.Voice, AssistantSettings.SpeechSpeed, cancellation);
-                var clip = wav != null ? DecodeWav(wav) : null;
-                if (clip == null)
+                if (wav == null || wav.Length <= 44)
+                {
+                    Debug.LogWarning("[Assistant] Couldn't speak: the server sent no audio.");
                     return;
+                }
+                float seconds = WavSeconds(wav);
+                // On Windows, straight to the system's sound player: it doesn't depend on Unity's audio (muted
+                // editor audio, an internal preview API that changes between versions).
+                if (Application.platform == RuntimePlatform.WindowsEditor && PlayWithWindows(wav))
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(seconds), cancellation);
+                    return;
+                }
+                var clip = DecodeWav(wav);
+                if (clip == null)
+                {
+                    Debug.LogWarning("[Assistant] Couldn't speak: the audio from the server isn't 16-bit WAV.");
+                    return;
+                }
                 Play(clip);
                 await Task.Delay(TimeSpan.FromSeconds(clip.length), cancellation);
             }
@@ -149,6 +165,7 @@ namespace Remedy.Schematics.Assistant
 
         public static void StopSpeaking()
         {
+            StopWindowsSound();
             AudioUtilCall("StopAllPreviewClips");
             if (_playing != null)
                 UnityEngine.Object.DestroyImmediate(_playing);
@@ -163,6 +180,52 @@ namespace Remedy.Schematics.Assistant
             if (!AudioUtilCall("PlayPreviewClip", clip, 0, false) && !AudioUtilCall("PlayPreviewClip", clip))
                 Debug.LogWarning("[Assistant] Couldn't play audio in the editor on this Unity version.");
         }
+
+        #region Windows sound
+
+        [System.Runtime.InteropServices.DllImport("winmm.dll", SetLastError = true)]
+        private static extern bool PlaySound(IntPtr sound, IntPtr module, uint flags);
+
+        private const uint SndAsync = 0x0001, SndNoDefault = 0x0002, SndMemory = 0x0004;
+
+        // The WAV must stay put in memory while Windows plays it.
+        private static System.Runtime.InteropServices.GCHandle _windowsSound;
+
+        private static bool PlayWithWindows(byte[] wav)
+        {
+            try
+            {
+                StopSpeaking();
+                _windowsSound = System.Runtime.InteropServices.GCHandle.Alloc(wav, System.Runtime.InteropServices.GCHandleType.Pinned);
+                if (PlaySound(_windowsSound.AddrOfPinnedObject(), IntPtr.Zero, SndAsync | SndNoDefault | SndMemory))
+                    return true;
+                StopWindowsSound();
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning("[Assistant] Windows couldn't play the voice, trying Unity's audio: " + exception.Message);
+                StopWindowsSound();
+            }
+            return false;
+        }
+
+        private static void StopWindowsSound()
+        {
+            if (!_windowsSound.IsAllocated)
+                return;
+            try { PlaySound(IntPtr.Zero, IntPtr.Zero, 0); }
+            catch { }
+            _windowsSound.Free();
+        }
+
+        private static float WavSeconds(byte[] wav)
+        {
+            int rate = BitConverter.ToInt32(wav, 24);
+            int bytesPerSecond = BitConverter.ToInt32(wav, 28);
+            return bytesPerSecond > 0 ? (wav.Length - 44) / (float)bytesPerSecond : rate > 0 ? (wav.Length - 44) / 2f / rate : 0f;
+        }
+
+        #endregion
 
         private static bool AudioUtilCall(string method, params object[] args)
         {
@@ -179,6 +242,11 @@ namespace Remedy.Schematics.Assistant
                     return true;
                 }
                 catch (ArgumentException) { }
+                catch (TargetInvocationException exception)
+                {
+                    Debug.LogWarning($"[Assistant] Unity's audio preview failed: {exception.InnerException?.Message ?? exception.Message}");
+                    return false;
+                }
             }
             return false;
         }

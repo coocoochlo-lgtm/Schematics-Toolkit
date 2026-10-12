@@ -39,6 +39,13 @@ namespace Remedy.Schematics.Assistant
         private readonly SprocketMarker _marker = new();
         private Func<Rect?> _markerTrack;    // follows the explained thing when the view moves
         private int _bubbleAway;
+        // Moving the view (panning, orbiting, flying, zooming): while it goes on and for a moment after, he stays put,
+        // keeps his bubble, and doesn't count it as being out of the way.
+        private bool _navigating;
+        private float _navigatedAt = -10f;
+        private bool Navigating => _navigating || _time - _navigatedAt < 0.75f;
+        private float _offscreenSince = -1f;
+        private Rect? _targetRect;          // what he's explaining, in his window's root space (the bubble keeps off it)
         private bool _returnHome;            // after a task: back to the window's bottom right once the bubble's gone
         private float _idleSince = -1f;             // explaining: the bubble goes on this side (+1 right, -1 left), away from the thing
         private readonly Label _bubbleText;
@@ -307,6 +314,8 @@ namespace Remedy.Schematics.Assistant
                 window.rootVisualElement.RegisterCallback<KeyDownEvent>(OnHostKeyDown, TrickleDown.TrickleDown);
                 window.rootVisualElement.RegisterCallback<KeyUpEvent>(OnHostKeyUp, TrickleDown.TrickleDown);
                 window.rootVisualElement.RegisterCallback<PointerDownEvent>(OnHostPointerDown, TrickleDown.TrickleDown);
+                window.rootVisualElement.RegisterCallback<PointerUpEvent>(OnHostPointerUp, TrickleDown.TrickleDown);
+                window.rootVisualElement.RegisterCallback<WheelEvent>(OnHostWheel, TrickleDown.TrickleDown);
                 if (window is SchematicGraphEditorWindow graph)
                     _lastGraph = graph;
             }
@@ -338,7 +347,10 @@ namespace Remedy.Schematics.Assistant
                 _host.rootVisualElement.UnregisterCallback<KeyDownEvent>(OnHostKeyDown, TrickleDown.TrickleDown);
                 _host.rootVisualElement.UnregisterCallback<KeyUpEvent>(OnHostKeyUp, TrickleDown.TrickleDown);
                 _host.rootVisualElement.UnregisterCallback<PointerDownEvent>(OnHostPointerDown, TrickleDown.TrickleDown);
+                _host.rootVisualElement.UnregisterCallback<PointerUpEvent>(OnHostPointerUp, TrickleDown.TrickleDown);
+                _host.rootVisualElement.UnregisterCallback<WheelEvent>(OnHostWheel, TrickleDown.TrickleDown);
             }
+            _navigating = false;
             RemoveFromHierarchy();
             _host = null;
         }
@@ -432,7 +444,7 @@ namespace Remedy.Schematics.Assistant
         // Done with a task (an explanation, a request) and nothing left to read: blip back to the bottom right.
         private void ReturnHomeWhenDone()
         {
-            bool settled = _returnHome && _mood == Mood.Idle && !(AssistantWork.Current?.Playing ?? false) && !_explaining && !_pressed && _flyTime < 0f && _blipPhase == 0
+            bool settled = _returnHome && !Navigating && _mood == Mood.Idle && !(AssistantWork.Current?.Playing ?? false) && !_explaining && !_pressed && _flyTime < 0f && _blipPhase == 0
                 && _bubble.style.display == DisplayStyle.None && _input.style.display == DisplayStyle.None && !AssistantInstaller.IsInstalling;
             if (!settled)
             {
@@ -451,10 +463,35 @@ namespace Remedy.Schematics.Assistant
         // Every second: if its window went away, got covered by another tab, or got too small, it comes back.
         private void Watch()
         {
-            if (EditorApplication.timeSinceStartup < _nextWatch || _pressed || _blipPhase != 0 || Busy)
+            if (EditorApplication.timeSinceStartup < _nextWatch || _pressed || _blipPhase != 0 || _flyTime >= 0f)
                 return;
-            _nextWatch = EditorApplication.timeSinceStartup + 1.0;
+            _nextWatch = EditorApplication.timeSinceStartup + 0.25;
             var size = HostSize;
+
+            // The window got smaller (or the editor was resized) and he's partly outside it: after a second, back home
+            // with a blip; while busy, just nudged back inside.
+            bool outside = size.x > _width && size.y > _height
+                && (_position.x < -2f || _position.y < -2f || _position.x + _width > size.x + 2f || _position.y + _height > size.y + 2f);
+            if (!outside)
+                _offscreenSince = -1f;
+            else if (_offscreenSince < 0f)
+                _offscreenSince = _time;
+            else if (_time - _offscreenSince >= 1f)
+            {
+                _offscreenSince = -1f;
+                if (Busy || _explaining || _mood == Mood.Listening || _input.style.display == DisplayStyle.Flex)
+                {
+                    _position = Clamp(_position);
+                    Place(force: true);
+                    Remember();
+                }
+                else
+                    Respawn(blip: true);
+                return;
+            }
+
+            if (Busy || Navigating)
+                return;
             if (_host == null || !IsShownTab(_host) || !Allowed(_host) || size.x < _width || size.y < _height)
                 Respawn(blip: true);
         }
@@ -621,16 +658,30 @@ namespace Remedy.Schematics.Assistant
         // A click anywhere but the bubble (or Sprocket) puts the bubble away.
         private void OnHostPointerDown(PointerDownEvent evt)
         {
-            if (_bubble.style.display == DisplayStyle.None || _mood == Mood.Listening)
-                return;
-            // Moving the view (orbiting, panning, Alt-dragging) isn't "clicking away".
+            // Moving the view (middle-button panning, right-button flying, Alt-orbiting, the View tool) isn't
+            // "clicking away", and doesn't send him home.
             if (evt.button != 0 || evt.altKey || (_host is SceneView && Tools.current == Tool.View))
+            {
+                _navigating = true;
+                _navigatedAt = _time;
+                return;
+            }
+            if (_bubble.style.display == DisplayStyle.None || _mood == Mood.Listening)
                 return;
             var target = evt.target as VisualElement;
             if (target != null && (target == _bubble || _bubble.Contains(target) || target == _sprite))
                 return;
             HideBubble();
         }
+
+        private void OnHostPointerUp(PointerUpEvent evt)
+        {
+            if (!_navigating) return;
+            _navigating = false;
+            _navigatedAt = _time;
+        }
+
+        private void OnHostWheel(WheelEvent evt) => _navigatedAt = _time;
 
         // ...and so does clicking into another window.
         private EditorWindow _lastFocused;
@@ -653,33 +704,13 @@ namespace Remedy.Schematics.Assistant
                 evt.StopPropagation();
                 return;
             }
-            // Push-to-talk outside graph windows (graph windows use the Q shortcut). Not in the Scene and Game views,
-            // where Q is a tool key, and not while typing.
-            if (PushToTalkHere(evt) && !_heldQ)
-            {
-                _heldQ = true;
-                BeginListening();
-                evt.StopPropagation();
-            }
+            // Push-to-talk is a shortcut that works in every window (AssistantMenu.PushToTalk).
         }
 
-        private void OnHostKeyUp(KeyUpEvent evt)
-        {
-            if (evt.keyCode != KeyCode.Q || !_heldQ)
-                return;
-            _heldQ = false;
-            EndListening();
-            evt.StopPropagation();
-        }
+        private void OnHostKeyUp(KeyUpEvent evt) { }
 
-        private bool _heldQ;
-
-        private bool PushToTalkHere(KeyDownEvent evt)
-            => evt.keyCode == KeyCode.Q && !evt.ctrlKey && !evt.altKey && !evt.commandKey
-               && !(_host is SchematicGraphEditorWindow) && !(_host is SceneView)
-               && _host.GetType().Name != "GameView"
-               && !(evt.target is TextField) && (evt.target as VisualElement)?.GetFirstAncestorOfType<TextField>() == null
-               && !EditorGUIUtility.editingTextField;
+        /// <summary>Typing into his own question box: the push-to-talk key is just a letter there.</summary>
+        internal bool Typing => _input.style.display == DisplayStyle.Flex;
 
         #endregion
 
@@ -1164,6 +1195,7 @@ namespace Remedy.Schematics.Assistant
             {
                 _marker.Show(rect, target.Exact, size);
                 _markerTrack = target.Track;
+                _targetRect = rect;
             }
             ShowBubble($"<b>{Escape(target.Title)}</b>\n{RichSafe(target.Text)}", 16f);
             try
@@ -1275,6 +1307,9 @@ namespace Remedy.Schematics.Assistant
                 }
             }
 
+            // Looking around (panning, orbiting) holds the bubble up until a moment after.
+            if (_hideBubbleAt > 0f && Navigating && _hideBubbleAt < _time + 1.5f)
+                _hideBubbleAt = _time + 1.5f;
             if (_hideBubbleAt > 0f && _time >= _hideBubbleAt && !Busy)
             {
                 _hideBubbleAt = -1f;
@@ -1317,7 +1352,15 @@ namespace Remedy.Schematics.Assistant
             ReturnHomeWhenDone();
             Place(force: _blipPhase != 0 || _blipShown);
             if (_marker.Shown && _markerTrack != null && _host != null && _markerTrack() is { } tracked)
-                _marker.Retarget(new Rect(SprocketInspect.ScreenToRoot(_host, tracked.position), tracked.size));
+            {
+                var moved = new Rect(SprocketInspect.ScreenToRoot(_host, tracked.position), tracked.size);
+                _marker.Retarget(moved);
+                if (_targetRect != moved)
+                {
+                    _targetRect = moved;
+                    Place(force: true);   // the bubble keeps off it
+                }
+            }
             _marker.Advance(dt, new Rect(_position, new Vector2(_width, _height)));
         }
 
@@ -1354,28 +1397,50 @@ namespace Remedy.Schematics.Assistant
             var size = HostSize;
             float bubbleWidth = float.IsNaN(_bubble.layout.width) ? 220f : _bubble.layout.width;
             float bubbleHeight = float.IsNaN(_bubble.layout.height) ? 40f : _bubble.layout.height;
-            float x, y = Mathf.Max(4f, _position.y + _height * 0.3f - bubbleHeight / 2f);
-            if (_bubbleAway != 0)
+            // Sides to try, best first: beside him (away from what he's explaining, or wherever there's room), then
+            // his other side, then above and below. The first that fits and doesn't cover the thing wins, so when
+            // the view moves the thing under the bubble, the bubble moves out of the way.
+            int first = _bubbleAway != 0 ? _bubbleAway : (size.x > 0 && _position.x + _width + 8 + bubbleWidth > size.x ? -1 : 1);
+            var sides = new[] { first, -first, 2, 3 };
+            Rect? chosen = null;
+            Rect? fallback = null;
+            foreach (int side in sides)
             {
-                // Explaining: on his far side from the thing, so it stays visible; above or below him if that side's full.
-                bool fits = _bubbleAway > 0 ? size.x <= 0 || _position.x + _width + 6 + bubbleWidth <= size.x : _position.x - bubbleWidth - 6 >= 0;
-                if (fits)
-                    x = _bubbleAway > 0 ? _position.x + _width + 6 : _position.x - bubbleWidth - 6;
-                else
-                {
-                    x = Mathf.Clamp(_position.x + _width * 0.5f - bubbleWidth * 0.5f, 4f, Mathf.Max(4f, size.x - bubbleWidth - 4f));
-                    y = _position.y - bubbleHeight - 10f;
-                    if (y < 4f) y = _position.y + _height + 12f;
-                }
+                var rect = BubbleRect(side, bubbleWidth, bubbleHeight, size);
+                bool fits = size.x <= 0 || (rect.x >= 0f && rect.xMax <= size.x && rect.y >= 0f && rect.yMax <= size.y);
+                if (!fits)
+                    continue;
+                fallback ??= rect;
+                if (_targetRect is { } target && Inflate(target, 6f).Overlaps(rect))
+                    continue;
+                chosen = rect;
+                if (side is 1 or -1 && _bubbleAway != 0) _bubbleAway = side;
+                break;
             }
-            else
-            {
-                bool left = size.x > 0 && _position.x + _width + 8 + bubbleWidth > size.x;
-                x = left ? _position.x - bubbleWidth - 6 : _position.x + _width + 6;
-            }
-            if (size.y > 0) y = Mathf.Min(y, Mathf.Max(4f, size.y - bubbleHeight - 4f));
+            var place = chosen ?? fallback ?? BubbleRect(first, bubbleWidth, bubbleHeight, size);
+            float x = place.x, y = place.y;
             _bubble.style.translate = new Translate(Mathf.Round(x), Mathf.Round(y), 0f);
         }
+
+        // Where the bubble goes on a side of him: 1 right, -1 left, 2 above, 3 below (kept on screen where it can be).
+        private Rect BubbleRect(int side, float width, float height, Vector2 size)
+        {
+            float x, y;
+            switch (side)
+            {
+                case 1: x = _position.x + _width + 6f; y = _position.y + _height * 0.3f - height / 2f; break;
+                case -1: x = _position.x - width - 6f; y = _position.y + _height * 0.3f - height / 2f; break;
+                case 2: x = _position.x + _width * 0.5f - width * 0.5f; y = _position.y - height - 10f; break;
+                default: x = _position.x + _width * 0.5f - width * 0.5f; y = _position.y + _height + 12f; break;
+            }
+            if (side is 2 or 3 && size.x > 0)
+                x = Mathf.Clamp(x, 4f, Mathf.Max(4f, size.x - width - 4f));
+            else if (size.y > 0)
+                y = Mathf.Clamp(y, 4f, Mathf.Max(4f, size.y - height - 4f));
+            return new Rect(x, y, width, height);
+        }
+
+        private static Rect Inflate(Rect rect, float by) => new(rect.x - by, rect.y - by, rect.width + by * 2f, rect.height + by * 2f);
 
         private void ShowBubble(string text, float seconds)
         {
@@ -1390,6 +1455,7 @@ namespace Remedy.Schematics.Assistant
             _bubble.style.display = DisplayStyle.None;
             _input.style.display = DisplayStyle.None;
             _marker.Hide();
+            _targetRect = null;
             _bubbleAway = 0;
             if (_explaining)
             {
@@ -1426,15 +1492,30 @@ namespace Remedy.Schematics.Assistant
     {
         private const string Menu = "Tools/Remedy/Schematics/Assistant/";
 
-        [ClutchShortcut("Schematics/Assistant/Push To Talk", typeof(SchematicGraphEditorWindow), KeyCode.Q)]
+        public const string PushToTalkId = "Schematics/Assistant/Push To Talk";
+
+        // Global: works in every editor window. AssistantShortcuts takes its key from any other shortcut using it.
+        [ClutchShortcut(PushToTalkId, KeyCode.Q)]
         private static void PushToTalk(ShortcutArguments args)
         {
-            var window = args.context as SchematicGraphEditorWindow;
-            var overlay = AssistantOverlay.Instance ?? AssistantOverlay.Attach(window);
-            if (overlay == null)
-                return;
-            if (args.stage == ShortcutStage.Begin) overlay.BeginListening();
-            else overlay.EndListening();
+            if (args.stage == ShortcutStage.Begin)
+            {
+                // Typing (a text field anywhere, or his own question box): it's just a letter.
+                if (TypingSomewhere() || (AssistantOverlay.Instance?.Typing ?? false))
+                    return;
+                var overlay = AssistantOverlay.Instance ?? AssistantOverlay.Attach(EditorWindow.focusedWindow);
+                overlay?.BeginListening();
+            }
+            else
+                AssistantOverlay.Instance?.EndListening();
+        }
+
+        private static bool TypingSomewhere()
+        {
+            if (EditorGUIUtility.editingTextField)
+                return true;
+            var focused = EditorWindow.focusedWindow?.rootVisualElement?.focusController?.focusedElement as VisualElement;
+            return focused is TextField || focused?.GetFirstAncestorOfType<TextField>() != null;
         }
 
         /// <summary>Starts the server in the background and shows the assistant in the graph window.</summary>
