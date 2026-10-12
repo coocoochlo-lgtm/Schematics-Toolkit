@@ -6,8 +6,9 @@ using System.Text;
 namespace SchematicsAgent;
 
 /// <summary>
-/// Turns a request plus a snapshot of the editor into something to say and a list of editor commands, in two passes
-/// of the same model: a reader that understands the request and plans, then an actor that writes the commands. The
+/// Answers a request. First it picks a mode from the message alone (see <see cref="Modes"/>): small talk is answered
+/// from the message, questions read only the reference or the editor state they need, and only requests to change
+/// something read everything. Those become something to say and a list of editor commands, in two passes of the same model: a reader that understands the request and plans, then an actor that writes the commands. The
 /// snapshot is condensed to compact text first, so a small model with a small context can follow it, and grammars
 /// keep both passes' output valid JSON.
 /// </summary>
@@ -91,9 +92,26 @@ ws      ::= [ \t\n]*
         if (!_llm.Available)
             return Reply("My language model isn't installed yet. Run setup in the Agent folder to download it.", "[]");
 
-        // 1. Read and plan.
+        // 0. How much to read: only the message, then just the context this kind of request needs.
+        var rule = Modes.ByRule(utterance);
+        var mode = rule ?? Modes.Parse(await _llm.CompleteAsync("Reading", Modes.RouterRules, utterance, Modes.RouterGrammar, 4, cancellation));
+        Console.WriteLine($"[ask] \"{(utterance.Length > 60 ? utterance[..60] + "…" : utterance)}\": {mode.ToString().ToLowerInvariant()} ({(rule != null ? "by its words" : "the model decided")})");
+
         // On a slow CPU every token of prompt costs time, so it gets fewer reference entries.
         int references = Cpu.Slow ? 4 : 10;
+        switch (mode)
+        {
+            case Mode.Chat:
+                return Reply(await Answer("Chatting", ChatRules, utterance, 80, cancellation), "[]");
+            case Mode.Explain:
+                return Reply(await Answer("Looking it up", ExplainRules,
+                    $"{ReferenceFor(utterance, references).TrimStart()}\n\nQuestion: {utterance}", 220, cancellation), "[]");
+            case Mode.Look:
+                return Reply(await Answer("Looking around", LookRules,
+                    $"Editor state:\n{state}{ReferenceFor(utterance + " " + state, Math.Max(2, references / 2))}\n\nQuestion: {utterance}", 220, cancellation), "[]");
+        }
+
+        // 1. Read and plan.
         string readerOutput = await _llm.CompleteAsync("Thinking",
             Persona + "\n" + ReaderRules,
             $"Editor state:\n{state}{ReferenceFor(utterance + " " + state, references)}\n\nRequest: {utterance}",
@@ -120,6 +138,18 @@ ws      ::= [ \t\n]*
 
         return Reply(say, NormalizeCommands(actorOutput));
     }
+
+    // Plain answers (no commands): a short reply in Sprocket's voice.
+    private async Task<string> Answer(string task, string rules, string user, int maxTokens, CancellationToken cancellation)
+    {
+        string reply = await _llm.CompleteAsync(task, ShortPersona + " " + rules, user, null, maxTokens, cancellation);
+        return string.IsNullOrWhiteSpace(reply) ? "Hmm, I'm not sure what to say!" : reply.Trim().Trim('"');
+    }
+
+    private const string ShortPersona = "You are Sprocket, a small, cheerful robot assistant in the Schematics visual scripting editor for Unity.";
+    private const string ChatRules = "Reply in one or two short, friendly sentences. Mention you can explain things or build graphs if it fits.";
+    private const string ExplainRules = "Answer the question in two to four short sentences, using the toolkit reference when it helps. Don't make things up.";
+    private const string LookRules = "Answer the question about what's open in two to four short sentences, using exact names from the editor state.";
 
     private static string Reply(string say, string commandsJson)
         => Json.Object(w => w.String("say", say).Raw("commands", commandsJson));
