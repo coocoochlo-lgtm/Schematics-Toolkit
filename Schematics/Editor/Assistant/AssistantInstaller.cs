@@ -90,6 +90,13 @@ namespace Remedy.Schematics.Assistant
 
             File.WriteAllText(Path.Combine(agent, "install-status.txt"), "start|Getting ready");
             string backend = AssistantSettings.Backend;
+            // The CUDA build is several GB and only runs on NVIDIA GPUs: without one, build for the CPU.
+            if (backend == "Cuda12" && !SystemInfo.graphicsDeviceVendor.ToUpperInvariant().Contains("NVIDIA"))
+            {
+                Debug.LogWarning($"[Assistant] Model Backend is Cuda12, but this computer's GPU is {SystemInfo.graphicsDeviceName} (not NVIDIA), "
+                    + "so I'm building for the CPU instead. Set Model Backend to Cpu in Preferences > Schematics Assistant to stop this message.");
+                backend = "Cpu";
+            }
             string root = AssistantServer.InstallRoot;
             try { Directory.CreateDirectory(root); }
             catch (Exception exception)

@@ -15,11 +15,11 @@ INSTALL="${2:-$AGENT}"
 LLM="${3:-qwen2.5-1.5b-instruct-q4_k_m.gguf}"
 mkdir -p "$INSTALL"
 INSTALL="$(cd "$INSTALL" && pwd)"
-if [ "$INSTALL" != "$AGENT" ]; then
-  # The build's packages and downloads' temporary files, off the system drive too.
-  export NUGET_PACKAGES="$INSTALL/nuget" TMPDIR="$INSTALL/tmp"
-  mkdir -p "$TMPDIR"
-fi
+# Everything the build downloads goes here too, never to the home folder: NuGet's packages, its download cache and
+# plugin cache, .NET's first-run files, and temporary files.
+export NUGET_PACKAGES="$INSTALL/nuget/packages" NUGET_HTTP_CACHE_PATH="$INSTALL/nuget/http-cache" \
+       NUGET_PLUGINS_CACHE_PATH="$INSTALL/nuget/plugins-cache" DOTNET_CLI_HOME="$INSTALL/nuget/cli-home" TMPDIR="$INSTALL/tmp"
+mkdir -p "$TMPDIR" "$DOTNET_CLI_HOME"
 DOTNET_DIR="$INSTALL/.dotnet"
 MODELS="$INSTALL/models"
 STATUS="$AGENT/install-status.txt"

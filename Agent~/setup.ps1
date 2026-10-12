@@ -17,12 +17,14 @@ function Status($step, $message) { Set-Content -Path (Join-Path $Agent "install-
 if ($InstallDir -eq "") { $InstallDir = $Agent }
 New-Item -ItemType Directory -Force $InstallDir | Out-Null
 $InstallDir = (Resolve-Path $InstallDir).Path
-if ($InstallDir -ne $Agent) {
-    # The build's packages (LLamaSharp's native libraries are large) and downloads' temporary files, off the system drive.
-    $env:NUGET_PACKAGES = Join-Path $InstallDir "nuget"
-    $env:TEMP = Join-Path $InstallDir "tmp"; $env:TMP = $env:TEMP
-    New-Item -ItemType Directory -Force $env:TEMP | Out-Null
-}
+# Everything the build downloads goes here too, never to the user profile on C: (it may be full): NuGet's packages,
+# its download cache (v3-cache) and plugin cache, .NET's first-run files, and temporary files.
+$env:NUGET_PACKAGES = Join-Path $InstallDir "nuget\packages"
+$env:NUGET_HTTP_CACHE_PATH = Join-Path $InstallDir "nuget\http-cache"
+$env:NUGET_PLUGINS_CACHE_PATH = Join-Path $InstallDir "nuget\plugins-cache"
+$env:DOTNET_CLI_HOME = Join-Path $InstallDir "nuget\cli-home"
+$env:TEMP = Join-Path $InstallDir "tmp"; $env:TMP = $env:TEMP
+New-Item -ItemType Directory -Force $env:TEMP, $env:DOTNET_CLI_HOME | Out-Null
 $DotnetDir = Join-Path $InstallDir ".dotnet"
 $Models = Join-Path $InstallDir "models"
 $Bin = Join-Path $InstallDir "bin"
