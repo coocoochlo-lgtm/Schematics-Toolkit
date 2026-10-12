@@ -14,3 +14,4 @@ setup.log
 reference/
 build.log
 server.pid
+server.log

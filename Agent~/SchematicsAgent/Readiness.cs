@@ -49,12 +49,25 @@ public sealed class Readiness
 
     private double _stepStarted;
 
-    private void Load(int step, string what, float weight, Action load)
+    // What loaded, kept here: a singleton whose constructor threw would be built again (and fail again, slowly) every
+    // time something asked the container for it.
+    private readonly Dictionary<Type, object> _loaded = new();
+
+    /// <summary>A part once loading is done, or null if it failed (or hasn't loaded yet).</summary>
+    public T? Get<T>() where T : class
+    {
+        lock (_loaded)
+            return _loaded.TryGetValue(typeof(T), out var part) ? (T)part : null;
+    }
+
+    private void Load<T>(int step, string what, float weight, IServiceProvider services) where T : class
     {
         Begin(step, what, weight);
         try
         {
-            load();
+            var part = services.GetRequiredService<T>();
+            lock (_loaded)
+                _loaded[typeof(T)] = part;
             Finished();
         }
         catch (Exception exception)
@@ -89,11 +102,11 @@ public sealed class Readiness
         try
         {
             // One failing (speech on an unusual CPU, say) doesn't stop the others: Sprocket can still chat without it.
-            Load(1, "the API reference", 0.02f, () => services.GetRequiredService<ReferenceStore>());
+            Load<ReferenceStore>(1, "the API reference", 0.02f, services);
             Llm.LoadProgress = new StepProgress(this);
-            Load(2, "the language model", 0.70f, () => services.GetRequiredService<Llm>());
-            Load(3, "speech recognition", 0.10f, () => services.GetRequiredService<SpeechToText>());
-            Load(4, "the voice", 0.18f, () => services.GetRequiredService<TextToSpeech>());
+            Load<Llm>(2, "the language model", 0.70f, services);
+            Load<SpeechToText>(3, "speech recognition", 0.10f, services);
+            Load<TextToSpeech>(4, "the voice", 0.18f, services);
             _done = 1f; _weight = 0f;
             Loading = null;
             Console.WriteLine($"[server] Ready ({Elapsed:0.0} s)");

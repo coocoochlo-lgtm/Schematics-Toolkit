@@ -31,9 +31,9 @@ app.MapGet("/health", (Readiness readiness, IServiceProvider services) =>
         return Results.Text(Json.Object(w => w.Bool("ok", true).Bool("ready", false).String("loading", readiness.Loading ?? "")
             .Number("progress", readiness.Progress).Number("step", readiness.Step).Number("steps", Readiness.Steps)
             .Number("elapsed", readiness.Elapsed)), "application/json");
-    var llm = Get<Llm>(services);
-    var stt = Get<SpeechToText>(services);
-    var tts = Get<TextToSpeech>(services);
+    var llm = readiness.Get<Llm>();
+    var stt = readiness.Get<SpeechToText>();
+    var tts = readiness.Get<TextToSpeech>();
     return Results.Text(Json.Object(w => w
         .Bool("ok", true).Bool("ready", true)
         .String("error", readiness.Failure ?? "")
@@ -41,12 +41,6 @@ app.MapGet("/health", (Readiness readiness, IServiceProvider services) =>
         .String("model", llm?.ModelName ?? "")), "application/json");
 });
 
-// A part that failed to load throws each time it's asked for; /health must still answer (or Unity waits forever).
-static T? Get<T>(IServiceProvider services) where T : class
-{
-    try { return services.GetRequiredService<T>(); }
-    catch { return null; }
-}
 
 static IResult Unavailable(string what, Readiness readiness) =>
     Results.Text(Json.Object(w => w.String("error", $"{what} isn't available: {readiness.Failure ?? "it didn't load"}")), "application/json", statusCode: 503);
@@ -59,8 +53,10 @@ app.MapPost("/ask", async (HttpRequest request, Readiness readiness, IServicePro
 {
     if (!await readiness.WaitAsync(TimeSpan.FromMinutes(3), request.HttpContext.RequestAborted))
         return StillLoading(readiness);
-    if (Get<Planner>(services) is not { } planner)
+    // The planner needs what loaded; asking the container for a part that failed would try loading it again.
+    if (readiness.Get<Llm>() == null || readiness.Get<ReferenceStore>() == null)
         return Unavailable("The language model", readiness);
+    var planner = services.GetRequiredService<Planner>();
     string body = await new StreamReader(request.Body).ReadToEndAsync();
     var reply = await planner.HandleAsync(body, request.HttpContext.RequestAborted);
     return Results.Text(reply, "application/json");
@@ -70,7 +66,7 @@ app.MapPost("/transcribe", async (HttpRequest request, Readiness readiness, ISer
 {
     if (!await readiness.WaitAsync(TimeSpan.FromMinutes(3), request.HttpContext.RequestAborted))
         return StillLoading(readiness);
-    if (Get<SpeechToText>(services) is not { } stt)
+    if (readiness.Get<SpeechToText>() is not { } stt)
         return Unavailable("Speech recognition", readiness);
     using var audio = new MemoryStream();
     await request.Body.CopyToAsync(audio);
@@ -83,7 +79,7 @@ app.MapPost("/speak", async (HttpRequest request, Readiness readiness, IServiceP
 {
     if (!await readiness.WaitAsync(TimeSpan.FromMinutes(3), request.HttpContext.RequestAborted))
         return StillLoading(readiness);
-    if (Get<TextToSpeech>(services) is not { } tts)
+    if (readiness.Get<TextToSpeech>() is not { } tts)
         return Unavailable("The voice", readiness);
     string body = await new StreamReader(request.Body).ReadToEndAsync();
     var (text, voice, speed) = SpeakRequest.Parse(body);
@@ -107,7 +103,7 @@ app.MapGet("/voices", async (HttpRequest request, Readiness readiness, IServiceP
 {
     if (!await readiness.WaitAsync(TimeSpan.FromMinutes(3), request.HttpContext.RequestAborted))
         return StillLoading(readiness);
-    if (Get<TextToSpeech>(services) is not { } tts)
+    if (readiness.Get<TextToSpeech>() is not { } tts)
         return Unavailable("The voice", readiness);
     return Results.Text(Json.Object(w => w.StringArray("voices", tts.Voices)), "application/json");
 });

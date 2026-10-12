@@ -181,6 +181,7 @@ namespace Remedy.Schematics.Assistant
                 return false;
             }
 
+            bool launched = false;
             if (!state.alive && !IsRunning)
             {
                 string root = InstallRoot;
@@ -203,7 +204,9 @@ namespace Remedy.Schematics.Assistant
                 };
                 try
                 {
+                    OpenLog(root);
                     _process = Process.Start(info);
+                    launched = true;
                 }
                 catch (Exception exception)
                 {
@@ -247,8 +250,9 @@ namespace Remedy.Schematics.Assistant
                         if (!warned && StartupElapsed > 30)
                         {
                             warned = true;
-                            Debug.LogWarning($"[Assistant] The server has been running for 30 s but doesn't answer on port {AssistantSettings.Port}. "
-                                + "A firewall or antivirus may be blocking it, or it's stuck starting up; turn on Log Server Output in Preferences > Schematics Assistant to see what it's doing.");
+                            Debug.LogWarning(launched
+                                ? $"[Assistant] The server has been running for 30 s but doesn't answer on port {AssistantSettings.Port}. A firewall or antivirus may be blocking it, or it's stuck starting up. Everything it printed is in {LogPath}."
+                                : $"[Assistant] The server is running but has stopped answering on port {AssistantSettings.Port}. Press Stop, then Start, in Preferences > Schematics Assistant. Everything it printed is in {LogPath}.");
                         }
                     }
                     if (state.alive)
@@ -289,10 +293,34 @@ namespace Remedy.Schematics.Assistant
             }
         }
 
+        // Everything the server prints also goes to server.log in the install folder (the Console only shows some of it).
+        private static StreamWriter _log;
+        private static readonly object LogLock = new();
+        public static string LogPath => InstallRoot is { } root ? Path.Combine(root, "server.log") : "server.log";
+
+        private static void OpenLog(string root)
+        {
+            lock (LogLock)
+            {
+                try
+                {
+                    _log?.Dispose();
+                    _log = new StreamWriter(Path.Combine(root, "server.log"), append: false) { AutoFlush = true };
+                    _log.WriteLine($"[{DateTime.Now:HH:mm:ss}] Starting the server");
+                }
+                catch { _log = null; }
+            }
+        }
+
         private static void Log(string line, bool error)
         {
             if (string.IsNullOrEmpty(line))
                 return;
+            lock (LogLock)
+            {
+                try { _log?.WriteLine($"[{DateTime.Now:HH:mm:ss}] {line}"); }
+                catch { }
+            }
             // Native libraries write their progress to the error stream too; only real problems are warnings.
             bool problem = error && System.Text.RegularExpressions.Regex.IsMatch(line, @"error|fail|exception|unhandled|cannot|could not|couldn't", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             bool show = problem || AssistantSettings.VerboseLogging || (!error && line.StartsWith("["));
@@ -375,7 +403,8 @@ namespace Remedy.Schematics.Assistant
         {
             try
             {
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                // Generous: a busy CPU (the model answering someone) can be slow to answer this too.
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
                 var response = await _http.GetAsync(BaseUrl + "/health", cts.Token);
                 if (!response.IsSuccessStatusCode)
                     return (false, false, null, null, null);
