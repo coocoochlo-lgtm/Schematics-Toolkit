@@ -33,7 +33,7 @@ public sealed class TextToSpeech : IDisposable
         config.Model.Kokoro.Tokens = Path.Combine(folder, "tokens.txt");
         config.Model.Kokoro.DataDir = Path.Combine(folder, "espeak-ng-data");
         config.Model.NumThreads = Math.Max(1, settings.Threads / 2);
-        config.MaxNumSentences = 2;
+        config.MaxNumSentences = 1;   // Kokoro ignores anything else (and says so)
         _tts = new OfflineTts(config);
         Console.WriteLine("[tts] Loaded Kokoro");
     }

@@ -10,6 +10,7 @@ using SchematicsAgent;
 //   GET  /reference/search  ?q=text: the reference entries a request would see
 
 var settings = AgentSettings.FromArgs(args);
+ServerLog.Start(settings.AgentFolder);
 Readiness.QuietNativeLogs();
 var builder = WebApplication.CreateSlimBuilder(args);
 builder.WebHost.UseUrls($"http://127.0.0.1:{settings.Port}");
@@ -83,8 +84,16 @@ app.MapPost("/speak", async (HttpRequest request, Readiness readiness, IServiceP
         return Unavailable("The voice", readiness);
     string body = await new StreamReader(request.Body).ReadToEndAsync();
     var (text, voice, speed) = SpeakRequest.Parse(body);
-    byte[] wav = tts.Speak(text, voice, speed);
-    return Results.File(wav, "audio/wav");
+    try
+    {
+        byte[] wav = tts.Speak(text, voice, speed);
+        return Results.File(wav, "audio/wav");
+    }
+    catch (Exception exception)
+    {
+        Console.Error.WriteLine($"[tts] Couldn't speak: {exception}");
+        return Results.Text(Json.Object(w => w.String("error", exception.Message)), "application/json", statusCode: 500);
+    }
 });
 
 app.MapPost("/reference/sync", async (HttpRequest request, ReferenceStore reference) =>

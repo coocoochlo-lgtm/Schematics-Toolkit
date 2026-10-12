@@ -35,6 +35,7 @@ namespace Remedy.Schematics.Assistant
                 {
                     _process = Process.GetProcessById(pid);
                     if (_process.HasExited) _process = null;
+                    else WatchExit(_process);
                 }
                 catch { _process = null; }
                 if (_process == null)
@@ -204,8 +205,9 @@ namespace Remedy.Schematics.Assistant
                 };
                 try
                 {
-                    OpenLog(root);
+                    _stopping = false;
                     _process = Process.Start(info);
+                    WatchExit(_process);
                     launched = true;
                 }
                 catch (Exception exception)
@@ -293,34 +295,46 @@ namespace Remedy.Schematics.Assistant
             }
         }
 
-        // Everything the server prints also goes to server.log in the install folder (the Console only shows some of it).
-        private static StreamWriter _log;
-        private static readonly object LogLock = new();
+        /// <summary>The server's own record of everything it printed (it writes it in the install folder).</summary>
         public static string LogPath => InstallRoot is { } root ? Path.Combine(root, "server.log") : "server.log";
 
-        private static void OpenLog(string root)
+        // Set when we stop the server on purpose, so its exit isn't reported as a crash.
+        private static bool _stopping;
+
+        private static void WatchExit(Process process)
         {
-            lock (LogLock)
+            try
             {
-                try
+                process.EnableRaisingEvents = true;
+                process.Exited += (_, _) =>
                 {
-                    _log?.Dispose();
-                    _log = new StreamWriter(Path.Combine(root, "server.log"), append: false) { AutoFlush = true };
-                    _log.WriteLine($"[{DateTime.Now:HH:mm:ss}] Starting the server");
-                }
-                catch { _log = null; }
+                    int code;
+                    try { code = process.ExitCode; }
+                    catch { return; }
+                    if (_stopping) return;
+                    EditorApplication.delayCall += () => Debug.LogError(ExitMessage(code));
+                };
             }
+            catch { }
+        }
+
+        private static string ExitMessage(int code)
+        {
+            string why = unchecked((uint)code) switch
+            {
+                0xC000001D => " This CPU is missing an instruction one of the models needs (an older CPU without AVX, or a virtual machine).",
+                0xC0000005 => " A native library crashed (an access violation).",
+                0xC0000409 => " A native library crashed (a stack buffer overrun).",
+                0xE0434352 => " An unhandled .NET exception; it's at the end of the log.",
+                _ => "",
+            };
+            return $"[Assistant] The server stopped unexpectedly (exit code 0x{code:X8}).{why} Its log: {LogPath}";
         }
 
         private static void Log(string line, bool error)
         {
             if (string.IsNullOrEmpty(line))
                 return;
-            lock (LogLock)
-            {
-                try { _log?.WriteLine($"[{DateTime.Now:HH:mm:ss}] {line}"); }
-                catch { }
-            }
             // Native libraries write their progress to the error stream too; only real problems are warnings.
             bool problem = error && System.Text.RegularExpressions.Regex.IsMatch(line, @"error|fail|exception|unhandled|cannot|could not|couldn't", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             bool show = problem || AssistantSettings.VerboseLogging || (!error && line.StartsWith("["));
@@ -384,6 +398,7 @@ namespace Remedy.Schematics.Assistant
                     StopStale(root);
                 return;
             }
+            _stopping = true;
             try
             {
                 if (!_process.HasExited)
@@ -419,6 +434,9 @@ namespace Remedy.Schematics.Assistant
                 return (false, false, null, null, null);
             }
         }
+
+        [Serializable]
+        private class ErrorReply { public string error; }
 
         /// <summary>What /health says.</summary>
         [Serializable]
@@ -480,9 +498,26 @@ namespace Remedy.Schematics.Assistant
         {
             string body = "{\"text\":\"" + AssistantJson.Escape(text) + "\",\"voice\":" + voice + ",\"speed\":"
                 + speed.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}";
-            var response = await _http.PostAsync(BaseUrl + "/speak", new StringContent(body, Encoding.UTF8, "application/json"), cancellation);
+            HttpResponseMessage response;
+            try
+            {
+                response = await _http.PostAsync(BaseUrl + "/speak", new StringContent(body, Encoding.UTF8, "application/json"), cancellation);
+            }
+            catch (HttpRequestException) when (!IsRunning)
+            {
+                throw new Exception($"the server stopped while making the speech (see {LogPath})");
+            }
+            catch (TaskCanceledException) when (!cancellation.IsCancellationRequested)
+            {
+                throw new Exception($"the server took longer than {_http.Timeout.TotalMinutes:0} minutes to make the speech");
+            }
             if (!response.IsSuccessStatusCode)
-                return null;
+            {
+                // The server says why (as {"error": ...}), or its log does.
+                string reply = await response.Content.ReadAsStringAsync();
+                string error = reply.Contains("\"error\"") ? JsonUtility.FromJson<ErrorReply>(reply)?.error : null;
+                throw new Exception(string.IsNullOrEmpty(error) ? $"the server answered {(int)response.StatusCode} (see {LogPath})" : error);
+            }
             return await response.Content.ReadAsByteArrayAsync();
         }
 
