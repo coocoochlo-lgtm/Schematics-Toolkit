@@ -49,6 +49,22 @@ public sealed class Readiness
 
     private double _stepStarted;
 
+    private void Load(int step, string what, float weight, Action load)
+    {
+        Begin(step, what, weight);
+        try
+        {
+            load();
+            Finished();
+        }
+        catch (Exception exception)
+        {
+            string failure = $"Loading {what} failed: {(exception.InnerException ?? exception).Message}";
+            Failure = Failure == null ? failure : Failure + " " + failure;
+            Console.Error.WriteLine("[server] " + failure);
+        }
+    }
+
     private void Finished() => Console.WriteLine($"[server] Loaded {Loading} in {Elapsed - _stepStarted:0.0} s");
     public bool IsReady => _ready.Task.IsCompleted;
     public Task Ready => _ready.Task;
@@ -72,27 +88,15 @@ public sealed class Readiness
         _clock.Start();
         try
         {
-            Begin(1, "the API reference", 0.02f);
-            services.GetRequiredService<ReferenceStore>();
-            Finished();
-            Begin(2, "the language model", 0.70f);
+            // One failing (speech on an unusual CPU, say) doesn't stop the others: Sprocket can still chat without it.
+            Load(1, "the API reference", 0.02f, () => services.GetRequiredService<ReferenceStore>());
             Llm.LoadProgress = new StepProgress(this);
-            services.GetRequiredService<Llm>();
-            Finished();
-            Begin(3, "speech recognition", 0.10f);
-            services.GetRequiredService<SpeechToText>();
-            Finished();
-            Begin(4, "the voice", 0.18f);
-            services.GetRequiredService<TextToSpeech>();
-            Finished();
+            Load(2, "the language model", 0.70f, () => services.GetRequiredService<Llm>());
+            Load(3, "speech recognition", 0.10f, () => services.GetRequiredService<SpeechToText>());
+            Load(4, "the voice", 0.18f, () => services.GetRequiredService<TextToSpeech>());
             _done = 1f; _weight = 0f;
             Loading = null;
             Console.WriteLine($"[server] Ready ({Elapsed:0.0} s)");
-        }
-        catch (Exception exception)
-        {
-            Failure = $"Loading {Loading} failed: {exception.Message}";
-            Console.Error.WriteLine("[server] " + Failure);
         }
         finally
         {

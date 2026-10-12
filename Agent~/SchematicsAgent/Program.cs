@@ -31,15 +31,25 @@ app.MapGet("/health", (Readiness readiness, IServiceProvider services) =>
         return Results.Text(Json.Object(w => w.Bool("ok", true).Bool("ready", false).String("loading", readiness.Loading ?? "")
             .Number("progress", readiness.Progress).Number("step", readiness.Step).Number("steps", Readiness.Steps)
             .Number("elapsed", readiness.Elapsed)), "application/json");
-    var llm = services.GetRequiredService<Llm>();
-    var stt = services.GetRequiredService<SpeechToText>();
-    var tts = services.GetRequiredService<TextToSpeech>();
+    var llm = Get<Llm>(services);
+    var stt = Get<SpeechToText>(services);
+    var tts = Get<TextToSpeech>(services);
     return Results.Text(Json.Object(w => w
         .Bool("ok", true).Bool("ready", true)
         .String("error", readiness.Failure ?? "")
-        .Bool("llm", llm.Available).Bool("stt", stt.Available).Bool("tts", tts.Available)
-        .String("model", llm.ModelName)), "application/json");
+        .Bool("llm", llm?.Available == true).Bool("stt", stt?.Available == true).Bool("tts", tts?.Available == true)
+        .String("model", llm?.ModelName ?? "")), "application/json");
 });
+
+// A part that failed to load throws each time it's asked for; /health must still answer (or Unity waits forever).
+static T? Get<T>(IServiceProvider services) where T : class
+{
+    try { return services.GetRequiredService<T>(); }
+    catch { return null; }
+}
+
+static IResult Unavailable(string what, Readiness readiness) =>
+    Results.Text(Json.Object(w => w.String("error", $"{what} isn't available: {readiness.Failure ?? "it didn't load"}")), "application/json", statusCode: 503);
 
 // Requests that need the models wait for them for a while, then say they're still loading.
 static IResult StillLoading(Readiness readiness) =>
@@ -49,7 +59,8 @@ app.MapPost("/ask", async (HttpRequest request, Readiness readiness, IServicePro
 {
     if (!await readiness.WaitAsync(TimeSpan.FromMinutes(3), request.HttpContext.RequestAborted))
         return StillLoading(readiness);
-    var planner = services.GetRequiredService<Planner>();
+    if (Get<Planner>(services) is not { } planner)
+        return Unavailable("The language model", readiness);
     string body = await new StreamReader(request.Body).ReadToEndAsync();
     var reply = await planner.HandleAsync(body, request.HttpContext.RequestAborted);
     return Results.Text(reply, "application/json");
@@ -59,7 +70,8 @@ app.MapPost("/transcribe", async (HttpRequest request, Readiness readiness, ISer
 {
     if (!await readiness.WaitAsync(TimeSpan.FromMinutes(3), request.HttpContext.RequestAborted))
         return StillLoading(readiness);
-    var stt = services.GetRequiredService<SpeechToText>();
+    if (Get<SpeechToText>(services) is not { } stt)
+        return Unavailable("Speech recognition", readiness);
     using var audio = new MemoryStream();
     await request.Body.CopyToAsync(audio);
     audio.Position = 0;
@@ -71,7 +83,8 @@ app.MapPost("/speak", async (HttpRequest request, Readiness readiness, IServiceP
 {
     if (!await readiness.WaitAsync(TimeSpan.FromMinutes(3), request.HttpContext.RequestAborted))
         return StillLoading(readiness);
-    var tts = services.GetRequiredService<TextToSpeech>();
+    if (Get<TextToSpeech>(services) is not { } tts)
+        return Unavailable("The voice", readiness);
     string body = await new StreamReader(request.Body).ReadToEndAsync();
     var (text, voice, speed) = SpeakRequest.Parse(body);
     byte[] wav = tts.Speak(text, voice, speed);
@@ -94,7 +107,9 @@ app.MapGet("/voices", async (HttpRequest request, Readiness readiness, IServiceP
 {
     if (!await readiness.WaitAsync(TimeSpan.FromMinutes(3), request.HttpContext.RequestAborted))
         return StillLoading(readiness);
-    return Results.Text(Json.Object(w => w.StringArray("voices", services.GetRequiredService<TextToSpeech>().Voices)), "application/json");
+    if (Get<TextToSpeech>(services) is not { } tts)
+        return Unavailable("The voice", readiness);
+    return Results.Text(Json.Object(w => w.StringArray("voices", tts.Voices)), "application/json");
 });
 
 // Unity stops a server it lost track of (after a crash or a restart) by this file, so the port and files are free.

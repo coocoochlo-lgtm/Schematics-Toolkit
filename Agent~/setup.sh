@@ -61,5 +61,10 @@ fi
 
 # 3. The server.
 status build "Building the assistant ($BACKEND)"
-"$DOTNET" build SchematicsAgent/SchematicsAgent.csproj -c Release -p:LlmBackend="$BACKEND" -o "$INSTALL/bin"
+# Stop a server still running from this folder before replacing its files.
+pkill -f "$INSTALL/bin/SchematicsAgent.dll" 2>/dev/null && sleep 0.5 || true
+if ! "$DOTNET" build SchematicsAgent/SchematicsAgent.csproj -c Release -p:LlmBackend="$BACKEND" -o "$INSTALL/bin" "-flp:LogFile=$AGENT/build.log;Verbosity=minimal"; then
+  status error "The build failed: $(grep -m1 ': error ' "$AGENT/build.log" | sed 's/^ *//') (see setup.log)"
+  exit 1
+fi
 status done "Ready"

@@ -80,8 +80,21 @@ try {
 
     # 3. The server.
     Status build "Building the assistant ($Backend)"
-    & $dotnet build SchematicsAgent/SchematicsAgent.csproj -c Release -p:LlmBackend=$Backend -o $Bin
-    if ($LASTEXITCODE -ne 0) { throw "The build failed" }
+    # A server still running from this folder locks its files, and the build can't replace them.
+    try {
+        Get-CimInstance Win32_Process -Filter "Name='dotnet.exe'" |
+            Where-Object { $_.CommandLine -and $_.CommandLine -like "*$Bin*SchematicsAgent.dll*" } |
+            ForEach-Object { Write-Host "Stopping the running server (process $($_.ProcessId))"; Stop-Process -Id $_.ProcessId -Force }
+        Start-Sleep -Milliseconds 500
+    } catch { Write-Host "Couldn't check for a running server: $($_.Exception.Message)" }
+    $BuildLog = Join-Path $Agent "build.log"
+    & $dotnet build SchematicsAgent/SchematicsAgent.csproj -c Release -p:LlmBackend=$Backend -o $Bin "-flp:LogFile=$BuildLog;Verbosity=minimal"
+    if ($LASTEXITCODE -ne 0) {
+        # The first error, so Unity can say what went wrong.
+        $first = Get-Content $BuildLog -ErrorAction SilentlyContinue | Where-Object { $_ -match ': error ' } | Select-Object -First 1
+        if ($first) { throw "The build failed: $($first.Trim())" }
+        throw "The build failed"
+    }
     Status done "Ready"
 }
 catch {

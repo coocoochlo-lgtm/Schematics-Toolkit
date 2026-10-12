@@ -12,3 +12,5 @@ dotnet-path.txt
 install-status.txt
 setup.log
 reference/
+build.log
+server.pid

@@ -169,6 +169,10 @@ namespace Remedy.Schematics.Assistant
             if (state.ready)
                 return true;
 
+            // Mid-reinstall the old files are about to be replaced; a server started now would lock them and fail the build.
+            if (AssistantInstaller.IsInstalling)
+                return false;
+
             string agent = AgentFolder;
             if (agent == null || !IsInstalled)
             {
