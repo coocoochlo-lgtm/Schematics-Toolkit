@@ -144,10 +144,21 @@ namespace Remedy.Schematics
                 oninvokeNode.UpdateCaches();
         }
 
+        /// <summary>Raised after an object's On Create ran (Timeline Graphs that play on start listen).</summary>
+        public static event Action<SchematicObject> Started;
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetStatics()
+        {
+            Started = null;
+            GraphStoreCreated = null;
+        }
+
         private void Start()
         {
             if (SchematicGraph != null)
                 SchematicGraph.TriggerEvent<OnCreate>(gameObject);
+            Started?.Invoke(this);
         }
 
         private void Update()

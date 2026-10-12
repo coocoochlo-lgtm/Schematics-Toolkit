@@ -257,6 +257,11 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
     private bool _updatedPortParams = false;
 
     /// <summary>
+    /// Raised when a graph loads into a window, with the canvas: for tools that add to it (the Timeline Graph's bar).
+    /// </summary>
+    public static event Action<SchematicGraphEditorWindow, VisualElement> CanvasLoaded;
+
+    /// <summary>
     /// Loads and initializes a graph in the editor window.
     /// Sets up the UI, event management, caches, and callbacks required for graph editing.
     /// </summary>
@@ -369,6 +374,10 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
         RefreshDebugState(frame: false);
 
         if (!alreadyUpdated) Reload();
+
+        // Other tools' additions to the canvas (e.g. the Timeline bar of Timeline Graphs).
+        try { CanvasLoaded?.Invoke(this, Canvas); }
+        catch (Exception exception) { Debug.LogException(exception); }
 
         // Sprocket, the assistant (Preferences > Schematics Assistant).
         Remedy.Schematics.Assistant.AssistantOverlay.Attach(this);
@@ -1195,7 +1204,7 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
     /// A Signal's parameters with their real types: from the Behavior Metadata that owns the Signal asset when there
     /// is one, otherwise from the asset's own parameter list.
     /// </summary>
-    internal static List<(string name, Type type)> SignalParameters(SignalData signal)
+    public static List<(string name, Type type)> SignalParameters(SignalData signal)
     {
         var result = new List<(string, Type)>();
         if (signal == null)

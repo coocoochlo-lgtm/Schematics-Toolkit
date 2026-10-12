@@ -1249,8 +1249,8 @@ namespace Remedy.Schematics.Assistant
 
             ReturnHomeWhenDone();
             Place(force: _blipPhase != 0 || _blipShown);
-            if (_marker.Shown && _markerTrack != null && _host != null && _markerTrack() is { } now)
-                _marker.Retarget(new Rect(SprocketInspect.ScreenToRoot(_host, now.position), now.size));
+            if (_marker.Shown && _markerTrack != null && _host != null && _markerTrack() is { } tracked)
+                _marker.Retarget(new Rect(SprocketInspect.ScreenToRoot(_host, tracked.position), tracked.size));
             _marker.Advance(dt, new Rect(_position, new Vector2(_width, _height)));
         }
 
