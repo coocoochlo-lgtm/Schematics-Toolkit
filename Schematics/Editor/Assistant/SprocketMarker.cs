@@ -43,6 +43,9 @@ namespace Remedy.Schematics.Assistant
 
         public void Hide() => style.display = DisplayStyle.None;
 
+        /// <summary>The thing moved (the view was panned or orbited).</summary>
+        public void Retarget(Rect target) => _target = target;
+
         /// <summary>Animates it, following Sprocket (in the host root's space).</summary>
         public void Advance(float dt, Rect sprocket)
         {

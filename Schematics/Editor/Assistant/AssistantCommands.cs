@@ -37,65 +37,93 @@ namespace Remedy.Schematics.Assistant
     }
 
     /// <summary>
-    /// Carries out the assistant's commands one at a time, flying the assistant to each place it edits, all as one
-    /// Undo step. A command that can't be done is reported and skipped; the rest still run.
+    /// Carries out the assistant's commands, one step at a time, flying the assistant to each place it edits. Work
+    /// mode (AssistantWork) decides when each step runs and can take steps back. Nodes are remembered by their graph
+    /// ids, not the objects, since taking a step back (an undo) rebuilds the graph's nodes.
     /// </summary>
     internal sealed class AssistantExecutor
     {
         private readonly AssistantContext _context;
         private readonly AssistantOverlay _overlay;
-        private readonly Dictionary<string, Node> _made = new(StringComparer.OrdinalIgnoreCase);
-        private readonly List<string> _problems = new();
+        private readonly Dictionary<string, string> _made = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, string> _known = new(StringComparer.OrdinalIgnoreCase);
         private Vector2? _lastPosition;
-        private bool _needsRefresh;
 
-        private SchematicGraphEditorWindow Window => _context.Window;
-
-        public IReadOnlyList<string> Problems => _problems;
+        public SchematicGraphEditorWindow Window => _context.Window;
 
         public AssistantExecutor(AssistantContext context, AssistantOverlay overlay)
         {
             _context = context;
             _overlay = overlay;
+            foreach (var pair in context.Nodes)
+                if (pair.Value != null)
+                    _known[pair.Key] = pair.Value.ID;
         }
 
-        public async Task RunAsync(IReadOnlyList<AssistantCommand> commands, CancellationToken cancellation)
+        /// <summary>Does one command. Returns why it couldn't, or null once done.</summary>
+        public async Task<string> RunStepAsync(AssistantCommand command)
         {
-            if (commands == null || commands.Count == 0)
-                return;
-
-            Undo.IncrementCurrentGroup();
-            int group = Undo.GetCurrentGroup();
-            Undo.SetCurrentGroupName("Assistant");
+            if (Window == null || Window.SchematicGraph == null)
+                return "the graph window closed";
             try
             {
-                foreach (var command in commands)
-                {
-                    cancellation.ThrowIfCancellationRequested();
-                    if (Window == null)
-                        return;
-                    try
-                    {
-                        string problem = await RunAsync(command);
-                        if (problem != null)
-                            _problems.Add($"{command}: {problem}");
-                    }
-                    catch (Exception exception)
-                    {
-                        _problems.Add($"{command}: {exception.Message}");
-                        Debug.LogException(exception);
-                    }
-                    await Delay(AssistantSettings.StepDelay, cancellation);
-                }
+                return await RunAsync(command);
             }
-            finally
+            catch (Exception exception)
             {
-                if (_needsRefresh && Window != null)
-                    Window.AssistantRefresh();
-                Undo.CollapseUndoOperations(group);
-                if (_problems.Count > 0)
-                    Debug.LogWarning("[Assistant] Some steps didn't work:\n" + string.Join("\n", _problems));
+                Debug.LogException(exception);
+                return exception.Message;
             }
+        }
+
+        /// <summary>A step taken back: the node it made is gone, and new ones go where it was.</summary>
+        public void Forget(AssistantCommand command)
+        {
+            if (!string.IsNullOrEmpty(command.id))
+                _made.Remove(command.id);
+            if (command.op != null && command.op.StartsWith("add_") && (command.x != 0 || command.y != 0))
+                _lastPosition = null;
+        }
+
+        /// <summary>Redraws the graph after steps were taken back.</summary>
+        public void Refresh()
+        {
+            if (Window != null && Window.SchematicGraph != null)
+                Window.AssistantRefresh();
+        }
+
+        /// <summary>A step in words, for the to-do list ("Add Wait", "Connect On Start → Wait").</summary>
+        public string Describe(AssistantCommand c, IReadOnlyList<AssistantCommand> plan)
+        {
+            string Name(string id)
+            {
+                if (string.IsNullOrEmpty(id)) return "?";
+                var made = plan.FirstOrDefault(p => p.op != null && p.op.StartsWith("add_") && string.Equals(p.id, id, StringComparison.OrdinalIgnoreCase));
+                if (made != null) return Short(made);
+                return Find(id)?.Name ?? id;
+            }
+            string Nice(string text) => string.IsNullOrEmpty(text) ? "?" : ObjectNames.NicifyVariableName(text);
+            string Short(AssistantCommand a) => a.op switch
+            {
+                "add_node" => Nice(a.type),
+                "add_signal_node" => $"{(a.mode == "send" ? "Send" : "On")} {Nice(a.signal)}",
+                "add_variable_node" => $"{(a.mode == "set" ? "Set" : "Get")} {Nice(a.variable)}",
+                "add_behavior_node" => Nice(a.behavior),
+                _ => a.op,
+            };
+            return c.op switch
+            {
+                "add_node" or "add_signal_node" or "add_variable_node" or "add_behavior_node" => $"Add <b>{Short(c)}</b>",
+                "connect" => $"Connect <b>{Name(c.from)}</b> → <b>{Name(c.to)}</b>",
+                "set_value" => $"Set <b>{Nice(c.field)}</b> on {Name(c.node)} to {c.value}",
+                "move_node" => $"Move <b>{Name(c.node)}</b>",
+                "delete_node" => $"Delete <b>{Name(c.node)}</b>",
+                "focus" => $"Look at <b>{Name(c.node)}</b>",
+                "add_behavior" => $"Add the <b>{Nice(c.behavior)}</b> Behavior" + (string.IsNullOrEmpty(c.path) ? "" : $" to {c.path}"),
+                "create_object" => $"Create <b>{(string.IsNullOrWhiteSpace(c.name) ? "New Object" : c.name)}</b>",
+                "select_object" => $"Select <b>{c.name}</b>",
+                _ => c.op ?? "?",
+            };
         }
 
         private async Task<string> RunAsync(AssistantCommand c)
@@ -226,7 +254,7 @@ namespace Remedy.Schematics.Assistant
             Window.AssistantShow(position);
             await Delay(0.25f, CancellationToken.None);
             if (_overlay != null)
-                await _overlay.FlyToAsync(Window.RootPointOf(position) + new Vector2(-40, -30));
+                await _overlay.FlyToAsync(Window.RootPointOf(position) + new Vector2(-40, -30), snappy: true);
             return position;
         }
 
@@ -237,7 +265,7 @@ namespace Remedy.Schematics.Assistant
             await Delay(0.25f, CancellationToken.None);
             var rect = Window.RootRectOf(node);
             if (_overlay != null && rect.HasValue)
-                await _overlay.FlyToAsync(new Vector2(rect.Value.xMax + 6, rect.Value.yMin - 30));
+                await _overlay.FlyToAsync(new Vector2(rect.Value.xMax + 6, rect.Value.yMin - 30), snappy: true);
         }
 
         private string Made(AssistantCommand c, Node node)
@@ -245,7 +273,7 @@ namespace Remedy.Schematics.Assistant
             if (node == null)
                 return "couldn't make the node";
             if (!string.IsNullOrEmpty(c.id))
-                _made[c.id] = node;
+                _made[c.id] = node.ID;
             return null;
         }
 
@@ -263,10 +291,13 @@ namespace Remedy.Schematics.Assistant
         {
             if (string.IsNullOrEmpty(id))
                 return null;
-            if (_made.TryGetValue(id, out var node) || _context.Nodes.TryGetValue(id, out node))
+            var graph = Window.SchematicGraph;
+            if (graph == null)
+                return null;
+            if ((_made.TryGetValue(id, out string guid) || _known.TryGetValue(id, out guid)) && graph.GetNodeById(guid) is { } node)
                 return node;
             // By name, as a fallback for a model that used the title instead of the id.
-            return Window.SchematicGraph.Nodes.FirstOrDefault(n => n != null && Same(n.Name, id));
+            return graph.Nodes.FirstOrDefault(n => n != null && Same(n.Name, id));
         }
 
         private bool TryNodeType(string name, out BlueGraph.Editor.NodeReflectionData type)
@@ -355,7 +386,7 @@ namespace Remedy.Schematics.Assistant
             field.SetValue(node, value);
             node.Validate();
             EditorUtility.SetDirty(Window.SchematicGraph);
-            _needsRefresh = true;
+            Window.AssistantRefresh();
             return null;
         }
 

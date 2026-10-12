@@ -67,6 +67,13 @@ namespace Remedy.Schematics.Assistant
             set => EditorPrefs.SetFloat(Prefix + "StepDelay", value);
         }
 
+        /// <summary>Work mode waits for Play (or Step) instead of starting on its own.</summary>
+        public static bool WorkStartsPaused
+        {
+            get => EditorPrefs.GetBool(Prefix + "WorkStartsPaused", false);
+            set => EditorPrefs.SetBool(Prefix + "WorkStartsPaused", value);
+        }
+
         /// <summary>The language model build setup makes: Cpu, Cuda12 (NVIDIA) or Vulkan.</summary>
         public static string Backend
         {
@@ -128,6 +135,7 @@ namespace Remedy.Schematics.Assistant
                 EditorGUILayout.Space();
                 EditorGUILayout.LabelField("Behavior", EditorStyles.boldLabel);
                 StepDelay = EditorGUILayout.Slider(new GUIContent("Step Delay", "Pause between edits so you can follow along."), StepDelay, 0f, 1.5f);
+                WorkStartsPaused = EditorGUILayout.Toggle(new GUIContent("Start Work Paused", "Show Sprocket's to-do list and wait for Play or Step before he changes anything."), WorkStartsPaused);
 
                 EditorGUILayout.Space();
                 EditorGUILayout.LabelField("Server", EditorStyles.boldLabel);

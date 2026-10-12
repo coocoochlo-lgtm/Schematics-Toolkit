@@ -37,6 +37,7 @@ namespace Remedy.Schematics.Assistant
         private EditorWindow _host;
         private readonly VisualElement _sprite, _shadow, _bubble;
         private readonly SprocketMarker _marker = new();
+        private Func<Rect?> _markerTrack;    // follows the explained thing when the view moves
         private int _bubbleAway;
         private bool _returnHome;            // after a task: back to the window's bottom right once the bubble's gone
         private float _idleSince = -1f;             // explaining: the bubble goes on this side (+1 right, -1 left), away from the thing
@@ -49,6 +50,7 @@ namespace Remedy.Schematics.Assistant
         private Vector2 _position;           // top-left, in the host window's root space
         private Vector2 _flyFrom, _flyTo;
         private float _flyTime = -1f, _flyDuration;
+        private bool _snappy;
         private TaskCompletionSource<bool> _flight;
         private float _time, _hideBubbleAt = -1f;
         private bool _dragging, _pressed;
@@ -63,6 +65,18 @@ namespace Remedy.Schematics.Assistant
         private bool _blipShown;
 
         private bool Busy => _mood == Mood.Thinking || _mood == Mood.Working || (_mood == Mood.Talking && !_explaining);
+
+        // Work mode: doing one of its steps (the working animation is only for that).
+        internal void BeginWorkStep()
+        {
+            _mood = Mood.Working;
+            _returnHome = true;
+        }
+
+        internal void EndWorkStep()
+        {
+            if (_mood == Mood.Working) _mood = Mood.Idle;
+        }
 
         // Talking about something it was dropped on (not a task, so it can be picked up again any time).
         private bool _explaining;
@@ -110,12 +124,45 @@ namespace Remedy.Schematics.Assistant
                     return (Frames("confused"), 1f);
                 return _mood switch
                 {
-                    Mood.Thinking or Mood.Working => (Frames("thinking"), 12f),
+                    Mood.Thinking => (Frames("thinking"), 12f),
+                    Mood.Working => (WorkFrames, 12f),
                     Mood.Talking => (Frames("talking"), 8f),
                     Mood.Inspecting => (InspectFrames, 12f),
                     _ => (Frames("idle"), 12f),
                 };
             }
+        }
+
+        // Work mode's animation (only while doing a step), under whichever folder name it was given.
+        private static string _workFolder;
+        private static Texture2D[] WorkFrames
+        {
+            get
+            {
+                if (_workFolder != null)
+                    return Frames(_workFolder);
+                foreach (var name in new[] { "working", "work", "Working", "Work", "building", "build" })
+                    if (Frames(name).Length > 0)
+                        return Frames(_workFolder = name);
+                string folder = SpriteFolder();
+                if (folder != null)
+                    foreach (var directory in System.IO.Directory.GetDirectories(folder))
+                    {
+                        string name = System.IO.Path.GetFileName(directory);
+                        if (Regex.IsMatch(name, "work|build|busy", RegexOptions.IgnoreCase) && Frames(name).Length > 0)
+                            return Frames(_workFolder = name);
+                    }
+                return Frames("thinking");
+            }
+        }
+
+        // The folder that holds the animation folders (next to idle).
+        private static string SpriteFolder()
+        {
+            var idle = Frames("idle");
+            string path = idle.Length > 0 ? AssetDatabase.GetAssetPath(idle[0]) : null;
+            string folder = !string.IsNullOrEmpty(path) ? System.IO.Path.GetDirectoryName(System.IO.Path.GetDirectoryName(path)) : null;
+            return folder != null && System.IO.Directory.Exists(folder) ? folder : null;
         }
 
         // The "What is this?" look, under whichever folder name it was given.
@@ -385,7 +432,7 @@ namespace Remedy.Schematics.Assistant
         // Done with a task (an explanation, a request) and nothing left to read: blip back to the bottom right.
         private void ReturnHomeWhenDone()
         {
-            bool settled = _returnHome && _mood == Mood.Idle && !_explaining && !_pressed && _flyTime < 0f && _blipPhase == 0
+            bool settled = _returnHome && _mood == Mood.Idle && !(AssistantWork.Current?.Playing ?? false) && !_explaining && !_pressed && _flyTime < 0f && _blipPhase == 0
                 && _bubble.style.display == DisplayStyle.None && _input.style.display == DisplayStyle.None && !AssistantInstaller.IsInstalling;
             if (!settled)
             {
@@ -576,6 +623,9 @@ namespace Remedy.Schematics.Assistant
         {
             if (_bubble.style.display == DisplayStyle.None || _mood == Mood.Listening)
                 return;
+            // Moving the view (orbiting, panning, Alt-dragging) isn't "clicking away".
+            if (evt.button != 0 || evt.altKey || (_host is SceneView && Tools.current == Tool.View))
+                return;
             var target = evt.target as VisualElement;
             if (target != null && (target == _bubble || _bubble.Contains(target) || target == _sprite))
                 return;
@@ -750,15 +800,13 @@ namespace Remedy.Schematics.Assistant
                 ShowBubble(Escape(reply.say ?? "Okay!"), seconds: -1);
                 var speaking = AssistantVoice.SayAsync(reply.say, cancellation);
 
-                if (reply.commands != null && reply.commands.Length > 0)
+                if (reply.commands != null && reply.commands.Length > 0 && context.Window != null)
                 {
-                    _mood = Mood.Working;
-                    var executor = new AssistantExecutor(context, this);
-                    await executor.RunAsync(reply.commands, cancellation);
-                    if (executor.Problems.Count > 0)
-                        ShowBubble(Escape(reply.say) + $"\n<size=10><color=#e08a9b>{executor.Problems.Count} step(s) didn't work; see the Console.</color></size>", seconds: 8f);
-                    else
-                        ShowBubble(Escape(reply.say) + "\n<size=10>Done! (Undo with Ctrl+Z)</size>", seconds: 5f);
+                    // Work mode: the steps go on a to-do list you can pause, step through and take back.
+                    var work = AssistantWork.Begin(new AssistantExecutor(context, this), this, reply.commands);
+                    ShowBubble(Escape(reply.say) + (work != null && AssistantSettings.WorkStartsPaused
+                        ? "\n<size=10>My to-do list is up top. Press ▶ or ⏭ when you're ready.</size>"
+                        : "\n<size=10>Follow along on my to-do list: pause, step, or take steps back any time.</size>"), seconds: 6f);
                 }
                 else
                     ShowBubble(Escape(reply.say), seconds: 8f);
@@ -778,13 +826,15 @@ namespace Remedy.Schematics.Assistant
             }
             finally
             {
-                _mood = Mood.Idle;
+                if (_mood != Mood.Working)
+                    _mood = Mood.Idle;
             }
         }
 
         public void Cancel()
         {
             _work?.Cancel();
+            AssistantWork.Current?.Pause();   // work mode: stops after the step it's on
             AssistantVoice.StopSpeaking();
         }
 
@@ -860,13 +910,16 @@ namespace Remedy.Schematics.Assistant
         }
 
         /// <summary>Flies to a point (top-left of the robot, in the host window's root space). Completes on arrival.</summary>
-        public Task FlyToAsync(Vector2 target)
+        public Task FlyToAsync(Vector2 target, bool snappy = false)
         {
             _flight?.TrySetResult(false);
             _flyFrom = _position;
             _flyTo = Clamp(target);
             _flyTime = 0f;
-            _flyDuration = Mathf.Clamp(Vector2.Distance(_flyFrom, _flyTo) / 900f, 0.2f, 0.8f);
+            _snappy = snappy;
+            _flyDuration = snappy
+                ? Mathf.Clamp(Vector2.Distance(_flyFrom, _flyTo) / 1600f, 0.16f, 0.42f)
+                : Mathf.Clamp(Vector2.Distance(_flyFrom, _flyTo) / 900f, 0.2f, 0.8f);
             _flight = new TaskCompletionSource<bool>();
             return _flight.Task;
         }
@@ -1052,7 +1105,10 @@ namespace Remedy.Schematics.Assistant
             _mood = Mood.Inspecting;
             _explaining = true;
             if (!whole)
+            {
                 _marker.Show(rect, target.Exact, size);
+                _markerTrack = target.Track;
+            }
             ShowBubble($"<b>{Escape(target.Title)}</b>\n{RichSafe(target.Text)}", 16f);
             try
             {
@@ -1137,9 +1193,21 @@ namespace Remedy.Schematics.Assistant
             {
                 _flyTime += dt;
                 float t = Mathf.Clamp01(_flyTime / _flyDuration);
-                float eased = t < 0.5f ? 4f * t * t * t : 1f - Mathf.Pow(-2f * t + 2f, 3f) / 2f;
+                float eased, lift;
+                if (_snappy)
+                {
+                    // Work mode: zips off and settles with a tiny overshoot.
+                    const float c1 = 1.4f, c3 = c1 + 1f;
+                    eased = 1f + c3 * Mathf.Pow(t - 1f, 3f) + c1 * Mathf.Pow(t - 1f, 2f);
+                    lift = Mathf.Min(18f, Vector2.Distance(_flyFrom, _flyTo) * 0.08f);
+                }
+                else
+                {
+                    eased = t < 0.5f ? 4f * t * t * t : 1f - Mathf.Pow(-2f * t + 2f, 3f) / 2f;
+                    lift = Mathf.Min(40f, Vector2.Distance(_flyFrom, _flyTo) * 0.2f);
+                }
                 // A little arc, like it's hopping over.
-                var arc = Vector2.up * (-Mathf.Sin(t * Mathf.PI) * Mathf.Min(40f, Vector2.Distance(_flyFrom, _flyTo) * 0.2f));
+                var arc = Vector2.up * (-Mathf.Sin(t * Mathf.PI) * lift);
                 _position = Vector2.Lerp(_flyFrom, _flyTo, eased) + arc;
                 if (t >= 1f)
                 {
@@ -1181,6 +1249,8 @@ namespace Remedy.Schematics.Assistant
 
             ReturnHomeWhenDone();
             Place(force: _blipPhase != 0 || _blipShown);
+            if (_marker.Shown && _markerTrack != null && _host != null && _markerTrack() is { } now)
+                _marker.Retarget(new Rect(SprocketInspect.ScreenToRoot(_host, now.position), now.size));
             _marker.Advance(dt, new Rect(_position, new Vector2(_width, _height)));
         }
 

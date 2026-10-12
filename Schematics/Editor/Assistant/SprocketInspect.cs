@@ -22,6 +22,8 @@ namespace Remedy.Schematics.Assistant
         public Rect ScreenRect;
         /// <summary>True when ScreenRect is the thing's real outline (false: just the spot it was found at).</summary>
         public bool Exact;
+        /// <summary>Where it is now, for following it when the view moves (null: it stays put).</summary>
+        public Func<Rect?> Track;
         public EditorWindow Window;
     }
 
@@ -48,7 +50,10 @@ namespace Remedy.Schematics.Assistant
                 case SceneView sceneView:
                 {
                     var picked = SelectionBaseInScene(sceneView, PickInScene(sceneView, screen));
-                    Finish(picked != null ? Placed(ForGameObject(picked), window, screen, ScreenBoundsInScene(sceneView, picked)) : null);
+                    var target = picked != null ? Placed(ForGameObject(picked), window, screen, ScreenBoundsInScene(sceneView, picked)) : null;
+                    if (target != null && target.Exact)
+                        target.Track = () => picked != null ? ScreenBoundsInScene(sceneView, picked) : null;
+                    Finish(target);
                     return;
                 }
                 case SchematicGraphEditorWindow graph:
@@ -616,6 +621,7 @@ namespace Remedy.Schematics.Assistant
                 Window = window,
                 ScreenRect = new Rect(PanelToScreen(window, bounds.position), bounds.size),
                 Exact = element != null,
+                Track = element != null ? () => ElementScreenRect(window, element) : null,
             };
         }
 
