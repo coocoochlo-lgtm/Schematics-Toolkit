@@ -151,9 +151,16 @@ namespace Remedy.Schematics.Assistant
             return _starting;
         }
 
+        /// <summary>What the server is loading while it starts ("the language model"), or null.</summary>
+        public static string StartupStatus { get; private set; }
+
+        // Loading the models can take a minute or two on a slow disk or CPU; past this, something's wrong.
+        private static readonly TimeSpan LoadTimeout = TimeSpan.FromMinutes(5);
+
         private static async Task<bool> StartAsync()
         {
-            if (await IsHealthyAsync())
+            var state = await GetStateAsync();
+            if (state.ready)
                 return true;
 
             string agent = AgentFolder;
@@ -164,7 +171,7 @@ namespace Remedy.Schematics.Assistant
                 return false;
             }
 
-            if (!IsRunning)
+            if (!state.alive && !IsRunning)
             {
                 string root = InstallRoot;
                 var info = new ProcessStartInfo(AssistantInstaller.DotnetPath,
@@ -192,31 +199,52 @@ namespace Remedy.Schematics.Assistant
                 _process.BeginErrorReadLine();
             }
 
-            // Loading the models takes a few seconds.
-            for (int i = 0; i < 120; i++)
+            // The server answers within seconds and loads its models in the background; wait until it says it's ready.
+            var started = DateTime.UtcNow;
+            StartupStatus = "starting";
+            try
             {
-                await Task.Delay(500);
-                if (await IsHealthyAsync())
-                    return true;
-                if (!IsRunning)
+                while (DateTime.UtcNow - started < LoadTimeout)
                 {
-                    Debug.LogError("[Assistant] The server stopped while starting; see the messages above.");
-                    return false;
+                    await Task.Delay(500);
+                    state = await GetStateAsync();
+                    if (state.ready)
+                    {
+                        if (!string.IsNullOrEmpty(state.error))
+                            Debug.LogWarning("[Assistant] " + state.error);
+                        return true;
+                    }
+                    if (state.alive)
+                        StartupStatus = string.IsNullOrEmpty(state.loading) ? "starting" : state.loading;
+                    else if (!IsRunning)
+                    {
+                        Debug.LogError("[Assistant] The server stopped while starting; see the messages above.");
+                        return false;
+                    }
                 }
+                Debug.LogError($"[Assistant] The server was still loading {StartupStatus} after {LoadTimeout.TotalMinutes:0} minutes. Is the disk or CPU very busy? Try Start again in Preferences > Schematics Assistant.");
+                return false;
             }
-            Debug.LogError("[Assistant] The server didn't answer within a minute.");
-            return false;
+            finally
+            {
+                StartupStatus = null;
+            }
         }
 
         private static void Log(string line, bool error)
         {
             if (string.IsNullOrEmpty(line))
                 return;
+            // Native libraries write their progress to the error stream too; only real problems are warnings.
+            bool problem = error && System.Text.RegularExpressions.Regex.IsMatch(line, @"error|fail|exception|unhandled|cannot|could not|couldn't", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            bool show = problem || AssistantSettings.VerboseLogging || (!error && line.StartsWith("["));
+            if (!show)
+                return;
             // Called on a reader thread.
             EditorApplication.delayCall += () =>
             {
-                if (error) Debug.LogWarning("[Assistant server] " + line);
-                else if (AssistantSettings.VerboseLogging || line.StartsWith("[")) Debug.Log("[Assistant server] " + line);
+                if (problem) Debug.LogWarning("[Assistant server] " + line);
+                else Debug.Log("[Assistant server] " + line);
             };
         }
 
@@ -238,6 +266,30 @@ namespace Remedy.Schematics.Assistant
 
         #region Requests
 
+        /// <summary>Whether the server answers (alive), has loaded its models (ready), and what it's loading.</summary>
+        public static async Task<(bool alive, bool ready, string loading, string error)> GetStateAsync()
+        {
+            try
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                var response = await _http.GetAsync(BaseUrl + "/health", cts.Token);
+                if (!response.IsSuccessStatusCode)
+                    return (false, false, null, null);
+                string text = await response.Content.ReadAsStringAsync();
+                var health = JsonUtility.FromJson<HealthReply>(text);
+                // Older servers didn't say "ready": answering meant loaded.
+                bool ready = health == null || health.ready || !text.Contains("\"ready\"");
+                return (true, ready, health?.loading, health?.error);
+            }
+            catch
+            {
+                return (false, false, null, null);
+            }
+        }
+
+        [Serializable] private class HealthReply { public bool ready; public string loading; public string error; }
+
+        /// <summary>Whether the server answers at all (it may still be loading its models).</summary>
         public static async Task<bool> IsHealthyAsync()
         {
             try

@@ -878,6 +878,16 @@ namespace Remedy.Schematics.Assistant
                 Confused("My setup hit a snag. Check the Console, then right-click me and pick <b>Reinstall</b>.", raw: true);
         }
 
+        // While the server loads its models (a minute or two the first time): what it's loading, instead of "thinking".
+        private string _wakingShown;
+        private void ShowWakingUp(string loading)
+        {
+            if (loading == _wakingShown && _bubble.style.display == DisplayStyle.Flex)
+                return;
+            _wakingShown = loading;
+            ShowBubble($"<i>Waking up… loading {Escape(loading)}.</i>\n<size=10>The first start can take a minute or two.</size>", seconds: -1);
+        }
+
         /// <summary>Something went wrong: says so, with the confused face for a moment.</summary>
         private void Confused(string message, bool raw = false)
         {
@@ -1226,6 +1236,8 @@ namespace Remedy.Schematics.Assistant
             }
             if (AssistantInstaller.IsInstalling)
                 ShowInstallProgress();
+            else if (AssistantServer.StartupStatus != null && _mood == Mood.Thinking)
+                ShowWakingUp(AssistantServer.StartupStatus);
 
             // The current animation frame (only touched when it changes).
             var (frames, fps) = Animation;
