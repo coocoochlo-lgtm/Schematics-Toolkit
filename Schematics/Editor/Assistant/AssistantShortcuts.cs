@@ -91,7 +91,8 @@ namespace Remedy.Schematics.Assistant
             {
                 var keys = saved.Split(',').Select(part => part.Split(':')).Where(p => p.Length == 2)
                     .Select(p => new KeyCombination((KeyCode)int.Parse(p[0]), (ShortcutModifiers)int.Parse(p[1]))).ToList();
-                try { manager.RebindShortcut(id, keys.Count > 0 ? new ShortcutBinding(keys) : ShortcutBinding.empty); }
+                // A binding holds one key combination (on this Unity version, the constructor takes just one).
+                try { manager.RebindShortcut(id, keys.Count > 0 ? new ShortcutBinding(keys[0]) : ShortcutBinding.empty); }
                 catch (System.Exception exception) { Debug.LogWarning($"[Assistant] Couldn't put back {id}: {exception.Message}"); }
             }
             SaveTaken(new Dictionary<string, string>());
