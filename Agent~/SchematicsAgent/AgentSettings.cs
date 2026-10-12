@@ -3,6 +3,9 @@ namespace SchematicsAgent;
 /// <summary>Where the models are and how to run them. Defaults match setup.ps1 / setup.sh; override with --name value.</summary>
 public sealed class AgentSettings
 {
+    /// <summary>Unity checks this against its own, and replaces a server left from an older version.</summary>
+    public const int Version = 2;
+
     public int Port = 5317;
     public string Models = FindModels();
 

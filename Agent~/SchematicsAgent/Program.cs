@@ -11,6 +11,10 @@ using SchematicsAgent;
 
 var settings = AgentSettings.FromArgs(args);
 ServerLog.Start(settings.AgentFolder);
+// What the models will run on: without AVX2 (or under x64 emulation on an ARM PC) they're many times slower.
+Console.WriteLine($"[server] Version {AgentSettings.Version}; {Environment.ProcessorCount} cores, {settings.Threads} threads for the model; "
+    + $"{System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture} process on {System.Runtime.InteropServices.RuntimeInformation.OSArchitecture} OS; "
+    + $"AVX {(System.Runtime.Intrinsics.X86.Avx.IsSupported ? "yes" : "NO")}, AVX2 {(System.Runtime.Intrinsics.X86.Avx2.IsSupported ? "yes" : "NO")}");
 Readiness.QuietNativeLogs();
 var builder = WebApplication.CreateSlimBuilder(args);
 builder.WebHost.UseUrls($"http://127.0.0.1:{settings.Port}");
@@ -29,14 +33,14 @@ var app = builder.Build();
 app.MapGet("/health", (Readiness readiness, IServiceProvider services) =>
 {
     if (!readiness.IsReady)
-        return Results.Text(Json.Object(w => w.Bool("ok", true).Bool("ready", false).String("loading", readiness.Loading ?? "")
+        return Results.Text(Json.Object(w => w.Bool("ok", true).Number("version", AgentSettings.Version).Bool("ready", false).String("loading", readiness.Loading ?? "")
             .Number("progress", readiness.Progress).Number("step", readiness.Step).Number("steps", Readiness.Steps)
             .Number("elapsed", readiness.Elapsed)), "application/json");
     var llm = readiness.Get<Llm>();
     var stt = readiness.Get<SpeechToText>();
     var tts = readiness.Get<TextToSpeech>();
     return Results.Text(Json.Object(w => w
-        .Bool("ok", true).Bool("ready", true)
+        .Bool("ok", true).Number("version", AgentSettings.Version).Bool("ready", true)
         .String("error", readiness.Failure ?? "")
         .Bool("llm", llm?.Available == true).Bool("stt", stt?.Available == true).Bool("tts", tts?.Available == true)
         .String("model", llm?.ModelName ?? "")), "application/json");

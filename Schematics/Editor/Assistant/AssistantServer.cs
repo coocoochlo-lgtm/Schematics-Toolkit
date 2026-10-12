@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Net;
 using System.Net.Http;
 using System.Text;
 using System.Threading;
@@ -20,6 +21,11 @@ namespace Remedy.Schematics.Assistant
     {
         private const string PidKey = "Schematics.Assistant.ServerPid";
         private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromMinutes(3) };
+        // Asking, speaking and listening run the models, which take minutes on a slow CPU.
+        private static readonly HttpClient _slow = new() { Timeout = TimeSpan.FromMinutes(10) };
+
+        /// <summary>The server version this editor code expects (AgentSettings.Version on the server).</summary>
+        private const int ServerVersion = 2;
         private static Process _process;
         private static Task<bool> _starting;
 
@@ -167,7 +173,17 @@ namespace Remedy.Schematics.Assistant
         private static async Task<bool> StartAsync()
         {
             var state = await GetStateAsync();
-            if (state.ready)
+            if (state.alive && state.health != null && state.health.version != ServerVersion)
+            {
+                // Left from before an update (it'd lack fixes and hold the port): replace it.
+                Debug.Log($"[Assistant] An older server is running (version {state.health.version}, expected {ServerVersion}); restarting it.");
+                Stop();
+                if (InstallRoot is { } installed) StopStale(installed);
+                for (int i = 0; i < 20 && !PortFree(AssistantSettings.Port); i++)
+                    await Task.Delay(250);
+                state = default;
+            }
+            else if (state.ready)
                 return true;
 
             // Mid-reinstall the old files are about to be replaced; a server started now would lock them and fail the build.
@@ -237,6 +253,13 @@ namespace Remedy.Schematics.Assistant
                 {
                     await Task.Delay(500);
                     state = await GetStateAsync();
+                    if (state.ready && state.health != null && state.health.version != ServerVersion)
+                    {
+                        Debug.LogError($"[Assistant] The installed server is older than this version of the toolkit (version {state.health.version}, expected {ServerVersion}). "
+                            + "Press Reinstall in Preferences > Schematics Assistant to rebuild it.");
+                        Stop();
+                        return false;
+                    }
                     if (state.ready)
                     {
                         if (!string.IsNullOrEmpty(state.error))
@@ -435,6 +458,15 @@ namespace Remedy.Schematics.Assistant
             }
         }
 
+        // HttpClient's timeout shows up as a cancellation (.NET) or a WebException inside an HttpRequestException (Mono).
+        private static bool IsTimeout(Exception exception)
+        {
+            for (var e = exception; e != null; e = e.InnerException)
+                if (e is TaskCanceledException || e is TimeoutException || (e is WebException web && web.Status == WebExceptionStatus.Timeout))
+                    return true;
+            return false;
+        }
+
         [Serializable]
         private class ErrorReply { public string error; }
 
@@ -445,6 +477,7 @@ namespace Remedy.Schematics.Assistant
             public bool ready;
             public string loading, error;
             public float progress;
+            public int version;
             public int step, steps;
             public double elapsed;
         }
@@ -474,7 +507,20 @@ namespace Remedy.Schematics.Assistant
         public static async Task<string> AskAsync(string utterance, string contextJson, CancellationToken cancellation)
         {
             string body = "{\"utterance\":\"" + AssistantJson.Escape(utterance) + "\",\"context\":" + contextJson + "}";
-            var response = await _http.PostAsync(BaseUrl + "/ask", new StringContent(body, Encoding.UTF8, "application/json"), cancellation);
+            HttpResponseMessage response;
+            try
+            {
+                response = await _slow.PostAsync(BaseUrl + "/ask", new StringContent(body, Encoding.UTF8, "application/json"), cancellation);
+            }
+            catch (Exception exception) when (!cancellation.IsCancellationRequested && IsTimeout(exception))
+            {
+                throw new TimeoutException($"I took longer than {_slow.Timeout.TotalMinutes:0} minutes to think, so I gave up. This computer runs my model slowly; "
+                    + $"the [llm] lines in {LogPath} say how fast.");
+            }
+            catch (HttpRequestException) when (!IsRunning)
+            {
+                throw new Exception($"My server stopped while I was thinking (see {LogPath}).");
+            }
             string text = await response.Content.ReadAsStringAsync();
             if (!response.IsSuccessStatusCode)
                 throw new InvalidOperationException($"The assistant server failed ({(int)response.StatusCode}): {text}");
@@ -486,7 +532,7 @@ namespace Remedy.Schematics.Assistant
         {
             var content = new ByteArrayContent(wav);
             content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("audio/wav");
-            var response = await _http.PostAsync(BaseUrl + "/transcribe", content, cancellation);
+            var response = await _slow.PostAsync(BaseUrl + "/transcribe", content, cancellation);
             string json = await response.Content.ReadAsStringAsync();
             if (!response.IsSuccessStatusCode)
                 throw new InvalidOperationException($"Transcription failed ({(int)response.StatusCode}): {json}");
@@ -501,15 +547,15 @@ namespace Remedy.Schematics.Assistant
             HttpResponseMessage response;
             try
             {
-                response = await _http.PostAsync(BaseUrl + "/speak", new StringContent(body, Encoding.UTF8, "application/json"), cancellation);
+                response = await _slow.PostAsync(BaseUrl + "/speak", new StringContent(body, Encoding.UTF8, "application/json"), cancellation);
             }
             catch (HttpRequestException) when (!IsRunning)
             {
                 throw new Exception($"the server stopped while making the speech (see {LogPath})");
             }
-            catch (TaskCanceledException) when (!cancellation.IsCancellationRequested)
+            catch (Exception exception) when (!cancellation.IsCancellationRequested && IsTimeout(exception))
             {
-                throw new Exception($"the server took longer than {_http.Timeout.TotalMinutes:0} minutes to make the speech");
+                throw new Exception($"the server took longer than {_slow.Timeout.TotalMinutes:0} minutes to make the speech");
             }
             if (!response.IsSuccessStatusCode)
             {

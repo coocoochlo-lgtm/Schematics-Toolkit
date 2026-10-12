@@ -783,6 +783,8 @@ namespace Remedy.Schematics.Assistant
             var cancellation = _work.Token;
             _mood = Mood.Thinking;
             ShowBubble($"<i>“{Escape(utterance)}”</i>\nHmm, let me think…", seconds: -1);
+            _thinkingAbout = utterance;
+            _thinkingSince = _time;
 
             try
             {
@@ -818,6 +820,12 @@ namespace Remedy.Schematics.Assistant
                 AssistantVoice.StopSpeaking();
                 ShowBubble("Okay, stopping.", 2f);
             }
+            catch (TimeoutException exception)
+            {
+                Debug.LogWarning("[Assistant] " + exception.Message);
+                Confused(exception.Message);
+                return;
+            }
             catch (Exception exception)
             {
                 Debug.LogException(exception);
@@ -826,6 +834,7 @@ namespace Remedy.Schematics.Assistant
             }
             finally
             {
+                _thinkingAbout = null;
                 if (_mood != Mood.Working)
                     _mood = Mood.Idle;
             }
@@ -895,6 +904,20 @@ namespace Remedy.Schematics.Assistant
             if (text == _wakingShown && _bubble.style.display == DisplayStyle.Flex)
                 return;
             _wakingShown = text;
+            ShowBubble(text, seconds: -1);
+        }
+
+        // While the model works on a request: how long it's been, so a slow computer doesn't look stuck.
+        private string _thinkingAbout, _thinkingShown;
+        private float _thinkingSince;
+        private void ShowThinking()
+        {
+            int seconds = (int)(_time - _thinkingSince);
+            string text = $"<i>“{Escape(_thinkingAbout)}”</i>\nHmm, let me think… <size=10>({seconds / 60}:{seconds % 60:00})</size>"
+                + (seconds > 60 ? "\n<size=10>This computer runs my model slowly. Hang on, or right-click me and pick Stop.</size>" : "");
+            if (text == _thinkingShown && _bubble.style.display == DisplayStyle.Flex)
+                return;
+            _thinkingShown = text;
             ShowBubble(text, seconds: -1);
         }
 
@@ -1255,6 +1278,8 @@ namespace Remedy.Schematics.Assistant
                 ShowInstallProgress();
             else if (AssistantServer.StartupStatus != null && (_mood == Mood.Thinking || _mood == Mood.Idle) && _input.style.display == DisplayStyle.None)
                 ShowWakingUp(AssistantServer.StartupStatus);
+            else if (_thinkingAbout != null && _mood == Mood.Thinking && AssistantServer.StartupStatus == null && _time - _thinkingSince > 10f)
+                ShowThinking();
             else if (AssistantServer.StartupStatus == null && _wakingShown != null)
             {
                 // Loaded: the progress bubble goes (unless something else has replaced it since).

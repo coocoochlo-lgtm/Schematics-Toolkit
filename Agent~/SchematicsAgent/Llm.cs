@@ -64,9 +64,20 @@ public sealed class Llm : IDisposable
                 SamplingPipeline = pipeline,
             };
 
+            // Timed, so the log shows how fast this computer runs the model.
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            double firstToken = 0;
+            int tokens = 0;
             var reply = new StringBuilder();
             await foreach (var piece in executor.InferAsync(prompt, inference, cancellation))
+            {
+                if (tokens++ == 0)
+                    firstToken = clock.Elapsed.TotalSeconds;
                 reply.Append(piece);
+            }
+            double total = clock.Elapsed.TotalSeconds, generating = Math.Max(0.001, total - firstToken);
+            Console.WriteLine($"[llm] Read {prompt.Length} characters in {firstToken:0.0} s, wrote {tokens} tokens in {generating:0.0} s "
+                + $"({tokens / generating:0.0}/s); {total:0.0} s in all");
             return reply.ToString().Replace("<|im_end|>", "").Trim();
         }
         finally
