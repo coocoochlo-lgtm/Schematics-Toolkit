@@ -18,9 +18,9 @@ namespace Remedy.Schematics.Assistant
         private const string PidKey = "Schematics.Assistant.InstallPid";
 
         // Roughly how big each download is, for the progress bar.
-        private static readonly (string file, long bytes)[] Downloads =
+        private static (string file, long bytes)[] Downloads => new[]
         {
-            ("qwen2.5-1.5b-instruct-q4_k_m.gguf", 1_117_000_000),
+            AssistantSettings.LlmFile == AssistantSettings.FastModel ? (AssistantSettings.FastModel, 398_000_000L) : (AssistantSettings.StandardModel, 1_117_000_000L),
             ("ggml-base.en.bin", 147_960_000),
             ("kokoro-en-v0_19.tar.bz2", 319_625_534),
         };
@@ -101,10 +101,10 @@ namespace Remedy.Schematics.Assistant
             ProcessStartInfo info;
             if (Application.platform == RuntimePlatform.WindowsEditor)
                 info = new ProcessStartInfo("powershell.exe",
-                    $"-NoProfile -ExecutionPolicy Bypass -Command \"& '{Path.Combine(agent, "setup.ps1")}' -Backend {backend} -InstallDir '{root}' *> '{Path.Combine(agent, "setup.log")}'\"");
+                    $"-NoProfile -ExecutionPolicy Bypass -Command \"& '{Path.Combine(agent, "setup.ps1")}' -Backend {backend} -InstallDir '{root}' -Llm {AssistantSettings.LlmFile} *> '{Path.Combine(agent, "setup.log")}'\"");
             else
                 info = new ProcessStartInfo("/bin/bash",
-                    $"-c \"bash '{Path.Combine(agent, "setup.sh")}' {backend} '{root}' > '{Path.Combine(agent, "setup.log")}' 2>&1\"");
+                    $"-c \"bash '{Path.Combine(agent, "setup.sh")}' {backend} '{root}' {AssistantSettings.LlmFile} > '{Path.Combine(agent, "setup.log")}' 2>&1\"");
             info.WorkingDirectory = agent;
             info.UseShellExecute = false;
             info.CreateNoWindow = true;

@@ -19,6 +19,9 @@ public sealed class Llm : IDisposable
 
     /// <summary>Told how far loading the model is (0-1). Set by <see cref="Readiness"/> before the model loads.</summary>
     public static IProgress<float>? LoadProgress;
+
+    /// <summary>What it's doing for a request right now ("reading 1200 tokens", ...), or null when idle.</summary>
+    public static volatile string? Activity;
     public string ModelName { get; } = "";
 
     public Llm(AgentSettings settings)
@@ -42,7 +45,7 @@ public sealed class Llm : IDisposable
     }
 
     /// <summary>Runs one chat turn (ChatML, as Qwen expects) and returns the reply.</summary>
-    public async Task<string> CompleteAsync(string system, string user, string? grammar, int maxTokens, CancellationToken cancellation)
+    public async Task<string> CompleteAsync(string task, string system, string user, string? grammar, int maxTokens, CancellationToken cancellation)
     {
         if (_weights == null || _parameters == null)
             throw new InvalidOperationException("The language model isn't loaded. Run setup to download it.");
@@ -66,18 +69,30 @@ public sealed class Llm : IDisposable
 
             // Timed, so the log shows how fast this computer runs the model.
             var clock = System.Diagnostics.Stopwatch.StartNew();
+            int promptTokens = _weights.Tokenize(prompt, false, true, Encoding.UTF8).Length;
+            Activity = $"{task}: reading ({promptTokens} tokens)";
+            Console.WriteLine($"[llm] {task}: reading {promptTokens} tokens");
             double firstToken = 0;
             int tokens = 0;
             var reply = new StringBuilder();
-            await foreach (var piece in executor.InferAsync(prompt, inference, cancellation))
+            try
             {
-                if (tokens++ == 0)
-                    firstToken = clock.Elapsed.TotalSeconds;
-                reply.Append(piece);
+                await foreach (var piece in executor.InferAsync(prompt, inference, cancellation))
+                {
+                    if (tokens++ == 0)
+                        firstToken = clock.Elapsed.TotalSeconds;
+                    if (tokens % 8 == 0)
+                        Activity = $"{task}: writing ({tokens} tokens, {tokens / Math.Max(0.1, clock.Elapsed.TotalSeconds - firstToken):0.0}/s)";
+                    reply.Append(piece);
+                }
+            }
+            finally
+            {
+                Activity = null;
             }
             double total = clock.Elapsed.TotalSeconds, generating = Math.Max(0.001, total - firstToken);
-            Console.WriteLine($"[llm] Read {prompt.Length} characters in {firstToken:0.0} s, wrote {tokens} tokens in {generating:0.0} s "
-                + $"({tokens / generating:0.0}/s); {total:0.0} s in all");
+            Console.WriteLine($"[llm] {task}: read {promptTokens} tokens in {firstToken:0.0} s ({promptTokens / Math.Max(0.001, firstToken):0.0}/s), "
+                + $"wrote {tokens} in {generating:0.0} s ({tokens / generating:0.0}/s); {total:0.0} s in all");
             return reply.ToString().Replace("<|im_end|>", "").Trim();
         }
         finally

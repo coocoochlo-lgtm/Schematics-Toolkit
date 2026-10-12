@@ -58,6 +58,31 @@ namespace Remedy.Schematics.Assistant
             set => EditorPrefs.SetFloat(Prefix + "SpeechSpeed", value);
         }
 
+        public enum ModelChoice { Auto, Standard, Fast }
+
+        /// <summary>
+        /// The language model: Standard (Qwen2.5 1.5B, smarter) or Fast (0.5B, about three times quicker). Auto picks
+        /// Fast on CPUs the server finds slow (no AVX2, or few cores).
+        /// </summary>
+        public static ModelChoice Model
+        {
+            get => (ModelChoice)EditorPrefs.GetInt(Prefix + "Model", 0);
+            set => EditorPrefs.SetInt(Prefix + "Model", (int)value);
+        }
+
+        /// <summary>What the server last said about this CPU (it can't keep up with the standard model).</summary>
+        public static bool SlowCpu
+        {
+            get => EditorPrefs.GetBool(Prefix + "SlowCpu", false);
+            set => EditorPrefs.SetBool(Prefix + "SlowCpu", value);
+        }
+
+        public const string StandardModel = "qwen2.5-1.5b-instruct-q4_k_m.gguf";
+        public const string FastModel = "qwen2.5-0.5b-instruct-q4_k_m.gguf";
+
+        /// <summary>The language model file to download and run.</summary>
+        public static string LlmFile => Model == ModelChoice.Fast || (Model == ModelChoice.Auto && SlowCpu) ? FastModel : StandardModel;
+
         public static bool Speak
         {
             get => EditorPrefs.GetBool(Prefix + "Speak", true);
@@ -199,6 +224,21 @@ namespace Remedy.Schematics.Assistant
                 Port = EditorGUILayout.IntField("Port", Port);
                 int backend = System.Array.IndexOf(Backends, Backend);
                 Backend = Backends[EditorGUILayout.Popup(new GUIContent("Model Backend", "Cuda12 for NVIDIA GPUs, Vulkan for other GPUs. Reinstall after changing it."), Mathf.Max(0, backend), Backends)];
+                EditorGUI.BeginChangeCheck();
+                var model = (ModelChoice)EditorGUILayout.EnumPopup(new GUIContent("Language Model",
+                    "Standard: Qwen2.5 1.5B, smarter. Fast: 0.5B, about three times quicker on a slow CPU. Auto: Fast when this CPU is slow"
+                    + (SlowCpu ? " (it is)." : " (it isn't, as far as the server has seen).")), Model);
+                if (EditorGUI.EndChangeCheck() && model != Model)
+                {
+                    string before = LlmFile;
+                    Model = model;
+                    // A model that isn't downloaded yet: set it up now (the server restarts with it).
+                    if (LlmFile != before)
+                    {
+                        AssistantServer.Stop();
+                        if (!AssistantServer.IsInstalled) AssistantInstaller.Reinstall();
+                    }
+                }
                 VerboseLogging = EditorGUILayout.Toggle("Log Server Output", VerboseLogging);
                 AutoInstall = EditorGUILayout.Toggle(new GUIContent("Install Automatically", "Download the models (about 1.6 GB) and build the server the first time the assistant appears."), AutoInstall);
                 EditorGUILayout.LabelField("Status", AssistantInstaller.IsInstalling ? AssistantInstaller.Progress ?? "Installing…"

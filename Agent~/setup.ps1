@@ -6,7 +6,7 @@
 #   ./setup.ps1 -InstallDir D:\Sprocket       install on another drive: .NET, models, server, the NuGet packages the
 #                                            build downloads, and temporary files all go there
 # Progress goes to install-status.txt as "step|message" lines for the editor to show.
-param([string]$Backend = "Cpu", [string]$InstallDir = "")
+param([string]$Backend = "Cpu", [string]$InstallDir = "", [string]$Llm = "qwen2.5-1.5b-instruct-q4_k_m.gguf")
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"   # Invoke-WebRequest is very slow with the progress bar
 Set-Location $PSScriptRoot
@@ -68,7 +68,9 @@ try {
         Download $url "$Models/$file.part"
         Move-Item "$Models/$file.part" "$Models/$file"
     }
-    Fetch "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf" "qwen2.5-1.5b-instruct-q4_k_m.gguf"
+    # The language model: the standard 1.5B, or the 0.5B that slow CPUs can keep up with.
+    if ($Llm -like "qwen2.5-0.5b*") { $repo = "Qwen2.5-0.5B-Instruct-GGUF" } else { $repo = "Qwen2.5-1.5B-Instruct-GGUF" }
+    Fetch "https://huggingface.co/Qwen/$repo/resolve/main/$Llm" $Llm
     Fetch "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin" "ggml-base.en.bin"
     if (-not (Test-Path "$Models/kokoro-en-v0_19/model.onnx")) {
         Fetch "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-en-v0_19.tar.bz2" "kokoro-en-v0_19.tar.bz2"

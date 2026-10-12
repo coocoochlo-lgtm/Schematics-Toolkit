@@ -909,11 +909,17 @@ namespace Remedy.Schematics.Assistant
 
         // While the model works on a request: how long it's been, so a slow computer doesn't look stuck.
         private string _thinkingAbout, _thinkingShown;
-        private float _thinkingSince;
+        private float _thinkingSince, _nextActivityPoll;
         private void ShowThinking()
         {
             int seconds = (int)(_time - _thinkingSince);
-            string text = $"<i>“{Escape(_thinkingAbout)}”</i>\nHmm, let me think… <size=10>({seconds / 60}:{seconds % 60:00})</size>"
+            if (_time >= _nextActivityPoll)
+            {
+                _nextActivityPoll = _time + 2f;
+                AssistantServer.PollActivity();
+            }
+            string activity = string.IsNullOrEmpty(AssistantServer.Activity) ? "" : $"\n<size=10>{Escape(AssistantServer.Activity)}</size>";
+            string text = $"<i>“{Escape(_thinkingAbout)}”</i>\nHmm, let me think… <size=10>({seconds / 60}:{seconds % 60:00})</size>{activity}"
                 + (seconds > 60 ? "\n<size=10>This computer runs my model slowly. Hang on, or right-click me and pick Stop.</size>" : "");
             if (text == _thinkingShown && _bubble.style.display == DisplayStyle.Flex)
                 return;

@@ -25,7 +25,38 @@ namespace Remedy.Schematics.Assistant
         private static readonly HttpClient _slow = new() { Timeout = TimeSpan.FromMinutes(10) };
 
         /// <summary>The server version this editor code expects (AgentSettings.Version on the server).</summary>
-        private const int ServerVersion = 2;
+        private const int ServerVersion = 3;
+        private const string RebuiltKey = "Schematics.Assistant.RebuiltForVersion";
+
+        // A slow CPU (the server says) gets the fast model, when the choice is Auto: set up, then started with it.
+        private static void NoteCpu(HealthReply health)
+        {
+            if (!health.slow || AssistantSettings.SlowCpu)
+                return;
+            AssistantSettings.SlowCpu = true;
+            if (AssistantSettings.Model != AssistantSettings.ModelChoice.Auto)
+                return;
+            Debug.Log($"[Assistant] This CPU is slow for the standard language model ({health.cpu}). Switching to the fast one (about 400 MB to download); "
+                + "change it in Preferences > Schematics Assistant > Language Model.");
+            EditorApplication.delayCall += () =>
+            {
+                Stop();
+                AssistantInstaller.Reinstall();
+            };
+        }
+
+        /// <summary>What the server is doing for a request ("reading 1200 tokens", ...), while it does it.</summary>
+        public static string Activity { get; private set; }
+        private static bool _polling;
+
+        /// <summary>Asks the server what it's doing (for Sprocket's bubble while it thinks). Cheap; one at a time.</summary>
+        public static async void PollActivity()
+        {
+            if (_polling) return;
+            _polling = true;
+            try { Activity = (await GetStateAsync()).health?.activity; }
+            finally { _polling = false; }
+        }
         private static Process _process;
         private static Task<bool> _starting;
 
@@ -96,7 +127,8 @@ namespace Remedy.Schematics.Assistant
             {
                 string root = InstallRoot;
                 return root != null && File.Exists(ServerDll(root))
-                    && File.Exists(Path.Combine(root, "models", "kokoro-en-v0_19", "model.onnx"));
+                    && File.Exists(Path.Combine(root, "models", "kokoro-en-v0_19", "model.onnx"))
+                    && File.Exists(Path.Combine(root, "models", AssistantSettings.LlmFile));
             }
         }
 
@@ -211,7 +243,7 @@ namespace Remedy.Schematics.Assistant
                     return false;
                 }
                 var info = new ProcessStartInfo(AssistantInstaller.DotnetPath,
-                    $"\"{ServerDll(root)}\" --port {AssistantSettings.Port} --models \"{Path.Combine(root, "models")}\" --reference \"{Path.Combine(agent, "reference")}\"")
+                    $"\"{ServerDll(root)}\" --port {AssistantSettings.Port} --models \"{Path.Combine(root, "models")}\" --reference \"{Path.Combine(agent, "reference")}\" --llm {AssistantSettings.LlmFile}")
                 {
                     WorkingDirectory = agent,
                     UseShellExecute = false,
@@ -255,11 +287,21 @@ namespace Remedy.Schematics.Assistant
                     state = await GetStateAsync();
                     if (state.ready && state.health != null && state.health.version != ServerVersion)
                     {
-                        Debug.LogError($"[Assistant] The installed server is older than this version of the toolkit (version {state.health.version}, expected {ServerVersion}). "
-                            + "Press Reinstall in Preferences > Schematics Assistant to rebuild it.");
+                        // The installed build is older than this toolkit: rebuild it (once per editor session, in case
+                        // the build itself keeps failing).
                         Stop();
+                        if (!SessionState.GetBool(RebuiltKey, false))
+                        {
+                            SessionState.SetBool(RebuiltKey, true);
+                            Debug.Log($"[Assistant] The installed server is out of date (version {state.health.version}, expected {ServerVersion}); rebuilding it.");
+                            AssistantInstaller.Reinstall();
+                        }
+                        else
+                            Debug.LogError($"[Assistant] The server is still out of date after rebuilding (version {state.health.version}, expected {ServerVersion}). See {Path.Combine(AgentFolder ?? "", "setup.log")}.");
                         return false;
                     }
+                    if (state.ready && state.health != null)
+                        NoteCpu(state.health);
                     if (state.ready)
                     {
                         if (!string.IsNullOrEmpty(state.error))
@@ -478,6 +520,8 @@ namespace Remedy.Schematics.Assistant
             public string loading, error;
             public float progress;
             public int version;
+            public bool slow;
+            public string cpu, activity;
             public int step, steps;
             public double elapsed;
         }

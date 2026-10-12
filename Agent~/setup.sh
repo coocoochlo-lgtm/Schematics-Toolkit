@@ -12,6 +12,7 @@ cd "$(dirname "$0")"
 AGENT="$PWD"
 BACKEND="${1:-Cpu}"
 INSTALL="${2:-$AGENT}"
+LLM="${3:-qwen2.5-1.5b-instruct-q4_k_m.gguf}"
 mkdir -p "$INSTALL"
 INSTALL="$(cd "$INSTALL" && pwd)"
 if [ "$INSTALL" != "$AGENT" ]; then
@@ -50,7 +51,9 @@ fetch() { # url file
   curl -L --fail -sS -C - -o "$MODELS/$2.part" "$1"
   mv "$MODELS/$2.part" "$MODELS/$2"
 }
-fetch "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf" "qwen2.5-1.5b-instruct-q4_k_m.gguf"
+# The language model: the standard 1.5B, or the 0.5B that slow CPUs can keep up with.
+case "$LLM" in qwen2.5-0.5b*) REPO="Qwen2.5-0.5B-Instruct-GGUF" ;; *) REPO="Qwen2.5-1.5B-Instruct-GGUF" ;; esac
+fetch "https://huggingface.co/Qwen/$REPO/resolve/main/$LLM" "$LLM"
 fetch "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin" "ggml-base.en.bin"
 if [ ! -f "$MODELS/kokoro-en-v0_19/model.onnx" ]; then
   fetch "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-en-v0_19.tar.bz2" "kokoro-en-v0_19.tar.bz2"

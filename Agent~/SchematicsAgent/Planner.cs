@@ -84,7 +84,7 @@ ws      ::= [ \t\n]*
         {
             var root = request.RootElement;
             utterance = root.Str("utterance").Trim();
-            state = Condense(root.Child("context"));
+            state = Condense(root.Child("context"), root.Str("utterance"));
         }
         if (utterance.Length == 0)
             return Reply("I didn't catch that.", "[]");
@@ -92,9 +92,11 @@ ws      ::= [ \t\n]*
             return Reply("My language model isn't installed yet. Run setup in the Agent folder to download it.", "[]");
 
         // 1. Read and plan.
-        string readerOutput = await _llm.CompleteAsync(
+        // On a slow CPU every token of prompt costs time, so it gets fewer reference entries.
+        int references = Cpu.Slow ? 4 : 10;
+        string readerOutput = await _llm.CompleteAsync("Thinking",
             Persona + "\n" + ReaderRules,
-            $"Editor state:\n{state}{ReferenceFor(utterance + " " + state, 10)}\n\nRequest: {utterance}",
+            $"Editor state:\n{state}{ReferenceFor(utterance + " " + state, references)}\n\nRequest: {utterance}",
             ReaderGrammar, 320, cancellation);
 
         string say = "Okay.";
@@ -111,9 +113,9 @@ ws      ::= [ \t\n]*
             return Reply(say, "[]");
 
         // 2. Act: the plan becomes commands.
-        string actorOutput = await _llm.CompleteAsync(
+        string actorOutput = await _llm.CompleteAsync("Planning the steps",
             Persona + "\n" + ActorRules(),
-            $"Editor state:\n{state}{ReferenceFor(utterance + " " + string.Join(" ", plan), 12)}\n\nRequest: {utterance}\nPlan:\n- {string.Join("\n- ", plan)}",
+            $"Editor state:\n{state}{ReferenceFor(utterance + " " + string.Join(" ", plan), references + 2)}\n\nRequest: {utterance}\nPlan:\n- {string.Join("\n- ", plan)}",
             ActorGrammar(), 900, cancellation);
 
         return Reply(say, NormalizeCommands(actorOutput));
@@ -158,7 +160,7 @@ ws      ::= [ \t\n]*
     /// The editor snapshot as compact text: the open graph's nodes and links, the prefab's objects with their
     /// Behaviors' Variables and Signals, the node types available, and a summary of the open scene.
     /// </summary>
-    public static string Condense(DElement context)
+    public static string Condense(DElement context, string utterance = "")
     {
         var text = new StringBuilder();
         if (!context.IsValid)
@@ -206,7 +208,10 @@ ws      ::= [ \t\n]*
             text.Append('\n');
         }
 
-        var types = context.Child("node_types").Items().Select(t => t.GetString()).ToList();
+        // Every node type would be thousands of tokens: those the request mentions, those in the graph, then the rest
+        // up to a limit.
+        var types = Relevant(context.Child("node_types").Items().Select(t => t.GetString() ?? "").Where(t => t.Length > 0).ToList(),
+                             utterance + " " + text, Cpu.Slow ? 25 : 60);
         if (types.Count > 0)
             text.Append("Node types: ").Append(string.Join(", ", types)).Append('\n');
 
@@ -217,10 +222,26 @@ ws      ::= [ \t\n]*
             var selected = scene.Child("selected").Items().Select(s => s.GetString()).ToList();
             if (selected.Count > 0) text.Append(", selected: ").Append(string.Join(", ", selected));
             text.Append(":\n");
-            foreach (var obj in scene.Child("objects").Items())
+            foreach (var obj in scene.Child("objects").Items().Take(Cpu.Slow ? 15 : 40))
                 text.Append("  ").Append(obj.Str("name")).Append(" @").Append(obj.Str("pos")).Append(' ').Append(obj.Str("components")).Append('\n');
         }
         return text.ToString();
+    }
+
+    private static List<string> Relevant(List<string> types, string about, int limit)
+    {
+        if (types.Count <= limit)
+            return types;
+        var words = System.Text.RegularExpressions.Regex.Split(about.ToLowerInvariant(), "[^a-z0-9]+").Where(w => w.Length >= 3).ToHashSet();
+        int Score(string type)
+        {
+            string lower = type.ToLowerInvariant();
+            int score = about.Contains(type, StringComparison.OrdinalIgnoreCase) ? 10 : 0;
+            foreach (var word in words)
+                if (lower.Contains(word)) score++;
+            return score;
+        }
+        return types.Select((t, i) => (t, i, s: Score(t))).OrderByDescending(x => x.s).ThenBy(x => x.i).Take(limit).Select(x => x.t).ToList();
     }
 
     private static string Round(double value) => Math.Round(value).ToString(CultureInfo.InvariantCulture);
