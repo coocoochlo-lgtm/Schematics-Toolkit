@@ -29,8 +29,8 @@ public static class InspectorRows
 
         public string Key => Kind switch
         {
-            RowKind.GraphVariable => "g:" + (Graph != null ? Graph.GetInstanceID() : 0) + VariableId,
-            RowKind.Signal => "s:" + (Signal != null ? Signal.GetInstanceID() : 0),
+            RowKind.GraphVariable => "g:" + (Graph != null ? Graph.Uid : "") + "|" + VariableId,
+            RowKind.Signal => "s:" + (Signal != null ? Signal.Uid : ""),
             _ => $"v:{Behavior?.FullName}|{Path}|{Name}",
         };
     }

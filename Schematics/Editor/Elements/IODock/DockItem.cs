@@ -1,6 +1,5 @@
 using Remedy.Schematics;
 using System;
-using UnityEditor;
 using UnityEngine;
 
 /// <summary>
@@ -45,10 +44,10 @@ public sealed class DockItem
         _ => Name,
     };
 
-    public static string SignalKey(SignalData signal) => signal != null ? "signal:" + signal.GetHashCode() : "signal:none";
+    public static string SignalKey(SignalData signal) => signal != null ? "signal:" + signal.Uid : "signal:none";
     public static string VariableKey(Type behavior, string path, string name) => $"var:{behavior?.FullName}|{path}|{name}";
     public static string BehaviorKey(Type behavior, string path) => $"behavior:{behavior?.FullName}|{path}";
     public static string ObjectKey(string path) => "object:" + path;
     public static string GraphVariableKey(SchematicGraph graph, string id)
-        => $"gvar:{(graph != null ? AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(graph)) : "")}|{id}";
+        => $"gvar:{(graph != null ? graph.Uid : "")}|{id}";
 }

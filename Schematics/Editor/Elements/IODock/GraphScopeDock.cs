@@ -146,13 +146,13 @@ public class GraphScopeDock : VisualElement
     #region Other graphs
 
     // Graphs whose Variables and Signals this graph uses, remembered per graph (in this project, on this machine).
-    private string PinnedKey => "SchematicGraphScope.Pinned." + AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(_graph));
+    private string PinnedKey => "SchematicGraphScope.Pinned." + _graph.Uid;
 
     private List<SchematicGraph> Pinned()
     {
         var graphs = new List<SchematicGraph>();
-        foreach (var guid in EditorPrefs.GetString(PinnedKey, "").Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
-            if (AssetDatabase.LoadAssetAtPath<SchematicGraph>(AssetDatabase.GUIDToAssetPath(guid)) is { } graph && graph != _graph)
+        foreach (var uid in EditorPrefs.GetString(PinnedKey, "").Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+            if (SchematicUids.Find<SchematicGraph>(uid) is { } graph && graph != _graph)
                 graphs.Add(graph);
         // Graphs this one already uses something from count too.
         foreach (var node in _graph.Nodes)
@@ -162,7 +162,7 @@ public class GraphScopeDock : VisualElement
     }
 
     private void SavePinned(IEnumerable<SchematicGraph> graphs)
-        => EditorPrefs.SetString(PinnedKey, string.Join(";", graphs.Select(g => AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(g)))));
+        => EditorPrefs.SetString(PinnedKey, string.Join(";", graphs.Select(g => g.Uid)));
 
     private VisualElement OtherGraphs()
     {

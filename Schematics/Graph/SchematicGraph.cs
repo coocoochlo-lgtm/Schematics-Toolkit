@@ -11,8 +11,16 @@ using UnityEditor;
 
 namespace Remedy.Schematics
 {
-    public class SchematicGraph : Graph
+    public class SchematicGraph : Graph, ISchematicAsset
     {
+        [SerializeField, HideInInspector]
+        private string _uid;
+
+        /// <summary>This graph's permanent id (see <see cref="ISchematicAsset"/>).</summary>
+        public string Uid => SchematicUid.Ensure(ref _uid, this);
+
+        public void RegenerateUid() => _uid = SchematicUid.New();
+
         public override string Title
         {
             get { return Prefab == null ? "SCHEMATIC" : "$ Prefab: " + Prefab.name; }

@@ -313,7 +313,7 @@ public static class SchematicBehaviorsHeaderGUI
 
         using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
         {
-            var foldoutKey = $"SchematicGraphScope.{root.GetInstanceID()}";
+            var foldoutKey = $"SchematicGraphScope.{graph.Uid}";
             bool expanded = EditorGUILayout.Foldout(SessionState.GetBool(foldoutKey, true), $"Graph: {graph.name}", true, EditorStyles.foldoutHeader);
             SessionState.SetBool(foldoutKey, expanded);
             if (!expanded)

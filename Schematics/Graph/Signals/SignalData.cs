@@ -4,8 +4,16 @@ using System.Collections.Generic;
 using UnityEngine;
 using System.Data.SqlTypes;
 
-public partial class SignalData : ScriptableObject
+public partial class SignalData : ScriptableObject, Remedy.Schematics.ISchematicAsset
 {
+    [SerializeField, HideInInspector]
+    private string _uid;
+
+    /// <summary>This Signal's permanent id (see <see cref="Remedy.Schematics.ISchematicAsset"/>).</summary>
+    public string Uid => Remedy.Schematics.SchematicUid.Ensure(ref _uid, this);
+
+    public void RegenerateUid() => _uid = Remedy.Schematics.SchematicUid.New();
+
     public string Name;
     private static Dictionary<int, UnityEngine.Object> _allSubscribers;
     public static Dictionary<int, UnityEngine.Object> AllSubscribers
