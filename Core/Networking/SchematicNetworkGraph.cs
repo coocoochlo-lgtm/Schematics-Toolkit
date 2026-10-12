@@ -10,6 +10,8 @@ namespace Remedy.Networking
     /// <summary>
     /// Syncs a Schematic Object's networked graph. Its graph events run on the object's authority only, and nodes set
     /// to <see cref="NodeNetworkMode.Everyone"/> are sent to every other peer to run there, with the same inputs.
+    /// Variables marked Network Sync (Behavior and graph Variables) are sent by the authority when they change, and
+    /// peers that join late get them all.
     /// Put it (and a NetworkObject) on the Schematic Object of any prefab whose graph is marked Networked.
     /// </summary>
     [AddComponentMenu("Schematics/Networking/Schematic Network Graph")]
@@ -27,10 +29,74 @@ namespace Remedy.Networking
             GraphNetwork.Replicate = Replicate;
         }
 
+        [Tooltip("How many times a second the authority sends Variables marked Network Sync that changed.")]
+        [SerializeField, Min(1f)] private float _variableSendRate = 20f;
+
+        private SchematicObject _owner;
+        private float _nextVariableSend;
+        private static readonly List<(string key, object value)> _changes = new();
+
         public override void OnNetworkSpawn()
         {
             _byObject[gameObject] = this;
+            _owner = GetComponent<SchematicObject>();
+            // Joining late: ask the authority for every synced Variable's current value.
+            if (!HasAuthority)
+                RequestVariablesRpc();
         }
+
+        private void Update()
+        {
+            if (!IsSpawned || !HasAuthority || _owner == null || Time.unscaledTime < _nextVariableSend)
+                return;
+            _nextVariableSend = Time.unscaledTime + 1f / Mathf.Max(1f, _variableSendRate);
+            _changes.Clear();
+            VariableSync.CollectChanges(_owner, _changes);
+            if (_changes.Count > 0)
+                VariablesRpc(Pack(_changes));
+        }
+
+        private static byte[] Pack(List<(string key, object value)> changes)
+        {
+            var keys = new string[changes.Count];
+            var values = new Union[changes.Count];
+            for (int i = 0; i < changes.Count; i++)
+            {
+                keys[i] = changes[i].key;
+                values[i] = SignalArgs.ToUnion<object>(changes[i].value);
+            }
+            return UnionNetworkSerializer.Pack("", keys, values);
+        }
+
+        private void ApplyVariables(byte[] payload)
+        {
+            if (_owner == null)
+                _owner = GetComponent<SchematicObject>();
+            UnionNetworkSerializer.Unpack(payload, out _, out string[] keys, out Union[] values);
+            for (int i = 0; i < keys.Length; i++)
+            {
+                var type = VariableSync.TypeOf(_owner, keys[i]);
+                if (type != null)
+                    VariableSync.Apply(_owner, keys[i], SignalArgs.FromUnion(values[i], type));
+            }
+        }
+
+        [Rpc(SendTo.NotMe)]
+        private void VariablesRpc(byte[] payload) => ApplyVariables(payload);
+
+        [Rpc(SendTo.Authority)]
+        private void RequestVariablesRpc(RpcParams rpcParams = default)
+        {
+            if (_owner == null)
+                _owner = GetComponent<SchematicObject>();
+            _changes.Clear();
+            VariableSync.CollectChanges(_owner, _changes, all: true);
+            if (_changes.Count > 0)
+                AllVariablesRpc(Pack(_changes), RpcTarget.Single(rpcParams.Receive.SenderClientId, RpcTargetUse.Temp));
+        }
+
+        [Rpc(SendTo.SpecifiedInParams)]
+        private void AllVariablesRpc(byte[] payload, RpcParams rpcParams) => ApplyVariables(payload);
 
         public override void OnNetworkDespawn()
         {
