@@ -1,0 +1,25 @@
+{
+    "name": "Remedy.Schematics.Collaboration.Features",
+    "rootNamespace": "Remedy.Schematics.Collaboration",
+    "references": [
+        "Remedy.Schematics.Collaboration",
+        "Remedy.Schematics.Editor",
+        "Remedy.Schematics.Graph",
+        "BlueGraph.Runtime",
+        "BlueGraph.Editor",
+        "Remedy.Schematics.Core",
+        "Remedy.Core",
+        "UniTask"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
