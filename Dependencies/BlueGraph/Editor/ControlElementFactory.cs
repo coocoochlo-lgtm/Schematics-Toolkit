@@ -13,8 +13,31 @@ namespace BlueGraph.Editor
     /// </summary>
     public static class ControlElementFactory
     {
+        /// <summary>Builds an inline control for a node field of a type the factory doesn't know about.</summary>
+        public delegate VisualElement CustomControl(FieldInfo fieldInfo, NodeView view, string label);
+
+        private static readonly Dictionary<Type, CustomControl> _customControls = new Dictionary<Type, CustomControl>();
+
+        /// <summary>
+        /// Registers the control used for fields of <paramref name="type"/> (editable ports and [Editable] fields).
+        /// Lets other editor assemblies add controls (e.g. the Int Tag dropdown) without editing this factory.
+        /// Call it from an [InitializeOnLoad] static constructor.
+        /// </summary>
+        public static void RegisterControl(Type type, CustomControl factory)
+        {
+            if (type == null)
+                return;
+            if (factory == null)
+                _customControls.Remove(type);
+            else
+                _customControls[type] = factory;
+        }
+
         public static VisualElement CreateControl(FieldInfo fieldInfo, NodeView view, string label = null)
         {
+            if (_customControls.TryGetValue(fieldInfo.FieldType, out var custom))
+                return custom(fieldInfo, view, label);
+
             // This mess is similar to what Unity is doing for ShaderGraph. It's not great.
             // But the automatic alternatives depend on SerializableObject which is a performance bottleneck.
             // Ref: https://github.com/Unity-Technologies/ScriptableRenderPipeline/blob/master/com.unity.shadergraph/Editor/Drawing/Controls/DefaultControl.cs

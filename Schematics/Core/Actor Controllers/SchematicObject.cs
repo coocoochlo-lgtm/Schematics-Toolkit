@@ -10,9 +10,26 @@ namespace Remedy.Schematics
     /// Describes how instances of the Object should interface with the rest of the Schematic Toolkit
     /// </summary>
     [RequireComponent(typeof(ManagerHandshaker))]
-    public class SchematicObject : MonoBehaviour
+    public class SchematicObject : MonoBehaviour, IIntTagSource
     {
         public SchematicGraph SchematicGraph;
+
+        /// <summary>
+        /// The Int Tags this object can be found by (<see cref="IntTagRegistry.Find"/>, the "Find With Tag" node). They're
+        /// registered while the object is enabled, so a pooled object leaves its tags when it despawns and gets them
+        /// back when it spawns again.
+        /// </summary>
+        [Tooltip("The tags this object can be found by. Pick from the dropdown, or choose \"Add Tag...\" to make a new one.")]
+        public List<IntTag> Tags = new();
+
+        // What this object actually added to the registry, so Inspector edits in Play Mode apply as a difference.
+        [NonSerialized]
+        private readonly List<IntTag> _registeredTags = new();
+
+        IReadOnlyList<IntTag> IIntTagSource.Tags => Tags;
+
+        // Set while this object's graph listens for tags being added or removed (only if it has those event nodes).
+        private Action<GameObject, IntTag> _onTagAdded, _onTagRemoved;
 
         /// <summary>
         /// The Schematic Behaviors attached through the Inspector, keyed by the GameObject they're attached to
@@ -133,8 +150,12 @@ namespace Remedy.Schematics
 
         private void OnEnable()
         {
+            IntTagRegistry.SyncSource(this, Tags, _registeredTags, true);
+
             if(SchematicGraph == null)
                 return;
+
+            SubscribeTagEvents();
 
             SchematicGraph.ReconstructPortConnections();
 
@@ -142,6 +163,45 @@ namespace Remedy.Schematics
 
             foreach (var oninvokeNode in SchematicGraph.FlowOnInvokeCache)
                 oninvokeNode.UpdateCaches();
+        }
+
+        private void OnDisable()
+        {
+            UnsubscribeTagEvents();
+            IntTagRegistry.SyncSource(this, Tags, _registeredTags, false);
+        }
+
+        // The "On Tag Added/Removed" nodes hear every tag change in the world; they filter by tag (and object) themselves.
+        private void SubscribeTagEvents()
+        {
+            UnsubscribeTagEvents();
+            if (!Application.isPlaying)
+                return;
+
+            var graph = SchematicGraph;
+            var addedNodes = graph.GetEventArray<OnIntTagAdded>();
+            if (addedNodes != null && addedNodes.Length > 0)
+            {
+                _onTagAdded = (go, tag) => { if (SchematicGraph == graph) graph.TriggerEvent<OnIntTagAdded>(gameObject, go, tag.Value); };
+                IntTagRegistry.Added += _onTagAdded;
+            }
+
+            var removedNodes = graph.GetEventArray<OnIntTagRemoved>();
+            if (removedNodes != null && removedNodes.Length > 0)
+            {
+                _onTagRemoved = (go, tag) => { if (SchematicGraph == graph) graph.TriggerEvent<OnIntTagRemoved>(gameObject, go, tag.Value); };
+                IntTagRegistry.Removed += _onTagRemoved;
+            }
+        }
+
+        private void UnsubscribeTagEvents()
+        {
+            if (_onTagAdded != null)
+                IntTagRegistry.Added -= _onTagAdded;
+            if (_onTagRemoved != null)
+                IntTagRegistry.Removed -= _onTagRemoved;
+            _onTagAdded = null;
+            _onTagRemoved = null;
         }
 
         /// <summary>Raised after an object's On Create ran (Timeline Graphs that play on start listen).</summary>
@@ -281,8 +341,15 @@ namespace Remedy.Schematics
 
         public void OnValidate()
         {
-            // Add OnValidate Event
+            // Tags edited in the Inspector: Edit Mode rebuilds the registry lazily; Play Mode applies the difference now.
+            if (!Application.isPlaying)
+                IntTagRegistry.RequestEditModeRefresh();
+            else if (isActiveAndEnabled)
+                IntTagRegistry.SyncSource(this, Tags, _registeredTags, true);
         }
+
+        /// <summary>True if this object has the tag right now (see <see cref="IntTagExtensions.HasIntTag(GameObject, IntTag)"/>).</summary>
+        public bool HasTag(IntTag tag) => gameObject.HasIntTag(tag);
 
         public void Assign(SchematicGraph graph)
         {
