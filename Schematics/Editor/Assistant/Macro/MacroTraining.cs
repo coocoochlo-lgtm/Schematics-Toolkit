@@ -169,7 +169,8 @@ namespace Remedy.Schematics.Assistant.Macro
                     string prompt = language.Prompt(example.State, example.Request);
                     string answer = language.Encode(example.State, example.Commands);
                     // Everything must survive the round trip, or it's left out.
-                    var decoded = answer != null ? language.Decode(example.State, answer, out var problems) : null;
+                    var problems = new List<string>();
+                    var decoded = answer != null ? language.Decode(example.State, answer, out problems) : null;
                     if (answer == null || decoded == null || (problems != null && problems.Count > 0) || decoded.Count != example.Commands.Count || !seen.Add(prompt))
                     {
                         rejected++;
