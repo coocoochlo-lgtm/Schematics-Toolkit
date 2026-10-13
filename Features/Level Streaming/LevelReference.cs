@@ -71,8 +71,8 @@ namespace Remedy.LevelStreaming
         {
             get
             {
-                if (Kind == LevelKind.Prefab)
-                    return Prefab != null ? "prefab:" + Prefab.GetInstanceID() : "";
+                //if (Kind == LevelKind.Prefab)
+                //    return Prefab != null ? "prefab:" + Prefab.GetInstanceID() : "";
                 return "scene:" + ResolveScenePath().ToLowerInvariant();
             }
         }

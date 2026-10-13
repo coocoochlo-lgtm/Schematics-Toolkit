@@ -590,9 +590,9 @@ namespace Remedy.LevelStreaming
             var type = NetworkObjectType;
             if (type == null || prefab == null || prefab.GetComponentInChildren(type, true) == null)
                 return;
-            if (_warned.Add("net:" + prefab.GetInstanceID()))
-                Debug.LogWarning($"[Level Streaming] The level prefab '{prefab.name}' contains NetworkObjects. Clients can't " +
-                                 "create those themselves; load networked levels the Netcode way (NetworkSceneManager) instead.", prefab);
+            //if (_warned.Add("net:" + prefab.GetInstanceID()))
+            //    Debug.LogWarning($"[Level Streaming] The level prefab '{prefab.name}' contains NetworkObjects. Clients can't " +
+            //                     "create those themselves; load networked levels the Netcode way (NetworkSceneManager) instead.", prefab);
         }
 
         #endregion
