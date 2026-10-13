@@ -71,8 +71,9 @@ namespace Remedy.LevelStreaming
         {
             get
             {
-                //if (Kind == LevelKind.Prefab)
-                //    return Prefab != null ? "prefab:" + Prefab.GetInstanceID() : "";
+                // Object.GetHashCode is the object's identity (GetInstanceID is a compile error in newer Unity 6).
+                if (Kind == LevelKind.Prefab)
+                    return Prefab != null ? "prefab:" + Prefab.GetHashCode() : "";
                 return "scene:" + ResolveScenePath().ToLowerInvariant();
             }
         }
