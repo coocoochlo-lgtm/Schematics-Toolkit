@@ -27,6 +27,7 @@ namespace Remedy.ManifoldNetwork.Schematics
         [SchematicDoc(@"{""name"": ""OnDecided"", ""kind"": ""signal"", ""behavior"": ""Brain"", ""direction"": ""output"", ""description"": ""The brain has decided: read its outputs here (Get Brain Output) and act on them."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [Tooltip("The brain has decided: read its outputs here (Get Brain Output) and act on them.")]
         [OutputSignal]
+        [NetworkSync(SignalSender.Authority)]
         public readonly SignalHandle OnDecided;
 
         // Behavior-level: every instance's agent, whichever object it's on.

@@ -21,10 +21,18 @@ namespace Remedy.Vehicles
     /// Turn them all to 0 and you have a car that rolls like a real one.<br/>
     /// Works with or without <see cref="VehicleSeats"/>: with seats it only drives while someone's in a driver seat
     /// (or with Always Active, for AI); without, whatever sends its input Signals drives it.
-    /// Only the authority simulates it: network proxies are left to their synced Transform.
+    /// Networked: one peer simulates it (the driver, who becomes its owner, when its NetworkTransform is set to owner
+    /// authority, which Network Sync does for vehicles; otherwise the server) and everyone else gets a proxy that
+    /// follows its synced Transform, with wheels that still spin and steer. The input Signals are networked from the
+    /// owner (so other players' keys can't steer it), Driver Inputs are mirrored to everyone a few times a second, and
+    /// the drift / boost / flip / crash Signals are sent by whoever simulates (they're networked with Anyone as sender:
+    /// only the simulating peer ever fires them, whether that's the driver or the server), so effects play for every
+    /// player (proxies
+    /// also update Is Drifting, Drift Level, Is Boosting and Is Flipped from them).
     /// </remarks>
-    [SchematicDoc(@"{""name"": ""Arcade Car"", ""kind"": ""behavior"", ""menu"": ""Vehicles/Arcade Car"", ""description"": ""An arcade car on a real Box3D body: NFS Underground / Mario Kart handling (drifts, mini-turbos, a car that wants to stay on its wheels) while crashes and rollovers are still physics. Raycast wheels; everything tunable in its Properties asset."", ""variables"": [""Properties"", ""Wheels"", ""AlwaysActive"", ""ParkWhenEmpty"", ""DriverInputs"", ""PlayerDriverOnly"", ""Speed"", ""ForwardSpeed"", ""IsGrounded"", ""GroundedWheels"", ""IsDrifting"", ""DriftAngle"", ""DriftCharge"", ""DriftLevel"", ""IsBoosting"", ""IsFlipped"", ""AirTime""], ""signals"": [""Throttle"", ""Brake"", ""Steer"", ""Drive"", ""Handbrake"", ""Boost"", ""Unflip"", ""OnDriftStarted"", ""OnDriftEnded"", ""OnDriftLevel"", ""OnBoost"", ""OnLanded"", ""OnFlipped"", ""OnRighted"", ""OnCrash""], ""use_for"": [""drivable cars and karts"", ""racing games"", ""AI traffic""], ""notes"": ""Needs a Box3D Body and a shape (added for you). Add Vehicle Seats so it only drives with a driver.""}")]
+    [SchematicDoc(@"{""name"": ""Arcade Car"", ""kind"": ""behavior"", ""menu"": ""Vehicles/Arcade Car"", ""description"": ""An arcade car on a real Box3D body: NFS Underground / Mario Kart handling (drifts, mini-turbos, a car that wants to stay on its wheels) while crashes and rollovers are still physics. Raycast wheels; everything tunable in its Properties asset."", ""variables"": [""Properties"", ""Wheels"", ""AlwaysActive"", ""ParkWhenEmpty"", ""DriverInputs"", ""PlayerDriverOnly"", ""Speed"", ""ForwardSpeed"", ""IsGrounded"", ""GroundedWheels"", ""IsDrifting"", ""DriftAngle"", ""DriftCharge"", ""DriftLevel"", ""IsBoosting"", ""IsFlipped"", ""AirTime""], ""signals"": [""Throttle"", ""Brake"", ""Steer"", ""Drive"", ""Handbrake"", ""Boost"", ""Unflip"", ""OnDriftStarted"", ""OnDriftEnded"", ""OnDriftLevel"", ""OnBoost"", ""OnLanded"", ""OnFlipped"", ""OnRighted"", ""OnCrash""], ""use_for"": [""drivable cars and karts"", ""racing games"", ""AI traffic""], ""notes"": ""Needs a Box3D Body and a shape (added for you). Add Vehicle Seats so it only drives with a driver. Multiplayer: the driver owns and simulates the car; its input Signals are networked from the owner, and drift/boost/flip/crash Signals reach every player for effects.""}")]
     [SchematicBehaviorPath("Vehicles/Arcade Car")]
+    [NetworkOwnerSimulated]
     [RequireComponent(typeof(Box3DBody), typeof(Box3DBoxShape), typeof(SchematicImpactRelay))]
     public class ArcadeCar : SchematicBehavior
     {
@@ -108,86 +116,86 @@ namespace Remedy.Vehicles
 
         [SchematicDoc(@"{""name"": ""Throttle"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""input"", ""params"": [{""name"": ""Amount"", ""type"": ""float""}], ""description"": ""Accelerate, 0..1. The value holds until the next one, so send 0 to let go."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock), e.g. from an input or an AI graph.""}")]
         [Tooltip("Accelerate, 0..1. The value holds until the next one, so send 0 to let go.")]
-        [InputSignal]
+        [InputSignal, NetworkSync(SignalSender.OwnerToAuthority)]
         [Parameter("Amount", typeof(float))]
         public readonly SignalHandle<float> Throttle;
 
         [SchematicDoc(@"{""name"": ""Brake"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""input"", ""params"": [{""name"": ""Amount"", ""type"": ""float""}], ""description"": ""Brake, 0..1; reverses once the car has stopped."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock).""}")]
         [Tooltip("Brake, 0..1; reverses once the car has stopped.")]
-        [InputSignal]
+        [InputSignal, NetworkSync(SignalSender.OwnerToAuthority)]
         [Parameter("Amount", typeof(float))]
         public readonly SignalHandle<float> Brake;
 
         [SchematicDoc(@"{""name"": ""Steer"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""input"", ""params"": [{""name"": ""Amount"", ""type"": ""float""}], ""description"": ""Steer, -1 (left) to 1 (right)."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock).""}")]
         [Tooltip("Steer, -1 (left) to 1 (right).")]
-        [InputSignal]
+        [InputSignal, NetworkSync(SignalSender.OwnerToAuthority)]
         [Parameter("Amount", typeof(float))]
         public readonly SignalHandle<float> Steer;
 
         [SchematicDoc(@"{""name"": ""Drive"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""input"", ""params"": [{""name"": ""Stick"", ""type"": ""Vector2""}], ""description"": ""All of it from one stick: x steers, y throttles (up) or brakes/reverses (down)."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock), e.g. straight from a Move input.""}")]
         [Tooltip("All of it from one stick: x steers, y throttles (up) or brakes/reverses (down).")]
-        [InputSignal]
+        [InputSignal, NetworkSync(SignalSender.OwnerToAuthority)]
         [Parameter("Stick", typeof(Vector2))]
         public readonly SignalHandle<Vector2> Drive;
 
         [SchematicDoc(@"{""name"": ""Handbrake"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""input"", ""params"": [{""name"": ""Held"", ""type"": ""bool""}], ""description"": ""Handbrake / drift button, held. With steering at speed it starts a drift."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock): true when pressed, false when released.""}")]
         [Tooltip("Handbrake / drift button, held. With steering at speed it starts a drift.")]
-        [InputSignal]
+        [InputSignal, NetworkSync(SignalSender.OwnerToAuthority)]
         [Parameter("Held", typeof(bool))]
         public readonly SignalHandle<bool> Handbrake;
 
         [SchematicDoc(@"{""name"": ""Boost"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""input"", ""description"": ""Fires a boost (nitro, a boost pad, a mushroom) using the Properties' Boost settings. Graphs keep track of how many the player has."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock).""}")]
         [Tooltip("Fires a boost using the Properties' Boost settings.")]
-        [InputSignal]
+        [InputSignal, NetworkSync(SignalSender.OwnerToAuthority)]
         public readonly SignalHandle Boost;
 
         [SchematicDoc(@"{""name"": ""Unflip"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""input"", ""description"": ""Turns a flipped car back onto its wheels now (a 'reset car' button), even if self-righting is off."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock).""}")]
         [Tooltip("Turns a flipped car back onto its wheels now, even if self-righting is off.")]
-        [InputSignal]
+        [InputSignal, NetworkSync(SignalSender.OwnerToAuthority)]
         public readonly SignalHandle Unflip;
 
         [SchematicDoc(@"{""name"": ""OnDriftStarted"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""output"", ""description"": ""Sent when a drift starts: tyre smoke, sparks, a screech."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock).""}")]
         [Tooltip("Sent when a drift starts.")]
-        [OutputSignal]
+        [OutputSignal, NetworkSync(SignalSender.Anyone)]
         public readonly SignalHandle OnDriftStarted;
 
         [SchematicDoc(@"{""name"": ""OnDriftEnded"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""output"", ""params"": [{""name"": ""Charge"", ""type"": ""float""}], ""description"": ""Sent when a drift ends, with the charge it built up (for drift scores)."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock).""}")]
         [Tooltip("Sent when a drift ends, with the charge it built up.")]
-        [OutputSignal]
+        [OutputSignal, NetworkSync(SignalSender.Anyone)]
         [Parameter("Charge", typeof(float))]
         public readonly SignalHandle<float> OnDriftEnded;
 
         [SchematicDoc(@"{""name"": ""OnDriftLevel"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""output"", ""params"": [{""name"": ""Level"", ""type"": ""int""}], ""description"": ""Sent when a drift's charge reaches the next mini-turbo level (change the spark colour)."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock).""}")]
         [Tooltip("Sent when a drift's charge reaches the next mini-turbo level.")]
-        [OutputSignal]
+        [OutputSignal, NetworkSync(SignalSender.Anyone)]
         [Parameter("Level", typeof(int))]
         public readonly SignalHandle<int> OnDriftLevel;
 
         [SchematicDoc(@"{""name"": ""OnBoost"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""output"", ""params"": [{""name"": ""Level"", ""type"": ""int""}], ""description"": ""Sent when a boost starts: the mini-turbo level, or 0 for a Boost input."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock).""}")]
         [Tooltip("Sent when a boost starts: the mini-turbo level, or 0 for a Boost input.")]
-        [OutputSignal]
+        [OutputSignal, NetworkSync(SignalSender.Anyone)]
         [Parameter("Level", typeof(int))]
         public readonly SignalHandle<int> OnBoost;
 
         [SchematicDoc(@"{""name"": ""OnLanded"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""output"", ""params"": [{""name"": ""Air Time"", ""type"": ""float""}], ""description"": ""Sent when the car lands after a jump, with how long it was in the air (seconds)."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock).""}")]
         [Tooltip("Sent when the car lands after a jump, with how long it was in the air.")]
-        [OutputSignal]
+        [OutputSignal, NetworkSync(SignalSender.Anyone)]
         [Parameter("Air Time", typeof(float))]
         public readonly SignalHandle<float> OnLanded;
 
         [SchematicDoc(@"{""name"": ""OnFlipped"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""output"", ""description"": ""Sent when the car ends up on its side or roof."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock).""}")]
         [Tooltip("Sent when the car ends up on its side or roof.")]
-        [OutputSignal]
+        [OutputSignal, NetworkSync(SignalSender.Anyone)]
         public readonly SignalHandle OnFlipped;
 
         [SchematicDoc(@"{""name"": ""OnRighted"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""output"", ""description"": ""Sent when a flipped car is back on its wheels."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock).""}")]
         [Tooltip("Sent when a flipped car is back on its wheels.")]
-        [OutputSignal]
+        [OutputSignal, NetworkSync(SignalSender.Anyone)]
         public readonly SignalHandle OnRighted;
 
         [SchematicDoc(@"{""name"": ""OnCrash"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""output"", ""params"": [{""name"": ""Speed"", ""type"": ""float""}], ""description"": ""Sent when the car hits something (or something hits it) faster than the Properties' Min Crash Speed, with the impact speed in m/s. For damage, sounds and camera shake."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock).""}")]
         [Tooltip("Sent when the car hits something faster than Min Crash Speed, with the impact speed in m/s.")]
-        [OutputSignal]
+        [OutputSignal, NetworkSync(SignalSender.Anyone)]
         [Parameter("Speed", typeof(float))]
         public readonly SignalHandle<float> OnCrash;
 
@@ -256,6 +264,112 @@ namespace Remedy.Vehicles
                             state.Apply(bound, value);
                     });
                 }
+
+            // Proxies (another player simulates this car) keep their display Variables from the simulator's Signals.
+            OnDriftStarted.Subscribe(() =>
+            {
+                if (!IsProxy(instance)) return;
+                IsDrifting[instance] = true;
+                DriftLevel[instance] = 0;
+                DriftCharge[instance] = 0f;
+            });
+            OnDriftEnded.Subscribe(_ =>
+            {
+                if (!IsProxy(instance)) return;
+                IsDrifting[instance] = false;
+                DriftLevel[instance] = 0;
+                DriftCharge[instance] = 0f;
+            });
+            OnDriftLevel.Subscribe(level => { if (IsProxy(instance)) DriftLevel[instance] = level; });
+            OnBoost.Subscribe(level =>
+            {
+                var p = Properties[instance];
+                if (!IsProxy(instance) || p == null) return;
+                float duration = level > 0 && p.TurboLevels != null && level <= p.TurboLevels.Length && p.TurboLevels[level - 1] != null
+                    ? p.TurboLevels[level - 1].Duration : p.BoostDuration;
+                state.BoostTime = Mathf.Max(state.BoostTime, duration);
+            });
+            OnFlipped.Subscribe(() => { if (IsProxy(instance)) IsFlipped[instance] = true; });
+            OnRighted.Subscribe(() => { if (IsProxy(instance)) IsFlipped[instance] = false; });
+        }
+
+        // Another peer simulates this car; this one shows a proxy.
+        private static bool IsProxy(BehaviorInstance instance)
+        {
+            var body = instance.IsSpawned ? instance.GetComponent<Box3DBody>() : null;
+            return body != null && body.IsNetworkProxy();
+        }
+
+        #endregion
+
+        #region Networking
+
+        /// <summary>How many times a second the owner sends its Driver Inputs (as the input Signals) to everyone else.</summary>
+        public const float InputSendRate = 15f;
+
+        // The owner mirrors its inputs to everyone else, at most InputSendRate times a second and only when they change,
+        // through the (networked) input Signals: proxies show the steering, and the authority has them if it takes over.
+        protected override void OnUpdate()
+        {
+            var instance = Self;
+            var state = _state.Value;
+            var car = instance.GameObject;
+            if (state == null || !SchematicNetwork.IsNetworked(car) || !SchematicNetwork.IsLocallyControlled(car))
+                return;
+
+            // Owner but not simulating (server-authority Transform): button presses go to whoever simulates.
+            if (IsProxy(instance))
+            {
+                if (state.BoostQueued) { Boost.Invoke(instance); state.BoostQueued = false; }
+                if (state.UnflipQueued) { Unflip.Invoke(instance); state.UnflipQueued = false; }
+            }
+
+            float now = Time.unscaledTime;
+            if (now < state.NextInputSend)
+                return;
+            bool changed = false;
+            if (!Mathf.Approximately(state.Throttle, state.SentThrottle)) { state.SentThrottle = state.Throttle; Throttle.Invoke(instance, state.Throttle); changed = true; }
+            if (!Mathf.Approximately(state.Brake, state.SentBrake)) { state.SentBrake = state.Brake; Brake.Invoke(instance, state.Brake); changed = true; }
+            if (Mathf.Abs(state.SteerInput - state.SentSteer) > 0.01f || (state.SteerInput == 0f && state.SentSteer != 0f))
+            {
+                state.SentSteer = state.SteerInput;
+                Steer.Invoke(instance, state.SteerInput);
+                changed = true;
+            }
+            if (state.Handbrake != state.SentHandbrake) { state.SentHandbrake = state.Handbrake; Handbrake.Invoke(instance, state.Handbrake); changed = true; }
+            if (changed)
+                state.NextInputSend = now + 1f / InputSendRate;
+        }
+
+        // A proxy doesn't simulate, but its wheels still roll and steer, and its speed Variables follow its motion.
+        private void UpdateProxy(BehaviorInstance instance, ArcadeCarProperties p, Wheel[] wheels, CarState state, float dt)
+        {
+            var car = instance.Transform;
+            Vector3 position = car.position;
+            Vector3 velocity = state.HasProxyPosition && dt > 0f ? (position - state.ProxyPosition) / dt : Vector3.zero;
+            state.ProxyPosition = position;
+            state.HasProxyPosition = true;
+            // Smoothed, since the synced Transform arrives in steps.
+            state.ProxyVelocity = Vector3.Lerp(state.ProxyVelocity, velocity, 0.3f);
+
+            float forwardSpeed = Vector3.Dot(state.ProxyVelocity, car.forward);
+            Speed.Value = state.ProxyVelocity.magnitude * 3.6f;
+            ForwardSpeed.Value = forwardSpeed;
+
+            bool turningIn = Mathf.Abs(state.SteerInput) > Mathf.Abs(state.Steer);
+            state.Steer = Mathf.MoveTowards(state.Steer, IsActive(instance) ? state.SteerInput : 0f, (turningIn ? p.SteerSpeed : p.SteerReturnSpeed) * dt);
+            float speedFraction = Mathf.Clamp01(Mathf.Abs(forwardSpeed) / Mathf.Max(0.1f, p.MaxSpeed));
+            float steerAngle = state.Steer * p.MaxSteerAngle * p.SteerBySpeed.Evaluate(speedFraction);
+            for (int i = 0; i < wheels.Length && i < state.Wheels.Length; i++)
+            {
+                ref var w = ref state.Wheels[i];
+                w.SteerAngle = wheels[i] != null && wheels[i].Steers ? steerAngle : 0f;
+                w.RollSpeed = forwardSpeed;
+            }
+
+            if (state.BoostTime > 0f)
+                state.BoostTime -= dt;
+            IsBoosting.Value = state.BoostTime > 0f;
         }
 
         #endregion
@@ -307,8 +421,15 @@ namespace Remedy.Vehicles
                 return;
 
             var body = instance.GetComponent<Box3DBody>();
-            // Only the authority simulates: proxies follow their synced Transform, and a kinematic car is being carried.
-            if (!body.IsLive() || body.IsNetworkProxy() || body.IsKinematic())
+            // Only one peer simulates: proxies follow their synced Transform (and just animate), and a kinematic car is
+            // being carried.
+            if (body != null && body.IsNetworkProxy())
+            {
+                UpdateProxy(instance, p, wheels, state, Time.fixedDeltaTime);
+                return;
+            }
+            state.HasProxyPosition = false;
+            if (!body.IsLive() || body.IsKinematic())
                 return;
             var native = body.Body;
             if (!state.BodyConfigured)
@@ -741,7 +862,8 @@ namespace Remedy.Vehicles
         protected override void OnImpact(PhysicsImpact impact)
         {
             var p = Properties.Value;
-            if (p != null && impact.Speed >= p.MinCrashSpeed)
+            // Whoever simulates the car reports crashes (OnCrash is networked), so proxies don't add their own.
+            if (p != null && impact.Speed >= p.MinCrashSpeed && !IsProxy(Self))
                 OnCrash.Invoke(Self, impact.Speed);
         }
 
@@ -892,6 +1014,12 @@ namespace Remedy.Vehicles
         public Vector3 InertiaX, InertiaY, InertiaZ;
 
         public WheelState[] Wheels;
+
+        // Networking: what the owner last sent, and a proxy's motion.
+        public float SentThrottle, SentBrake, SentSteer, NextInputSend;
+        public bool SentHandbrake;
+        public Vector3 ProxyPosition, ProxyVelocity;
+        public bool HasProxyPosition;
 
         public void SetStick(Vector2 stick)
         {

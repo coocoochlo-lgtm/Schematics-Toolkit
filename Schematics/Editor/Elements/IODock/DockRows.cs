@@ -65,6 +65,9 @@ public static class DockRows
         name.AddToClassList("event-name");
         handle.Add(name);
 
+        // Networked Signals carry the same ⇅ marker as networked Variables.
+        if (signal && item.Signal != null && item.Signal.Networked)
+            detail = (detail ?? "") + "  ⇅";
         var info = new Label(detail);
         info.AddToClassList("dock-row-detail");
         info.style.color = new Color(0.65f, 0.65f, 0.65f);

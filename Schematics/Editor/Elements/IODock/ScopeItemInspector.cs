@@ -215,6 +215,7 @@ public class ScopeItemInspectorEditor : Editor
         {
             Undo.RecordObject(metadata, "Network Sync");
             definition.Networked = on;
+            definition.NetworkedSetByUser = true; // from now on the [NetworkSync] default no longer applies
             EditorUtility.SetDirty(metadata);
             AssetDatabase.SaveAssetIfDirty(metadata);
         });
@@ -262,6 +263,28 @@ public class ScopeItemInspectorEditor : Editor
             EditorGUILayout.LabelField(name, DockRows.TypeName(type));
         using (new EditorGUI.DisabledScope(true))
             EditorGUILayout.ObjectField("Asset", target.Signal, typeof(SignalData), false);
+
+        // Network Sync lives on the Signal asset (what travels at runtime). For a Behavior's Signal, the Metadata also
+        // remembers it was set by hand, so the Behavior's [NetworkSync] default stops applying.
+        if (target.Signal != null)
+        {
+            EditorGUILayout.Space(6);
+            var metadata = behavior != null ? BehaviorMetadata.Get(behavior) : null;
+            var definition = metadata != null ? metadata.FindSignal(target.Name) : null;
+            DrawSignalNetwork(target.Signal, () =>
+            {
+                if (definition == null) return;
+                Undo.RecordObject(metadata, "Network Sync");
+                definition.NetworkedSetByUser = true;
+                EditorUtility.SetDirty(metadata);
+            }, () =>
+            {
+                if (metadata != null) AssetDatabase.SaveAssetIfDirty(metadata);
+                else AssetDatabase.SaveAssetIfDirty(target.Signal);
+            });
+            if (behavior != null)
+                EditorGUILayout.LabelField($"Applies to {behavior.Name} on every object that has it.", EditorStyles.miniLabel);
+        }
     }
 
     private void DrawGraphSignal(ScopeItemInspector target, SchematicGraph graph, GraphSignal signal)
@@ -322,7 +345,46 @@ public class ScopeItemInspectorEditor : Editor
             GraphScopeEditing.SetSignalParameters(graph, signal, edited);
 
         EditorGUILayout.Space(6);
+        if (signal.Asset != null)
+            DrawSignalNetwork(signal.Asset, () => Undo.RecordObject(graph, "Network Sync"), () => GraphScopeEditing.Commit(graph, structural: false));
+
+        EditorGUILayout.Space(6);
         EditorGUILayout.LabelField("Send it to an object with Send (wire the object into To); react to it with On Received in any graph that object runs.", EditorStyles.wordWrappedMiniLabel);
+    }
+
+    private static readonly GUIContent[] _senderLabels =
+    {
+        new("Authority", "Only the object's authority (the server, or its owner in distributed authority) sends it. Sends from anyone else are dropped, so a Behavior that runs on every peer still fires it once everywhere. For results: died, picked up, opened."),
+        new("Owner → Authority", "The object's owner (the player controlling it) sends it; the authority checks it came from the owner and fires it on everyone. The owner hears its own straight away; anyone else's sends are dropped. For inputs: fire, reload, throttle."),
+        new("Anyone", "Whoever sends it, it fires on everyone. For chat, emotes, pings."),
+    };
+
+    // The Network Sync toggle and Sender dropdown of a Signal (mirrors the Variables' toggle).
+    private static void DrawSignalNetwork(SignalData asset, Action before, Action after)
+    {
+        EditorGUI.BeginChangeCheck();
+        bool on = EditorGUILayout.ToggleLeft(new GUIContent("Network Sync",
+            "Fire this Signal for every player when it's sent (on objects with Network Sync turned on; Signals sent to everyone go to every player)."),
+            asset.Networked, EditorStyles.boldLabel);
+        int sender = (int)asset.Sender;
+        using (new EditorGUI.DisabledScope(!on))
+            sender = EditorGUILayout.Popup(new GUIContent("Sender", "Who may send it."), sender, _senderLabels);
+        if (EditorGUI.EndChangeCheck())
+        {
+            before?.Invoke();
+            Undo.RecordObject(asset, "Network Sync");
+            asset.Networked = on;
+            asset.Sender = (SignalNetworkSender)sender;
+            EditorUtility.SetDirty(asset);
+            after?.Invoke();
+        }
+        if (on)
+            EditorGUILayout.HelpBox(asset.Sender switch
+            {
+                SignalNetworkSender.OwnerToAuthority => "The owner sends it to the authority, which fires it on everyone. Other peers' sends are dropped.",
+                SignalNetworkSender.Anyone => "Whoever sends it, it fires on every player.",
+                _ => "Only the authority's sends count; it fires on every player. Other peers' sends are dropped.",
+            } + " Signals sent while handling a networked Signal stay local (each player fires their own), and its parameters must be values or networked objects.", MessageType.None);
     }
 
     #endregion

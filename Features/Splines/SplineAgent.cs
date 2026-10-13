@@ -1,3 +1,4 @@
+using Remedy.Schematics;
 using Dreamteck.Splines;
 using UnityEngine;
 
@@ -27,10 +28,12 @@ namespace Remedy.Splines
 
         [SchematicDoc(@"{""name"": ""Speed"", ""kind"": ""variable"", ""behavior"": ""Spline Agent"", ""type"": ""float"", ""default"": ""5f"", ""description"": ""Units per second along the spline. Negative goes backwards.""}")]
         [Tooltip("Units per second along the spline. Negative goes backwards.")]
+        [NetworkSync]
         public readonly VariableHandle<float> Speed = 5f;
         [SchematicDoc(@"{""name"": ""Wrap"", ""kind"": ""variable"", ""behavior"": ""Spline Agent"", ""type"": ""SplineWrap"", ""default"": ""SplineWrap.Clamp"", ""description"": ""Wrap (SplineWrap) of Spline Agent.""}")]
         public readonly VariableHandle<SplineWrap> Wrap = SplineWrap.Clamp;
         [SchematicDoc(@"{""name"": ""Paused"", ""kind"": ""variable"", ""behavior"": ""Spline Agent"", ""type"": ""bool"", ""default"": ""false"", ""description"": ""Paused (bool) of Spline Agent.""}")]
+        [NetworkSync]
         public readonly VariableHandle<bool> Paused = false;
         [SchematicDoc(@"{""name"": ""FaceAlongSpline"", ""kind"": ""variable"", ""behavior"": ""Spline Agent"", ""type"": ""bool"", ""default"": ""true"", ""description"": ""Turn the object to face along the spline.""}")]
         [Tooltip("Turn the object to face along the spline.")]
@@ -65,6 +68,7 @@ namespace Remedy.Splines
 
         [SchematicDoc(@"{""name"": ""ReachedEnd"", ""kind"": ""signal"", ""behavior"": ""Spline Agent"", ""direction"": ""output"", ""description"": ""Sent by Spline Agent when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [OutputSignal]
+        [NetworkSync(SignalSender.Authority)]
         public readonly SignalHandle ReachedEnd;
         [SchematicDoc(@"{""name"": ""ChangedSpline"", ""kind"": ""signal"", ""behavior"": ""Spline Agent"", ""direction"": ""output"", ""params"": [{""name"": ""Spline"", ""type"": ""SplineComputer""}], ""description"": ""Sent by Spline Agent when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [OutputSignal, Parameter("Spline", typeof(SplineComputer))]

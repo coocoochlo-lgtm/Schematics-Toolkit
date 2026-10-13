@@ -123,6 +123,10 @@ public static class BehaviorMetadataGenerator
             if (!definition.OverrideDefault)
                 definition.Default.Set(variable.BoxedDefault, variable.ValueType);
 
+            // [NetworkSync] is the default until someone flips the toggle by hand.
+            if (!definition.NetworkedSetByUser)
+                definition.Networked = NetworkSyncOf(behavior.GetType(), variable.Name) != null;
+
             variables.Add(definition);
         }
         metadata.Variables = variables;
@@ -154,6 +158,7 @@ public static class BehaviorMetadataGenerator
                           : HasAttribute(attributes, "OutputSignalAttribute") ? SignalDirection.Output
                           : SignalDirection.Unspecified,
                 Asset = existing?.Asset,
+                NetworkedSetByUser = existing != null && existing.NetworkedSetByUser,
             };
 
             // Parameter names come from [Parameter("Name", typeof(T))], in order.
@@ -171,7 +176,7 @@ public static class BehaviorMetadataGenerator
                 });
             }
 
-            definition.Asset = SyncSignalAsset(metadata, definition);
+            definition.Asset = SyncSignalAsset(metadata, definition, field?.GetCustomAttribute<Remedy.Schematics.NetworkSyncAttribute>(true));
             signals.Add(definition);
             previous.Remove(signal.Name);
         }
@@ -189,7 +194,7 @@ public static class BehaviorMetadataGenerator
         metadata.Signals = signals;
     }
 
-    private static SignalData SyncSignalAsset(BehaviorMetadata metadata, SignalDefinition definition)
+    private static SignalData SyncSignalAsset(BehaviorMetadata metadata, SignalDefinition definition, Remedy.Schematics.NetworkSyncAttribute networkSync)
     {
         var asset = definition.Asset;
         var assetName = $"{metadata.BehaviorType.Type?.Name}.{definition.Name}";
@@ -210,6 +215,13 @@ public static class BehaviorMetadataGenerator
             asset.Parameters.AddParameter(parameter.Name, new Union { Type = SignalArgs.ValueTypeOf(parameter.Type.Type) });
         asset.RuntimeArgs = new Union[definition.Parameters.Count];
 
+        // [NetworkSync(sender)] is the default until someone changes it by hand.
+        if (!definition.NetworkedSetByUser)
+        {
+            asset.Networked = networkSync != null;
+            asset.Sender = networkSync != null ? (Remedy.Schematics.SignalNetworkSender)(int)networkSync.Sender : Remedy.Schematics.SignalNetworkSender.Authority;
+        }
+
         if (EditorJsonUtility.ToJson(asset) != before)
             EditorUtility.SetDirty(asset);
         return asset;
@@ -225,6 +237,14 @@ public static class BehaviorMetadataGenerator
                 return field;
         }
         return null;
+    }
+
+    // The [NetworkSync] attribute on a Behavior's Variable or Signal field, if any.
+    private static Remedy.Schematics.NetworkSyncAttribute NetworkSyncOf(Type behaviorType, string memberName)
+    {
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        var field = memberName != null ? FindField(behaviorType, memberName, flags) : null;
+        return field?.GetCustomAttribute<Remedy.Schematics.NetworkSyncAttribute>(true);
     }
 
     private static bool HasAttribute(object[] attributes, string typeName)

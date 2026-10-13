@@ -300,8 +300,10 @@ namespace Remedy.Vehicles.Editor
             var occupant = ("Occupant", typeof(GameObject));
             if (seat.OnEntered == null) seat.OnEntered = CreateSignal(bank, seat.Name, "Entered", occupant);
             if (seat.OnExited == null) seat.OnExited = CreateSignal(bank, seat.Name, "Exited", occupant);
-            if (seat.EnterRequest == null) seat.EnterRequest = CreateSignal(bank, seat.Name, "Enter Request", occupant);
-            if (seat.ExitRequest == null) seat.ExitRequest = CreateSignal(bank, seat.Name, "Exit Request");
+            // Requests are networked (anyone may send them; only the vehicle's authority acts on them). On Entered /
+            // On Exited stay local: every player fires their own when the synced seating changes.
+            if (seat.EnterRequest == null) seat.EnterRequest = Networked(CreateSignal(bank, seat.Name, "Enter Request", occupant));
+            if (seat.ExitRequest == null) seat.ExitRequest = Networked(CreateSignal(bank, seat.Name, "Exit Request"));
             EditorUtility.SetDirty(bank);
             AssetDatabase.SaveAssets();
         }
@@ -329,6 +331,13 @@ namespace Remedy.Vehicles.Editor
             var bank = ScriptableObject.CreateInstance<VehicleSeatSignals>();
             AssetDatabase.CreateAsset(bank, path);
             return bank;
+        }
+
+        private static SignalData Networked(SignalData signal)
+        {
+            signal.Networked = true;
+            signal.Sender = Remedy.Schematics.SignalNetworkSender.Anyone;
+            return signal;
         }
 
         private static SignalData CreateSignal(VehicleSeatSignals bank, string seatName, string suffix, params (string name, Type type)[] parameters)

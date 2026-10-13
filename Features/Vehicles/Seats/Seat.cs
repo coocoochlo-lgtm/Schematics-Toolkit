@@ -49,7 +49,7 @@ namespace Remedy.Vehicles
         public bool InheritVehicleVelocity = true;
 
         [Header("Occupant")]
-        [Tooltip("Parent the occupant to the anchor so it moves with the vehicle for free. Off: the occupant stays where it is in the hierarchy and is moved onto the anchor every frame instead (for objects that mustn't be re-parented).")]
+        [Tooltip("Parent the occupant to the anchor so it moves with the vehicle for free. Off: the occupant stays where it is in the hierarchy and is moved onto the anchor every frame instead (for objects that mustn't be re-parented). Networked occupants (with Network Sync) always follow instead of being parented, on every player's copy.")]
         public bool AttachOccupant = true;
 
         [Tooltip("What happens to the occupant's Box3D body while seated.")]
@@ -105,6 +105,8 @@ namespace Remedy.Vehicles
     /// </summary>
     internal sealed class SeatState
     {
+        /// <summary>Parented to the anchor (Attach Occupant, and not a networked object); otherwise it follows it every frame.</summary>
+        public bool Attached;
         public Transform PreviousParent;
         public Vector3 PreviousLocalScale;
         public Box3DBody Body;

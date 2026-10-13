@@ -46,18 +46,53 @@ namespace Remedy.Networking.Editor
             if (!synced)
                 return;
 
-            // A Networked graph needs its relay.
+            // A Schematic Object needs its relay for its networked graph, Variables, Signals and Behavior state.
             var schematicObject = gameObject.GetComponent<SchematicObject>();
-            bool graphNetworked = schematicObject != null && schematicObject.SchematicGraph != null && schematicObject.SchematicGraph.Networked;
-            if (graphNetworked && !gameObject.TryGetComponent(out SchematicNetworkGraph _))
+            if (schematicObject != null && !gameObject.TryGetComponent(out SchematicNetworkGraph _))
             {
                 using (new EditorGUILayout.HorizontalScope())
                 {
-                    EditorGUILayout.HelpBox("This object's graph is Networked but can't sync yet.", MessageType.Warning);
+                    EditorGUILayout.HelpBox("This Schematic Object's networked graph, Variables and Signals can't sync yet (it needs a Schematic Network Graph).", MessageType.Warning);
                     if (GUILayout.Button("Fix", GUILayout.Width(50), GUILayout.Height(38)))
                         Undo.AddComponent<SchematicNetworkGraph>(gameObject);
                 }
             }
+
+            // Who moves it: the server/authority, or whoever owns it (vehicles: the driver).
+            if (gameObject.TryGetComponent(out NetworkTransform networkTransform))
+            {
+                bool ownerMoves = networkTransform.AuthorityMode == NetworkTransform.AuthorityModes.Owner;
+                EditorGUI.BeginChangeCheck();
+                ownerMoves = EditorGUILayout.ToggleLeft(new GUIContent("Simulated by Owner",
+                    "Whoever owns this object moves it (its NetworkTransform uses owner authority, and its Box3D body is simulated by the owner). " +
+                    "For things players drive or carry, like vehicles: no input lag for the driver. Off: the server (authority) moves it."), ownerMoves);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    Undo.RecordObject(networkTransform, "Simulated by Owner");
+                    networkTransform.AuthorityMode = ownerMoves ? NetworkTransform.AuthorityModes.Owner : NetworkTransform.AuthorityModes.Server;
+                    EditorUtility.SetDirty(networkTransform);
+                }
+                if (!ownerMoves && WantsOwnerSimulation(schematicObject))
+                    EditorGUILayout.HelpBox("A Behavior on this object (e.g. a vehicle) works best simulated by its owner.", MessageType.Info);
+            }
+        }
+
+        // Any attached Behavior marked [NetworkOwnerSimulated] (vehicles).
+        private static bool WantsOwnerSimulation(SchematicObject schematicObject)
+        {
+            if (schematicObject == null || schematicObject.Behaviors == null)
+                return false;
+            foreach (var list in schematicObject.Behaviors.Values)
+            {
+                if (list?.Items == null) continue;
+                foreach (var attachment in list.Items)
+                {
+                    var type = attachment?.Metadata != null ? attachment.Metadata.BehaviorType.Type : null;
+                    if (type != null && System.Attribute.IsDefined(type, typeof(NetworkOwnerSimulatedAttribute), true))
+                        return true;
+                }
+            }
+            return false;
         }
 
         private static void Enable(GameObject gameObject)
@@ -65,14 +100,19 @@ namespace Remedy.Networking.Editor
             Undo.SetCurrentGroupName("Enable Network Sync");
             if (!gameObject.TryGetComponent(out NetworkObject _))
                 Undo.AddComponent<NetworkObject>(gameObject);
-            if (!gameObject.TryGetComponent(out NetworkTransform _))
-                Undo.AddComponent<NetworkTransform>(gameObject);
+            var schematicObject = gameObject.GetComponent<SchematicObject>();
+            if (!gameObject.TryGetComponent(out NetworkTransform networkTransform))
+            {
+                networkTransform = Undo.AddComponent<NetworkTransform>(gameObject);
+                // Vehicles and the like: the driver (owner) moves it.
+                if (networkTransform != null && WantsOwnerSimulation(schematicObject))
+                    networkTransform.AuthorityMode = NetworkTransform.AuthorityModes.Owner;
+            }
             if (gameObject.TryGetComponent(out Box3DBody _) && !gameObject.TryGetComponent(out NetworkBox3DBody _))
                 Undo.AddComponent<NetworkBox3DBody>(gameObject);
 
-            var schematicObject = gameObject.GetComponent<SchematicObject>();
-            if (schematicObject != null && schematicObject.SchematicGraph != null && schematicObject.SchematicGraph.Networked
-                && !gameObject.TryGetComponent(out SchematicNetworkGraph _))
+            // Every Schematic Object gets its relay: networked graph, Variables, Signals and Behavior state.
+            if (schematicObject != null && !gameObject.TryGetComponent(out SchematicNetworkGraph _))
                 Undo.AddComponent<SchematicNetworkGraph>(gameObject);
         }
 

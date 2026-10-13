@@ -41,6 +41,11 @@ public class SendSignalNode : SchematicActionNode
         // With no spawned object (e.g. a Singleton Graph) the UID is 0, which reaches every instance.
         int uid = target != null && SignalData.UIDResolver != null ? SignalData.UIDResolver(target) : 0;
 
+        // Set to run on Everyone in a networked graph, every peer runs this node itself: a networked Signal then stays
+        // local, or each peer would also pass it on and it would fire twice.
+        using var local = NetworkMode == NodeNetworkMode.Everyone && Graph is SchematicGraph { Networked: true }
+            ? SignalNetwork.LocalOnly() : default;
+
         var parameters = Signal.Parameters.Contents;
         if (parameters.Count == 0)
         {

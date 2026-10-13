@@ -73,7 +73,7 @@ public static class InspectorRows
         Interact(handle, row);
 
         if (row.Kind == RowKind.Signal)
-            GUILayout.Label(detail ?? "", _detail, GUILayout.MinWidth(10));
+            GUILayout.Label((detail ?? "") + (row.Signal != null && row.Signal.Networked ? "  ⇅" : ""), _detail, GUILayout.MinWidth(10));
     }
 
     public static void End() => EditorGUILayout.EndHorizontal();
@@ -134,6 +134,10 @@ public static class InspectorRows
                     }
                 }
                 break;
+            case EventType.ContextClick:
+                if (rect.Contains(evt.mousePosition) && ShowNetworkMenu(row))
+                    evt.Use();
+                break;
             case EventType.MouseUp:
                 if (GUIUtility.hotControl == id)
                 {
@@ -148,6 +152,83 @@ public static class InspectorRows
                 break;
         }
     }
+
+    #region Network Sync menu
+
+    // Right-click on a row: its Network Sync flag (and a Signal's Sender), the same as the details in the Inspector.
+    // Changing it by hand marks it as the user's choice, so a Behavior's [NetworkSync] default no longer applies.
+    private static bool ShowNetworkMenu(Row row)
+    {
+        var menu = new GenericMenu();
+        switch (row.Kind)
+        {
+            case RowKind.Signal:
+            {
+                var signal = row.Signal;
+                if (signal == null) return false;
+                menu.AddItem(new GUIContent("Network Sync"), signal.Networked, () => SetSignalNetwork(row, !signal.Networked, signal.Sender));
+                foreach (SignalNetworkSender sender in Enum.GetValues(typeof(SignalNetworkSender)))
+                {
+                    var choice = sender;
+                    menu.AddItem(new GUIContent("Sender/" + ObjectNames.NicifyVariableName(sender.ToString())), signal.Sender == sender,
+                        () => SetSignalNetwork(row, true, choice));
+                }
+                break;
+            }
+            case RowKind.BehaviorVariable:
+            {
+                var metadata = row.Behavior != null ? BehaviorMetadata.Get(row.Behavior) : null;
+                var definition = metadata != null ? metadata.FindVariable(row.Name) : null;
+                if (definition == null) return false;
+                menu.AddItem(new GUIContent("Network Sync"), definition.Networked, () =>
+                {
+                    Undo.RecordObject(metadata, "Network Sync");
+                    definition.Networked = !definition.Networked;
+                    definition.NetworkedSetByUser = true;
+                    EditorUtility.SetDirty(metadata);
+                    AssetDatabase.SaveAssetIfDirty(metadata);
+                });
+                break;
+            }
+            case RowKind.GraphVariable:
+            {
+                var graph = row.Graph;
+                var variable = graph != null ? graph.FindVariable(row.VariableId) : null;
+                if (variable == null) return false;
+                menu.AddItem(new GUIContent("Network Sync"), variable.Networked, () =>
+                {
+                    Undo.RecordObject(graph, "Network Sync");
+                    variable.Networked = !variable.Networked;
+                    EditorUtility.SetDirty(graph);
+                });
+                break;
+            }
+        }
+        menu.ShowAsContext();
+        return true;
+    }
+
+    private static void SetSignalNetwork(Row row, bool networked, SignalNetworkSender sender)
+    {
+        var signal = row.Signal;
+        var metadata = row.Behavior != null ? BehaviorMetadata.Get(row.Behavior) : null;
+        var definition = metadata != null ? metadata.FindSignal(row.Name) : null;
+        if (definition != null)
+        {
+            Undo.RecordObject(metadata, "Network Sync");
+            definition.NetworkedSetByUser = true;
+            EditorUtility.SetDirty(metadata);
+        }
+        Undo.RecordObject(signal, "Network Sync");
+        signal.Networked = networked;
+        signal.Sender = sender;
+        EditorUtility.SetDirty(signal);
+        if (row.Graph != null)
+            EditorUtility.SetDirty(row.Graph);
+        AssetDatabase.SaveAssetIfDirty(metadata != null ? metadata : signal);
+    }
+
+    #endregion
 
     /// <summary>The IO Dock's colour for a value type (set by the Schematic Graph editor, which owns the palette).</summary>
     public static Func<Type, Color> ColorOfType;

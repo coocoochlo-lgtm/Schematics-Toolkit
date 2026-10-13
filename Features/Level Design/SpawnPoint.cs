@@ -1,3 +1,4 @@
+using Remedy.Schematics;
 using System;
 using UnityEngine;
 
@@ -25,6 +26,7 @@ namespace Remedy.LevelDesign
         [SchematicDoc(@"{""name"": ""OnSpawn"", ""kind"": ""signal"", ""behavior"": ""Spawn Point"", ""direction"": ""output"", ""description"": ""Sent when this Spawner is used."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [Tooltip("Sent when this Spawner is used.")]
         [OutputSignal]
+        [NetworkSync(SignalSender.Authority)]
         public readonly SignalHandle OnSpawn;
 
         /// <summary>Extra code to run on whatever is spawned here.</summary>

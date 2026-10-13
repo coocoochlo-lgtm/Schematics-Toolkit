@@ -83,6 +83,12 @@ public class VariableDefinition
 
     /// <summary>Sync this Variable over the network: the object's authority sends its value to everyone else.</summary>
     public bool Networked;
+
+    /// <summary>
+    /// Someone set <see cref="Networked"/> by hand (the Inspector / IO Dock toggle). Until then it follows the
+    /// Behavior's <c>[NetworkSync]</c> attribute, so changing the code changes the default; after, the choice is kept.
+    /// </summary>
+    public bool NetworkedSetByUser;
 }
 
 public enum SignalDirection
@@ -104,6 +110,13 @@ public class SignalDefinition
     /// Schematic Graph to send or receive this Signal there.
     /// </summary>
     public SignalData Asset;
+
+    /// <summary>
+    /// Someone set the Signal's Network Sync / Sender by hand (the Inspector / IO Dock). Until then they follow the
+    /// Behavior's <c>[NetworkSync]</c> attribute; after, the choice is kept. (The settings themselves live on
+    /// <see cref="Asset"/>, which is what travels at runtime.)
+    /// </summary>
+    public bool NetworkedSetByUser;
 }
 
 [Serializable]

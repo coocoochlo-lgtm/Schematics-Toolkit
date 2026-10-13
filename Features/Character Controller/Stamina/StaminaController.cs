@@ -1,3 +1,4 @@
+using Remedy.Schematics;
 /*using SaintsField;
 using SaintsField.Playa;*/
 using UnityEngine;
@@ -28,6 +29,7 @@ namespace Remedy.CharacterControllers.Stamina
         [SchematicDoc(@"{""name"": ""OnStaminaDrained"", ""kind"": ""signal"", ""behavior"": ""Stamina Controller"", ""direction"": ""output"", ""description"": ""Triggered when the Controller runs out of Stamina"", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [Tooltip("Triggered when the Controller runs out of Stamina")]
         [OutputSignal]
+        [NetworkSync(SignalSender.Authority)]
         public readonly SignalHandle OnStaminaDrained;
 
         [SchematicDoc(@"{""name"": ""Properties"", ""kind"": ""variable"", ""behavior"": ""Stamina Controller"", ""type"": ""StaminaProperties"", ""default"": ""null"", ""description"": ""Properties (StaminaProperties) of Stamina Controller.""}")]
@@ -36,6 +38,7 @@ namespace Remedy.CharacterControllers.Stamina
         [SchematicDoc(@"{""name"": ""Regenerating"", ""kind"": ""variable"", ""behavior"": ""Stamina Controller"", ""type"": ""bool"", ""default"": ""false"", ""description"": ""Regenerating (bool) of Stamina Controller.""}")]
         public readonly VariableHandle<bool> Regenerating = false;
         [SchematicDoc(@"{""name"": ""Stamina"", ""kind"": ""variable"", ""behavior"": ""Stamina Controller"", ""type"": ""float"", ""default"": ""100f"", ""description"": ""Stamina (float) of Stamina Controller.""}")]
+        [NetworkSync]
         public readonly VariableHandle<float> Stamina = 100f;
 
         protected override void OnStart()

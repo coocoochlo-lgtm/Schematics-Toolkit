@@ -1,3 +1,4 @@
+using Remedy.Schematics;
 using UnityEngine;
 
 namespace Remedy.Inventories
@@ -11,11 +12,11 @@ namespace Remedy.Inventories
     public class Inventory : SchematicBehavior
     {
         [Tooltip("The ID of an Inventory Item Data, to select it.")]
-        [InputSignal, Parameter("Item ID", typeof(int))] public readonly SignalHandle<int> SetItem;
+        [InputSignal, Parameter("Item ID", typeof(int))] [NetworkSync(SignalSender.OwnerToAuthority)] public readonly SignalHandle<int> SetItem;
         [Tooltip("The ID of an Inventory Item Data, to add it.")]
-        [InputSignal, Parameter("Item ID", typeof(int))] public readonly SignalHandle<int> AddItem;
+        [InputSignal, Parameter("Item ID", typeof(int))] [NetworkSync(SignalSender.Authority)] public readonly SignalHandle<int> AddItem;
         [Tooltip("The ID of an Inventory Item Data, to remove it.")]
-        [InputSignal, Parameter("Item ID", typeof(int))] public readonly SignalHandle<int> RemoveItem;
+        [InputSignal, Parameter("Item ID", typeof(int))] [NetworkSync(SignalSender.Authority)] public readonly SignalHandle<int> RemoveItem;
 
         [OutputSignal] public readonly SignalHandle OnInventoryChanged;
         [OutputSignal, Parameter("Index", typeof(int))] public readonly SignalHandle<int> OnSetActiveItem;

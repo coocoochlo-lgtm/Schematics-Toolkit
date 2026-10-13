@@ -35,6 +35,28 @@ public partial class SignalData : ScriptableObject, Remedy.Schematics.ISchematic
     public bool Global = false;
 
     /// <summary>
+    /// Network Sync: when this Signal is sent on one peer, it fires on every other player's copy of the target object too
+    /// (or everywhere, for Signals sent to everyone). Needs the object's Network Sync on (a NetworkObject and a Schematic
+    /// Network Graph); off, or offline, the Signal stays local as usual.
+    /// </summary>
+    [Tooltip("Network Sync: fire this Signal for every player when it's sent (see Sender for who may send it).")]
+    public bool Networked;
+
+    /// <summary>Who may send this Signal when it's <see cref="Networked"/>.</summary>
+    [Tooltip("Who may send it: the object's authority, its owner (checked by the authority), or anyone.")]
+    public Remedy.Schematics.SignalNetworkSender Sender = Remedy.Schematics.SignalNetworkSender.Authority;
+
+    /// <summary>Whether this Signal already has its saved id (asking <see cref="Uid"/> would make one).</summary>
+    public bool HasUid => !string.IsNullOrEmpty(_uid);
+
+    void OnEnable()
+    {
+        // So Signals arriving from other peers can be found by id.
+        if (!string.IsNullOrEmpty(_uid))
+            Remedy.Schematics.SignalNetwork.Register(this, _uid);
+    }
+
+    /// <summary>
     /// All Active Subscription to this Event.
     /// </summary> private readonly List<Subscription> _subs0 = new();
     private readonly List<ISubscription> _subs = new();

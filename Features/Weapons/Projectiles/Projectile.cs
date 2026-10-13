@@ -18,6 +18,7 @@ namespace Remedy.Weapons.Projectiles
         [SchematicDoc(@"{""name"": ""OnHitTarget"", ""kind"": ""signal"", ""behavior"": ""Projectile"", ""direction"": ""output"", ""params"": [{""name"": ""Target"", ""type"": ""GameObject""}], ""description"": ""On hit the Target Object, passes the reference of the Target Object that was hit."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [Tooltip("On hit the Target Object, passes the reference of the Target Object that was hit.")]
         [OutputSignal, Parameter("Target", typeof(GameObject))]
+        [NetworkSync(SignalSender.Authority)]
         public readonly SignalHandle<GameObject> OnHitTarget;
         [SchematicDoc(@"{""name"": ""OnRicochet"", ""kind"": ""signal"", ""behavior"": ""Projectile"", ""direction"": ""output"", ""params"": [{""name"": ""Material"", ""type"": ""PhysicsMaterial""}], ""description"": ""On Hit of anything collidable, and the projectile bounced off, passes the PhysicsMaterial of the hit Collider"", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [Tooltip("On Hit of anything collidable, and the projectile bounced off, passes the PhysicsMaterial of the hit Collider")]

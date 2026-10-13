@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Box3D.Hybrid;
 using Remedy.Box3DPhysics;
+using Remedy.Framework;
 using Remedy.Schematics;
 using UnityEngine;
 
@@ -19,11 +20,19 @@ namespace Remedy.Vehicles
     /// Vehicles don't know about players. A graph routes input to the vehicle while someone sits in a driver seat:
     /// e.g. the player's graph sends <c>Enter</c> to the vehicle, and the vehicle's graph forwards input Signals to
     /// its movement Behavior while <see cref="HasDriver"/> is on (or the movement Behavior listens to input itself,
-    /// like ArcadeCar's Driver Inputs).
+    /// like ArcadeCar's Driver Inputs).<br/>
+    /// Networked (Network Sync on the vehicle): the vehicle's authority decides who sits where. The Enter / Exit / Switch
+    /// Seat Signals are networked (any player may send them; only the authority acts on them), the seating is sent to
+    /// every player as Behavior state (late joiners too), and each player seats people on their own copy, firing the
+    /// On Entered / On Exited / On Driver Changed Signals locally. Networked occupants are never re-parented (Netcode
+    /// only allows that on the server, and it fights their NetworkTransform): they follow the seat's anchor every frame
+    /// on every peer instead. The vehicle's NetworkObject is handed to the driver (Features/Vehicles/Networking), so the
+    /// driver simulates it.
     /// </remarks>
-    [SchematicDoc(@"{""name"": ""Vehicle Seats"", ""kind"": ""behavior"", ""menu"": ""Vehicles/Seats"", ""description"": ""Seats for any vehicle (car, boat, plane, mech, horse...): who sits where, who drives, getting in and out. Each seat has an anchor, a driver flag, an exit, and its own Signals (On Entered, On Exited, Enter Request, Exit Request), all created in the IO Dock with + Seat."", ""variables"": [""Seats"", ""Driver"", ""HasDriver"", ""OccupantCount"", ""IsOccupied"", ""MaxEnterDistance"", ""DriverSeatFirst"", ""ExitBlockingLayers""], ""signals"": [""Enter"", ""EnterSeat"", ""Exit"", ""ExitAll"", ""SwitchSeat"", ""OnOccupantEntered"", ""OnOccupantExited"", ""OnDriverChanged"", ""OnFull"", ""OnEmpty""], ""use_for"": [""getting in and out of vehicles"", ""driver and passenger seats"", ""turrets and gunner seats"", ""mounts""], ""notes"": ""Movement Behaviors (ArcadeCar, or your own boat/plane) read HasDriver; graphs route player input to the vehicle while someone drives.""}")]
+    [SchematicDoc(@"{""name"": ""Vehicle Seats"", ""kind"": ""behavior"", ""menu"": ""Vehicles/Seats"", ""description"": ""Seats for any vehicle (car, boat, plane, mech, horse...): who sits where, who drives, getting in and out. Each seat has an anchor, a driver flag, an exit, and its own Signals (On Entered, On Exited, Enter Request, Exit Request), all created in the IO Dock with + Seat."", ""variables"": [""Seats"", ""Driver"", ""HasDriver"", ""OccupantCount"", ""IsOccupied"", ""MaxEnterDistance"", ""DriverSeatFirst"", ""ExitBlockingLayers""], ""signals"": [""Enter"", ""EnterSeat"", ""Exit"", ""ExitAll"", ""SwitchSeat"", ""OnOccupantEntered"", ""OnOccupantExited"", ""OnDriverChanged"", ""OnFull"", ""OnEmpty""], ""use_for"": [""getting in and out of vehicles"", ""driver and passenger seats"", ""turrets and gunner seats"", ""mounts""], ""notes"": ""Movement Behaviors (ArcadeCar, or your own boat/plane) read HasDriver; graphs route player input to the vehicle while someone drives. Multiplayer: Enter/Exit/EnterSeat/SwitchSeat/ExitAll are networked (anyone may send; the vehicle's authority decides), seating is synced to everyone including late joiners, and the On ... Signals fire on every player's copy. Networked occupants follow their seat instead of being parented. The driver becomes the vehicle's owner and simulates it.""}")]
     [SchematicBehaviorPath("Vehicles/Seats")]
-    public class VehicleSeats : SchematicBehavior
+    [NetworkOwnerSimulated]
+    public class VehicleSeats : SchematicBehavior, INetworkStateBehavior
     {
         #region Variables
 
@@ -65,31 +74,31 @@ namespace Remedy.Vehicles
 
         [SchematicDoc(@"{""name"": ""Enter"", ""kind"": ""signal"", ""behavior"": ""Vehicle Seats"", ""direction"": ""input"", ""params"": [{""name"": ""Occupant"", ""type"": ""GameObject""}], ""description"": ""Seats the occupant in the first free seat (a driver seat first, if Driver Seat First). Does nothing if the vehicle is full or they're further than Max Enter Distance."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock), e.g. when the player interacts with the vehicle.""}")]
         [Tooltip("Seats the occupant in the first free seat (a driver seat first, if Driver Seat First).")]
-        [InputSignal]
+        [InputSignal, NetworkSync(SignalSender.Anyone)]
         [Parameter("Occupant", typeof(GameObject))]
         public readonly SignalHandle<GameObject> Enter;
 
         [SchematicDoc(@"{""name"": ""EnterSeat"", ""kind"": ""signal"", ""behavior"": ""Vehicle Seats"", ""direction"": ""input"", ""params"": [{""name"": ""Occupant"", ""type"": ""GameObject""}, {""name"": ""Seat"", ""type"": ""int""}], ""description"": ""Seats the occupant in a specific seat (its index in Seats), if it's free."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock). Each seat's own Enter Request does the same without the index.""}")]
         [Tooltip("Seats the occupant in a specific seat (its index in Seats), if it's free.")]
-        [InputSignal]
+        [InputSignal, NetworkSync(SignalSender.Anyone)]
         [Parameter("Occupant", typeof(GameObject))]
         [Parameter("Seat", typeof(int))]
         public readonly SignalHandle<GameObject, int> EnterSeat;
 
         [SchematicDoc(@"{""name"": ""Exit"", ""kind"": ""signal"", ""behavior"": ""Vehicle Seats"", ""direction"": ""input"", ""params"": [{""name"": ""Occupant"", ""type"": ""GameObject""}], ""description"": ""Gets the occupant out, at their seat's exit."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock), e.g. on the player's interact button while seated.""}")]
         [Tooltip("Gets the occupant out, at their seat's exit.")]
-        [InputSignal]
+        [InputSignal, NetworkSync(SignalSender.Anyone)]
         [Parameter("Occupant", typeof(GameObject))]
         public readonly SignalHandle<GameObject> Exit;
 
         [SchematicDoc(@"{""name"": ""ExitAll"", ""kind"": ""signal"", ""behavior"": ""Vehicle Seats"", ""direction"": ""input"", ""description"": ""Gets everyone out (e.g. the vehicle is about to explode)."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock).""}")]
         [Tooltip("Gets everyone out.")]
-        [InputSignal]
+        [InputSignal, NetworkSync(SignalSender.Anyone)]
         public readonly SignalHandle ExitAll;
 
         [SchematicDoc(@"{""name"": ""SwitchSeat"", ""kind"": ""signal"", ""behavior"": ""Vehicle Seats"", ""direction"": ""input"", ""params"": [{""name"": ""Occupant"", ""type"": ""GameObject""}, {""name"": ""Seat"", ""type"": ""int""}], ""description"": ""Moves someone already in the vehicle to another free seat (sends their old seat's exit and the new seat's enter Signals)."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock).""}")]
         [Tooltip("Moves someone already in the vehicle to another free seat.")]
-        [InputSignal]
+        [InputSignal, NetworkSync(SignalSender.Anyone)]
         [Parameter("Occupant", typeof(GameObject))]
         [Parameter("Seat", typeof(int))]
         public readonly SignalHandle<GameObject, int> SwitchSeat;
@@ -134,6 +143,12 @@ namespace Remedy.Vehicles
         /// <summary>Raised for every vehicle when someone gets out: (vehicle, occupant, seat index).</summary>
         public static event Action<GameObject, GameObject, int> OccupantExited;
 
+        /// <summary>
+        /// Raised for every vehicle when its driver changes: (vehicle, new driver or null). The vehicle networking hands
+        /// the vehicle's ownership to the driver from here.
+        /// </summary>
+        public static event Action<GameObject, GameObject> DriverChanged;
+
         // Who sits where, across every vehicle, so an occupant can be found without knowing its vehicle.
         private readonly struct SeatRef
         {
@@ -150,6 +165,7 @@ namespace Remedy.Vehicles
             _seated.Clear();
             OccupantEntered = null;
             OccupantExited = null;
+            DriverChanged = null;
         }
 
         /// <summary>
@@ -237,7 +253,7 @@ namespace Remedy.Vehicles
         /// </summary>
         public bool TryEnterSeat(BehaviorInstance instance, GameObject occupant, int seatIndex = -1, bool checkDistance = false)
         {
-            if (instance == null || !instance.IsSpawned || occupant == null)
+            if (instance == null || !instance.IsSpawned || occupant == null || !DecidesSeating(instance))
                 return false;
             // Nobody sits inside themselves (or inside something they're carrying).
             if (occupant == instance.GameObject || instance.Transform.IsChildOf(occupant.transform))
@@ -265,7 +281,7 @@ namespace Remedy.Vehicles
 
             // In another vehicle: out of that one first (no need to place them at its exit).
             if (current.Vehicle != null)
-                ((VehicleSeats)current.Vehicle.Behavior).TryExitSeat(current.Vehicle, occupant, placeAtExit: false);
+                ReleaseFromCurrentSeat(occupant);
 
             Occupy(instance, seats, seatIndex, occupant);
             return true;
@@ -276,7 +292,7 @@ namespace Remedy.Vehicles
         /// <summary>Gets <paramref name="occupant"/> out of this vehicle, at their seat's exit if <paramref name="placeAtExit"/>.</summary>
         public bool TryExitSeat(BehaviorInstance instance, GameObject occupant, bool placeAtExit = true)
         {
-            if (instance == null || occupant == null || !_seated.TryGetValue(occupant, out var seat) || seat.Vehicle != instance)
+            if (instance == null || occupant == null || !_seated.TryGetValue(occupant, out var seat) || seat.Vehicle != instance || !DecidesSeating(instance))
                 return false;
             var seats = Seats[instance];
             if (seats == null || seat.Seat >= seats.Length)
@@ -293,7 +309,7 @@ namespace Remedy.Vehicles
         /// <summary>Moves someone already in this vehicle to another free seat.</summary>
         public bool TryMoveToSeat(BehaviorInstance instance, GameObject occupant, int seatIndex)
         {
-            if (instance == null || occupant == null || !_seated.TryGetValue(occupant, out var current) || current.Vehicle != instance)
+            if (instance == null || occupant == null || !_seated.TryGetValue(occupant, out var current) || current.Vehicle != instance || !DecidesSeating(instance))
                 return false;
             var seats = Seats[instance];
             if (seats == null || seatIndex < 0 || seatIndex >= seats.Length || seats[seatIndex] == null)
@@ -310,6 +326,21 @@ namespace Remedy.Vehicles
 
         /// <summary>Gets everyone out of this vehicle.</summary>
         public void EmptyAllSeats(BehaviorInstance instance, bool placeAtExit = true)
+        {
+            if (instance != null && DecidesSeating(instance))
+                ReleaseAll(instance, placeAtExit);
+        }
+
+        /// <summary>
+        /// Whether this peer decides who sits in the vehicle: always offline; online, only the vehicle's authority (the
+        /// C# API does nothing elsewhere, so every player keeps the same seating; send the Signals instead, which reach
+        /// the authority).
+        /// </summary>
+        public static bool DecidesSeating(BehaviorInstance instance)
+            => instance != null && SchematicNetwork.HasAuthority(instance.GameObject);
+
+        // Everyone out, on this peer only (a despawning vehicle, or the authority's EmptyAllSeats).
+        private void ReleaseAll(BehaviorInstance instance, bool placeAtExit)
         {
             if (instance == null || !instance.IsSpawned)
                 return;
@@ -341,6 +372,8 @@ namespace Remedy.Vehicles
         protected override void OnStart()
         {
             var instance = Self;
+            // Requests: any player may send them (they're networked); only the authority acts on them, and the seating
+            // it decides reaches everyone as state. TryEnterSeat and friends check that themselves.
             Enter.Subscribe(occupant => TryEnterSeat(instance, occupant, -1, checkDistance: true));
             EnterSeat.Subscribe((occupant, seat) => TryEnterSeat(instance, occupant, seat, checkDistance: true));
             Exit.Subscribe(occupant => TryExitSeat(instance, occupant));
@@ -386,13 +419,13 @@ namespace Remedy.Vehicles
 
         protected override void OnLateUpdate()
         {
-            // Occupants that aren't parented to their seat follow it instead.
+            // Occupants that aren't parented to their seat follow it instead (on every peer, for networked occupants).
             var seats = Seats.Value;
             if (seats == null)
                 return;
             foreach (var seat in seats)
             {
-                if (seat == null || seat.AttachOccupant || seat.Occupant == null)
+                if (seat == null || seat.Occupant == null || seat.State == null || seat.State.Attached)
                     continue;
                 var anchor = AnchorOf(Self, seat);
                 seat.Occupant.transform.SetPositionAndRotation(anchor.position, anchor.rotation);
@@ -400,7 +433,8 @@ namespace Remedy.Vehicles
         }
 
         // Despawning or disabling the vehicle never takes its passengers with it (into its pool, or out of the world).
-        protected override void OnDisable() => EmptyAllSeats(Self);
+        // Every peer lets them out of its own copy (no need to wait for the authority's word on a vehicle that's gone).
+        protected override void OnDisable() => ReleaseAll(Self, placeAtExit: true);
 
         #endregion
 
@@ -457,7 +491,10 @@ namespace Remedy.Vehicles
                         state.HiddenRenderers.Add(renderer);
                     }
 
-            if (seat.AttachOccupant)
+            // Networked occupants aren't re-parented: Netcode only allows that on the server (and between NetworkObjects),
+            // and it would fight their NetworkTransform. They follow the anchor every frame instead (OnLateUpdate).
+            state.Attached = seat.AttachOccupant && !SchematicNetwork.IsNetworked(occupant);
+            if (state.Attached)
             {
                 transform.SetParent(anchor, false);
                 transform.localPosition = Vector3.zero;
@@ -485,10 +522,15 @@ namespace Remedy.Vehicles
             bool driverChanged = RefreshSummary(instance, seats, out int before);
             bool wasFull = before == CountSeats(seats);
 
+            SchematicNetwork.MarkStateChanged(instance);
+
             seat.OnEntered.Invoke(instance, occupant);
             OnOccupantEntered.Invoke(instance, occupant, index);
             if (driverChanged)
+            {
                 OnDriverChanged.Invoke(instance, Driver[instance]);
+                DriverChanged?.Invoke(instance.GameObject, Driver[instance]);
+            }
             if (!wasFull && OccupantCount[instance] == CountSeats(seats))
                 OnFull.Invoke(instance);
             OccupantEntered?.Invoke(instance.GameObject, occupant, index);
@@ -509,7 +551,7 @@ namespace Remedy.Vehicles
                 var transform = occupant.transform;
                 Pose exit = placeAtExit ? FindExit(instance, seat) : default;
 
-                if (seat.AttachOccupant && transform.parent == AnchorOf(instance, seat))
+                if (state.Attached && transform.parent == AnchorOf(instance, seat))
                 {
                     transform.SetParent(state.PreviousParent, true);
                     transform.localScale = state.PreviousLocalScale;
@@ -558,10 +600,14 @@ namespace Remedy.Vehicles
                 return;
 
             bool driverChanged = RefreshSummary(instance, seats, out _);
+            SchematicNetwork.MarkStateChanged(instance);
             seat.OnExited.Invoke(instance, occupant);
             OnOccupantExited.Invoke(instance, occupant, index);
             if (driverChanged)
+            {
                 OnDriverChanged.Invoke(instance, Driver[instance]);
+                DriverChanged?.Invoke(instance.GameObject, Driver[instance]);
+            }
             if (OccupantCount[instance] == 0)
                 OnEmpty.Invoke(instance);
             OccupantExited?.Invoke(instance.GameObject, occupant, index);
@@ -666,6 +712,71 @@ namespace Remedy.Vehicles
         }
 
         private static float SafeDivide(float a, float b) => Mathf.Abs(b) > 1e-5f ? a / b : a;
+
+        #endregion
+
+        #region Networking
+
+        // Who sits in each seat, by index (null for an empty seat). Occupants travel as their NetworkObject, so they
+        // must be networked objects (players usually are); anyone else arrives as nobody.
+        void INetworkStateBehavior.WriteNetworkState(BehaviorInstance instance, List<Union> state)
+        {
+            var seats = Seats[instance];
+            if (seats == null)
+                return;
+            foreach (var seat in seats)
+                state.Add(seat != null && seat.Occupant != null ? new Union(seat.Occupant) : Union.Null);
+        }
+
+        // Seats the people the authority seated (and lets out the ones it didn't), firing the usual Signals locally.
+        void INetworkStateBehavior.ReadNetworkState(BehaviorInstance instance, Union[] state)
+        {
+            var seats = Seats[instance];
+            if (seats == null || state == null || !instance.IsSpawned)
+                return;
+            int count = Mathf.Min(seats.Length, state.Length);
+            var wanted = new GameObject[count];
+            for (int i = 0; i < count; i++)
+                wanted[i] = state[i].Type == Union.ValueType.Null ? null : SignalArgs.FromUnion<GameObject>(state[i]);
+
+            // Out first, so seat switches find their new seat free.
+            for (int i = 0; i < count; i++)
+                if (seats[i] != null && !ReferenceEquals(seats[i].Occupant, null) && seats[i].Occupant != wanted[i])
+                    Release(instance, seats, i, placeAtExit: !IsInList(wanted, seats[i].Occupant));
+
+            for (int i = 0; i < count; i++)
+            {
+                var occupant = wanted[i];
+                if (occupant == null || seats[i] == null || seats[i].Occupant == occupant)
+                    continue;
+                // Still in another seat here (another vehicle, or a seat switch the other way round): out of it first.
+                ReleaseFromCurrentSeat(occupant);
+                if (seats[i].Occupant == null)
+                    Occupy(instance, seats, i, occupant);
+            }
+        }
+
+        // Out of whatever seat they're in on this peer, without asking for authority (the caller already decided).
+        private static void ReleaseFromCurrentSeat(GameObject occupant)
+        {
+            if (occupant == null || !_seated.TryGetValue(occupant, out var current) || current.Vehicle == null)
+                return;
+            var vehicle = current.Vehicle;
+            var behavior = (VehicleSeats)vehicle.Behavior;
+            var seats = vehicle.IsSpawned ? behavior.Seats[vehicle] : null;
+            if (seats != null && current.Seat < seats.Length && seats[current.Seat] != null && seats[current.Seat].Occupant == occupant)
+                behavior.Release(vehicle, seats, current.Seat, placeAtExit: false);
+            else
+                _seated.Remove(occupant);
+        }
+
+        private static bool IsInList(GameObject[] list, GameObject item)
+        {
+            foreach (var entry in list)
+                if (entry == item)
+                    return true;
+            return false;
+        }
 
         #endregion
 

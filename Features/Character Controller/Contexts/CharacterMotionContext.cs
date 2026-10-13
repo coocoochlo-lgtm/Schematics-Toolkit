@@ -36,6 +36,7 @@ public class CharacterMotionContext : SchematicBehavior
 
     [SchematicDoc(@"{""name"": ""OnJump"", ""kind"": ""signal"", ""behavior"": ""Character Motion Context"", ""direction"": ""output"", ""description"": ""Sent by Character Motion Context when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
     [OutputSignal]
+    [NetworkSync(SignalSender.OwnerToAuthority)]
     public readonly SignalHandle OnJump;
     [SchematicDoc(@"{""name"": ""OnMoveOnGround"", ""kind"": ""signal"", ""behavior"": ""Character Motion Context"", ""direction"": ""output"", ""params"": [{""name"": ""Velocity"", ""type"": ""Vector3""}], ""description"": ""Sent by Character Motion Context when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
     [OutputSignal]

@@ -14,6 +14,7 @@ namespace Remedy.Inventories
         [SchematicDoc(@"{""name"": ""OnCollect"", ""kind"": ""signal"", ""behavior"": ""Collectable Inventory"", ""direction"": ""output"", ""params"": [{""name"": ""Collector"", ""type"": ""GameObject""}], ""description"": ""Sent when this Inventory is Collected, passing the GameObject whose Inventory picked it up."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [Tooltip("Sent when this Inventory is Collected, passing the GameObject whose Inventory picked it up.")]
         [OutputSignal, Parameter("Collector", typeof(GameObject))]
+        [NetworkSync(SignalSender.Authority)]
         public readonly SignalHandle<GameObject> OnCollect;
 
         [SchematicDoc(@"{""name"": ""CollectionData"", ""kind"": ""variable"", ""behavior"": ""Collectable Inventory"", ""type"": ""CollectableInventoryData"", ""default"": ""null"", ""description"": ""The items this collectable holds, and how it's displayed and picked up.""}")]

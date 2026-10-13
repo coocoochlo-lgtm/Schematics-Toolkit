@@ -46,6 +46,23 @@ namespace Remedy.Schematics
         public List<GraphSignalParameter> Parameters = new();
         [TextArea(1, 4)]
         public string Description;
+
+        /// <summary>
+        /// Network Sync: sending it fires it for every player. Stored on the Signal's <see cref="Asset"/>, which is what
+        /// travels at runtime, so the graph and the asset can never disagree.
+        /// </summary>
+        public bool Networked
+        {
+            get => Asset != null && Asset.Networked;
+            set { if (Asset != null) Asset.Networked = value; }
+        }
+
+        /// <summary>Who may send it when <see cref="Networked"/> (stored on the <see cref="Asset"/>).</summary>
+        public SignalNetworkSender Sender
+        {
+            get => Asset != null ? Asset.Sender : SignalNetworkSender.Authority;
+            set { if (Asset != null) Asset.Sender = value; }
+        }
     }
 
     /// <summary>An object's own starting value for one of a graph's Variables.</summary>

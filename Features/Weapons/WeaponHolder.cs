@@ -22,6 +22,7 @@ namespace Remedy.Weapons
         [SchematicDoc(@"{""name"": ""EquipInput"", ""kind"": ""signal"", ""behavior"": ""Weapon Holder"", ""direction"": ""input"", ""params"": [{""name"": ""Weapon ID"", ""type"": ""int""}], ""description"": ""Equips the Weapon with the given ID (its ID within the WeaponData Lookup)."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
         [Tooltip("Equips the Weapon with the given ID (its ID within the WeaponData Lookup).")]
         [InputSignal, Parameter("Weapon ID", typeof(int))]
+        [NetworkSync(SignalSender.OwnerToAuthority)]
         public readonly SignalHandle<int> EquipInput;
         [SchematicDoc(@"{""name"": ""AimInput"", ""kind"": ""signal"", ""behavior"": ""Weapon Holder"", ""direction"": ""input"", ""params"": [{""name"": ""Aim"", ""type"": ""Vector3""}], ""description"": ""The current Aim Forward, updated from the Camera Controller."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
         [Tooltip("The current Aim Forward, updated from the Camera Controller.")]
@@ -39,6 +40,7 @@ namespace Remedy.Weapons
 
         [SchematicDoc(@"{""name"": ""ActiveWeaponSlot"", ""kind"": ""variable"", ""behavior"": ""Weapon Holder"", ""type"": ""int"", ""default"": ""0"", ""description"": ""The weapon we're currently using.""}")]
         [Tooltip("The weapon we're currently using.")]
+        [NetworkSync]
         public readonly VariableHandle<int> ActiveWeaponSlot = 0;
 
         private readonly VariableHandle<Vector3> _aimInput = Vector3.zero;

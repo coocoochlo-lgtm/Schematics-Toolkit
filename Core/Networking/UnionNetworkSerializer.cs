@@ -45,6 +45,54 @@ namespace Remedy.Networking
             }
         }
 
+        /// <summary>Writes one value (see the class summary for what survives the trip).</summary>
+        public static void WriteUnion(BinaryWriter writer, Union value) => Write(writer, value);
+
+        /// <summary>Reads one value written by <see cref="WriteUnion"/>.</summary>
+        public static Union ReadUnion(BinaryReader reader) => Read(reader);
+
+        /// <summary>
+        /// Whether a value arrives as itself on other peers: false for objects that aren't part of a spawned
+        /// NetworkObject (they'd arrive as null) and for types the network can't carry.
+        /// </summary>
+        public static bool CanSend(Union value)
+        {
+            switch (value.Type)
+            {
+                case Union.ValueType.GameObject:
+                case Union.ValueType.Transform:
+                case Union.ValueType.Component:
+                    var obj = value.GetValue<UnityEngine.Object>();
+                    if (obj == null)
+                        return true; // null stays null
+                    var gameObject = obj is GameObject go ? go : obj is Component c ? c.gameObject : null;
+                    var networkObject = gameObject != null ? gameObject.GetComponentInParent<NetworkObject>() : null;
+                    return networkObject != null && networkObject.IsSpawned;
+                case Union.ValueType.Bool:
+                case Union.ValueType.Int:
+                case Union.ValueType.Float:
+                case Union.ValueType.Vector2:
+                case Union.ValueType.Vector3:
+                case Union.ValueType.Vector4:
+                case Union.ValueType.Color:
+                case Union.ValueType.Color32:
+                case Union.ValueType.Quaternion:
+                case Union.ValueType.LayerMask:
+                case Union.ValueType.String:
+                case Union.ValueType.Null:
+                    return true;
+                case Union.ValueType.Material:
+                case Union.ValueType.Texture:
+                case Union.ValueType.AudioClip:
+                case Union.ValueType.PhysicsMaterial:
+                    // Assets don't travel (yet); only an empty one does.
+                    return value.GetValue<UnityEngine.Object>() == null;
+                default:
+                    // Lists, arrays, scenes and other values (enums, structs...) don't travel; they'd arrive as null.
+                    return false;
+            }
+        }
+
         private static void Write(BinaryWriter writer, Union value)
         {
             switch (value.Type)

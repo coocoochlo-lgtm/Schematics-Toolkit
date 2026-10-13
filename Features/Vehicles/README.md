@@ -153,9 +153,41 @@ Everything about seats (signals, the IO Dock, gizmos, handles, getting in and ou
 
 ## Networking
 
-Behavior Variables can be flagged Network Sync in their Metadata as usual. The car simulates only on the authority
-(network proxies follow their synced Transform). Seating isn't synced by itself: seat people on every peer (e.g.
-from a synced Signal) or sync **Driver** and react to it.
+With Netcode for GameObjects installed, turn on the vehicle's **Network Sync** (the toggle under its GameObject
+header). Because Vehicle Seats and Arcade Car are marked `[NetworkOwnerSimulated]`, that also sets its
+NetworkTransform to **owner authority** ("Simulated by Owner"), and adds a Network Box3D Body and a Schematic
+Network Graph. Then, with nothing else to wire:
+
+- **Seats are synced.** The vehicle's authority (the server, or the owner in distributed authority) decides who sits
+  where. **Enter / Enter Seat / Exit / Switch Seat / Exit All** (and each seat's **Enter Request / Exit Request**,
+  networked when "+ Seat" creates them) are networked with sender *Anyone*: any player may send them, only the
+  authority acts on them. The seating it decides is sent to every player as Behavior state (players who join late get
+  it too), and each player seats the occupants on their own copy, so **On Entered / On Exited / On Driver Changed /
+  On Full / On Empty** fire locally for everyone (they aren't networked themselves, or they'd fire twice). Driver, Has
+  Driver, Occupant Count and Is Occupied follow on every peer. The C# API (`TryEnter`, `ExitVehicle`, ...) only acts
+  on the authority online; send the Signals from clients.
+- **Occupants follow, they aren't parented.** Netcode only lets the server re-parent NetworkObjects (and only under
+  other NetworkObjects), and a parented player would fight its own NetworkTransform. So a networked occupant is moved
+  onto its seat's anchor every frame on every peer instead (the owner's NetworkTransform then sends that position).
+  Non-networked occupants are still parented when **Attach Occupant** is on. Body disabling, hidden renderers and
+  disabled Behaviors happen on every peer the same way.
+- **The driver owns the car.** When someone takes a driver seat, the server hands the vehicle's NetworkObject to the
+  driver's client (`Features/Vehicles/Networking`, `ChangeOwnership`); when nobody drives it goes back to the server.
+  With owner authority the driver simulates the Box3D body (no input lag) and everyone else, the server included,
+  sees a kinematic proxy. In distributed authority the owner hands it over (the NetworkObject's Ownership needs
+  *Transferable*).
+- **Inputs come from the driver.** Driver Inputs only listen on the driver's own machine (`VehicleInput` checks the
+  driver is controlled locally), and **Throttle / Brake / Steer / Drive / Handbrake / Boost / Unflip** are networked
+  *Owner → Authority*: only the vehicle's owner can send them, the authority checks and passes them on. The owner also
+  mirrors its current inputs through them up to 15 times a second when they change, so proxies turn their front wheels
+  and the server has them if it takes the car back.
+- **Effects play everywhere.** **On Drift Started / Ended / Level, On Boost, On Landed, On Flipped / Righted, On
+  Crash** are networked (sender *Anyone*: only the peer that simulates ever fires them). Proxies also set **Is
+  Drifting, Drift Level, Is Boosting, Is Flipped** from them, and work out **Speed / Forward Speed** and wheel spin
+  from their synced motion.
+
+Offline (or without Netcode) everything works exactly as before. A late joiner may see an occupant that isn't a
+networked object (an NPC without a NetworkObject) as an empty seat: give such occupants Network Sync.
 
 ## Notes
 

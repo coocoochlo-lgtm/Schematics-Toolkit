@@ -1,3 +1,4 @@
+using Remedy.Schematics;
 using UnityEngine;
 
 namespace Remedy.Damagables
@@ -10,7 +11,7 @@ namespace Remedy.Damagables
     public class DamageInstigator : SchematicBehavior
     {
         [InputSignal] public readonly SignalHandle Instigate;
-        [OutputSignal] public readonly SignalHandle OnInstigation;
+        [OutputSignal] [NetworkSync(SignalSender.Authority)] public readonly SignalHandle OnInstigation;
 
         [SchematicDoc(@"{""name"": ""Data"", ""kind"": ""variable"", ""behavior"": ""Damage Instigator"", ""type"": ""DamageInstigationData"", ""default"": ""null"", ""description"": ""Data (DamageInstigationData) of Damage Instigator.""}")]
         public readonly VariableHandle<DamageInstigationData> Data = (DamageInstigationData)null;

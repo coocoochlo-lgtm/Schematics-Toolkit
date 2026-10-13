@@ -1,3 +1,4 @@
+using Remedy.Schematics;
 using Cysharp.Threading.Tasks;
 using UnityEngine;
 
@@ -14,6 +15,7 @@ namespace Remedy.CharacterControllers.Gadgets
         [SchematicDoc(@"{""name"": ""OnHit"", ""kind"": ""signal"", ""behavior"": ""Pusher"", ""direction"": ""output"", ""params"": [{""name"": ""Hit"", ""type"": ""GameObject""}], ""description"": ""Invoked when a Rigidbody Collides with this."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [Tooltip("Invoked when a Rigidbody Collides with this.")]
         [OutputSignal, Parameter("Hit", typeof(GameObject))]
+        [NetworkSync(SignalSender.Authority)]
         public readonly SignalHandle<GameObject> OnHit;
 
         [SchematicDoc(@"{""name"": ""Force"", ""kind"": ""variable"", ""behavior"": ""Pusher"", ""type"": ""float"", ""default"": ""0f"", ""description"": ""Force (float) of Pusher.""}")]

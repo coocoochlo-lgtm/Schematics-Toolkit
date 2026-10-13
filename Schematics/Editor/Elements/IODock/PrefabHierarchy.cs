@@ -202,7 +202,7 @@ public class PrefabHierarchy : VisualElement
                 Kind = DockItem.ItemKind.Variable, Path = path, Behavior = behaviorType, GameObject = target,
                 Name = variable.Name, ValueType = variable.Type.Type,
             };
-            var row = CreateRow(item, VariableIcon, ObjectNames.NicifyVariableName(variable.Name), TypeName(item.ValueType),
+            var row = CreateRow(item, VariableIcon, ObjectNames.NicifyVariableName(variable.Name), TypeName(item.ValueType) + (variable.Networked ? "  ⇅" : ""),
                 "Variable: drag the name into the graph to Get or Set it; click it to find its nodes. The field is this object's starting value.");
             string variableName = variable.Name;
             var definition = variable;

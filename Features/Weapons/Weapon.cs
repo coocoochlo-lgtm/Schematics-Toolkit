@@ -25,10 +25,12 @@ namespace Remedy.Weapons
         [SchematicDoc(@"{""name"": ""OnPickedup"", ""kind"": ""signal"", ""behavior"": ""Weapon"", ""direction"": ""output"", ""params"": [{""name"": ""Holder"", ""type"": ""GameObject""}], ""description"": ""Invoked when the Weapon is picked up by a WeaponHolder. The GameObject possessing the WeaponHolder Component is passed."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [Tooltip("Invoked when the Weapon is picked up by a WeaponHolder. The GameObject possessing the WeaponHolder Component is passed.")]
         [OutputSignal, Parameter("Holder", typeof(GameObject))]
+        [NetworkSync(SignalSender.Authority)]
         public readonly SignalHandle<GameObject> OnPickedup;
         [SchematicDoc(@"{""name"": ""OnDropped"", ""kind"": ""signal"", ""behavior"": ""Weapon"", ""direction"": ""output"", ""description"": ""Invoked when the Weapon is dropped by a WeaponHolder"", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [Tooltip("Invoked when the Weapon is dropped by a WeaponHolder")]
         [OutputSignal]
+        [NetworkSync(SignalSender.Authority)]
         public readonly SignalHandle OnDropped;
 
         [SchematicDoc(@"{""name"": ""OnPull"", ""kind"": ""signal"", ""behavior"": ""Weapon"", ""direction"": ""output"", ""params"": [{""name"": ""Pull"", ""type"": ""Vector3""}], ""description"": ""Invoked after this Fire Mode shoots, intended to pull the Object containing the Weapon toward the direction it is Attacking."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
@@ -59,6 +61,7 @@ namespace Remedy.Weapons
 
         [SchematicDoc(@"{""name"": ""InWorld"", ""kind"": ""variable"", ""behavior"": ""Weapon"", ""type"": ""bool"", ""default"": ""true"", ""description"": ""If true, the weapon will be placed in the world.""}")]
         [Tooltip("If true, the weapon will be placed in the world.")]
+        [NetworkSync]
         public readonly VariableHandle<bool> InWorld = true;
         [SchematicDoc(@"{""name"": ""UsePhysics"", ""kind"": ""variable"", ""behavior"": ""Weapon"", ""type"": ""bool"", ""default"": ""true"", ""description"": ""If the Weapon is not being held, and this is true, it will use Rigidbody physics.""}")]
         [Tooltip("If the Weapon is not being held, and this is true, it will use Rigidbody physics.")]
@@ -69,6 +72,7 @@ namespace Remedy.Weapons
 
         [SchematicDoc(@"{""name"": ""Holder"", ""kind"": ""variable"", ""behavior"": ""Weapon"", ""type"": ""GameObject"", ""default"": ""null"", ""description"": ""The object holding, controlling and managing this Weapon (the one with the Weapon Holder).""}")]
         [Tooltip("The object holding, controlling and managing this Weapon (the one with the Weapon Holder).")]
+        [NetworkSync]
         public readonly VariableHandle<GameObject> Holder = (GameObject)null;
         [SchematicDoc(@"{""name"": ""WeaponHolderRigidbody"", ""kind"": ""variable"", ""behavior"": ""Weapon"", ""type"": ""Rigidbody"", ""default"": ""null"", ""description"": ""The Rigidbody of the WeaponHolder""}")]
         [Tooltip("The Rigidbody of the WeaponHolder")]

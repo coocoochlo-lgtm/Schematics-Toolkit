@@ -100,8 +100,13 @@ public partial class SignalData
 
     #region Invoking
 
+    // A Signal marked Networked first goes through SignalNetwork (when the networking layer is installed), which passes
+    // it on to the other players and says whether this peer hears it itself (see SignalNetworkSender).
+
     public void Invoke(int uid)
     {
+        if (Remedy.Schematics.SignalNetwork.Wants(this) && !Remedy.Schematics.SignalNetwork.Dispatch(this, uid, Array.Empty<Union>()))
+            return;
         ForEachListener(uid, l =>
         {
             if (l is SignalListener0 typed) typed.Action();
@@ -112,6 +117,8 @@ public partial class SignalData
 
     public void Invoke<T1>(int uid, T1 a)
     {
+        if (Remedy.Schematics.SignalNetwork.Wants(this) && !Remedy.Schematics.SignalNetwork.Dispatch(this, uid, new[] { SignalArgs.ToUnion(a) }))
+            return;
         _invokeDepth++;
         try
         {
@@ -128,6 +135,8 @@ public partial class SignalData
 
     public void Invoke<T1, T2>(int uid, T1 a, T2 b)
     {
+        if (Remedy.Schematics.SignalNetwork.Wants(this) && !Remedy.Schematics.SignalNetwork.Dispatch(this, uid, new[] { SignalArgs.ToUnion(a), SignalArgs.ToUnion(b) }))
+            return;
         _invokeDepth++;
         try
         {
@@ -144,6 +153,8 @@ public partial class SignalData
 
     public void Invoke<T1, T2, T3>(int uid, T1 a, T2 b, T3 c)
     {
+        if (Remedy.Schematics.SignalNetwork.Wants(this) && !Remedy.Schematics.SignalNetwork.Dispatch(this, uid, new[] { SignalArgs.ToUnion(a), SignalArgs.ToUnion(b), SignalArgs.ToUnion(c) }))
+            return;
         _invokeDepth++;
         try
         {
@@ -160,6 +171,8 @@ public partial class SignalData
 
     public void Invoke<T1, T2, T3, T4>(int uid, T1 a, T2 b, T3 c, T4 d)
     {
+        if (Remedy.Schematics.SignalNetwork.Wants(this) && !Remedy.Schematics.SignalNetwork.Dispatch(this, uid, new[] { SignalArgs.ToUnion(a), SignalArgs.ToUnion(b), SignalArgs.ToUnion(c), SignalArgs.ToUnion(d) }))
+            return;
         _invokeDepth++;
         try
         {
@@ -180,6 +193,8 @@ public partial class SignalData
     public void InvokeFromGraph(int uid, params Union[] args)
     {
         args ??= Array.Empty<Union>();
+        if (Remedy.Schematics.SignalNetwork.Wants(this) && !Remedy.Schematics.SignalNetwork.Dispatch(this, uid, args))
+            return;
         _invokeDepth++;
         try
         {

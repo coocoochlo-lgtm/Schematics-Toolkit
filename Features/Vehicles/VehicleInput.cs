@@ -1,4 +1,5 @@
 using System;
+using Remedy.Schematics;
 using UnityEngine;
 
 namespace Remedy.Vehicles
@@ -50,14 +51,16 @@ namespace Remedy.Vehicles
         /// <summary>
         /// True if the vehicle should take the local player's input right now: with <paramref name="playerDriverOnly"/>,
         /// only while its driver is tagged as the player (GlobalSubsystem.PlayerTag); otherwise while anyone drives.
-        /// A vehicle without Vehicle Seats always takes it.
+        /// A vehicle without Vehicle Seats always takes it.<br/>
+        /// Online, only the player controlling the driver (the owner of its NetworkObject) takes it, so other players'
+        /// keys never steer someone else's car on their copy of it.
         /// </summary>
         public static bool AcceptsPlayerInput(GameObject vehicle, bool playerDriverOnly)
         {
             if (!VehicleSeats.HasSeats(vehicle))
-                return true;
+                return SchematicNetwork.IsLocallyControlled(vehicle);
             var driver = VehicleSeats.DriverOf(vehicle);
-            if (driver == null)
+            if (driver == null || !SchematicNetwork.IsLocallyControlled(driver))
                 return false;
             if (!playerDriverOnly)
                 return true;

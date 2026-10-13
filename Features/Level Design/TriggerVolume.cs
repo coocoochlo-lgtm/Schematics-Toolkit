@@ -1,3 +1,4 @@
+using Remedy.Schematics;
 using UnityEngine;
 
 namespace Remedy.LevelDesign
@@ -12,6 +13,7 @@ namespace Remedy.LevelDesign
     {
         [SchematicDoc(@"{""name"": ""OnTrigger"", ""kind"": ""signal"", ""behavior"": ""Trigger Volume"", ""direction"": ""output"", ""description"": ""Sent by Trigger Volume when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [OutputSignal]
+        [NetworkSync(SignalSender.Authority)]
         public readonly SignalHandle OnTrigger;
 
         [SchematicDoc(@"{""name"": ""ShowCollider"", ""kind"": ""variable"", ""behavior"": ""Trigger Volume"", ""type"": ""bool"", ""default"": ""true"", ""description"": ""Show Collider (bool) of Trigger Volume.""}")]
