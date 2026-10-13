@@ -19,7 +19,7 @@ public sealed class Readiness
 
     /// <summary>Which step (1-based) of how many.</summary>
     public int Step { get; private set; }
-    public const int Steps = 4;
+    public const int Steps = 5;
 
     /// <summary>Seconds since loading began.</summary>
     public double Elapsed => _clock.Elapsed.TotalSeconds;
@@ -104,9 +104,10 @@ public sealed class Readiness
             // One failing (speech on an unusual CPU, say) doesn't stop the others: Sprocket can still chat without it.
             Load<ReferenceStore>(1, "the API reference", 0.02f, services);
             Llm.LoadProgress = new StepProgress(this);
-            Load<Llm>(2, "the language model", 0.70f, services);
-            Load<SpeechToText>(3, "speech recognition", 0.10f, services);
-            Load<TextToSpeech>(4, "the voice", 0.18f, services);
+            Load<Llm>(2, "the language model", 0.66f, services);
+            Load<MacroModel>(3, "the editor-token model", 0.04f, services);
+            Load<SpeechToText>(4, "speech recognition", 0.10f, services);
+            Load<TextToSpeech>(5, "the voice", 0.18f, services);
             _done = 1f; _weight = 0f;
             Loading = null;
             Console.WriteLine($"[server] Ready ({Elapsed:0.0} s)");

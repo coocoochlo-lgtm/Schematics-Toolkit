@@ -79,7 +79,10 @@ namespace Remedy.Schematics.Assistant
                     .String("id", pair.Value)
                     .String("type", type?.Name ?? node.GetType().Name)
                     .String("name", node.Name)
-                    .Number("x", node.Position.x).Number("y", node.Position.y);
+                    .Number("x", node.Position.x).Number("y", node.Position.y)
+                    // Whether it has the flow arrow in and out (the editor-token model needs to know what can chain).
+                    .Bool("flow_in", node.Ports.Values.Any(p => p.Direction == PortDirection.Input && p.Type == typeof(ActionPort)))
+                    .Bool("flow_out", node.Ports.Values.Any(p => p.Direction == PortDirection.Output && p.Type == typeof(ActionPort)));
 
                 json.BeginArray("inputs");
                 foreach (var port in node.Ports.Values.Where(p => p.Direction == PortDirection.Input && p.Type != typeof(ActionPort)))

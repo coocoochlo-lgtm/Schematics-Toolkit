@@ -354,6 +354,7 @@ namespace Remedy.Schematics.Assistant
         public AssistantJson EndArray() { _sb.Append(']'); _hasItems.Pop(); return this; }
 
         public AssistantJson String(string name, string value) { Comma(); Key(name); _sb.Append('"').Append(Escape(value)).Append('"'); return this; }
+        public AssistantJson Bool(string name, bool value) { Comma(); Key(name); _sb.Append(value ? "true" : "false"); return this; }
         public AssistantJson Value(string value) { Comma(); _sb.Append('"').Append(Escape(value)).Append('"'); return this; }
         public AssistantJson Number(string name, float value)
         {

@@ -19,3 +19,4 @@ answers.json
 nuget/
 tmp/
 voice-cache/
+Training/data/

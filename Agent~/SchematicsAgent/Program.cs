@@ -25,6 +25,7 @@ builder.Services.AddSingleton<SpeechToText>();
 builder.Services.AddSingleton<TextToSpeech>();
 builder.Services.AddSingleton<ReferenceStore>();
 builder.Services.AddSingleton<AnswerCache>();
+builder.Services.AddSingleton<MacroModel>();
 builder.Services.AddSingleton<VoiceCache>();
 builder.Services.AddSingleton<Planner>();
 

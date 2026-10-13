@@ -32,5 +32,7 @@
   <!-- RE:Dox (vendored in Dependencies), compiled into the server: Unity's compiler can't build it. -->
   <ItemGroup>
     <Compile Include="../../Dependencies/REDox-1.0.1/src/REDox/**/*.cs" Link="REDox/%(RecursiveDir)%(Filename)%(Extension)" />
+    <!-- The editor-token language, shared word for word with the Unity editor that builds its training data. -->
+    <Compile Include="../../Schematics/Editor/Assistant/Macro/MacroLanguage.cs" Link="Macro/MacroLanguage.cs" />
   </ItemGroup>
 </Project>

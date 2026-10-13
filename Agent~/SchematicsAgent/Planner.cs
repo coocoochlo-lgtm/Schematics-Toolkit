@@ -18,7 +18,9 @@ public sealed class Planner
     private readonly ReferenceStore _reference;
     private readonly AnswerCache _answers;
 
-    public Planner(Llm llm, ReferenceStore reference, AnswerCache answers) { _llm = llm; _reference = reference; _answers = answers; }
+    private readonly MacroModel _macro;
+
+    public Planner(Llm llm, ReferenceStore reference, AnswerCache answers, MacroModel macro) { _llm = llm; _reference = reference; _answers = answers; _macro = macro; }
 
     // The toolkit pieces relevant to some text, as prompt lines.
     private string ReferenceFor(string text, int count)
@@ -82,11 +84,13 @@ ws      ::= [ \t\n]*
     public async Task<string> HandleAsync(string requestJson, CancellationToken cancellation)
     {
         string utterance, state;
+        Remedy.Schematics.Assistant.Macro.MacroState macroState;
         using (var request = Json.Parse(requestJson))
         {
             var root = request.RootElement;
             utterance = root.Str("utterance").Trim();
             state = Condense(root.Child("context"), root.Str("utterance"));
+            macroState = MacroModel.StateFrom(root.Child("context"));
         }
         if (utterance.Length == 0)
             return Reply("I didn't catch that.", "[]");
@@ -116,6 +120,13 @@ ws      ::= [ \t\n]*
             case Mode.Look:
                 return Reply(await Answer("Looking around", LookRules,
                     $"Editor state:\n{state}{ReferenceFor(utterance + " " + state, Math.Max(2, references / 2))}\n\nQuestion: {utterance}", 220, cancellation), "[]");
+        }
+
+        // A trained editor-token model does edits in one short pass; the general model is the fallback.
+        if (_macro.Available && await _macro.TryAsync(macroState, utterance, cancellation) is { } macro)
+        {
+            Console.WriteLine($"[ask] Planned with the editor-token model ({macro.commands.Count} commands)");
+            return Reply(macro.say, MacroModel.ToJson(macro.commands));
         }
 
         // 1. Read and plan.
