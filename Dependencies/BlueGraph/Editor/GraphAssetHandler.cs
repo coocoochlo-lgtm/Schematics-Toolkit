@@ -10,10 +10,10 @@ namespace BlueGraph.Editor
     /// </summary>
     public class GraphAssetHandler
     {
-        [OnOpenAsset(0)]
-        public static bool OnOpenAsset(int instanceID, int line)
+        [OnOpenAsset]
+        public static bool OnOpenAsset(UnityEngine.EntityId instanceId, int line)
         {
-            if (InstanceIdToObject(instanceID) is Graph graph)
+            if (UnityEditor.EditorUtility.EntityIdToObject(instanceId) is Graph graph)
             {
                 OnOpenGraph(graph);
                 return true;

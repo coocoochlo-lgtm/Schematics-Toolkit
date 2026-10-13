@@ -39,10 +39,10 @@ public class StateMachineWindow : EditorWindow
         window.SetDefinition(definition);
     }
 
-    [OnOpenAsset(1)]
-    private static bool OnOpenAsset(int instanceId, int line)
+    [OnOpenAsset]
+    private static bool OnOpenAsset(UnityEngine.EntityId instanceId, int line)
     {
-        if (EditorObjectIds.ToObject(instanceId) is StateMachineDefinition definition)
+        if (UnityEditor.EditorUtility.EntityIdToObject(instanceId) is StateMachineDefinition definition)
         {
             Open(definition);
             return true;
