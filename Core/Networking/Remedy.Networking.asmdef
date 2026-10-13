@@ -9,7 +9,8 @@
         "GUID:dff8ecec7c9808447ae4528f8a364918",
         "GUID:8a4abcc8263c46c4a9aaeaa2747ac62c",
         "GUID:2c3472ea9a5b43d3ae42d904816ba305",
-        "GUID:c61f7966d20e38f45989bde55b098f00"
+        "GUID:c61f7966d20e38f45989bde55b098f00",
+        "Unity.Collections"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

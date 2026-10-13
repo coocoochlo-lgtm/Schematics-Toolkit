@@ -6,7 +6,8 @@
         "GUID:bba4e093fb1c4ce8b65e6888e34b8ceb",
         "GUID:0a22d72520a82174ab746de6d8876564",
         "GUID:6082862122ef11a49bf208ee4ec62519",
-        "GUID:9cef1c0784dad074282847b193c0d47b"
+        "GUID:9cef1c0784dad074282847b193c0d47b",
+        "Unity.Collections"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
