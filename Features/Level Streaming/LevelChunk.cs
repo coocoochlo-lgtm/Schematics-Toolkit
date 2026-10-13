@@ -78,8 +78,9 @@ namespace Remedy.LevelStreaming
 
         private void Start()
         {
-            // Hidden at once at startup (no point spreading it out while loading).
-            if (!VisibleAtStart)
+            // Hidden at once at startup (no point spreading it out while loading). A chunk that wakes later, inside an
+            // additive level streaming in, may already be wanted by an occupied zone: then it stays shown.
+            if (!VisibleAtStart && !LevelStreamer.IsWanted(this))
                 LevelStreamer.SetVisible(this, false, immediate: true);
         }
 

@@ -1,18 +1,24 @@
 using System.Collections.Generic;
-using System.Diagnostics;
 using UnityEngine;
 
 namespace Remedy.LevelStreaming
 {
     /// <summary>
-    /// Shows and hides level chunks for the zones their targets are in. Showing or hiding a big chunk at once can
-    /// cause a frame spike, so changes are queued and applied a few objects at a time within
-    /// <see cref="FrameBudgetMilliseconds"/> per frame.
+    /// Shows and hides level chunks (and loads and unloads additive levels) for the zones their targets are in.
+    /// Showing or hiding a big chunk at once can cause a frame spike, so changes are queued and applied a few objects at
+    /// a time within the shared <see cref="StreamingBudget"/>, the same budget additive levels stream in with.
     /// </summary>
     public static class LevelStreamer
     {
-        /// <summary>Time per frame spent showing and hiding chunk contents.</summary>
-        public static float FrameBudgetMilliseconds = 1.5f;
+        /// <summary>
+        /// Time per frame spent on streaming, in milliseconds. Shared with additive levels: this is the same setting as
+        /// <see cref="StreamingBudget.MillisecondsPerFrame"/>.
+        /// </summary>
+        public static float FrameBudgetMilliseconds
+        {
+            get => StreamingBudget.MillisecondsPerFrame;
+            set => StreamingBudget.MillisecondsPerFrame = value;
+        }
 
         /// <summary>How often zones are checked against the targets, in seconds.</summary>
         public static float ZoneCheckInterval = 0.2f;
@@ -60,6 +66,23 @@ namespace Remedy.LevelStreaming
             _zones.Remove(zone);
         }
 
+        /// <summary>Whether an occupied zone currently wants this chunk shown.</summary>
+        public static bool IsWanted(LevelChunk chunk) => chunk != null && _wanted.TryGetValue(chunk, out int count) && count > 0;
+
+        /// <summary>
+        /// Fills the list with the positions streaming is measured from: the <see cref="Targets"/>, or the main camera
+        /// when there are none. Additive levels use it to wake what's nearest first.
+        /// </summary>
+        public static void GetTargetPositions(List<Vector3> positions)
+        {
+            positions.Clear();
+            foreach (var target in Targets)
+                if (target != null)
+                    positions.Add(target.position);
+            if (positions.Count == 0 && Camera.main != null)
+                positions.Add(Camera.main.transform.position);
+        }
+
         /// <summary>Asks for a chunk to be shown or hidden (hiding is skipped while an occupied zone wants it).</summary>
         public static void Request(LevelChunk chunk, bool show)
         {
@@ -87,7 +110,7 @@ namespace Remedy.LevelStreaming
             var work = new Work { Chunk = chunk, Show = show };
             if (immediate)
             {
-                while (!Step(ref work, long.MaxValue, Stopwatch.StartNew())) { }
+                Step(ref work, immediate: true);
                 return;
             }
             _queue.Add(work);
@@ -113,19 +136,26 @@ namespace Remedy.LevelStreaming
 
             if (_queue.Count == 0)
                 return;
-            var clock = Stopwatch.StartNew();
-            long budget = (long)(FrameBudgetMilliseconds * Stopwatch.Frequency / 1000f);
-            while (_queue.Count > 0 && clock.ElapsedTicks < budget)
+            // Chunks spend from the same per-frame budget as additive levels, so both together stay within it.
+            StreamingBudget.Begin();
+            try
             {
-                var work = _queue[0];
-                bool done = Step(ref work, budget, clock);
-                if (done) _queue.RemoveAt(0);
-                else _queue[0] = work;
+                while (_queue.Count > 0 && !StreamingBudget.Exhausted)
+                {
+                    var work = _queue[0];
+                    bool done = Step(ref work, immediate: false);
+                    if (done) _queue.RemoveAt(0);
+                    else _queue[0] = work;
+                }
+            }
+            finally
+            {
+                StreamingBudget.End();
             }
         }
 
-        // Applies as much of one chunk's change as the budget allows. True when finished.
-        private static bool Step(ref Work work, long budget, Stopwatch clock)
+        // Applies as much of one chunk's change as the budget allows (or all of it, when immediate). True when finished.
+        private static bool Step(ref Work work, bool immediate)
         {
             var chunk = work.Chunk;
             if (chunk == null)
@@ -138,7 +168,7 @@ namespace Remedy.LevelStreaming
                 {
                     if (renderers[work.Next] != null)
                         renderers[work.Next].enabled = work.Show;
-                    if ((work.Next & 15) == 15 && clock.ElapsedTicks >= budget)
+                    if (!immediate && (work.Next & 15) == 15 && StreamingBudget.Exhausted)
                     {
                         work.Next++;
                         return false;
@@ -151,7 +181,10 @@ namespace Remedy.LevelStreaming
             for (; work.Next < root.childCount; work.Next++)
             {
                 root.GetChild(work.Next).gameObject.SetActive(work.Show);
-                if (clock.ElapsedTicks >= budget)
+                if (immediate)
+                    continue;
+                StreamingBudget.Spend();
+                if (StreamingBudget.Exhausted)
                 {
                     work.Next++;
                     return false;
@@ -203,6 +236,11 @@ namespace Remedy.LevelStreaming
                 if (count == 0)
                     SetVisible(chunk, true, immediate: false);
             }
+            // Additive levels are counted by the loader itself (a level stays while any zone, or code, wants it).
+            if (zone.Levels != null)
+                foreach (var level in zone.Levels)
+                    if (level != null && level.IsValid)
+                        LevelLoader.AcquireForZone(level);
         }
 
         private static void Release(LevelStreamingZone zone)
@@ -218,6 +256,10 @@ namespace Remedy.LevelStreaming
                 if (count == 0)
                     SetVisible(chunk, false, immediate: false);
             }
+            if (zone.Levels != null)
+                foreach (var level in zone.Levels)
+                    if (level != null && level.IsValid)
+                        LevelLoader.ReleaseForZone(level);
         }
 
         private sealed class StreamerRunner : MonoBehaviour

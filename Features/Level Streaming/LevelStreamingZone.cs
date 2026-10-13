@@ -4,9 +4,9 @@ using UnityEngine;
 namespace Remedy.LevelStreaming
 {
     /// <summary>
-    /// A box in the world that shows a set of chunks while a streaming target (the player, the camera) is inside it,
-    /// and lets them hide again a moment after it leaves. Zones are checked centrally a few times a second; they don't
-    /// use physics triggers.
+    /// A box in the world that shows a set of chunks (and loads a set of additive levels) while a streaming target (the
+    /// player, the camera) is inside it, and lets them hide (and unload) again a moment after it leaves. Zones are
+    /// checked centrally a few times a second; they don't use physics triggers.
     /// </summary>
     [AddComponentMenu("Level Streaming/Level Streaming Zone")]
     public class LevelStreamingZone : MonoBehaviour
@@ -17,7 +17,11 @@ namespace Remedy.LevelStreaming
         [Tooltip("Chunks shown while a target is inside.")]
         public List<LevelChunk> Chunks = new List<LevelChunk>();
 
-        [Tooltip("Seconds to wait after the last target leaves before letting the chunks hide (avoids flicker at edges).")]
+        [Tooltip("Additive levels (scenes or level prefabs) loaded while a target is inside, and unloaded after it leaves " +
+                 "unless another zone (or code) still wants them. They stream in over several frames.")]
+        public List<LevelReference> Levels = new List<LevelReference>();
+
+        [Tooltip("Seconds to wait after the last target leaves before letting the chunks hide and the levels unload (avoids flicker at edges).")]
         public float ExitDelay = 1f;
 
         internal bool Occupied;

@@ -123,6 +123,41 @@ namespace Remedy.LevelStreaming.Editor
     {
         private readonly BoxBoundsHandle _handle = new BoxBoundsHandle();
 
+        public override void OnInspectorGUI()
+        {
+            DrawDefaultInspector();
+
+            var zone = (LevelStreamingZone)target;
+            if (zone.Levels == null || zone.Levels.Count == 0)
+                return;
+
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField("Levels", EditorStyles.boldLabel);
+            foreach (var level in zone.Levels)
+            {
+                if (level == null || !level.IsValid)
+                    continue;
+                if (Application.isPlaying)
+                {
+                    // Where each level is right now: loading, streaming in (with progress), loaded, or not loaded.
+                    var handle = LevelLoader.Find(level);
+                    var rect = EditorGUILayout.GetControlRect(false, EditorGUIUtility.singleLineHeight);
+                    if (handle == null)
+                        EditorGUI.LabelField(rect, level.Name, "Not loaded");
+                    else
+                        EditorGUI.ProgressBar(rect, handle.Progress, $"{level.Name}: {handle.State}");
+                }
+                else if (level.Kind == LevelReference.LevelKind.Scene)
+                {
+                    string path = level.ResolveScenePath();
+                    if (LevelReference.IsPath(path) && UnityEngine.SceneManagement.SceneUtility.GetBuildIndexByScenePath(path) < 0)
+                        EditorGUILayout.HelpBox($"'{level.Name}' isn't in the Build Profile's scene list: it loads in the editor, but a build can't load it.", MessageType.Warning);
+                }
+            }
+        }
+
+        public override bool RequiresConstantRepaint() => Application.isPlaying;
+
         private void OnSceneGUI()
         {
             var zone = (LevelStreamingZone)target;
