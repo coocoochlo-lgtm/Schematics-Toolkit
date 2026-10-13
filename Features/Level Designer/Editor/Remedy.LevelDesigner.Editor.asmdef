@@ -1,0 +1,27 @@
+{
+    "name": "Remedy.LevelDesigner.Editor",
+    "rootNamespace": "Remedy.LevelDesigner.Editor",
+    "references": [
+        "Remedy.LevelDesigner",
+        "GUID:9cef1c0784dad074282847b193c0d47b",
+        "GUID:0a22d72520a82174ab746de6d8876564",
+        "GUID:6082862122ef11a49bf208ee4ec62519",
+        "GUID:6c3b5c487fba73c4cab9f587c58ef7c6",
+        "GUID:dff8ecec7c9808447ae4528f8a364918",
+        "GUID:8a4abcc8263c46c4a9aaeaa2747ac62c",
+        "GUID:06db1eef5c604c5e9c72e6baf73f3868",
+        "GUID:f51ebe6a0ceec4240a699833d6309b23",
+        "Unity.Mathematics"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
