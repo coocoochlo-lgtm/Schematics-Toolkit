@@ -25,7 +25,7 @@ namespace Remedy.Schematics.Assistant
         private static readonly HttpClient _slow = new() { Timeout = TimeSpan.FromMinutes(10) };
 
         /// <summary>The server version this editor code expects (AgentSettings.Version on the server).</summary>
-        private const int ServerVersion = 7;
+        private const int ServerVersion = 8;
         private const string RebuiltKey = "Schematics.Assistant.RebuiltForVersion";
 
         // A slow CPU (the server says) gets the fast model, when the choice is Auto: set up, then started with it.

@@ -47,9 +47,11 @@ public sealed class TextToSpeech : IDisposable
         voice = Math.Clamp(voice, 0, Voices.Count - 1);
         speed = speed <= 0f ? 1f : speed;
         // Said this before (this voice, this speed): from the cache, no model time at all.
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        string what = text.Length > 40 ? text[..40] + "…" : text;
         if (_cache.Find(text, voice, speed) is { } cached)
         {
-            Console.WriteLine("[tts] Said from the voice cache");
+            Console.WriteLine($"[tts] \"{what}\": from the voice cache in {clock.ElapsedMilliseconds} ms");
             return cached;
         }
         if (_tts == null)
@@ -59,6 +61,7 @@ public sealed class TextToSpeech : IDisposable
         lock (_gate)
             audio = _tts.Generate(text, speed, voice);
         var samples = audio.Samples;
+        Console.WriteLine($"[tts] \"{what}\": made {samples.Length / (float)Math.Max(1, audio.SampleRate):0.0} s of speech in {clock.Elapsed.TotalSeconds:0.0} s (not cached yet)");
         // Compressed in the background: the speech goes back to Unity without waiting for it.
         int rate = audio.SampleRate;
         _ = Task.Run(() => _cache.Remember(text, voice, speed, samples, rate));

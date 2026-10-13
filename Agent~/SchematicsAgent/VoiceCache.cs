@@ -78,6 +78,7 @@ public sealed class VoiceCache
                 using (var file = File.Create(temporary))
                     EncodeOgg(samples, sampleRate, file);
                 File.Move(temporary, path, overwrite: true);
+                Console.WriteLine($"[tts] Cached it ({new FileInfo(path).Length / 1024} KB)");
                 Trim();
             }
             catch (Exception exception)
