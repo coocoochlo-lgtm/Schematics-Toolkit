@@ -30,7 +30,7 @@ namespace Remedy.Framework
                     var hasKeepInSceneAttribute = Attribute.IsDefined(typeof(TSingleton), typeof(KeepInSceneAttribute));
 
                     if (_inScene == null)
-                        _instanceObject ??= new(typeof(TSingleton).Name);
+                        _instanceObject = new GameObject(typeof(TSingleton).Name);
                     else
                         _instanceObject = _inScene.gameObject;
 
@@ -57,7 +57,8 @@ namespace Remedy.Framework
         {
             get
             {
-                if (InstanceObject.hideFlags != HideFlags.None)
+                var instanceObject = InstanceObject;
+                if (instanceObject.hideFlags != HideFlags.None)
                 {
                     Destroy(_instanceObject);
                 }
@@ -79,8 +80,8 @@ namespace Remedy.Framework
                     }
                 }
 
-                _instance ??= InstanceObject.GetComponent<TSingleton>()
-                                            ?? InstanceObject.AddComponent<TSingleton>();
+                _instance ??= instanceObject.GetComponent<TSingleton>()
+                                            ?? instanceObject.AddComponent<TSingleton>();
 
                 return _instance;
             }
@@ -112,6 +113,10 @@ namespace Remedy.Framework
 
         protected virtual void OnDestroy()
         {
+            if (this == _instance)
+                _instance = null;
+            if (gameObject == _instanceObject)
+                _instanceObject = null;
             Debug.LogWarning("Singleton Destroyed: " + this.GetType());
         }
     }
