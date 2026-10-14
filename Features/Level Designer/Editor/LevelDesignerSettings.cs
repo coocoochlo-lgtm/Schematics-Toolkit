@@ -53,6 +53,16 @@ namespace Remedy.LevelDesigner.Editor
             set => Set(() => EditorPrefs.SetBool(Prefix + "CtrlRuler", value));
         }
 
+        /// <summary>
+        /// Keeps every Ctrl + drag measurement as a Distance ruler when the mouse is let go (otherwise only when Alt is
+        /// held on release).
+        /// </summary>
+        public static bool KeepCtrlRulers
+        {
+            get => EditorPrefs.GetBool(Prefix + "KeepCtrlRulers", false);
+            set => Set(() => EditorPrefs.SetBool(Prefix + "KeepCtrlRulers", value));
+        }
+
         /// <summary>Rounds a length to the snapping step (lengths never snap to zero).</summary>
         public static float SnapLength(float value)
         {
@@ -60,6 +70,15 @@ namespace Remedy.LevelDesigner.Editor
             if (step <= 0f)
                 return value;
             return Mathf.Max(step, Mathf.Round(value / step) * step);
+        }
+
+        /// <summary>Rounds a signed length to the snapping step (keeps its sign; zero stays possible).</summary>
+        public static float SnapSigned(float value)
+        {
+            float step = Snap;
+            if (step <= 0f)
+                return value;
+            return Mathf.Round(value / step) * step;
         }
 
         /// <summary>Rounds a position to the snapping grid.</summary>

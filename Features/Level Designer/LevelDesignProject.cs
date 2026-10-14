@@ -13,6 +13,18 @@ namespace Remedy.LevelDesigner
     [CreateAssetMenu(menuName = "Remedy Toolkit/Level Designer/Level Design Project", fileName = "LevelDesignProject")]
     public class LevelDesignProject : ScriptableObject
     {
+        /// <summary>The default <see cref="LevelsRootFolder"/>.</summary>
+        public const string DefaultLevelsRootFolder = "Assets/Levels";
+
+        /// <summary>
+        /// Where the Level Designer puts every scene it makes, one folder per level:
+        /// <c>&lt;Root&gt;/&lt;Level&gt;/&lt;Level&gt;_Blockout.unity</c> for the blockout and
+        /// <c>&lt;Root&gt;/&lt;Level&gt;/Art/&lt;Level&gt;_&lt;Art Design&gt;.unity</c> for its art designs, plus
+        /// <c>&lt;Root&gt;/Thumbnails~/</c> for the scene thumbnails the window shows. Stored in this asset (not per
+        /// user) so the whole team's scenes land in the same place.
+        /// </summary>
+        public string LevelsRootFolder = DefaultLevelsRootFolder;
+
         /// <summary>Every blockout level, in the order the window lists them.</summary>
         public List<BlockoutLevel> Blockouts = new();
 

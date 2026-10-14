@@ -21,8 +21,10 @@ namespace Remedy.LevelDesigner
 
     /// <summary>
     /// A grey-box building block: a box, ramp, stairs, cylinder, sphere, wedge, arch or quarter pipe whose size is set
-    /// in meters (not by scaling), so its measurements are always exact. The blockout shader prints the size on every
-    /// face, draws a 1 m grid with 0.25 m subdivisions, and colours the shape by its <see cref="Category"/>.<br/>
+    /// in meters (not by scaling), so its measurements are always exact. The blockout shader draws a 1 m grid (with
+    /// 0.25 m subdivisions) starting at each face's bottom-left corner, labels every 1 m cell with how far along the
+    /// face it is ("x3 y2": the third meter across, the second up), and colours the shape by its
+    /// <see cref="Category"/>. The total size is shown above the shape in the Scene view when it's selected.<br/>
     /// The mesh is generated (and saved in the scene); collision is a static Box3D mesh shape so characters driven by
     /// the toolkit's physics can run on the blockout straight away.
     /// </summary>
@@ -55,7 +57,8 @@ namespace Remedy.LevelDesigner
         /// <summary>Arch: how much of the width the tunnel takes up.</summary>
         [Range(0.1f, 0.95f)] public float ArchOpening = 0.6f;
 
-        /// <summary>Prints the size on the faces.</summary>
+        /// <summary>Labels every 1 m cell on the faces with its position from the face's bottom-left corner.</summary>
+        [Tooltip("Label every 1 m cell on the faces with how far along the face it is (\"x3 y2\")")]
         public bool ShowDimensions = true;
 
         /// <summary>Gives the shape static Box3D collision (a mesh shape on a static body).</summary>
@@ -65,6 +68,11 @@ namespace Remedy.LevelDesigner
         [SerializeField, HideInInspector] private Mesh _mesh;
         // The mesh last handed to the Box3D mesh shape, so reloading a scene doesn't touch (and dirty) it again.
         [SerializeField, HideInInspector] private Mesh _collisionMesh;
+        // The mesh layout version the saved mesh was built with; older meshes are rebuilt when the shape wakes.
+        [SerializeField, HideInInspector] private int _meshVersion;
+
+        /// <summary>Bumped whenever the mesh's vertex data changes meaning (2: UV1.zw hold axis codes for cell labels).</summary>
+        private const int MeshVersion = 2;
 
         /// <summary>
         /// Set by an <see cref="ArtDesignScene"/> that brings its blockout into Play Mode for collision only: shapes
@@ -84,12 +92,7 @@ namespace Remedy.LevelDesigner
 
         private static readonly int SizeId = Shader.PropertyToID("_Size");
         private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
-        private static readonly int LabelLengthId = Shader.PropertyToID("_LabelLength");
-        private static readonly int[] LabelIds =
-        {
-            Shader.PropertyToID("_Label0"), Shader.PropertyToID("_Label1"), Shader.PropertyToID("_Label2"),
-            Shader.PropertyToID("_Label3"), Shader.PropertyToID("_Label4"),
-        };
+        private static readonly int CellLabelsId = Shader.PropertyToID("_CellLabels");
 
         private MaterialPropertyBlock _block;
         private Vector3 _appliedScale;
@@ -152,6 +155,15 @@ namespace Remedy.LevelDesigner
 
             if (_mesh == null)
                 Rebuild();
+            else if (_meshVersion != MeshVersion && !Application.isPlaying)
+            {
+                // Saved with an older layout (the previous one carried a label position where the cell labels now
+                // read their axes): rebuild so the shader reads it right.
+                _meshOwners[_mesh] = this;
+                RebuildMesh();
+                ApplyRendering();
+                MarkDirty(this);
+            }
             else
             {
                 _meshOwners[_mesh] = this;
@@ -221,6 +233,7 @@ namespace Remedy.LevelDesigner
             _meshOwners[_mesh] = this;
             _mesh.name = "Blockout " + Kind;
             BlockoutMeshBuilder.Build(_mesh, Kind, Size, StepHeight, Segments, ArchOpening);
+            _meshVersion = MeshVersion;
 
             var filter = GetComponent<MeshFilter>();
             if (filter != null && filter.sharedMesh != _mesh)
@@ -245,18 +258,10 @@ namespace Remedy.LevelDesigner
             _block.SetVector(SizeId, worldSize);
             _block.SetColor(BaseColorId, Color);
 
-            var glyphs = ShowDimensions ? EncodeLabel(worldSize) : Array.Empty<float>();
-            _block.SetFloat(LabelLengthId, glyphs.Length);
-            for (int i = 0; i < LabelIds.Length; i++)
-            {
-                _block.SetVector(LabelIds[i], new Vector4(
-                    GlyphAt(glyphs, i * 4), GlyphAt(glyphs, i * 4 + 1), GlyphAt(glyphs, i * 4 + 2), GlyphAt(glyphs, i * 4 + 3)));
-            }
+            _block.SetFloat(CellLabelsId, ShowDimensions ? 1f : 0f);
             meshRenderer.SetPropertyBlock(_block);
             _appliedScale = transform.lossyScale;
         }
-
-        private static float GlyphAt(float[] glyphs, int index) => index < glyphs.Length ? glyphs[index] : GlyphSpace;
 
         private void SyncCollision()
         {
@@ -338,7 +343,8 @@ namespace Remedy.LevelDesigner
             return Math.Round(meters, 2).ToString("0.##", CultureInfo.InvariantCulture);
         }
 
-        /// <summary>Turns a size into the glyph codes for "W x H x L m".</summary>
+        /// <summary>Turns a size into the glyph codes for "W x H x L m" (no longer drawn by the shader, which labels
+        /// each 1 m cell instead; kept for tools that want the encoding).</summary>
         public static float[] EncodeLabel(Vector3 size)
         {
             string text = FormatMeters(size.x) + "x" + FormatMeters(size.y) + "x" + FormatMeters(size.z) + "m";

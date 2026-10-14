@@ -27,9 +27,12 @@ namespace Remedy.LevelDesigner
     /// Besides positions and normals, each vertex carries what the blockout shader needs to draw edges and labels
     /// without a texture:
     /// <list type="bullet">
-    /// <item>UV0 = (u, v) position on its face in meters, z = 1 if the face shows the size label, w = edge mode
-    /// (0 none, 1 all four sides, 2 only the top and bottom of the face).</item>
-    /// <item>UV1 = (face width, face height) in meters, then the label's centre on the face (u, v).</item>
+    /// <item>UV0 = (u, v) position on its face in meters, measured from the face's bottom-left corner (seen from
+    /// outside), z = 1 if the face shows its per-meter cell labels, w = edge mode (0 none, 1 all four sides, 2 only
+    /// the top and bottom of the face).</item>
+    /// <item>UV1 = (face width, face height) in meters, then which shape axis u and v run along
+    /// (<see cref="AxisX"/>, <see cref="AxisY"/>, <see cref="AxisZ"/> or <see cref="AxisNone"/>), so each 1 m cell
+    /// can be labelled like "x3 y2".</item>
     /// </list>
     /// </summary>
     public sealed class BlockoutMeshBuilder
@@ -50,7 +53,8 @@ namespace Remedy.LevelDesigner
             public Vector3? Origin;
             /// <summary>Optional: the face's full size, instead of the polygon's bounds.</summary>
             public Vector2? Size;
-            /// <summary>Optional: where the label sits on the face, instead of its centre.</summary>
+            /// <summary>No longer used: faces now label every 1 m cell instead of showing one size label. Kept so
+            /// existing code that sets it still compiles.</summary>
             public Vector2? LabelCenter;
 
             public static FaceInfo Default => new FaceInfo { Label = true, Edges = 1 };
@@ -94,6 +98,19 @@ namespace Remedy.LevelDesigner
 
         // ---------------------------------------------------------------- faces
 
+        /// <summary>Axis codes stored in UV1.zw: 0 = X, 1 = Y, 2 = Z, 3 = none (a slanted or curved direction).</summary>
+        public const float AxisX = 0f, AxisY = 1f, AxisZ = 2f, AxisNone = 3f;
+
+        // The shape axis a face direction runs along (either way), or none when it's slanted.
+        private static float AxisCode(Vector3 direction)
+        {
+            var abs = new Vector3(Mathf.Abs(direction.x), Mathf.Abs(direction.y), Mathf.Abs(direction.z));
+            if (abs.x > 0.99f) return AxisX;
+            if (abs.y > 0.99f) return AxisY;
+            if (abs.z > 0.99f) return AxisZ;
+            return AxisNone;
+        }
+
         /// <summary>
         /// Adds a flat convex (or star-shaped around its first point) polygon facing <paramref name="normal"/>, with
         /// <paramref name="up"/> as the face's "up" for its coordinates and label (text reads left to right when
@@ -122,7 +139,8 @@ namespace Remedy.LevelDesigner
                 minV = Vector3.Dot(info.Origin.Value, faceUp);
             }
             Vector2 faceSize = info.Size ?? new Vector2(maxU - minU, maxV - minV);
-            Vector2 labelCenter = info.LabelCenter ?? faceSize * 0.5f;
+            // Which of the shape's axes the face's u and v run along, so the shader can letter its cell labels.
+            float axisU = AxisCode(right), axisV = AxisCode(faceUp);
 
             int start = _vertices.Count;
             foreach (var p in points)
@@ -130,7 +148,7 @@ namespace Remedy.LevelDesigner
                 _vertices.Add(p);
                 _normals.Add(normal);
                 _uv0.Add(new Vector4(Vector3.Dot(p, right) - minU, Vector3.Dot(p, faceUp) - minV, info.Label ? 1f : 0f, info.Edges));
-                _uv1.Add(new Vector4(faceSize.x, faceSize.y, labelCenter.x, labelCenter.y));
+                _uv1.Add(new Vector4(faceSize.x, faceSize.y, axisU, axisV));
             }
 
             // Fan from the first point, wound so the front faces the normal (Unity: clockwise seen from the front).
@@ -166,7 +184,7 @@ namespace Remedy.LevelDesigner
                     _vertices.Add(points[r, c]);
                     _normals.Add(normals[r, c]);
                     _uv0.Add(new Vector4(uvs[r, c].x, uvs[r, c].y, 0f, edges));
-                    _uv1.Add(new Vector4(faceSize.x, faceSize.y, faceSize.x * 0.5f, faceSize.y * 0.5f));
+                    _uv1.Add(new Vector4(faceSize.x, faceSize.y, AxisNone, AxisNone));
                 }
             }
 

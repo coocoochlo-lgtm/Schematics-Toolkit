@@ -64,6 +64,7 @@ namespace Remedy.LevelDesigner.Editor
                 }
                 menu.AddSeparator("");
                 menu.AddItem(new GUIContent("Ctrl + Drag Ruler"), LevelDesignerSettings.CtrlRuler, () => LevelDesignerSettings.CtrlRuler = !LevelDesignerSettings.CtrlRuler);
+                menu.AddItem(new GUIContent("Keep Ctrl + Drag Rulers (else Alt + release)"), LevelDesignerSettings.KeepCtrlRulers, () => LevelDesignerSettings.KeepCtrlRulers = !LevelDesignerSettings.KeepCtrlRulers);
                 menu.AddItem(new GUIContent("Open Level Designer"), false, LevelDesignerWindow.Open);
                 menu.DropDown(snap.worldBound);
             };

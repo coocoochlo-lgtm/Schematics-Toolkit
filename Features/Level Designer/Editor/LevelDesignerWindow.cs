@@ -13,7 +13,10 @@ namespace Remedy.LevelDesigner.Editor
     /// and on the right the art designs built on the selected blockout, as cards (open, duplicate, rename, remove),
     /// with + to start a new art design over the blockout. <b>Characters</b>: the movement numbers of character
     /// prefabs (jump height, air time, run speed…), exported to JSON or CSV, and which character the blockout's
-    /// jump and run rulers use. The header holds the blockout X-ray toggle and opacity, and the snapping step.
+    /// jump and run rulers use. The header holds the blockout X-ray toggle and opacity, the snapping step, and the
+    /// Levels menu (the folder every scene goes in, moving existing scenes there, capturing a thumbnail).<br/>
+    /// A normal dockable editor window built with UI Toolkit: drag its tab next to the Inspector, the Scene view or
+    /// anywhere else, and it stays there across sessions like any built-in window.
     /// </summary>
     public class LevelDesignerWindow : EditorWindow
     {
@@ -21,10 +24,15 @@ namespace Remedy.LevelDesigner.Editor
         [MenuItem("Tools/Remedy/Level Designer")]
         public static void Open()
         {
-            var window = GetWindow<LevelDesignerWindow>();
-            window.titleContent = new GUIContent("Level Designer");
-            window.minSize = new Vector2(560, 320);
+            // GetWindow makes (or focuses) a regular dockable window with a tab; it isn't a utility or popup window.
+            var window = GetWindow<LevelDesignerWindow>(false, "Level Designer", true);
             window.Show();
+        }
+
+        private static GUIContent Title()
+        {
+            var icon = EditorGUIUtility.IconContent("SceneAsset Icon")?.image;
+            return new GUIContent("Level Designer", icon, "Blockouts, art designs and character metrics");
         }
 
         private enum Tab { Levels, Characters }
@@ -44,16 +52,39 @@ namespace Remedy.LevelDesigner.Editor
 
         private void OnEnable()
         {
+            // Set here (not only in Open) so the tab keeps its title and icon after a domain reload or when Unity
+            // restores the window from the saved layout.
+            titleContent = Title();
+            // Small enough to dock in a narrow column next to other windows.
+            minSize = new Vector2(300, 200);
             LevelDesignerContext.ModeChanged += OnModeChanged;
             LevelDesignerSettings.Changed += SyncHeader;
+            LevelThumbnails.Captured += OnThumbnailCaptured;
             Undo.undoRedoPerformed += Rebuild;
+            EditorApplication.focusChanged += OnEditorFocusChanged;
         }
 
         private void OnDisable()
         {
             LevelDesignerContext.ModeChanged -= OnModeChanged;
             LevelDesignerSettings.Changed -= SyncHeader;
+            LevelThumbnails.Captured -= OnThumbnailCaptured;
             Undo.undoRedoPerformed -= Rebuild;
+            EditorApplication.focusChanged -= OnEditorFocusChanged;
+        }
+
+        private void OnThumbnailCaptured(string sceneGuid)
+        {
+            _blockoutList?.RefreshItems();
+            if (_tab == Tab.Levels)
+                BuildArtPane();
+        }
+
+        // Coming back to Unity (after a git pull, say): teammates' new thumbnails may have arrived.
+        private void OnEditorFocusChanged(bool focused)
+        {
+            if (focused)
+                OnThumbnailCaptured(null);
         }
 
         private void OnModeChanged()
@@ -119,7 +150,56 @@ namespace Remedy.LevelDesigner.Editor
                     _ => Mathf.Approximately(LevelDesignerSettings.Snap, value) ? DropdownMenuAction.Status.Checked : DropdownMenuAction.Status.Normal);
             }
             toolbar.Add(snap);
+
+            var levelsMenu = new ToolbarMenu { text = "Levels", tooltip = "Where the Level Designer keeps its scenes, and thumbnails" };
+            levelsMenu.menu.AppendAction("Levels Folder: " + LevelDesignerContext.LevelsRoot.Replace("/", "\u2215"), _ => { }, _ => DropdownMenuAction.Status.Disabled);
+            levelsMenu.menu.AppendAction("Change Levels Folder…", _ => ChooseLevelsRoot());
+            levelsMenu.menu.AppendAction("Move Existing Scenes into the Levels Folder…", _ =>
+            {
+                if (LevelDesignerContext.MoveScenesIntoLayout() > 0)
+                    Rebuild();
+            });
+            levelsMenu.menu.AppendSeparator();
+            levelsMenu.menu.AppendAction("Capture Thumbnail of the Active Scene", _ =>
+            {
+                if (!LevelThumbnails.CaptureActive())
+                    EditorUtility.DisplayDialog("Level Designer", "Open a blockout or an art design (and a Scene view) first.", "OK");
+            });
+            levelsMenu.RegisterCallback<PointerDownEvent>(_ => RefreshLevelsMenuTitle(levelsMenu), TrickleDown.TrickleDown);
+            toolbar.Add(levelsMenu);
             return toolbar;
+        }
+
+        // The first (disabled) item shows the current folder; it's rebuilt before the menu opens so it's current.
+        private static void RefreshLevelsMenuTitle(ToolbarMenu levelsMenu)
+        {
+            if (levelsMenu.menu.MenuItems().Count > 0)
+                levelsMenu.menu.RemoveItemAt(0);
+            levelsMenu.menu.InsertAction(0, "Levels Folder: " + LevelDesignerContext.LevelsRoot.Replace("/", "\u2215"), _ => { }, _ => DropdownMenuAction.Status.Disabled);
+        }
+
+        private void ChooseLevelsRoot()
+        {
+            string current = LevelDesignerContext.LevelsRoot;
+            string projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, "..")).Replace('\\', '/') + "/";
+            string start = Directory.Exists(projectRoot + current) ? projectRoot + current : Application.dataPath;
+            string absolute = EditorUtility.OpenFolderPanel("Levels Folder (where every blockout and art design scene goes)", start, "");
+            if (string.IsNullOrEmpty(absolute))
+                return;
+            absolute = absolute.Replace('\\', '/');
+            if (!absolute.StartsWith(projectRoot + "Assets"))
+            {
+                EditorUtility.DisplayDialog("Level Designer", "The levels folder must be inside this project's Assets folder.", "OK");
+                return;
+            }
+            string folder = absolute.Substring(projectRoot.Length).TrimEnd('/');
+            if (folder == current)
+                return;
+            LevelDesignerContext.SetLevelsRoot(folder);
+            if (LevelDesignerContext.PlanLayoutMoves().Count > 0 &&
+                EditorUtility.DisplayDialog("Level Designer", $"New scenes will go in {folder}. Move the existing scenes there too?", "Review Move…", "Not Now"))
+                LevelDesignerContext.MoveScenesIntoLayout();
+            Rebuild();
         }
 
         private void SwitchTab(Tab tab, ToolbarToggle levels, ToolbarToggle characters)
@@ -150,30 +230,31 @@ namespace Remedy.LevelDesigner.Editor
             // Left: blockouts.
             var left = new VisualElement { style = { minWidth = 160 } };
             var leftHeader = Header("Blockouts");
-            leftHeader.Add(SmallButton("+", "Make a new blockout scene", () =>
+            var levelName = new TextField { style = { flexGrow = 1, minWidth = 60 }, tooltip = "Name of the new level (its folder and scene names)" };
+            levelName.textEdition.placeholder = "New level name";
+            void CreateLevel()
             {
-                var created = LevelDesignerContext.CreateBlockout();
+                var created = LevelDesignerContext.CreateBlockout(levelName.value);
                 if (created != null)
                 {
                     _selectedBlockout = Project.Blockouts.IndexOf(created);
                     Rebuild();
                 }
-            }));
+            }
+            leftHeader.Add(SmallButton("+", $"Make a new blockout scene in {LevelDesignerContext.LevelsRoot}/<Level>/", CreateLevel));
             leftHeader.Add(SmallButton("Add…", "Add an existing scene as a blockout", AddExistingBlockout));
             leftHeader.Add(SmallButton("−", "Remove the selected blockout from the list", RemoveSelectedBlockout));
             left.Add(leftHeader);
+            var nameRow = new VisualElement { style = { flexDirection = FlexDirection.Row, paddingLeft = 4, paddingRight = 4, marginBottom = 2 } };
+            levelName.RegisterCallback<KeyDownEvent>(evt =>
+            {
+                if (evt.keyCode == KeyCode.Return || evt.keyCode == KeyCode.KeypadEnter)
+                    CreateLevel();
+            });
+            nameRow.Add(levelName);
+            left.Add(nameRow);
 
-            _blockoutList = new ListView(Project.Blockouts, 22, () => new Label { style = { unityTextAlign = TextAnchor.MiddleLeft, paddingLeft = 6 } },
-                (element, index) =>
-                {
-                    var blockout = Project.Blockouts[index];
-                    var label = (Label)element;
-                    bool current = LevelDesignerContext.CurrentBlockoutEntry == blockout;
-                    label.text = (current ? "● " : "") + (string.IsNullOrEmpty(blockout.Name) ? "(unnamed)" : blockout.Name) +
-                                 (blockout.ArtDesigns.Count > 0 ? $"  ({blockout.ArtDesigns.Count})" : "");
-                    label.tooltip = LevelDesignerContext.PathOf(blockout);
-                    label.style.unityFontStyleAndWeight = current ? FontStyle.Bold : FontStyle.Normal;
-                })
+            _blockoutList = new ListView(Project.Blockouts, 44, MakeBlockoutItem, BindBlockoutItem)
             {
                 selectionType = SelectionType.Single,
                 style = { flexGrow = 1 },
@@ -203,6 +284,57 @@ namespace Remedy.LevelDesigner.Editor
             if (SelectedBlockout != null)
                 _blockoutList.SetSelectionWithoutNotify(new[] { _selectedBlockout });
             BuildArtPane();
+        }
+
+        // A blockout row: its thumbnail, then its name (● when it's the one open) and art design count.
+        private static VisualElement MakeBlockoutItem()
+        {
+            var row = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, paddingLeft = 4 } };
+            var image = new Image { name = "thumbnail", scaleMode = ScaleMode.ScaleAndCrop };
+            image.style.width = 64;
+            image.style.height = 36;
+            image.style.flexShrink = 0;
+            image.style.marginRight = 6;
+            image.style.backgroundColor = new Color(0f, 0f, 0f, 0.25f);
+            row.Add(image);
+            row.Add(new Label { name = "name", style = { unityTextAlign = TextAnchor.MiddleLeft, flexGrow = 1, overflow = Overflow.Hidden } });
+            return row;
+        }
+
+        private void BindBlockoutItem(VisualElement element, int index)
+        {
+            var blockout = Project.Blockouts[index];
+            var label = element.Q<Label>("name");
+            bool current = LevelDesignerContext.CurrentBlockoutEntry == blockout;
+            label.text = (current ? "● " : "") + (string.IsNullOrEmpty(blockout.Name) ? "(unnamed)" : blockout.Name) +
+                         (blockout.ArtDesigns.Count > 0 ? $"  ({blockout.ArtDesigns.Count})" : "");
+            label.style.unityFontStyleAndWeight = current ? FontStyle.Bold : FontStyle.Normal;
+            element.tooltip = LevelDesignerContext.PathOf(blockout);
+            element.Q<Image>("thumbnail").image = LevelThumbnails.Get(SceneGuidOf(blockout.SceneGuid, LevelDesignerContext.PathOf(blockout)));
+        }
+
+        // The GUID a thumbnail is stored under (the remembered GUID, or the scene's current one).
+        private static string SceneGuidOf(string guid, string path)
+        {
+            if (!string.IsNullOrEmpty(guid))
+                return guid;
+            return string.IsNullOrEmpty(path) ? null : AssetDatabase.AssetPathToGUID(path);
+        }
+
+        // A 16:9 thumbnail for an art card (a dark placeholder until the scene is first saved while open).
+        private static VisualElement CardThumbnail(string sceneGuid, string scenePath)
+        {
+            var image = new Image { scaleMode = ScaleMode.ScaleAndCrop, image = LevelThumbnails.Get(SceneGuidOf(sceneGuid, scenePath)) };
+            image.style.height = 111;
+            image.style.marginBottom = 4;
+            image.style.backgroundColor = new Color(0f, 0f, 0f, 0.25f);
+            image.style.borderTopLeftRadius = image.style.borderTopRightRadius = image.style.borderBottomLeftRadius = image.style.borderBottomRightRadius = 4;
+            if (image.image == null)
+            {
+                image.tooltip = "No thumbnail yet: it's captured from the Scene view when the scene is saved while open";
+                image.Add(new Label("No thumbnail yet") { style = { color = new Color(0.6f, 0.6f, 0.6f), fontSize = 10, unityTextAlign = TextAnchor.MiddleCenter, flexGrow = 1 } });
+            }
+            return image;
         }
 
         private void AddExistingBlockout()
@@ -265,6 +397,11 @@ namespace Remedy.LevelDesigner.Editor
 
             var path = new Label(LevelDesignerContext.PathOf(blockout)) { style = { fontSize = 10, color = new Color(0.6f, 0.6f, 0.6f), marginLeft = 6 } };
             _artPane.Add(path);
+            var blockoutThumb = CardThumbnail(blockout.SceneGuid, LevelDesignerContext.PathOf(blockout));
+            blockoutThumb.style.width = 197;
+            blockoutThumb.style.marginLeft = 6;
+            blockoutThumb.style.marginTop = 4;
+            _artPane.Add(blockoutThumb);
             _artPane.Add(NotesField(blockout.Notes, value => blockout.Notes = value, "Notes about this blockout"));
 
             // Art designs.
@@ -295,6 +432,7 @@ namespace Remedy.LevelDesigner.Editor
             if (isOpen)
                 card.style.borderLeftColor = card.style.borderRightColor = card.style.borderTopColor = card.style.borderBottomColor = new Color(0.35f, 0.7f, 1f);
 
+            card.Add(CardThumbnail(art.SceneGuid, artPath));
             var name = new TextField { value = art.Name, isDelayed = true };
             name.RegisterValueChangedCallback(evt =>
             {

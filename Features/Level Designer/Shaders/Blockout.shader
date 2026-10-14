@@ -1,12 +1,16 @@
 // Blockout surface for the Level Designer (Universal Render Pipeline).
 //
 // Simple lit surface (main light with shadows + ambient) that draws, without any texture:
-//  - a world-aligned 1 m grid with a 0.25 m subgrid (fades when it would get too dense),
+//  - a 1 m grid with a 0.25 m subgrid, starting at each face's bottom-left corner (or world-aligned, see
+//    _WorldGrid), fading out when it would get too dense,
 //  - highlighted edges on every face (from per-face coordinates baked into UV0/UV1 by BlockoutMeshBuilder),
-//  - the shape's size in meters on its faces ("2x1.5x4m"), drawn as seven-segment style glyphs from distance
-//    functions. The glyph codes come from a MaterialPropertyBlock set by BlockoutShape (_Label0.._Label4).
-// Mesh data (see BlockoutMeshBuilder): UV0 = (u, v) on the face in meters, z = label on/off, w = edge mode
-// (0 none, 1 all sides, 2 top/bottom only). UV1 = (face width, face height, label centre u, label centre v).
+//  - a small label in every 1 m cell saying where it is on the face, counted in meters from the face's
+//    bottom-left corner: "x3 y2" is the third meter across (along the shape's X) and the second up (along Y).
+//    The last cell along an edge therefore reads the face's full size. Drawn as seven-segment style glyphs from
+//    distance functions. The shape's total size isn't printed: the Scene view shows it above a selected shape.
+// Mesh data (see BlockoutMeshBuilder): UV0 = (u, v) on the face in meters, z = cell labels on/off, w = edge mode
+// (0 none, 1 all sides, 2 top/bottom only). UV1 = (face width, face height, axis of u, axis of v), the axis codes
+// being 0 = X, 1 = Y, 2 = Z, 3 = none (slanted or curved: no letter).
 Shader "Remedy/Level Designer/Blockout"
 {
     Properties
@@ -17,15 +21,11 @@ Shader "Remedy/Level Designer/Blockout"
         _SubGridStrength("Subgrid (0.25 m)", Range(0, 1)) = 0.12
         _EdgeWidth("Edge Width (m)", Range(0, 0.2)) = 0.03
         _EdgeColor("Edge Color", Color) = (1, 1, 1, 0.8)
-        _LabelColor("Label Color", Color) = (0.05, 0.05, 0.06, 1)
-        _LabelOutlineColor("Label Outline", Color) = (1, 1, 1, 0.85)
-        _LabelMaxHeight("Label Max Height (m)", Float) = 0.45
-        [HideInInspector] _LabelLength("Label Length", Float) = 0
-        [HideInInspector] _Label0("Label 0", Vector) = (13, 13, 13, 13)
-        [HideInInspector] _Label1("Label 1", Vector) = (13, 13, 13, 13)
-        [HideInInspector] _Label2("Label 2", Vector) = (13, 13, 13, 13)
-        [HideInInspector] _Label3("Label 3", Vector) = (13, 13, 13, 13)
-        [HideInInspector] _Label4("Label 4", Vector) = (13, 13, 13, 13)
+        _LabelColor("Cell Label Color", Color) = (0.05, 0.05, 0.06, 0.75)
+        _LabelOutlineColor("Cell Label Outline", Color) = (1, 1, 1, 0.35)
+        _CellLabelHeight("Cell Label Height (m)", Range(0.04, 0.4)) = 0.12
+        [Toggle] _WorldGrid("World-Aligned Grid", Float) = 0
+        [HideInInspector] _CellLabels("Cell Labels", Float) = 1
     }
 
     SubShader
@@ -45,13 +45,9 @@ Shader "Remedy/Level Designer/Blockout"
             half4 _EdgeColor;
             half4 _LabelColor;
             half4 _LabelOutlineColor;
-            float _LabelMaxHeight;
-            float _LabelLength;
-            float4 _Label0;
-            float4 _Label1;
-            float4 _Label2;
-            float4 _Label3;
-            float4 _Label4;
+            float _CellLabelHeight;
+            float _WorldGrid;
+            float _CellLabels;
         CBUFFER_END
         ENDHLSL
 
@@ -135,7 +131,7 @@ Shader "Remedy/Level Designer/Blockout"
             }
 
             // Distance from p (glyph space: 0..0.6 wide, 0..1 tall) to the centre line of a glyph's strokes.
-            // Codes: 0-9 digits, 10 '.', 11 'x', 12 'm', 13 space, 14 '-'.
+            // Codes: 0-9 digits, 10 '.', 11 times sign, 12 'm', 13 space, 14 '-', 15 'x', 16 'y', 17 'z', 18 ','.
             float GlyphDistance(int code, float2 p)
             {
                 const float x0 = 0.08;
@@ -181,48 +177,119 @@ Shader "Remedy/Level Designer/Blockout"
                 {
                     d = SegmentDistance(p, float2(0.14, ym), float2(0.46, ym));
                 }
+                else if (code == 15) // x (letters are short: 0..0.6, so they read apart from the digits)
+                {
+                    d = min(SegmentDistance(p, float2(0.12, yb), float2(0.48, 0.6)),
+                            SegmentDistance(p, float2(0.12, 0.6), float2(0.48, yb)));
+                }
+                else if (code == 16) // y
+                {
+                    d = min(SegmentDistance(p, float2(0.12, 0.6), float2(0.3, 0.33)),
+                            SegmentDistance(p, float2(0.48, 0.6), float2(0.3, 0.33)));
+                    d = min(d, SegmentDistance(p, float2(0.3, 0.33), float2(0.3, yb)));
+                }
+                else if (code == 17) // z
+                {
+                    d = min(SegmentDistance(p, float2(0.12, 0.6), float2(0.48, 0.6)),
+                            SegmentDistance(p, float2(0.48, 0.6), float2(0.12, yb)));
+                    d = min(d, SegmentDistance(p, float2(0.12, yb), float2(0.48, yb)));
+                }
+                else if (code == 18) // ,
+                {
+                    d = SegmentDistance(p, float2(0.32, 0.12), float2(0.22, -0.1));
+                }
                 return d;
             }
 
-            int LabelGlyph(int index)
+            int DigitCount(int n)
             {
-                float4 labels[5] = { _Label0, _Label1, _Label2, _Label3, _Label4 };
-                float4 group = labels[clamp(index >> 2, 0, 4)];
-                int lane = index & 3;
-                float value = lane == 0 ? group.x : (lane == 1 ? group.y : (lane == 2 ? group.z : group.w));
-                return (int)round(value);
+                return n >= 100 ? 3 : (n >= 10 ? 2 : 1);
             }
 
-            // Returns (text coverage, outline coverage) for this pixel of the face.
-            float2 Label(float2 uv, float2 faceSize, float2 center, float uvDerivative)
+            // The digit of n at a place (0 = ones, 1 = tens, 2 = hundreds).
+            int DigitAt(int n, int place)
             {
-                float count = _LabelLength;
-                if (count < 0.5)
+                if (place == 2) n /= 100;
+                else if (place == 1) n /= 10;
+                return n % 10;
+            }
+
+            int AxisLetter(int axis)
+            {
+                return axis == 0 ? 15 : (axis == 1 ? 16 : 17);
+            }
+
+            // How many glyphs the label "<a><nU> <b><nV>" has (letters left out for slanted axes, which then
+            // use a comma between the numbers instead of a space).
+            int CellLabelLength(int axisU, int nU, int axisV, int nV)
+            {
+                return (axisU < 3 ? 1 : 0) + DigitCount(nU) + 1 + (axisV < 3 ? 1 : 0) + DigitCount(nV);
+            }
+
+            int CellGlyph(int i, int axisU, int nU, int axisV, int nV)
+            {
+                if (axisU < 3)
+                {
+                    if (i == 0)
+                        return AxisLetter(axisU);
+                    i -= 1;
+                }
+                int du = DigitCount(nU);
+                if (i < du)
+                    return DigitAt(nU, du - 1 - i);
+                i -= du;
+                if (i == 0)
+                    return axisU < 3 && axisV < 3 ? 13 : 18;
+                i -= 1;
+                if (axisV < 3)
+                {
+                    if (i == 0)
+                        return AxisLetter(axisV);
+                    i -= 1;
+                }
+                int dv = DigitCount(nV);
+                if (i < dv)
+                    return DigitAt(nV, dv - 1 - i);
+                return 13;
+            }
+
+            // Returns (text coverage, outline coverage) for this pixel: the small label in the corner of the 1 m
+            // cell it's in, saying which meter of the face (across, up) the cell is, counted from the face's
+            // bottom-left corner.
+            float2 CellLabel(float2 uv, float2 faceSize, float2 axes, float uvDerivative)
+            {
+                float height = _CellLabelHeight;
+                // Too small on screen to read: fade out (and skip the work).
+                float pixels = height / max(uvDerivative, 1e-6);
+                float fade = saturate((pixels - 6.0) / 4.0);
+                if (fade <= 0.0)
                     return 0;
+
+                float2 cell = max(floor(uv), 0.0);
+                cell = min(cell, max(ceil(faceSize) - 1.0, 0.0));
+                int nU = min((int)cell.x + 1, 999);
+                int nV = min((int)cell.y + 1, 999);
+                int axisU = (int)round(axes.x);
+                int axisV = (int)round(axes.y);
+                int count = CellLabelLength(axisU, nU, axisV, nV);
 
                 const float advance = 0.7; // glyph cell width, in glyph heights
-                float height = min(_LabelMaxHeight, min(faceSize.y * 0.25, faceSize.x * 0.85 / (count * advance)));
-                if (height < 0.02)
-                    return 0;
-
-                float2 p = (uv - center) / height;
-                p.x += count * advance * 0.5;
-                p.y += 0.5;
-                if (p.x < -0.1 || p.y < -0.2 || p.y > 1.2 || p.x > count * advance + 0.1)
+                const float padding = 0.06; // meters from the cell's corner
+                float2 p = (uv - cell - padding) / height;
+                if (p.x < -0.1 || p.y < -0.3 || p.y > 1.2 || p.x > count * advance + 0.1)
                     return 0;
 
                 int index = (int)floor(p.x / advance);
                 float2 local = float2(p.x - index * advance - (advance - 0.6) * 0.5, p.y);
                 float d = 1e3;
-                if (index >= 0 && index < (int)count)
-                    d = GlyphDistance(LabelGlyph(index), local);
+                if (index >= 0 && index < count)
+                    d = GlyphDistance(CellGlyph(index, axisU, nU, axisV, nV), local);
 
-                // Derivatives were taken before any branching; here they're scaled into glyph units.
                 float aa = max(uvDerivative / height, 1e-4);
-                const float stroke = 0.075;
+                const float stroke = 0.08;
                 float text = 1.0 - smoothstep(stroke - aa, stroke + aa, d);
-                float outline = 1.0 - smoothstep(stroke + 0.06 - aa, stroke + 0.06 + aa, d);
-                return float2(text, outline);
+                float outline = 1.0 - smoothstep(stroke + 0.07 - aa, stroke + 0.07 + aa, d);
+                return float2(text, outline) * fade;
             }
 
             half4 Frag(Varyings input) : SV_Target
@@ -233,9 +300,13 @@ Shader "Remedy/Level Designer/Blockout"
                 float3 normalWS = normalize(input.normalWS);
                 float3 absNormal = abs(normalWS);
 
-                // World grid, projected along the face's main axis.
-                float2 gridPos = absNormal.x > absNormal.y && absNormal.x > absNormal.z ? input.positionWS.zy
-                               : (absNormal.y > absNormal.z ? input.positionWS.xz : input.positionWS.xy);
+                // The grid: on the face's own coordinates (so its squares are the labelled 1 m cells, counted from
+                // the face's corner), or world-aligned (projected along the face's main axis) when _WorldGrid is on
+                // or the mesh carries no face coordinates.
+                float2 worldGrid = absNormal.x > absNormal.y && absNormal.x > absNormal.z ? input.positionWS.zy
+                                 : (absNormal.y > absNormal.z ? input.positionWS.xz : input.positionWS.xy);
+                bool hasFace = input.uv1.x > 0 && input.uv1.y > 0;
+                float2 gridPos = (_WorldGrid > 0.5 || !hasFace) ? worldGrid : input.uv0.xy;
                 float major = GridLines(gridPos, 1.0, 1.5);
                 float minor = GridLines(gridPos, 0.25, 1.0);
 
@@ -273,10 +344,10 @@ Shader "Remedy/Level Designer/Blockout"
                 lighting *= lerp(0.85, 1.0, normalWS.y * 0.5 + 0.5);
                 half3 color = albedo * lighting;
 
-                // The size label (unlit, so it stays readable in shadow).
-                if (input.uv0.z > 0.5 && faceSize.x > 0 && faceSize.y > 0)
+                // The cell labels (unlit, so they stay readable in shadow).
+                if (_CellLabels > 0.5 && input.uv0.z > 0.5 && faceSize.x > 0 && faceSize.y > 0)
                 {
-                    float2 label = Label(faceUV, faceSize, input.uv1.zw, uvDerivative);
+                    float2 label = CellLabel(faceUV, faceSize, input.uv1.zw, uvDerivative);
                     color = lerp(color, _LabelOutlineColor.rgb, label.y * _LabelOutlineColor.a);
                     color = lerp(color, _LabelColor.rgb, label.x * _LabelColor.a);
                 }

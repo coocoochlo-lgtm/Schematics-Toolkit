@@ -38,10 +38,53 @@ namespace Remedy.LevelDesigner.Editor
         static BlockoutXRay()
         {
             RenderPipelineManager.beginCameraRendering += OnBeginCameraRendering;
-            LevelDesignerContext.ModeChanged += ApplyVisibility;
+            LevelDesignerContext.ModeChanged += OnModeChanged;
             EditorApplication.hierarchyChanged += () => _itemsDirty = true;
             EditorSceneManager.sceneClosing += OnSceneClosing;
+            EditorApplication.update += KeepHidden;
             EditorApplication.delayCall += ApplyVisibility;
+        }
+
+        // Applied now, and once more after Unity has finished opening scenes: Unity restores each scene's saved
+        // Scene visibility (Library/SceneVisibilityState) as part of opening it, and for a blockout that was hidden
+        // and shown before, that saved "visible" state could land after ours and undo the hiding.
+        private static void OnModeChanged()
+        {
+            ApplyVisibility();
+            EditorApplication.delayCall -= ApplyVisibility;
+            EditorApplication.delayCall += ApplyVisibility;
+        }
+
+        private static double _nextCheck;
+
+        // The blockout under an art design must stay hidden in the Scene view (the X-ray stands in for it). This
+        // checks a few times a second and hides it again if anything showed it: a saved visibility state restored
+        // late, the hierarchy's eye icon, an object added at the root. Cheap: one flag per root object.
+        private static void KeepHidden()
+        {
+            if (LevelDesignerContext.Mode != LevelDesignerMode.ArtDesign || EditorApplication.isPlayingOrWillChangePlaymode)
+                return;
+            double now = EditorApplication.timeSinceStartup;
+            if (now < _nextCheck)
+                return;
+            _nextCheck = now + 0.25;
+
+            var scene = LevelDesignerContext.BlockoutSceneUnderArt;
+            if (!scene.IsValid() || !scene.isLoaded)
+                return;
+            var visibility = SceneVisibilityManager.instance;
+            var roots = scene.GetRootGameObjects();
+            foreach (var root in roots)
+            {
+                if (visibility.IsHidden(root) && visibility.IsPickingDisabled(root))
+                    continue;
+                visibility.Hide(roots, true);
+                visibility.DisablePicking(roots, true);
+                _hiddenScene = scene;
+                _itemsDirty = true;
+                SceneView.RepaintAll();
+                return;
+            }
         }
 
         /// <summary>True while the X-ray is being drawn.</summary>

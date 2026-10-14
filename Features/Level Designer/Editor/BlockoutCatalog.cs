@@ -303,7 +303,7 @@ namespace Remedy.LevelDesigner.Editor
 
                 var block = new MaterialPropertyBlock();
                 block.SetColor("_BaseColor", BlockoutShape.ColorOf(item.Category));
-                block.SetFloat("_LabelLength", 0f);
+                block.SetFloat("_CellLabels", 0f);
 
                 preview.BeginStaticPreview(new Rect(0, 0, 128, 128));
                 preview.DrawMesh(mesh, Matrix4x4.identity, material, 0, block);

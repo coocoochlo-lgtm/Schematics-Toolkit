@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -25,7 +27,8 @@ namespace Remedy.LevelDesigner.Editor
     [InitializeOnLoad]
     public static class LevelDesignerContext
     {
-        /// <summary>Where new Level Designer data (the project asset, materials, new scenes) goes by default.</summary>
+        /// <summary>Where the Level Designer's own data goes (the project asset, the blockout material). Scenes go in
+        /// <see cref="LevelsRoot"/> instead.</summary>
         public const string DefaultFolder = "Assets/Level Design";
 
         /// <summary>The current mode.</summary>
@@ -92,6 +95,7 @@ namespace Remedy.LevelDesigner.Editor
                     BlockoutSceneUnderArt = FindLoadedBlockoutFor(ArtDesign);
                     if (BlockoutSceneUnderArt.IsValid())
                         Blockout = Find<BlockoutScene>(BlockoutSceneUnderArt);
+                    FixBlockoutPath(ArtDesign);
                 }
                 else
                 {
@@ -104,6 +108,21 @@ namespace Remedy.LevelDesigner.Editor
             if (previousMode != Mode || previousBlockout != BlockoutSceneUnderArt || previousActive != SceneManager.GetActiveScene())
                 ModeChanged?.Invoke();
             SceneView.RepaintAll();
+        }
+
+        // The art marker keeps the blockout's path for Play Mode loading; when the blockout was moved or renamed, the
+        // GUID still finds it, so the path is brought up to date (builds and Play Mode also fix it on the fly, see
+        // ArtDesignScenePathFixer).
+        private static void FixBlockoutPath(ArtDesignScene art)
+        {
+            if (art == null || string.IsNullOrEmpty(art.BlockoutSceneGuid))
+                return;
+            string path = AssetDatabase.GUIDToAssetPath(art.BlockoutSceneGuid);
+            if (string.IsNullOrEmpty(path) || path == art.BlockoutScenePath)
+                return;
+            art.BlockoutScenePath = path;
+            EditorUtility.SetDirty(art);
+            EditorSceneManager.MarkSceneDirty(art.gameObject.scene);
         }
 
         /// <summary>The first component of a type in a scene's objects (inactive ones too), or null.</summary>
@@ -198,18 +217,121 @@ namespace Remedy.LevelDesigner.Editor
 
         // ---------------------------------------------------------------- creating and opening scenes
 
+        // ---------------------------------------------------------------- folder layout
+
         /// <summary>
-        /// Asks where to save, then makes a new blockout scene (camera, light, a 20 x 20 m floor and the blockout
-        /// marker), adds it to the project and opens it.
+        /// The folder every Level Designer scene goes in (the project asset's <see cref="LevelDesignProject.LevelsRootFolder"/>,
+        /// Assets/Levels by default). Layout:
+        /// <code>
+        /// &lt;Root&gt;/&lt;Level&gt;/&lt;Level&gt;_Blockout.unity
+        /// &lt;Root&gt;/&lt;Level&gt;/Art/&lt;Level&gt;_&lt;Art Design&gt;.unity
+        /// &lt;Root&gt;/Thumbnails~/&lt;scene GUID&gt;.png
+        /// </code>
+        /// One folder per level keeps a level's blockout and all its art together; the art designs get their own
+        /// subfolder so the blockout is easy to spot, and the level name prefix keeps scene names unique in
+        /// searches and the Build Profile.
         /// </summary>
-        public static BlockoutLevel CreateBlockout()
+        public static string LevelsRoot
+        {
+            get
+            {
+                string root = Project.LevelsRootFolder;
+                if (string.IsNullOrWhiteSpace(root) || !(root == "Assets" || root.StartsWith("Assets/")))
+                    root = LevelDesignProject.DefaultLevelsRootFolder;
+                return root.TrimEnd('/');
+            }
+        }
+
+        /// <summary>Changes the levels root (undoable). Thumbnails move along; scenes stay until moved explicitly.</summary>
+        public static void SetLevelsRoot(string folder)
+        {
+            folder = folder?.Replace('\\', '/').TrimEnd('/');
+            if (string.IsNullOrEmpty(folder) || !(folder == "Assets" || folder.StartsWith("Assets/")))
+                return;
+            string old = LevelsRoot;
+            if (old == folder)
+                return;
+            RecordProject("Change Levels Folder");
+            Project.LevelsRootFolder = folder;
+            AssetDatabase.SaveAssets();
+            LevelThumbnails.MoveFolder(old, folder);
+        }
+
+        /// <summary>
+        /// The level's name for folder and file names: the blockout scene's name without "_Blockout" when it follows
+        /// the layout, otherwise the blockout's display name (or its scene name).
+        /// </summary>
+        public static string LevelNameOf(BlockoutLevel blockout)
+        {
+            string path = PathOf(blockout);
+            string fileName = !string.IsNullOrEmpty(path) ? Path.GetFileNameWithoutExtension(path) : null;
+            string name;
+            if (!string.IsNullOrEmpty(fileName) && fileName.EndsWith(BlockoutSuffix, StringComparison.OrdinalIgnoreCase) && fileName.Length > BlockoutSuffix.Length)
+                name = fileName.Substring(0, fileName.Length - BlockoutSuffix.Length);
+            else
+                name = !string.IsNullOrWhiteSpace(blockout?.Name) ? blockout.Name : fileName;
+            return SanitizeFileName(string.IsNullOrWhiteSpace(name) ? "Level" : name.Trim());
+        }
+
+        private const string BlockoutSuffix = "_Blockout";
+
+        /// <summary>Where a blockout's scene belongs in the layout.</summary>
+        public static string LayoutPathOf(BlockoutLevel blockout)
+        {
+            string level = LevelNameOf(blockout);
+            return $"{LevelsRoot}/{level}/{level}{BlockoutSuffix}.unity";
+        }
+
+        /// <summary>Where an art design's scene belongs in the layout.</summary>
+        public static string LayoutPathOf(BlockoutLevel blockout, ArtDesign art)
+        {
+            string level = LevelNameOf(blockout);
+            return $"{LevelsRoot}/{level}/Art/{level}_{SanitizeFileName(string.IsNullOrWhiteSpace(art?.Name) ? "Art" : art.Name.Trim())}.unity";
+        }
+
+        /// <summary>The folder a blockout's art designs go in: "Art" next to the blockout scene.</summary>
+        public static string ArtFolderOf(BlockoutLevel blockout)
+        {
+            string blockoutPath = PathOf(blockout);
+            string folder = !string.IsNullOrEmpty(blockoutPath)
+                ? Path.GetDirectoryName(blockoutPath)?.Replace('\\', '/')
+                : LevelsRoot + "/" + LevelNameOf(blockout);
+            return (string.IsNullOrEmpty(folder) ? LevelsRoot : folder) + "/Art";
+        }
+
+        // ---------------------------------------------------------------- creating and opening scenes
+
+        /// <summary>
+        /// Makes a new blockout scene (camera, light, a 20 x 20 m floor and the blockout marker) at
+        /// &lt;Levels Root&gt;/&lt;Level&gt;/&lt;Level&gt;_Blockout.unity (no save dialog), adds it to the project and opens it.
+        /// An empty name picks "Level 1", "Level 2"… whichever is free.
+        /// </summary>
+        public static BlockoutLevel CreateBlockout(string levelName = null)
         {
             if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
                 return null;
-            EnsureFolder(DefaultFolder);
-            string path = EditorUtility.SaveFilePanelInProject("New Blockout", "Blockout", "unity", "Where should the blockout scene be saved?", DefaultFolder);
-            if (string.IsNullOrEmpty(path))
-                return null;
+
+            string root = LevelsRoot;
+            string level = string.IsNullOrWhiteSpace(levelName) ? null : SanitizeFileName(levelName.Trim());
+            if (level == null)
+            {
+                int number = Project.Blockouts.Count + 1;
+                while (AssetDatabase.IsValidFolder($"{root}/Level {number}"))
+                    number++;
+                level = "Level " + number;
+            }
+            else if (AssetDatabase.IsValidFolder($"{root}/{level}") && File.Exists($"{root}/{level}/{level}{BlockoutSuffix}.unity"))
+            {
+                // That level exists: number the new one rather than overwrite it.
+                int number = 2;
+                while (AssetDatabase.IsValidFolder($"{root}/{level} {number}"))
+                    number++;
+                level = $"{level} {number}";
+            }
+
+            string folder = $"{root}/{level}";
+            EnsureFolder(folder);
+            string path = $"{folder}/{level}{BlockoutSuffix}.unity";
 
             var scene = EditorSceneManager.NewScene(NewSceneSetup.DefaultGameObjects, NewSceneMode.Single);
             var marker = new GameObject("[Blockout]");
@@ -227,7 +349,7 @@ namespace Remedy.LevelDesigner.Editor
 
             var entry = new BlockoutLevel
             {
-                Name = Path.GetFileNameWithoutExtension(path),
+                Name = level,
                 SceneGuid = AssetDatabase.AssetPathToGUID(path),
                 ScenePath = path,
             };
@@ -333,8 +455,10 @@ namespace Remedy.LevelDesigner.Editor
                 return null;
 
             name = string.IsNullOrWhiteSpace(name) ? "Art Design " + (blockout.ArtDesigns.Count + 1) : name.Trim();
-            string folder = Path.GetDirectoryName(blockoutPath)?.Replace('\\', '/') ?? DefaultFolder;
-            string fileName = Path.GetFileNameWithoutExtension(blockoutPath) + " - " + SanitizeFileName(name) + ".unity";
+            // <blockout folder>/Art/<Level>_<Art Design>.unity
+            string folder = ArtFolderOf(blockout);
+            EnsureFolder(folder);
+            string fileName = LevelNameOf(blockout) + "_" + SanitizeFileName(name) + ".unity";
             string artPath = AssetDatabase.GenerateUniqueAssetPath(folder + "/" + fileName);
 
             // Open the blockout first: a new scene can only be added next to saved scenes.
@@ -361,13 +485,16 @@ namespace Remedy.LevelDesigner.Editor
             string sourcePath = PathOf(source);
             if (string.IsNullOrEmpty(sourcePath) || !File.Exists(sourcePath))
                 return null;
-            string copyPath = AssetDatabase.GenerateUniqueAssetPath(sourcePath);
+            string copyName = (string.IsNullOrWhiteSpace(source.Name) ? "Art" : source.Name.Trim()) + " Copy";
+            string folder = ArtFolderOf(blockout);
+            EnsureFolder(folder);
+            string copyPath = AssetDatabase.GenerateUniqueAssetPath($"{folder}/{LevelNameOf(blockout)}_{SanitizeFileName(copyName)}.unity");
             if (!AssetDatabase.CopyAsset(sourcePath, copyPath))
                 return null;
 
             var art = new ArtDesign
             {
-                Name = source.Name + " Copy",
+                Name = copyName,
                 SceneGuid = AssetDatabase.AssetPathToGUID(copyPath),
                 ScenePath = copyPath,
                 Notes = source.Notes,
@@ -407,6 +534,116 @@ namespace Remedy.LevelDesigner.Editor
                     AssetDatabase.MoveAssetToTrash(path);
             }
             AssetDatabase.SaveAssets();
+        }
+
+        /// <summary>A planned move of one scene into the folder layout.</summary>
+        public struct LayoutMove
+        {
+            public string From;
+            public string To;
+            public BlockoutLevel Blockout;
+            /// <summary>Null when the scene is the blockout itself.</summary>
+            public ArtDesign Art;
+        }
+
+        /// <summary>The scenes that aren't where the folder layout would put them (missing scenes are skipped).</summary>
+        public static List<LayoutMove> PlanLayoutMoves()
+        {
+            var moves = new List<LayoutMove>();
+            foreach (var blockout in Project.Blockouts)
+            {
+                if (blockout == null)
+                    continue;
+                string path = PathOf(blockout);
+                if (!string.IsNullOrEmpty(path) && File.Exists(path))
+                {
+                    string target = LayoutPathOf(blockout);
+                    if (target != path)
+                        moves.Add(new LayoutMove { From = path, To = target, Blockout = blockout });
+                }
+                foreach (var art in blockout.ArtDesigns)
+                {
+                    string artPath = PathOf(art);
+                    if (art == null || string.IsNullOrEmpty(artPath) || !File.Exists(artPath))
+                        continue;
+                    string target = LayoutPathOf(blockout, art);
+                    if (target != artPath)
+                        moves.Add(new LayoutMove { From = artPath, To = target, Blockout = blockout, Art = art });
+                }
+            }
+            return moves;
+        }
+
+        /// <summary>
+        /// Moves every listed blockout and art design scene into the folder layout under <see cref="LevelsRoot"/>,
+        /// with AssetDatabase.MoveAsset, so GUIDs (and every reference to the scenes) are kept. Asks first, saves
+        /// open scenes first, never overwrites: a scene whose target is taken is left where it is and reported.
+        /// Old folders are left in place (they may hold other assets). Returns how many scenes were moved.
+        /// </summary>
+        public static int MoveScenesIntoLayout()
+        {
+            var moves = PlanLayoutMoves();
+            if (moves.Count == 0)
+            {
+                EditorUtility.DisplayDialog("Level Designer", $"Every scene is already in the layout under {LevelsRoot}.", "OK");
+                return 0;
+            }
+
+            var preview = new StringBuilder();
+            for (int i = 0; i < moves.Count && i < 12; i++)
+                preview.AppendLine($"{moves[i].From}\n    → {moves[i].To}");
+            if (moves.Count > 12)
+                preview.AppendLine($"…and {moves.Count - 12} more.");
+            if (!EditorUtility.DisplayDialog("Move Scenes into the Levels Folder",
+                    $"Move {moves.Count} scene(s) into {LevelsRoot}?\n\n{preview}\nScenes keep their GUIDs, so references and the " +
+                    "Level Designer's list stay intact. Open scenes are saved first. Undo isn't available for moves, but " +
+                    "version control has the old paths.", "Move", "Cancel"))
+                return 0;
+            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
+                return 0;
+
+            int moved = 0;
+            var problems = new StringBuilder();
+            RecordProject("Move Scenes into Levels Folder");
+            try
+            {
+                for (int i = 0; i < moves.Count; i++)
+                {
+                    var move = moves[i];
+                    EditorUtility.DisplayProgressBar("Level Designer", move.From, (float)i / moves.Count);
+                    if (File.Exists(move.To))
+                    {
+                        problems.AppendLine($"{move.From}: {move.To} already exists");
+                        continue;
+                    }
+                    EnsureFolder(Path.GetDirectoryName(move.To)?.Replace('\\', '/'));
+                    string error = AssetDatabase.ValidateMoveAsset(move.From, move.To);
+                    if (string.IsNullOrEmpty(error))
+                        error = AssetDatabase.MoveAsset(move.From, move.To);
+                    if (!string.IsNullOrEmpty(error))
+                    {
+                        problems.AppendLine($"{move.From}: {error}");
+                        continue;
+                    }
+                    if (move.Art != null)
+                        move.Art.ScenePath = move.To;
+                    else
+                        move.Blockout.ScenePath = move.To;
+                    moved++;
+                }
+            }
+            finally
+            {
+                EditorUtility.ClearProgressBar();
+            }
+            EditorUtility.SetDirty(Project);
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+            Refresh();
+
+            if (problems.Length > 0)
+                EditorUtility.DisplayDialog("Level Designer", $"Moved {moved} of {moves.Count} scene(s). Not moved:\n\n{problems}", "OK");
+            return moved;
         }
 
         private static bool IsLoaded(string path)

@@ -1,4 +1,5 @@
 using UnityEditor;
+using UnityEditor.EditorTools;
 using UnityEngine;
 
 namespace Remedy.LevelDesigner.Editor
@@ -71,6 +72,16 @@ namespace Remedy.LevelDesigner.Editor
                 return;
 
             var transform = shape.transform;
+
+            // While the Blockout Place tool is active, clicks belong to placing: the face handles would otherwise sit
+            // under the mouse (the shape just placed stays selected) and a click meant to start the next shape
+            // would grab one and resize this shape instead. Only the size label is shown then.
+            if (BlockoutPlaceTool.IsActive)
+            {
+                DrawSizeLabel(shape);
+                return;
+            }
+
             var size = shape.Size;
             var matrix = Matrix4x4.TRS(transform.position, transform.rotation, transform.lossyScale);
 
@@ -109,13 +120,19 @@ namespace Remedy.LevelDesigner.Editor
                 }
             }
 
-            if (Event.current.type == EventType.Repaint)
-            {
-                var world = shape.WorldSize;
-                Vector3 top = transform.position + transform.up * world.y;
-                LevelDesignerSceneGUI.Label(top + transform.up * 0.3f,
-                    $"{BlockoutShape.FormatMeters(world.x)} x {BlockoutShape.FormatMeters(world.y)} x {BlockoutShape.FormatMeters(world.z)} m", Color.white);
-            }
+            DrawSizeLabel(shape);
+        }
+
+        // The shape's total size, in a box above it (the faces only label their 1 m cells).
+        private static void DrawSizeLabel(BlockoutShape shape)
+        {
+            if (Event.current.type != EventType.Repaint)
+                return;
+            var transform = shape.transform;
+            var world = shape.WorldSize;
+            Vector3 top = transform.position + transform.up * world.y;
+            LevelDesignerSceneGUI.Label(top + transform.up * 0.3f,
+                $"{BlockoutShape.FormatMeters(world.x)} x {BlockoutShape.FormatMeters(world.y)} x {BlockoutShape.FormatMeters(world.z)} m", Color.white);
         }
     }
 }
