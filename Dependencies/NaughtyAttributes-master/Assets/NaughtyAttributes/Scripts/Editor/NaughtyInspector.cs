@@ -117,7 +117,7 @@ namespace NaughtyAttributes.Editor
 
                 if (!_foldouts.ContainsKey(group.Key))
                 {
-                    _foldouts[group.Key] = new SavedBool($"{target.GetInstanceID()}.{group.Key}", false);
+                    _foldouts[group.Key] = new SavedBool($"{target.GetHashCode()}.{group.Key}", false);
                 }
 
                 _foldouts[group.Key].Value = EditorGUILayout.Foldout(_foldouts[group.Key].Value, group.Key, true);

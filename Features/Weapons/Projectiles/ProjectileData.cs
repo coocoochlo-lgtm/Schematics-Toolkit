@@ -4,7 +4,9 @@
 
 /*using SaintsField;
 using SaintsField.Playa;*/
+using Remedy.Framework;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace Remedy.Weapons.Projectiles
 {
@@ -20,8 +22,31 @@ namespace Remedy.Weapons.Projectiles
         /*[Layout("Settings", ELayout.Tab | ELayout.Collapse)]
         [LayoutStart("./Targetting")]*/
         public TargetMode TargetingMode;
-        [Tooltip("The Tag of an Object that is to be searched for to Target.")]
-        public string TargetTag = "";
+        [Tooltip("The Int Tag of the objects this Projectile targets (with Targeting Mode set to Matching Tag).")]
+        [SerializeField]
+        private IntTag _targetTag = IntTags.Untagged;
+
+        // Older assets saved a Unity tag name here; it's moved onto the Int Tag of the same name the first time it's read.
+        [SerializeField, HideInInspector, FormerlySerializedAs("TargetTag")]
+        private string _legacyTargetTag;
+
+        /// <summary>The Int Tag of the objects this Projectile targets (with <see cref="TargetMode.MatchingTag"/>).</summary>
+        public IntTag TargetTag
+        {
+            get
+            {
+                if (!string.IsNullOrEmpty(_legacyTargetTag))
+                {
+                    if (IntTags.TryGetId(_legacyTargetTag, out int id))
+                        _targetTag = id;
+                    else
+                        Debug.LogWarning($"[{name}] The target tag \"{_legacyTargetTag}\" has no Int Tag with that name yet. Add one and pick it in Target Tag.", this);
+                    _legacyTargetTag = null;
+                }
+                return _targetTag;
+            }
+            set => _targetTag = value;
+        }
 
         [Tooltip("The Distance away from the original shoot position where the projectile lines up completely with the actual aim position.")]
         public float LineUpDistance = 5f;

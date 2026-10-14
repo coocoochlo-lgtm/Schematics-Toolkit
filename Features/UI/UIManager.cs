@@ -11,7 +11,7 @@ namespace Remedy.UI
         private Camera _camera;
         public static Camera Camera => Instance._camera;
 
-        public List<UIComponent> Components = new();
+        public List<BehaviorInstance> Components = new();
         //[Layer]
         public int UILayer;
         public float BaseDepth = 50f;
@@ -22,30 +22,28 @@ namespace Remedy.UI
         }
 
         /// <summary>
-        /// Adds a UIComponent instance to the list of managed Components
+        /// Adds a UI Component instance to the list of managed Components and places it on the UI layer.
         /// </summary>
-        /// <param name="component"></param>
-        public static void AddUIComponent(UIComponent component)
+        public static void AddUIComponent(BehaviorInstance component, int layer)
         {
-            component.gameObject.layer = Instance.UILayer;
-            Vector3 position = component.transform.position;
-            position.z = Instance.BaseDepth + component.Layer;
-            component.transform.position = position;
+            component.GameObject.layer = Instance.UILayer;
+            Vector3 position = component.Transform.position;
+            position.z = Instance.BaseDepth + layer;
+            component.Transform.position = position;
             Instance.Components.Add(component);
         }
 
         /// <summary>
-        /// Removes a UIComponent instance from the list of managed Components
+        /// Removes a UI Component instance from the list of managed Components.
         /// </summary>
-        /// <param name="component"></param>
-        public static void RemoveUIComponent(UIComponent component)
+        public static void RemoveUIComponent(BehaviorInstance component, int layer)
         {
             Instance.Components.Remove(component);
 
-                component.gameObject.layer = Instance.UILayer;
-                Vector3 position = component.transform.position;
-                position.z = Instance.BaseDepth + component.Layer;
-                component.transform.position = position;
+            component.GameObject.layer = Instance.UILayer;
+            Vector3 position = component.Transform.position;
+            position.z = Instance.BaseDepth + layer;
+            component.Transform.position = position;
         }
     }
 }

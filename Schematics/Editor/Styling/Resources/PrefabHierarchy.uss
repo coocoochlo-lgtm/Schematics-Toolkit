@@ -1,0 +1,61 @@
+/* --- The Schematic Graph's Prefab tab, laid out like Unity's Hierarchy (see PrefabHierarchy.cs) --- */
+
+/* Each GameObject's block (its header, its Behaviors and their rows) is shaded a little lighter or darker than the
+   one before it, top to bottom, counting only visible blocks. A child's block sits inside its parent's, indented,
+   with its own shade, so the parent's shade shows as a strip down the left like a tree. */
+.prefab-hierarchy .dock-object
+{
+    background-color: #232326;
+    margin: 0;
+    padding: 0;
+}
+
+.prefab-hierarchy .dock-object.dock-object--odd
+{
+    background-color: #2b2b2f;
+}
+
+/* Indentation per level (the arrow column), as in Unity's Hierarchy. */
+.prefab-hierarchy .dock-object > #unity-content
+{
+    margin-left: 14px;
+}
+
+/* A GameObject's header row: full width, Hierarchy height; lit under the mouse, blue while selected. */
+.prefab-hierarchy .dock-object > Toggle.dock-object-header
+{
+    background-color: rgba(0, 0, 0, 0);
+    margin: 0;
+    padding: 1px 4px 1px 2px;
+    min-height: 20px;
+    align-items: center;
+}
+
+.prefab-hierarchy .dock-object > Toggle.dock-object-header:hover
+{
+    background-color: rgba(255, 255, 255, 0.07);
+}
+
+.prefab-hierarchy .dock-object > Toggle.dock-object-header.dock-object-header--selected
+{
+    background-color: #2c5d87;
+}
+
+.prefab-hierarchy .dock-object > Toggle.dock-object-header.dock-object-header--selected:hover
+{
+    background-color: #36699a;
+}
+
+.prefab-hierarchy .dock-object > Toggle.dock-object-header.dock-object-header--selected Label
+{
+    color: #ffffff;
+}
+
+/* Shown while the dock edits the copy open in Prefab Mode. */
+.prefab-hierarchy-note
+{
+    font-size: 10px;
+    padding: 2px 6px;
+    color: #9fc4ff;
+    background-color: rgba(60, 110, 200, 0.18);
+}

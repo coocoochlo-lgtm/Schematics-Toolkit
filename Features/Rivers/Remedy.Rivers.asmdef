@@ -1,0 +1,21 @@
+{
+    "name": "Remedy.Rivers",
+    "rootNamespace": "Remedy.Rivers",
+    "references": [
+        "GUID:2fdef4a859838e3449b625605ab13c25",
+        "GUID:fcf26afa24f209f48995057e40e2e83e",
+        "GUID:dff8ecec7c9808447ae4528f8a364918",
+        "GUID:8a4abcc8263c46c4a9aaeaa2747ac62c",
+        "Unity.Mathematics",
+        "GUID:2c3472ea9a5b43d3ae42d904816ba305"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -172,6 +172,116 @@ public class PlayerMovement : MonoBehaviour
 }
 ```
 
+### Schematic Behaviors
+Schematic Behaviors work like Systems rather than MonoBehaviours: there is one of each, and its Runtime calls its lifecycle methods for every object it's attached to. Attach them with the **Add Schematic Behavior** button under the GameObject header of a Schematic Object or any of its children.
+
+```csharp
+[SchematicBehaviorPath("Movement/Spinner")]
+public class Spinner : SchematicBehavior
+{
+    // Per-instance Variables. Defaults can be changed per object in the Inspector.
+    private readonly VariableHandle<float> _degreesPerSecond = 90f;
+    private readonly VariableHandle<float> _spun = 0f;
+
+    protected override void OnStart() { }   // every spawn, Variables already reset
+    protected override void OnEnable() { }
+
+    protected override void OnUpdate()
+    {
+        float step = _degreesPerSecond * Time.deltaTime;
+        _spun.Value += step;
+        Self.Transform.Rotate(0f, step, 0f);
+    }
+}
+```
+
+Lifecycle methods run once per object, with that object's instance as `Self`; Variables and Signals act on `Self`. To act on another object's instance of the same Behavior, pick it for a block. `Self` switches back afterwards:
+
+```csharp
+using (Pick(otherUid))          // also Pick(gameObject) or Pick(instance)
+    _spun.Value = 0f;           // the other object's Variable
+```
+
+```csharp
+var spinner = SchematicsManager.Spawn(spinnerPrefab, position, rotation); // from the prefab's pool
+int uid = spinner.UID;
+
+ExecutionContext.Pick(uid).Disable<Spinner>();  // OnDisable, then skipped by every lifecycle method
+ExecutionContext.Pick(uid).Enable();            // every Behavior on it
+SchematicsManager.Destroy(spinner);             // OnDisable → OnDestroy, then back into the pool
+```
+
+### Signals
+Signals are `SignalHandle` fields on a Behavior (no initializer needed; the editor generates and saves their assets), addressed to a spawned Schematic Object by its UID, the same ID that `ExecutionContext.Pick`, Variables and `GetSchematicBehavior` use. Behaviors and Schematic Graphs on the same object send to and hear each other.
+
+```csharp
+public class Health : SchematicBehavior
+{
+    [OutputSignal, Parameter("Amount", typeof(float))]
+    public readonly SignalHandle<float> Damaged;
+    public readonly VariableHandle<float> Current = 100f;
+
+    public void TakeDamage(float amount)
+    {
+        Current.Value -= amount;
+        Damaged.Invoke(amount);              // to the selected instance's object
+    }
+}
+
+public class HitFlash : SchematicBehavior
+{
+    private readonly VariableHandle<float> _flash = 0f;
+
+    protected override void OnStart()
+    {
+        // The handler runs with this HitFlash instance as Self, so _flash is this object's value.
+        Self.GetSchematicBehavior<Health>().Damaged.Subscribe(amount => _flash.Value = 1f);
+    }
+}
+```
+
+Each declared Signal has a Signal asset inside the Behavior's Metadata, shown under the Behavior in the Inspector; drag it into a Schematic Graph to make **Send a Signal** / **On Signal Received** nodes. Graph nodes send and listen under the UID of the object running the graph. Subscriptions made in a lifecycle method are released when the listener or the object it listens to despawns, so subscribe in `OnStart`.
+
+To send a Signal to everyone listening, from anywhere (input, managers, tools), use `signal.Broadcast(value)`. The value can be any type: listeners that take another type get it converted (or their type's default), listeners that take `object` get it as is, and `signal.BroadcastDefault()` sends every listener its default (e.g. when an input is released).
+
+`GetSchematicBehavior<T>()` is the Behavior counterpart to `GetComponent`: it returns the Behavior with that object's instance selected, so its Variables act on that object, or null if the Behavior doesn't control it.
+
+```csharp
+var controller = player.GetSchematicBehavior<PhysicsBasedCharacterController>();
+if (controller != null)
+    Debug.Log(controller.Properties.Value.MoveSpeed);
+```
+
+Lifecycle order: `OnCreate` (first creation only) → `OnStart` → `OnEnable` → `OnUpdate`/`OnLateUpdate`/`OnFixedUpdate` → `OnDisable` → `OnDestroy`.
+Behaviors also receive `OnCollisionEnter`/`Exit` and `OnTriggerEnter`/`Exit` for the GameObject they're attached to. Variables reset on every spawn, so fetch components with `Self.GetComponent<T>()`, which caches them for the object's whole life.
+
+`[RequireBehavior(typeof(Other))]` is the Behavior counterpart to `[RequireComponent]`: attaching the Behavior attaches the ones it needs too.
+
+### The IO Dock
+The Schematic Graph window's **Prefab** tab lists the prefab's GameObjects and the Behaviors on each, with their **Variables** (above) and **Signals**:
+
+- Drag a **Variable** into the graph for a **Get** or **Set Variable** node.
+- Drag a **Signal** for **Send a Signal** (a pin per parameter) or **On Signal Received**.
+- Drag a **Behavior** for a **Behavior** node: every Variable and its Enabled state as pins, and optionally one of its public methods to call. The reflection is done once per Behavior type and cached.
+- Drag a **GameObject** for a **Prefab Object** node (that object on whichever spawned copy runs the graph).
+- Click a row to jump to the nodes that use it (click again for the next one); click a node to find its row.
+
+Signal nodes only need the object's UID, since Signals reach the whole object. Variable and Behavior nodes also save which Behavior and which GameObject (by path) they mean, because those values live on one instance. The **Graph** tab lists the graph's Signal/Variable/Behavior nodes, and the minimap marks them with icons.
+
+### State Machines
+Attach the **State Machine** Behavior (Logic/State Machine) and click **Open State Machine**. States nest: being in *Grounded* also means being in its parent *Alive*.
+
+- **State Manager**: a spreadsheet of states against the prefab's Behaviors. Click a cell to turn that Behavior on or off in that state; empty cells inherit from the parent state.
+- **State Graph**: states and their transitions, one level at a time. Double-click a state to go inside it.
+- **Transitions** read like an event sheet: *when [Signal] arrives* or *if [Variable] [≤] [value]* (plus time in state, or another Behavior being on), *→ go to [state]*. A parent's transitions apply in all of its children, and win over theirs.
+- Each state can have its own Schematic Graph, which runs while the state is active (**On State Enter / Update / Exit** nodes, plus its Signal nodes).
+- Send the State Machine's `SetState` Signal with a state name to change state from code or a graph; `OnStateChanged` reports each change.
+
+### Singleton Graphs
+Create one with **Create → Remedy Toolkit → Schematics → Singleton Schematic**. It doesn't need to be in a Resources folder: the editor registers every Singleton Graph automatically (in the Schematic Manager Data, which is in Resources). When the game starts, each one gets its own Schematic Object, named `[Singleton] <graph name>` and kept across scenes, which runs the graph like any other object: its events, Signals, Variable nodes and the game-wide events (scene loaded, runtime update, …).
+
+Give it a State Machine from the graph window's side panel (**Create State Machine**). The definition is stored on the asset; the state lives on the object. Reach the object from code with `mySingletonGraph.Host` or `SingletonGraph.Find("Name")`.
+
 
 ---
 

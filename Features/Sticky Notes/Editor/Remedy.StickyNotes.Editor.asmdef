@@ -1,0 +1,19 @@
+{
+    "name": "Remedy.StickyNotes.Editor",
+    "rootNamespace": "Remedy.StickyNotes.Editor",
+    "references": [
+        "Remedy.StickyNotes",
+        "Remedy.Schematics.Collaboration"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

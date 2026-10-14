@@ -104,11 +104,15 @@ namespace Remedy.Framework
         {
             Instance.enabled = false;
         }
-
         protected virtual void Awake()
         {
             if(_instance == null)
                 _instance = (TSingleton)this;
+        }
+
+        protected virtual void OnDestroy()
+        {
+            Debug.LogWarning("Singleton Destroyed: " + this.GetType());
         }
     }
 

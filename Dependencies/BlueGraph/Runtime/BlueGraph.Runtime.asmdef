@@ -1,0 +1,15 @@
+{
+    "name": "BlueGraph.Runtime",
+    "references": [
+        "GUID:9cef1c0784dad074282847b193c0d47b"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

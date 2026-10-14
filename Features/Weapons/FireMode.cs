@@ -1,4 +1,4 @@
-using Remedy.Weapons.Projectiles;
+using Remedy.Schematics;
 //using SaintsField;
 using UnityEngine;
 
@@ -32,7 +32,8 @@ namespace Remedy.Weapons
         [Tooltip("The way the Muzzle is Aimed. LockToHolder: Follows the WeaponHolder's Transform, AimDelta: adds the Aim Input to the current orientation, AimDirectly: Sets the orientation to the Aim Input")]
         public AimMethod AimMode;
         public bool UsesAim => AimMode == AimMethod.AimDirectly || AimMode == AimMethod.AimDelta;
-        public Projectile Projectile;
+        [Tooltip("The projectile prefab: a Schematic Object with a Projectile Behavior.")]
+        public SchematicObject Projectile;
         [Tooltip("The number of Projectiles shot")]
         public int ShotProjectileCount = 1;
         [Tooltip("The Offset, in the Muzzle's Local Space, that the Projectile is spawned in relation to the Muzzle's position.")]

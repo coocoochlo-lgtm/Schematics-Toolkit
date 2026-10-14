@@ -1,110 +1,128 @@
-using Remedy.Framework;
-/*using SaintsField;
-using SaintsField.Playa;*/
+using Remedy.Schematics;
 using UnityEngine;
 
 namespace Remedy.Inventories
 {
-    [SchematicComponent("Inventory/Inventory")]
-    //[Searchable]
-    public class Inventory : MonoBehaviour
+    /// <summary>
+    /// Holds Inventory Items for its object and picks up Collectable Inventories on its Inventory Layer.
+    /// Its Data asset is copied per spawn, so instances never write into the shared asset.
+    /// </summary>
+    [SchematicDoc(@"{""name"": ""Inventory"", ""kind"": ""behavior"", ""menu"": ""Inventory/Inventory"", ""description"": ""Holds Inventory Items for its object and picks up Collectable Inventories on its Inventory Layer. Its Data asset is copied per spawn, so instances never write into the shared asset."", ""variables"": [""StartingData"", ""NavigationModes""], ""use_for"": [""carrying items"", ""collecting coins and keys""]}")]
+    [SchematicBehaviorPath("Inventory/Inventory")]
+    public class Inventory : SchematicBehavior
     {
-        /*[Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Events", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Input")]*/
-        public NavigationMode[] NavigationModes;
-        //[InfoBox("The ID of InventoryItemData are passed to these Input Events to create a new InventoryItem instance when adding, or to remove the InventoryItem")]
-        public SignalData SetItem;
-        public SignalData AddItem;
-        public SignalData RemoveItem;
+        [Tooltip("The ID of an Inventory Item Data, to select it.")]
+        [InputSignal, Parameter("Item ID", typeof(int))] [NetworkSync(SignalSender.OwnerToAuthority)] public readonly SignalHandle<int> SetItem;
+        [Tooltip("The ID of an Inventory Item Data, to add it.")]
+        [InputSignal, Parameter("Item ID", typeof(int))] [NetworkSync(SignalSender.Authority)] public readonly SignalHandle<int> AddItem;
+        [Tooltip("The ID of an Inventory Item Data, to remove it.")]
+        [InputSignal, Parameter("Item ID", typeof(int))] [NetworkSync(SignalSender.Authority)] public readonly SignalHandle<int> RemoveItem;
 
-        /*[Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Events", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Output")]*/
-        public SignalData OnInventoryChanged;
-        public SignalData OnSetActiveItem;
-        public SignalData OnItemAdded;
-        public SignalData OnItemRemoved;
+        [OutputSignal] public readonly SignalHandle OnInventoryChanged;
+        [OutputSignal, Parameter("Index", typeof(int))] public readonly SignalHandle<int> OnSetActiveItem;
+        [OutputSignal, Parameter("Item ID", typeof(int))] public readonly SignalHandle<int> OnItemAdded;
+        [OutputSignal, Parameter("Item ID", typeof(int))] public readonly SignalHandle<int> OnItemRemoved;
 
-        public int InventoryLayer => Data.InventoryLayer;
+        [SchematicDoc(@"{""name"": ""StartingData"", ""kind"": ""variable"", ""behavior"": ""Inventory"", ""type"": ""InventoryData"", ""default"": ""null"", ""description"": ""The Inventory asset this object starts with. Copied per spawn.""}")]
+        [Tooltip("The Inventory asset this object starts with. Copied per spawn.")]
+        public readonly VariableHandle<InventoryData> StartingData = (InventoryData)null;
 
-        /*[Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Component", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Properties")]
-        [Expandable]*/
-        [SerializeField]
-        private InventoryData _inventoryData;
-        public InventoryData Data => _inventoryData ??= ScriptableObject.CreateInstance<InventoryData>();
+        [SchematicDoc(@"{""name"": ""NavigationModes"", ""kind"": ""variable"", ""behavior"": ""Inventory"", ""type"": ""NavigationMode[]"", ""default"": ""null"", ""description"": ""Navigation Modes (NavigationMode[]) of Inventory.""}")]
+        public readonly VariableHandle<NavigationMode[]> NavigationModes = (NavigationMode[])null;
 
-        public InventoryItemCollection Contents => Data.Contents;
+        // This spawn's own copy of StartingData.
+        private readonly VariableHandle<InventoryData> _data = (InventoryData)null;
+        // The index of the active item in Contents, or -1.
+        private readonly VariableHandle<int> _activeItem = -1;
 
-        // The ID of the Inventory Item Data in the Lookup
-        private int _activeItemID;
+        /// <summary>The selected Inventory's runtime data.</summary>
+        public InventoryData Data => _data.Value;
+        public InventoryItemCollection Contents => _data.Value != null ? _data.Value.Contents : null;
+        public int InventoryLayer => _data.Value != null ? _data.Value.InventoryLayer : -1;
 
-        private void OnEnable()
+        protected override void OnStart()
         {
-            // Ensure that the Inventory Data for this Inventory is unique by instantiating the Original
-            if (Data != null)
-                _inventoryData = Instantiate(Data);
+            var instance = Self;
+            var starting = StartingData.Value;
+            _data.Value = starting != null ? Object.Instantiate(starting) : ScriptableObject.CreateInstance<InventoryData>();
+            InventoryManager.AddInventory(instance, InventoryLayer);
 
-            AddItem?.Subscribe(this, (int id) =>
+            AddItem.Subscribe(id =>
             {
-                Contents.Add(InventoryItemData.Lookup[id]);
+                if (!InventoryItemData.Lookup.TryGetValue(id, out var item)) return;
+                Contents.Add(item);
+                OnItemAdded.Invoke(id);
+                OnInventoryChanged.Invoke();
+                if (Data.SwitchOnPickup)
+                    SelectItem(instance, Contents.Count - 1);
             });
 
-            RemoveItem?.Subscribe(this, (int id) =>
+            RemoveItem.Subscribe(id =>
             {
-                Contents.Remove(InventoryItemData.Lookup[id]);
+                if (!InventoryItemData.Lookup.TryGetValue(id, out var item)) return;
+                Contents.Remove(item);
+                OnItemRemoved.Invoke(id);
+                OnInventoryChanged.Invoke();
             });
 
-            SetItem?.Subscribe(this, (int id) =>
+            SetItem.Subscribe(id =>
             {
-                foreach (var item in Contents)
+                for (int i = 0; i < Contents.Count; i++)
                 {
-                    if (item.ID == id)
+                    if (Contents[i] != null && Contents[i].ID == id)
                     {
-                        SelectItem(_activeItemID);
+                        SelectItem(instance, i);
+                        break;
                     }
                 }
             });
 
-            SelectItem(_activeItemID);
+            SelectItem(instance, 0);
+        }
 
-            // Subscribe switch Inputs
-            /*foreach (var nav in NavigationModes)
+        protected override void OnDestroy()
+        {
+            InventoryManager.RemoveInventory(Self);
+            if (_data.Value != null)
+                Object.Destroy(_data.Value);
+            _data.Value = null;
+        }
+
+        /// <summary>Makes the item at the given index of the selected Inventory active.</summary>
+        public void SelectItem(int itemIndex) => SelectItem(Selected, itemIndex);
+
+        public void SelectItem(BehaviorInstance instance, int itemIndex)
+        {
+            var contents = _data[instance]?.Contents;
+            int active = _activeItem[instance];
+            if (contents == null || active == itemIndex || itemIndex < 0 || itemIndex >= contents.Count)
+                return;
+
+            if (active > -1 && active < contents.Count)
+                contents[active]?.OnDeselected.Invoke(instance);
+
+            _activeItem[instance] = itemIndex;
+            contents[itemIndex]?.OnSelected.Invoke(instance);
+            OnSetActiveItem.Invoke(instance, itemIndex);
+        }
+
+        // Pick up
+        protected override void OnTriggerEnter(Collider other)
+        {
+            var collectable = other.gameObject.GetSchematicBehavior<CollectableInventory>();
+            if (collectable == null || collectable.InventoryLayer != InventoryLayer)
+                return;
+
+            var collectableInstance = collectable.Selected;
+            int countBefore = Contents.Count;
+            Contents.TransferFrom(collectable.Items.Value);
+            collectable.Collect(collectableInstance, Self.GameObject);
+
+            if (Contents.Count != countBefore)
             {
-                switch (nav.Mode)
-                {
-                    case NavigationMode.NavigationLayout.Switch:
-                        nav.SwitchInput?.Subscribe();
-                            break;
-                }
-            }*/
-        }
-
-        private void OnDisable()
-        {
-            AddItem?.Unsubscribe(this);
-            RemoveItem?.Unsubscribe(this);
-        }
-
-        void OnDestroy()
-        {
-            Destroy(Data);
-            _inventoryData = null;
-        }
-
-        public void SelectItem(int itemIndex)
-        {
-            if (_activeItemID == itemIndex) return;
-
-            if (_activeItemID > -1 && _activeItemID < Contents.Count)
-                Contents[itemIndex]?.OnDeselected?.Invoke();
-
-            if (itemIndex > -1 && itemIndex < Contents.Count)
-            {
-                _activeItemID = itemIndex;
-                Contents[itemIndex]?.OnSelected?.Invoke();
+                OnInventoryChanged.Invoke();
+                if (Data.SwitchOnPickup)
+                    SelectItem(Self, Contents.Count - 1);
             }
         }
 
@@ -122,26 +140,9 @@ namespace Remedy.Inventories
             public bool IsSwitchDirection => Mode == NavigationLayout.SwitchDirectional;
             public bool IsTable => Mode == NavigationLayout.Table;
 
-            //[ShowIf("IsSwitch")]
             public SignalData SwitchInput;
-            //[ShowIf("IsSwitchDirection")]
             public SignalData DirectionalSwitchInput;
-            //[ShowIf("IsTable")]
             public SignalData TableInput;
-        }
-
-        // Pick up 
-        private void OnTriggerEnter(Collider other)
-        {
-            if (InventoryManager.GetInventoryLayer(other.gameObject) == Data.InventoryLayer)
-            {
-                var otherInventory = other.GetCachedComponent<CollectableInventory>();
-                if (otherInventory != null)
-                {
-                    Data.Contents.TransferFrom(otherInventory.Items);
-                    otherInventory.OnCollect?.Invoke(other.gameObject);
-                }
-            }
         }
     }
 }

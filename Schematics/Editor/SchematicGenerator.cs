@@ -80,6 +80,8 @@ public static class SchematicGenerator
 
         controller.Assign(schematicGraph);
         controller.SchematicGraph = schematicGraph;
+        controller.AssignObjectID(SchematicObjectIDs.For(assetPath));
+        EditorUtility.SetDirty(controller);
         schematicGraph.Prefab = loadedPrefab;
 
 /*        var schematicScope = SchematicAssetManager.Create<SchematicScope>(prefab, "", "", "SchematicScope");

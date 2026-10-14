@@ -1,0 +1,1585 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f4d818f718da48ffa144b0840be6b570, type: 3}
+  m_Name: SprocketDocs
+  m_EditorClassIdentifier: Remedy.Schematics.Editor::Remedy.Schematics.Assistant.SprocketDocs
+  Entries:
+  - Key: behavior:CharacterMotionContext
+    Title: Character Motion Context
+    Summary: "Applies forces, springs and gravity to a character's Box3D body. Movement controllers on the same GameObject drive it\r through its methods (on the selected instance): Self.GetSchematicBehavior<CharacterMotionContext>().ApplyForce(...)."
+    Description: 
+  - Key: behavior:CharacterRaycastContext
+    Title: Character Raycast Context
+    Summary: Ground and wall detection for a character, shared by the Motion Context and the movement controllers.
+    Description: 
+  - Key: behavior:PhysicsBasedCharacterController
+    Title: Physics Based Character Controller
+    Summary: "Physics based character movement: rides at a hover height above the ground, jumps with a buffer and hang time,\r and falls with extra gravity. Movement itself is applied through the Character Motion Context and ground\r detection comes from the Character Raycast Context; both are attached along with it.\r Input arrives through the Motion Context's MoveInput and JumpInput Signals."
+    Description: 
+  - Key: behavior:Remedy.Animation.AnimationComunicator
+    Title: Animation Comunicator
+    Summary: "Drives the Animator on its GameObject from Signals: each entry of its Properties maps a Signal to an Animator\r parameter (trigger, bool, float, or a Vector2 split into floats)."
+    Description: 
+  - Key: behavior:Remedy.Audio.SoundCue
+    Title: Sound Cue
+    Summary: "Plays an Audio Definition list from the Audio Data, on start, on collision/trigger, or when its Signal is sent.\r Play and Stop act on the selected instance."
+    Description: 
+  - Key: behavior:Remedy.Cameras.CameraPropertiesVolume
+    Title: Camera Properties Volume
+    Summary: "A trigger volume that changes camera settings for Camera Operators inside it.\r Operators read the values with the volume's instance, e.g. volume.Zoom[volumeInstance]."
+    Description: 
+  - Key: behavior:Remedy.Cameras.ShoulderCamera
+    Title: Shoulder Camera
+    Summary: The Shoulder Camera Behavior.
+    Description: 
+  - Key: behavior:Remedy.Cameras.ThirdPersonCamera
+    Title: Third Person Camera
+    Summary: The Third Person Camera Behavior.
+    Description: 
+  - Key: behavior:Remedy.CharacterControllers.CharacterControllerRig
+    Title: Character Controller Rig
+    Summary: "Makes the character's renderer follow its physics body smoothly: tilting, turning, squashing with vertical speed,\r and posing for whichever movement controller is enabled (Wall Slide, Hover, Ledge Grab, or the default)."
+    Description: 
+  - Key: behavior:Remedy.CharacterControllers.Gadgets.Pusher
+    Title: Pusher
+    Summary: Launches Rigidbodies that touch it along its up axis, after a short delay, squashing while it does.
+    Description: 
+  - Key: behavior:Remedy.CharacterControllers.Hover.HoverController
+    Title: Hover Controller
+    Summary: 'Flight: rises while there''s Stamina, then hovers and plummets. Input comes from the Motion Context''s Signals.'
+    Description: 
+  - Key: behavior:Remedy.CharacterControllers.LedgeGrab.LedgeGrabController
+    Title: Ledge Grab Controller
+    Summary: Hangs from a ledge in front of the character, and clambers up it on jump. Input comes from the Motion Context's Signals.
+    Description: 
+  - Key: behavior:Remedy.CharacterControllers.Stamina.StaminaController
+    Title: Stamina Controller
+    Summary: The Stamina Controller Behavior.
+    Description: 
+  - Key: behavior:Remedy.CharacterControllers.WallSlide.WallSlideController
+    Title: Wall Slide Controller
+    Summary: Slides down walls the character moves into, and jumps off them. Input comes from the Motion Context's Signals.
+    Description: 
+  - Key: behavior:Remedy.Damagables.DamageInstigator
+    Title: Damage Instigator
+    Summary: Deals damage, either to Damageables in a radius when Instigate is sent, or on contact depending on its Data.
+    Description: 
+  - Key: behavior:Remedy.Damagables.Damageable
+    Title: Damageable
+    Summary: "Health, damage and healing for an object. The methods act on the selected instance, e.g.\r target.GetSchematicBehavior<Damageable>()?.Damage(instigation), or take the instance explicitly."
+    Description: 
+  - Key: behavior:Remedy.Inventories.CollectableInventory
+    Title: Collectable Inventory
+    Summary: Items lying in the world, picked up by an Inventory on the same Inventory Layer.
+    Description: 
+  - Key: behavior:Remedy.Inventories.Inventory
+    Title: Inventory
+    Summary: "Holds Inventory Items for its object and picks up Collectable Inventories on its Inventory Layer.\r Its Data asset is copied per spawn, so instances never write into the shared asset."
+    Description: 
+  - Key: behavior:Remedy.LevelDesign.CheckpointAgent
+    Title: Checkpoint Agent
+    Summary: Moves its object's Box3D body to the position carried by the Respawn Signal (stopping it there).
+    Description: 
+  - Key: behavior:Remedy.LevelDesign.SpawnPoint
+    Title: Spawn Point
+    Summary: "A place the player can be spawned. Spawn acts on the selected instance, e.g.\r point.GetSchematicBehavior<SpawnPoint>().Spawn(player)."
+    Description: 
+  - Key: behavior:Remedy.LevelDesign.TriggerVolume
+    Title: Trigger Volume
+    Summary: Trigger Volumes are a base for any Volumes that would invoke Events related to the player's interactions with it.
+    Description: 
+  - Key: behavior:Remedy.ManifoldNetwork.Schematics.Brain
+    Title: Brain
+    Summary: "A learning brain for a Schematic Object, run by a Manifold Neuron Network. Its inputs and outputs are slots you\r define in the IO Dock; the graph feeds the inputs on On Think (Set Brain Input) and reads the\r decisions on On Decided (Get Brain Output). Teach it (Teach Brain Output), praise or punish it\r (Reward Brain), and it learns as it plays.\r\n\nShared: every instance of the object thinks with one brain (and learns together). Per Instance: each gets its own."
+    Description: 
+  - Key: behavior:Remedy.Materials.MaterialComunicator
+    Title: Material Comunicator
+    Summary: "Drives material properties from Signals: each entry of its Properties maps a Signal to a shader property.\r Uses the Renderer's shared material unless the Properties name one."
+    Description: 
+  - Key: behavior:Remedy.Splines.OnRailsRig
+    Title: On Rails Rig
+    Summary: "Star Fox-style on-rails movement. The object is a rig that travels along a spline (its Spline Agent) carrying a\r camera; the ship inside it moves freely on the plane in front of the camera, clamped so it never leaves the\r screen, banking and pitching as it goes. The camera drifts a little toward the ship, as in the games."
+    Description: 
+  - Key: behavior:Remedy.Splines.SplineAgent
+    Title: Spline Agent
+    Summary: "Moves its object along a Dreamteck spline at a set speed: the Schematic counterpart to Dreamteck's\r SplineFollower, with every follower in the game updated by one Behavior.\r Can jump to the closest point on another spline (branching paths), snap to its spline's closest point, and fire\r the spline's Dreamteck triggers as it passes them."
+    Description: 
+  - Key: behavior:Remedy.Splines.SplinePairAgent
+    Title: Spline Pair Agent
+    Summary: "Two points on a spline kept a set distance apart, like the front and back wheels of a cart or the two bogies of a\r train car. The object's Spline Agent moves the front point; the back point trails it. The object can sit between\r them facing from back to front, and Front/Back objects can be placed on each point."
+    Description: 
+  - Key: behavior:Remedy.Splines.SplineTracker
+    Title: Spline Tracker
+    Summary: "Keeps its object on the point of a spline closest to a target, like a camera dolly tracking the player or a\r guard pacing alongside them: the Schematic counterpart to Dreamteck's SplineProjector."
+    Description: 
+  - Key: behavior:Remedy.UI.UIComponent
+    Title: UI Component
+    Summary: "A UI element rendered on the UI layer at a depth set by its Layer. Extend it for specific UI elements and\r override Initiate And Subscribe Events/Un Subscribe Events for their setup."
+    Description: 
+  - Key: behavior:Remedy.UI.UISprite
+    Title: UI Sprite
+    Summary: "A textured quad on the UI layer. Create one in code with New.\r Its methods act on the selected instance, as returned by New or GetSchematicBehavior<UISprite>()."
+    Description: 
+  - Key: behavior:Remedy.Weapons.Projectiles.Projectile
+    Title: Projectile
+    Summary: The Projectile Behavior.
+    Description: 
+  - Key: behavior:Remedy.Weapons.Weapon
+    Title: Weapon
+    Summary: 'A Weapon prefab: held in the Sockets of a Weapon Holder, firing Projectiles from its Fire Modes'' Muzzles.'
+    Description: 
+  - Key: behavior:Remedy.Weapons.WeaponHolder
+    Title: Weapon Holder
+    Summary: "The WeaponHolder should be attached to a GameObject which is the child of a Character, Vehicle, or whatever, seperate from motion behaviour.\r It has a unique Collider (Trigger) that is used for interactions with Weapons that can be picked up"
+    Description: 
+  - Key: behavior:StateMachine
+    Title: State Machine
+    Summary: "Runs a State Machine Definition on its Schematic Object: enters the initial state, turns the object's\r Behaviors on and off as states change, fires transitions on Signals or when their conditions hold, and runs each\r active state's graph (On State Enter / Update / Exit, plus its Signal nodes).\r States nest: being in \"Grounded\" also means being in its parent \"Alive\", whose transitions (e.g. to \"Dead\") and\r Behavior settings apply too, unless the child overrides them."
+    Description: 
+  - Key: node:OnActiveSceneChanged
+    Title: On Active Scene Changed
+    Summary: 
+    Description: 
+  - Key: node:OnAfterFirstSceneLoaded
+    Title: On After First Scene Loaded
+    Summary: 
+    Description: 
+  - Key: node:OnAssembliesLoaded
+    Title: On Assemblies Loaded
+    Summary: 
+    Description: 
+  - Key: node:OnBeforeFirstSceneLoaded
+    Title: On Before First Scene Loaded
+    Summary: 
+    Description: 
+  - Key: node:OnBeforeSplashScreen
+    Title: On Before Splash Screen
+    Summary: 
+    Description: 
+  - Key: node:OnLevelExit
+    Title: On Level Exit
+    Summary: 'Out: LevelName.'
+    Description: 
+  - Key: node:OnLevelStart
+    Title: On Level Start
+    Summary: 'Out: LevelName.'
+    Description: 
+  - Key: node:OnRuntimeFixedUpdate
+    Title: On Runtime Fixed Update
+    Summary: 
+    Description: 
+  - Key: node:OnRuntimeLateUpdate
+    Title: On Runtime Late Update
+    Summary: 
+    Description: 
+  - Key: node:OnRuntimeUpdate
+    Title: On Runtime Update
+    Summary: 
+    Description: 
+  - Key: node:OnSceneLoaded
+    Title: On Scene Loaded
+    Summary: 
+    Description: 
+  - Key: node:OnSceneUnloaded
+    Title: On Scene Unloaded
+    Summary: 
+    Description: 
+  - Key: node:OnSignalReceivedNode
+    Title: On Signal Received
+    Summary: "Fires when its Signal is sent to the object running this graph, from a Schematic Behavior or another graph.\r Subscribed by the Schematic Object when it spawns, under its UID."
+    Description: 
+  - Key: node:OnStart
+    Title: On Start
+    Summary: 'Out: LevelName.'
+    Description: 
+  - Key: node:Remedy.ManifoldNetwork.Schematics.CopyBrainNode
+    Title: Copy Brain
+    Summary: 'Gives one brain''s weights to another (same Brain Definition layout). Shared brains change for everyone.
+
+      In: From, To.'
+    Description: 
+  - Key: node:Remedy.ManifoldNetwork.Schematics.DirectionToNode
+    Title: Direction To
+    Summary: 'Where a target is from an object''s point of view: its local direction (x right, z forward) and distance.
+
+      In: From, Target.
+
+      Out: Local Direction, Values, Distance, Angle.'
+    Description: 
+  - Key: node:Remedy.ManifoldNetwork.Schematics.GetBrainOutputNode
+    Title: Get Brain Output
+    Summary: 'Reads one output slot. Use it on On Decided.
+
+      In: Brain Of.
+
+      Out: Value, Pressed, Choice, Option.'
+    Description: 
+  - Key: node:Remedy.ManifoldNetwork.Schematics.MakeValuesNode
+    Title: Make Values
+    Summary: 'Several numbers as one list, for a multi-value brain input.
+
+      In: A, B, C, D, Count.
+
+      Out: Values.'
+    Description: 
+  - Key: node:Remedy.ManifoldNetwork.Schematics.MixBrainsNode
+    Title: Mix Brains
+    Summary: "Crossbreeds two brains into a third: Blend averages the weights, Swap Parts takes whole parts (the master, each\r head, the translator) from one parent or the other, Per Weight flips a coin for each. Amount is how much\r comes from B.\nIn: A, B, Into, Amount."
+    Description: 
+  - Key: node:Remedy.ManifoldNetwork.Schematics.MutateBrainNode
+    Title: Mutate Brain
+    Summary: 'Adds a little random noise to a brain''s weights (Strength is the noise''s typical size).
+
+      In: Strength, Brain Of.'
+    Description: 
+  - Key: node:Remedy.ManifoldNetwork.Schematics.NearestWithTagNode
+    Title: Nearest With Tag
+    Summary: 'The nearest object with a tag within range: it, its position, and how far.
+
+      In: From, Tag, Range.
+
+      Out: Found, Object, Position, Distance.'
+    Description: 
+  - Key: node:Remedy.ManifoldNetwork.Schematics.RayFanNode
+    Title: Ray Fan
+    Summary: 'A fan of rays from an object (Box3D physics): each ray''s hit distance, 0 (touching) to 1 (nothing within range).
+
+      In: From, Rays, Spread, Range, Height, Layers.
+
+      Out: Distances, Closest.'
+    Description: 
+  - Key: node:Remedy.ManifoldNetwork.Schematics.ResetBrainMemoryNode
+    Title: Reset Brain Memory
+    Summary: 'Forgets the past: the brain''s memory (its heads) back at rest, for this instance.
+
+      In: Brain Of.'
+    Description: 
+  - Key: node:Remedy.ManifoldNetwork.Schematics.RewardBrainNode
+    Title: Reward Brain
+    Summary: "Praise (positive) or punish (negative) the brain. The reward credits its recent decisions, most of all the\r latest ones, fading by the definition's Credit Half-Life.\nIn: Reward, Brain Of."
+    Description: 
+  - Key: node:Remedy.ManifoldNetwork.Schematics.SetBrainInputNode
+    Title: Set Brain Input
+    Summary: 'Feeds one input slot. Use it on On Think. A slot of Size n takes the Values list (or Value for one).
+
+      In: Value, Values, Brain Of.'
+    Description: 
+  - Key: node:Remedy.ManifoldNetwork.Schematics.TeachBrainOutputNode
+    Title: Teach Brain Output
+    Summary: "\"The right answer was ...\": teaches an output slot this tick (an axis value, a button as Pressed, a choice's\r option index). E.g. wire the player's own input here so the bot learns by watching.\nIn: Value, Pressed, Choice, Brain Of."
+    Description: 
+  - Key: node:Remedy.Schematics.BehaviorReferenceNode
+    Title: Behavior
+    Summary: "A reference to one of the object's Behaviors, pinned out: every Variable as an output, its Enabled state,\r and optionally one of its public methods to call (with a pin per parameter and one for the result).\r Created by dragging a Behavior from the IO Dock. Reflection is done once per Behavior type and cached."
+    Description: 
+  - Key: node:Remedy.Schematics.BroadcastMethodInvocation
+    Title: Broadcast Method Invocation
+    Summary: 'In: Target, Name, Arguments.'
+    Description: 
+  - Key: node:Remedy.Schematics.CallFunction
+    Title: Call Function
+    Summary: 'In: FunctionParameters.'
+    Description: 
+  - Key: node:Remedy.Schematics.CastToFloat
+    Title: Cast To Float
+    Summary: 'In: Value.
+
+      Out: Casted.'
+    Description: 
+  - Key: node:Remedy.Schematics.CastToGameObject
+    Title: Cast To Game Object
+    Summary: 'In: Value.
+
+      Out: Casted.'
+    Description: 
+  - Key: node:Remedy.Schematics.CastToMonoBehaviour
+    Title: Cast To Mono Behaviour
+    Summary: 'In: Value.
+
+      Out: Casted.'
+    Description: 
+  - Key: node:Remedy.Schematics.CastToTransform
+    Title: Cast To Transform
+    Summary: 'In: Value.
+
+      Out: Position, EulerAngles, Casted.'
+    Description: 
+  - Key: node:Remedy.Schematics.CompaCastrison
+    Title: Compa Castrison
+    Summary: "In: First Value, Second Value.\nOut: \u25B6."
+    Description: 
+  - Key: node:Remedy.Schematics.CreateList
+    Title: Create List
+    Summary: 'In: Items.
+
+      Out:  .'
+    Description: 
+  - Key: node:Remedy.Schematics.FindGameObjectsWithTag
+    Title: Find Game Objects With Tag
+    Summary: 'Out: Objects.'
+    Description: 
+  - Key: node:Remedy.Schematics.ForEach
+    Title: For Each
+    Summary: 'In: Items.
+
+      Out: Index, This.'
+    Description: 
+  - Key: node:Remedy.Schematics.GetBehaviorVariableNode
+    Title: Get Variable
+    Summary: Reads a Behavior Variable of the object running the graph. Created by dragging a Variable from the IO Dock.
+    Description: 
+  - Key: node:Remedy.Schematics.GetChild
+    Title: Get Child
+    Summary: 'Out: Child.'
+    Description: 
+  - Key: node:Remedy.Schematics.HasColliderForward
+    Title: Has Collider Forward
+    Summary: "True when a sphere cast from the object along its forward axis hits something (with the given tag, if set)\r within the distance. Uses Box3D; moved here from Schematics Core, so existing graphs keep it.\nIn: Object, Other Tag, Distance, Radius.\nOut: \u25B6, Other GameObject."
+    Description: 
+  - Key: node:Remedy.Schematics.If
+    Title: If
+    Summary: 'In: Condition.'
+    Description: 
+  - Key: node:Remedy.Schematics.Instantiate
+    Title: Instantiate
+    Summary: 'In: Position, Rotation, Prefab.
+
+      Out: Instanced Object.'
+    Description: 
+  - Key: node:Remedy.Schematics.IsNull
+    Title: Is Null
+    Summary: "In: Value.\nOut: \u25B6."
+    Description: 
+  - Key: node:Remedy.Schematics.ListCount
+    Title: List Count
+    Summary: 'In: List.
+
+      Out: Count.'
+    Description: 
+  - Key: node:Remedy.Schematics.Log
+    Title: Log
+    Summary: 
+    Description: 
+  - Key: node:Remedy.Schematics.OnCollisionEnter
+    Title: On Collision Enter
+    Summary: 'Out: OtherCollider, Impulse, RelativeVelocity, OtherRigidbody, OtherArticulationBody, OtherTransform, OtherGameObject.'
+    Description: 
+  - Key: node:Remedy.Schematics.OnCollisionExit
+    Title: On Collision Exit
+    Summary: 'Out: OtherCollider, Impulse, RelativeVelocity, OtherRigidbody, OtherArticulationBody, OtherTransform, OtherGameObject.'
+    Description: 
+  - Key: node:Remedy.Schematics.OnCreate
+    Title: On Create
+    Summary: 
+    Description: 
+  - Key: node:Remedy.Schematics.OnDestroy
+    Title: On Destroy
+    Summary: 
+    Description: 
+  - Key: node:Remedy.Schematics.OnFunction
+    Title: On Function
+    Summary: 'Out: FunctionParameters.'
+    Description: 
+  - Key: node:Remedy.Schematics.OnStateEnter
+    Title: On State Enter
+    Summary: 'In a state''s graph: runs when the state is entered.'
+    Description: 
+  - Key: node:Remedy.Schematics.OnStateExit
+    Title: On State Exit
+    Summary: 'In a state''s graph: runs when the state is left.'
+    Description: 
+  - Key: node:Remedy.Schematics.OnStateUpdate
+    Title: On State Update
+    Summary: 'In a state''s graph: runs every frame while the state (or one of its children) is active.'
+    Description: 
+  - Key: node:Remedy.Schematics.OnTriggerEnter
+    Title: On Trigger Enter
+    Summary: 'Out: collider.'
+    Description: 
+  - Key: node:Remedy.Schematics.OnTriggerExit
+    Title: On Trigger Exit
+    Summary: 'Out: collider.'
+    Description: 
+  - Key: node:Remedy.Schematics.OnUpdate
+    Title: On Update
+    Summary: 
+    Description: 
+  - Key: node:Remedy.Schematics.PickFromListWithTag
+    Title: Pick From List With Tag
+    Summary: 'In: List, Tag.
+
+      Out: Objects With Tag.'
+    Description: 
+  - Key: node:Remedy.Schematics.PickNthItem
+    Title: Pick Nth Item
+    Summary: 'In: List, Index.
+
+      Out: Item.'
+    Description: 
+  - Key: node:Remedy.Schematics.PrefabObjectNode
+    Title: Prefab Object
+    Summary: "A GameObject from the Schematic Object's hierarchy, found on the spawned object running the graph.\r Created by dragging a GameObject from the IO Dock's prefab hierarchy.\nOut: Object, Transform."
+    Description: 
+  - Key: node:Remedy.Schematics.RandInt
+    Title: Rand Int
+    Summary: 'In: LowerBound, UpperBound.
+
+      Out: Value.'
+    Description: 
+  - Key: node:Remedy.Schematics.SetBehaviorVariableNode
+    Title: Set Variable
+    Summary: Writes a Behavior Variable of the object running the graph. Created by dragging a Variable from the IO Dock.
+    Description: 
+  - Key: node:Remedy.Schematics.SetPosition
+    Title: Set Position
+    Summary: 'In: Target, Position.'
+    Description: 
+  - Key: node:Remedy.Schematics.This
+    Title: This
+    Summary: 'Out:  .'
+    Description: 
+  - Key: node:Remedy.Schematics.Wait
+    Title: Wait
+    Summary: 'In: Wait Time.'
+    Description: 
+  - Key: node:Remedy.Splines.ClosestPointOnSplineNode
+    Title: Closest Point On Spline
+    Summary: 'The point on a spline closest to a position.
+
+      In: Spline, Position.
+
+      Out: Point, Percent, Distance, Forward.'
+    Description: 
+  - Key: node:Remedy.Splines.EvaluateSplineNode
+    Title: Evaluate Spline
+    Summary: 'The point at a 0-1 position along a spline.
+
+      In: Spline, Percent.
+
+      Out: Point, Forward, Up.'
+    Description: 
+  - Key: node:Remedy.Splines.JumpToSplineNode
+    Title: Jump To Spline
+    Summary: "Moves an object's Spline Agent onto another spline at its closest point (branching paths). With no spline\r connected, it jumps to the nearest other spline in the scene.\nIn: Agent, Spline."
+    Description: 
+  - Key: node:SendSignalNode
+    Title: Send a Signal
+    Summary: "Sends its Signal to the object running this graph, where Schematic Behaviors and other graphs hear it.\r Has an input pin per Signal parameter (added by the editor when the Signal is dropped in)."
+    Description: 
+  - Key: signal:CharacterMotionContext.JumpInput
+    Title: Jump Input (Character Motion Context)
+    Summary: A Signal of Character Motion Context.
+    Description: 
+  - Key: signal:CharacterMotionContext.MoveInput
+    Title: Move Input (Character Motion Context)
+    Summary: A Signal of Character Motion Context.
+    Description: 
+  - Key: signal:CharacterMotionContext.OnFall
+    Title: On Fall (Character Motion Context)
+    Summary: A Signal of Character Motion Context.
+    Description: 
+  - Key: signal:CharacterMotionContext.OnJump
+    Title: On Jump (Character Motion Context)
+    Summary: A Signal of Character Motion Context.
+    Description: 
+  - Key: signal:CharacterMotionContext.OnMoveOnGround
+    Title: On Move On Ground (Character Motion Context)
+    Summary: A Signal of Character Motion Context.
+    Description: 
+  - Key: signal:CharacterMotionContext.SetDirectionOfGravity
+    Title: Set Direction Of Gravity (Character Motion Context)
+    Summary: A Signal of Character Motion Context.
+    Description: 
+  - Key: signal:CharacterMotionContext.StaminaUpdated
+    Title: Stamina Updated (Character Motion Context)
+    Summary: A Signal of Character Motion Context.
+    Description: 
+  - Key: signal:CharacterRaycastContext.CheckForWall
+    Title: Check For Wall (Character Raycast Context)
+    Summary: Casts for a wall in the given direction.
+    Description: 
+  - Key: signal:CharacterRaycastContext.OnHitWall
+    Title: On Hit Wall (Character Raycast Context)
+    Summary: Sent when a wall cast hits, passing the point that was hit.
+    Description: 
+  - Key: signal:PhysicsBasedCharacterController.MoveToPosition
+    Title: Move To Position (Physics Based Character Controller)
+    Summary: A Signal of Physics Based Character Controller.
+    Description: 
+  - Key: signal:Remedy.Audio.SoundCue.Event
+    Title: Event (Sound Cue)
+    Summary: Plays this Sound Cue, whatever the Signal carries.
+    Description: 
+  - Key: signal:Remedy.Audio.SoundCue.StopEvent
+    Title: Stop Event (Sound Cue)
+    Summary: A Signal of Sound Cue.
+    Description: 
+  - Key: signal:Remedy.Cameras.ShoulderCamera.ActualLookDirection
+    Title: Actual Look Direction (Shoulder Camera)
+    Summary: A Signal of Shoulder Camera.
+    Description: 
+  - Key: signal:Remedy.Cameras.ShoulderCamera.AimPosition
+    Title: Aim Position (Shoulder Camera)
+    Summary: A Signal of Shoulder Camera.
+    Description: 
+  - Key: signal:Remedy.Cameras.ShoulderCamera.GoalLookDirection
+    Title: Goal Look Direction (Shoulder Camera)
+    Summary: A Signal of Shoulder Camera.
+    Description: 
+  - Key: signal:Remedy.Cameras.ThirdPersonCamera.AimPosition
+    Title: Aim Position (Third Person Camera)
+    Summary: A Signal of Third Person Camera.
+    Description: 
+  - Key: signal:Remedy.CharacterControllers.CharacterControllerRig.InputAim
+    Title: Input Aim (Character Controller Rig)
+    Summary: Vector3 Input for the Aim Direction, should be passed from the Camera Manager.
+    Description: 
+  - Key: signal:Remedy.CharacterControllers.CharacterControllerRig.InputOrientToAim
+    Title: Input Orient To Aim (Character Controller Rig)
+    Summary: Boolean Inputs that determine whether to Orient toward the Aim Direction.
+    Description: 
+  - Key: signal:Remedy.CharacterControllers.CharacterControllerRig.IsHovering
+    Title: Is Hovering (Character Controller Rig)
+    Summary: A Signal of Character Controller Rig.
+    Description: 
+  - Key: signal:Remedy.CharacterControllers.CharacterControllerRig.IsLedgeGrabbing
+    Title: Is Ledge Grabbing (Character Controller Rig)
+    Summary: A Signal of Character Controller Rig.
+    Description: 
+  - Key: signal:Remedy.CharacterControllers.CharacterControllerRig.IsOnGround
+    Title: Is On Ground (Character Controller Rig)
+    Summary: A Signal of Character Controller Rig.
+    Description: 
+  - Key: signal:Remedy.CharacterControllers.CharacterControllerRig.IsStrafing
+    Title: Is Strafing (Character Controller Rig)
+    Summary: A Signal of Character Controller Rig.
+    Description: 
+  - Key: signal:Remedy.CharacterControllers.CharacterControllerRig.IsWallSliding
+    Title: Is Wall Sliding (Character Controller Rig)
+    Summary: A Signal of Character Controller Rig.
+    Description: 
+  - Key: signal:Remedy.CharacterControllers.CharacterControllerRig.OnGroundCast
+    Title: On Ground Cast (Character Controller Rig)
+    Summary: A Signal of Character Controller Rig.
+    Description: 
+  - Key: signal:Remedy.CharacterControllers.CharacterControllerRig.OnGroundCastHit
+    Title: On Ground Cast Hit (Character Controller Rig)
+    Summary: A Signal of Character Controller Rig.
+    Description: 
+  - Key: signal:Remedy.CharacterControllers.CharacterControllerRig.VerticalVelocity
+    Title: Vertical Velocity (Character Controller Rig)
+    Summary: A Signal of Character Controller Rig.
+    Description: 
+  - Key: signal:Remedy.CharacterControllers.Gadgets.Pusher.OnHit
+    Title: On Hit (Pusher)
+    Summary: Invoked when a Rigidbody Collides with this.
+    Description: 
+  - Key: signal:Remedy.CharacterControllers.LedgeGrab.LedgeGrabController.OnClamber
+    Title: On Clamber (Ledge Grab Controller)
+    Summary: A Signal of Ledge Grab Controller.
+    Description: 
+  - Key: signal:Remedy.CharacterControllers.LedgeGrab.LedgeGrabController.OnLedgeGrabExitted
+    Title: On Ledge Grab Exitted (Ledge Grab Controller)
+    Summary: A Signal of Ledge Grab Controller.
+    Description: 
+  - Key: signal:Remedy.CharacterControllers.Stamina.StaminaController.OnStaminaChanged
+    Title: On Stamina Changed (Stamina Controller)
+    Summary: Passes the current amount of stamina
+    Description: 
+  - Key: signal:Remedy.CharacterControllers.Stamina.StaminaController.OnStaminaConsumed
+    Title: On Stamina Consumed (Stamina Controller)
+    Summary: Passes the amount that was consumed
+    Description: 
+  - Key: signal:Remedy.CharacterControllers.Stamina.StaminaController.OnStaminaDrained
+    Title: On Stamina Drained (Stamina Controller)
+    Summary: Triggered when the Controller runs out of Stamina
+    Description: 
+  - Key: signal:Remedy.CharacterControllers.Stamina.StaminaController.RegenerateStamina
+    Title: Regenerate Stamina (Stamina Controller)
+    Summary: Boolean Events that determine whether Stamina can regerate or not.
+    Description: 
+  - Key: signal:Remedy.CharacterControllers.Stamina.StaminaController.UseStamina
+    Title: Use Stamina (Stamina Controller)
+    Summary: Called from other scripts to use Stamina
+    Description: 
+  - Key: signal:Remedy.CharacterControllers.WallSlide.WallSlideController.OnWallJump
+    Title: On Wall Jump (Wall Slide Controller)
+    Summary: A Signal of Wall Slide Controller.
+    Description: 
+  - Key: signal:Remedy.CharacterControllers.WallSlide.WallSlideController.OnWallSlideExitted
+    Title: On Wall Slide Exitted (Wall Slide Controller)
+    Summary: A Signal of Wall Slide Controller.
+    Description: 
+  - Key: signal:Remedy.Damagables.DamageInstigator.Instigate
+    Title: Instigate (Damage Instigator)
+    Summary: A Signal of Damage Instigator.
+    Description: 
+  - Key: signal:Remedy.Damagables.DamageInstigator.OnInstigation
+    Title: On Instigation (Damage Instigator)
+    Summary: A Signal of Damage Instigator.
+    Description: 
+  - Key: signal:Remedy.Damagables.Damageable.OnDamageBegin
+    Title: On Damage Begin (Damageable)
+    Summary: A Signal of Damageable.
+    Description: 
+  - Key: signal:Remedy.Damagables.Damageable.OnDamageContinued
+    Title: On Damage Continued (Damageable)
+    Summary: A Signal of Damageable.
+    Description: 
+  - Key: signal:Remedy.Damagables.Damageable.OnDamageFinish
+    Title: On Damage Finish (Damageable)
+    Summary: A Signal of Damageable.
+    Description: 
+  - Key: signal:Remedy.Damagables.Damageable.OnDeath
+    Title: On Death (Damageable)
+    Summary: A Signal of Damageable.
+    Description: 
+  - Key: signal:Remedy.Damagables.Damageable.OnFullHealth
+    Title: On Full Health (Damageable)
+    Summary: A Signal of Damageable.
+    Description: 
+  - Key: signal:Remedy.Damagables.Damageable.OnHealBegin
+    Title: On Heal Begin (Damageable)
+    Summary: A Signal of Damageable.
+    Description: 
+  - Key: signal:Remedy.Damagables.Damageable.OnHealContinued
+    Title: On Heal Continued (Damageable)
+    Summary: A Signal of Damageable.
+    Description: 
+  - Key: signal:Remedy.Damagables.Damageable.OnHealFinish
+    Title: On Heal Finish (Damageable)
+    Summary: A Signal of Damageable.
+    Description: 
+  - Key: signal:Remedy.Damagables.Damageable.OnHealInstigation
+    Title: On Heal Instigation (Damageable)
+    Summary: A Signal of Damageable.
+    Description: 
+  - Key: signal:Remedy.Damagables.Damageable.OnKnockback
+    Title: On Knockback (Damageable)
+    Summary: Not handled by the Damageable. This functionality must be uniquely implemented for each object that uses this Component. The given value is the direction from the instigation position to this object.
+    Description: 
+  - Key: signal:Remedy.Damagables.Damageable.OnRevive
+    Title: On Revive (Damageable)
+    Summary: A Signal of Damageable.
+    Description: 
+  - Key: signal:Remedy.Inventories.CollectableInventory.OnCollect
+    Title: On Collect (Collectable Inventory)
+    Summary: Sent when this Inventory is Collected, passing the GameObject whose Inventory picked it up.
+    Description: 
+  - Key: signal:Remedy.Inventories.Inventory.AddItem
+    Title: Add Item (Inventory)
+    Summary: The ID of an Inventory Item Data, to add it.
+    Description: 
+  - Key: signal:Remedy.Inventories.Inventory.OnInventoryChanged
+    Title: On Inventory Changed (Inventory)
+    Summary: A Signal of Inventory.
+    Description: 
+  - Key: signal:Remedy.Inventories.Inventory.OnItemAdded
+    Title: On Item Added (Inventory)
+    Summary: A Signal of Inventory.
+    Description: 
+  - Key: signal:Remedy.Inventories.Inventory.OnItemRemoved
+    Title: On Item Removed (Inventory)
+    Summary: A Signal of Inventory.
+    Description: 
+  - Key: signal:Remedy.Inventories.Inventory.OnSetActiveItem
+    Title: On Set Active Item (Inventory)
+    Summary: A Signal of Inventory.
+    Description: 
+  - Key: signal:Remedy.Inventories.Inventory.RemoveItem
+    Title: Remove Item (Inventory)
+    Summary: The ID of an Inventory Item Data, to remove it.
+    Description: 
+  - Key: signal:Remedy.Inventories.Inventory.SetItem
+    Title: Set Item (Inventory)
+    Summary: The ID of an Inventory Item Data, to select it.
+    Description: 
+  - Key: signal:Remedy.LevelDesign.CheckpointAgent.Respawn
+    Title: Respawn (Checkpoint Agent)
+    Summary: A Signal of Checkpoint Agent.
+    Description: 
+  - Key: signal:Remedy.LevelDesign.SpawnPoint.OnSpawn
+    Title: On Spawn (Spawn Point)
+    Summary: Sent when this Spawner is used.
+    Description: 
+  - Key: signal:Remedy.LevelDesign.TriggerVolume.OnTrigger
+    Title: On Trigger (Trigger Volume)
+    Summary: A Signal of Trigger Volume.
+    Description: 
+  - Key: signal:Remedy.ManifoldNetwork.Schematics.Brain.OnDecided
+    Title: On Decided (Brain)
+    Summary: 'The brain has decided: read its outputs here (Get Brain Output) and act on them.'
+    Description: 
+  - Key: signal:Remedy.ManifoldNetwork.Schematics.Brain.OnThink
+    Title: On Think (Brain)
+    Summary: 'Before the brain thinks: set its inputs here (Set Brain Input). Also a good time to teach it.'
+    Description: 
+  - Key: signal:Remedy.Splines.OnRailsRig.MoveInput
+    Title: Move Input (On Rails Rig)
+    Summary: A Signal of On Rails Rig.
+    Description: 
+  - Key: signal:Remedy.Splines.SplineAgent.ChangedSpline
+    Title: Changed Spline (Spline Agent)
+    Summary: A Signal of Spline Agent.
+    Description: 
+  - Key: signal:Remedy.Splines.SplineAgent.JumpToNearestSpline
+    Title: Jump To Nearest Spline (Spline Agent)
+    Summary: A Signal of Spline Agent.
+    Description: 
+  - Key: signal:Remedy.Splines.SplineAgent.JumpToSpline
+    Title: Jump To Spline (Spline Agent)
+    Summary: A Signal of Spline Agent.
+    Description: 
+  - Key: signal:Remedy.Splines.SplineAgent.ReachedEnd
+    Title: Reached End (Spline Agent)
+    Summary: A Signal of Spline Agent.
+    Description: 
+  - Key: signal:Remedy.Splines.SplineAgent.SetPercent
+    Title: Set Percent (Spline Agent)
+    Summary: A Signal of Spline Agent.
+    Description: 
+  - Key: signal:Remedy.Splines.SplineAgent.SetSpeed
+    Title: Set Speed (Spline Agent)
+    Summary: A Signal of Spline Agent.
+    Description: 
+  - Key: signal:Remedy.Splines.SplineAgent.SnapToClosestPoint
+    Title: Snap To Closest Point (Spline Agent)
+    Summary: A Signal of Spline Agent.
+    Description: 
+  - Key: signal:Remedy.Splines.SplineTracker.SetTarget
+    Title: Set Target (Spline Tracker)
+    Summary: A Signal of Spline Tracker.
+    Description: 
+  - Key: signal:Remedy.Weapons.Projectiles.Projectile.OnDestroyed
+    Title: On Destroyed (Projectile)
+    Summary: Called when this is destroyed
+    Description: 
+  - Key: signal:Remedy.Weapons.Projectiles.Projectile.OnHit
+    Title: On Hit (Projectile)
+    Summary: On hit anything collidable, passes the PhysicsMaterial of the collider that was hit.
+    Description: 
+  - Key: signal:Remedy.Weapons.Projectiles.Projectile.OnHitTarget
+    Title: On Hit Target (Projectile)
+    Summary: On hit the Target Object, passes the reference of the Target Object that was hit.
+    Description: 
+  - Key: signal:Remedy.Weapons.Projectiles.Projectile.OnRicochet
+    Title: On Ricochet (Projectile)
+    Summary: On Hit of anything collidable, and the projectile bounced off, passes the PhysicsMaterial of the hit Collider
+    Description: 
+  - Key: signal:Remedy.Weapons.Weapon.OnDropped
+    Title: On Dropped (Weapon)
+    Summary: Invoked when the Weapon is dropped by a WeaponHolder
+    Description: 
+  - Key: signal:Remedy.Weapons.Weapon.OnPickedup
+    Title: On Pickedup (Weapon)
+    Summary: Invoked when the Weapon is picked up by a WeaponHolder. The GameObject possessing the WeaponHolder Component is passed.
+    Description: 
+  - Key: signal:Remedy.Weapons.Weapon.OnPull
+    Title: On Pull (Weapon)
+    Summary: Invoked after this Fire Mode shoots, intended to pull the Object containing the Weapon toward the direction it is Attacking.
+    Description: 
+  - Key: signal:Remedy.Weapons.Weapon.OnRedirectDirection
+    Title: On Redirect Direction (Weapon)
+    Summary: Invoked before this Fire Mode shoots, redirecting the object toward the best Target, rotationally (must be handled externally)
+    Description: 
+  - Key: signal:Remedy.Weapons.Weapon.OnRedirectPosition
+    Title: On Redirect Position (Weapon)
+    Summary: Invoked before this Fire Mode shoots, redirecting the object toward the best Target, positionally (must be handled externally)
+    Description: 
+  - Key: signal:Remedy.Weapons.WeaponHolder.AimInput
+    Title: Aim Input (Weapon Holder)
+    Summary: The current Aim Forward, updated from the Camera Controller.
+    Description: 
+  - Key: signal:Remedy.Weapons.WeaponHolder.EquipInput
+    Title: Equip Input (Weapon Holder)
+    Summary: Equips the Weapon with the given ID (its ID within the WeaponData Lookup).
+    Description: 
+  - Key: signal:StateMachine.OnStateChanged
+    Title: On State Changed (State Machine)
+    Summary: Sent after every state change, with the name of the state now active (the innermost one).
+    Description: 
+  - Key: signal:StateMachine.SetState
+    Title: Set State (State Machine)
+    Summary: Goes to the state with this name (top-level or nested).
+    Description: 
+  - Key: variable:CharacterMotionContext.CameraTransform
+    Title: Camera Transform (Character Motion Context)
+    Summary: A Variable of Character Motion Context.
+    Description: 
+  - Key: variable:CharacterMotionContext.IsKinematic
+    Title: Is Kinematic (Character Motion Context)
+    Summary: A Variable of Character Motion Context.
+    Description: 
+  - Key: variable:CharacterMotionContext.OnPushed
+    Title: On Pushed (Character Motion Context)
+    Summary: Raised with the relative velocity of a collision that pushed the character.
+    Description: 
+  - Key: variable:CharacterMotionContext.Properties
+    Title: Properties (Character Motion Context)
+    Summary: A Variable of Character Motion Context.
+    Description: 
+  - Key: variable:CharacterMotionContext.SpringPathFinished
+    Title: Spring Path Finished (Character Motion Context)
+    Summary: Raised each time a point of a spring path is reached.
+    Description: 
+  - Key: variable:CharacterRaycastContext.GroundCastResult
+    Title: Ground Cast Result (Character Raycast Context)
+    Summary: A Variable of Character Raycast Context.
+    Description: 
+  - Key: variable:CharacterRaycastContext.GroundPosition
+    Title: Ground Position (Character Raycast Context)
+    Summary: A Variable of Character Raycast Context.
+    Description: 
+  - Key: variable:CharacterRaycastContext.IsGrounded
+    Title: Is Grounded (Character Raycast Context)
+    Summary: A Variable of Character Raycast Context.
+    Description: 
+  - Key: variable:CharacterRaycastContext.Properties
+    Title: Properties (Character Raycast Context)
+    Summary: A Variable of Character Raycast Context.
+    Description: 
+  - Key: variable:CharacterRaycastContext.WallCastResult
+    Title: Wall Cast Result (Character Raycast Context)
+    Summary: A Variable of Character Raycast Context.
+    Description: 
+  - Key: variable:CharacterRaycastContext.WallPosition
+    Title: Wall Position (Character Raycast Context)
+    Summary: A Variable of Character Raycast Context.
+    Description: 
+  - Key: variable:PhysicsBasedCharacterController.Properties
+    Title: Properties (Physics Based Character Controller)
+    Summary: Tuning values, assigned per object in the Inspector.
+    Description: 
+  - Key: variable:Remedy.Animation.AnimationComunicator.Properties
+    Title: Properties (Animation Comunicator)
+    Summary: The Signal-to-parameter mappings, assigned per object.
+    Description: 
+  - Key: variable:Remedy.Audio.SoundCue.AudioName
+    Title: Audio Name (Sound Cue)
+    Summary: The AudioDefinition List to play, received from the AudioData Scriptable Object
+    Description: 
+  - Key: variable:Remedy.Audio.SoundCue.CollisionPlaybackTarget
+    Title: Collision Playback Target (Sound Cue)
+    Summary: The target to play the sound at when the Collision is Entered/Exitted.
+    Description: 
+  - Key: variable:Remedy.Audio.SoundCue.Delay
+    Title: Delay (Sound Cue)
+    Summary: If above 0, will Delay the playback by that amount in seconds.
+    Description: 
+  - Key: variable:Remedy.Audio.SoundCue.FadeIn
+    Title: Fade In (Sound Cue)
+    Summary: When the Audio is told to Play, it will fade in instead of stopping immidiately
+    Description: 
+  - Key: variable:Remedy.Audio.SoundCue.FadeInTime
+    Title: Fade In Time (Sound Cue)
+    Summary: A Variable of Sound Cue.
+    Description: 
+  - Key: variable:Remedy.Audio.SoundCue.FadeOut
+    Title: Fade Out (Sound Cue)
+    Summary: When the Audio is told to stop, it will fade out instead of stopping immidiately.
+    Description: 
+  - Key: variable:Remedy.Audio.SoundCue.FadeOuttime
+    Title: Fade Outtime (Sound Cue)
+    Summary: A Variable of Sound Cue.
+    Description: 
+  - Key: variable:Remedy.Audio.SoundCue.PlaybackMode
+    Title: Playback Mode (Sound Cue)
+    Summary: When an AudioDefinition is played
+    Description: 
+  - Key: variable:Remedy.Audio.SoundCue.SelectionMode
+    Title: Selection Mode (Sound Cue)
+    Summary: The way in which Audio Definitions are picked for Playback.
+    Description: 
+  - Key: variable:Remedy.Audio.SoundCue.SequenceDelay
+    Title: Sequence Delay (Sound Cue)
+    Summary: A Variable of Sound Cue.
+    Description: 
+  - Key: variable:Remedy.Audio.SoundCue.SetSpacialBlend
+    Title: Set Spacial Blend (Sound Cue)
+    Summary: Whether to Set the Spacial Blend of the Audio played by the Sound Cue
+    Description: 
+  - Key: variable:Remedy.Audio.SoundCue.SpacialBlend
+    Title: Spacial Blend (Sound Cue)
+    Summary: Sets the Spacial Blender of the AudioClip that gets played by this Sound Cue
+    Description: 
+  - Key: variable:Remedy.Audio.SoundCue.TriggerPlaybackTarget
+    Title: Trigger Playback Target (Sound Cue)
+    Summary: The target to play the sound at when the Trigger is Entered/Exitted.
+    Description: 
+  - Key: variable:Remedy.Audio.SoundCue.Type
+    Title: Type (Sound Cue)
+    Summary: Determines how the Audio Manager handles the playback of this Sound Cue. If set to Music, it will loop globally in the Music Mixer, otherwise it will be positioned and played in the SFX Mixer
+    Description: 
+  - Key: variable:Remedy.Audio.SoundCue.VolumeMultiplier
+    Title: Volume Multiplier (Sound Cue)
+    Summary: Multiplied into the Volume of the AudioClip that gets played by this Sound Cue
+    Description: 
+  - Key: variable:Remedy.Cameras.CameraPropertiesVolume.ChangeFOV
+    Title: Change FOV (Camera Properties Volume)
+    Summary: A Variable of Camera Properties Volume.
+    Description: 
+  - Key: variable:Remedy.Cameras.CameraPropertiesVolume.ChangeRestingAngle
+    Title: Change Resting Angle (Camera Properties Volume)
+    Summary: A Variable of Camera Properties Volume.
+    Description: 
+  - Key: variable:Remedy.Cameras.CameraPropertiesVolume.ChangeZoom
+    Title: Change Zoom (Camera Properties Volume)
+    Summary: A Variable of Camera Properties Volume.
+    Description: 
+  - Key: variable:Remedy.Cameras.CameraPropertiesVolume.FOV
+    Title: FOV (Camera Properties Volume)
+    Summary: A Variable of Camera Properties Volume.
+    Description: 
+  - Key: variable:Remedy.Cameras.CameraPropertiesVolume.ReferenceCamAngleMask
+    Title: Reference Cam Angle Mask (Camera Properties Volume)
+    Summary: A mask applied to euler angle copying of the reference Camera
+    Description: 
+  - Key: variable:Remedy.Cameras.CameraPropertiesVolume.ReferenceCamPositionMask
+    Title: Reference Cam Position Mask (Camera Properties Volume)
+    Summary: A mask to applied to copying the position of the Reference Camera
+    Description: 
+  - Key: variable:Remedy.Cameras.CameraPropertiesVolume.ReferenceCamera
+    Title: Reference Camera (Camera Properties Volume)
+    Summary: A Variable of Camera Properties Volume.
+    Description: 
+  - Key: variable:Remedy.Cameras.CameraPropertiesVolume.ReferenceCameraSpeed
+    Title: Reference Camera Speed (Camera Properties Volume)
+    Summary: The Speed at which the Player's Camera is pulled to the Reference Camera
+    Description: 
+  - Key: variable:Remedy.Cameras.CameraPropertiesVolume.RestingAngle
+    Title: Resting Angle (Camera Properties Volume)
+    Summary: A Variable of Camera Properties Volume.
+    Description: 
+  - Key: variable:Remedy.Cameras.CameraPropertiesVolume.UseReferenceCam
+    Title: Use Reference Cam (Camera Properties Volume)
+    Summary: A Variable of Camera Properties Volume.
+    Description: 
+  - Key: variable:Remedy.Cameras.CameraPropertiesVolume.Zoom
+    Title: Zoom (Camera Properties Volume)
+    Summary: A Variable of Camera Properties Volume.
+    Description: 
+  - Key: variable:Remedy.Cameras.ShoulderCamera.AutoSwitch
+    Title: Auto Switch (Shoulder Camera)
+    Summary: A Variable of Shoulder Camera.
+    Description: 
+  - Key: variable:Remedy.Cameras.ShoulderCamera.CollisionLayers
+    Title: Collision Layers (Shoulder Camera)
+    Summary: What is collided with to move the Camera closer to the Player
+    Description: 
+  - Key: variable:Remedy.Cameras.ShoulderCamera.CollisionReactSpeed
+    Title: Collision React Speed (Shoulder Camera)
+    Summary: A Variable of Shoulder Camera.
+    Description: 
+  - Key: variable:Remedy.Cameras.ShoulderCamera.FollowOffset
+    Title: Follow Offset (Shoulder Camera)
+    Summary: A Variable of Shoulder Camera.
+    Description: 
+  - Key: variable:Remedy.Cameras.ShoulderCamera.HorizontalFollowSpeed
+    Title: Horizontal Follow Speed (Shoulder Camera)
+    Summary: A Variable of Shoulder Camera.
+    Description: 
+  - Key: variable:Remedy.Cameras.ShoulderCamera.LookaheadOrientationStrength
+    Title: Lookahead Orientation Strength (Shoulder Camera)
+    Summary: A Variable of Shoulder Camera.
+    Description: 
+  - Key: variable:Remedy.Cameras.ShoulderCamera.MaxDistance
+    Title: Max Distance (Shoulder Camera)
+    Summary: Max distance from the Followed Object.
+    Description: 
+  - Key: variable:Remedy.Cameras.ShoulderCamera.OptimalDistance
+    Title: Optimal Distance (Shoulder Camera)
+    Summary: A Variable of Shoulder Camera.
+    Description: 
+  - Key: variable:Remedy.Cameras.ShoulderCamera.OptimalDistancePush
+    Title: Optimal Distance Push (Shoulder Camera)
+    Summary: An angular force applied to distance the Camera Rotation away from walls over time.
+    Description: 
+  - Key: variable:Remedy.Cameras.ShoulderCamera.Rigidbody
+    Title: Rigidbody (Shoulder Camera)
+    Summary: A Variable of Shoulder Camera.
+    Description: 
+  - Key: variable:Remedy.Cameras.ShoulderCamera.Shoulder
+    Title: Shoulder (Shoulder Camera)
+    Summary: The shoulder the Camera is 'peering over'
+    Description: 
+  - Key: variable:Remedy.Cameras.ShoulderCamera.ShoulderOffset
+    Title: Shoulder Offset (Shoulder Camera)
+    Summary: The distance offset from the character's shoulder.
+    Description: 
+  - Key: variable:Remedy.Cameras.ShoulderCamera.ShoulderSwitchSpeed
+    Title: Shoulder Switch Speed (Shoulder Camera)
+    Summary: A Variable of Shoulder Camera.
+    Description: 
+  - Key: variable:Remedy.Cameras.ShoulderCamera.SwitchDistance
+    Title: Switch Distance (Shoulder Camera)
+    Summary: A Variable of Shoulder Camera.
+    Description: 
+  - Key: variable:Remedy.Cameras.ShoulderCamera.VerticalFollowSpeed
+    Title: Vertical Follow Speed (Shoulder Camera)
+    Summary: A Variable of Shoulder Camera.
+    Description: 
+  - Key: variable:Remedy.Cameras.ShoulderCamera.YDistanceAllowance
+    Title: Y Distance Allowance (Shoulder Camera)
+    Summary: The Camera sticks to the ground beneath the follow target until this distance is reached, then this is used as an offset from the Follow Target
+    Description: 
+  - Key: variable:Remedy.Cameras.ThirdPersonCamera.AutoLevelDelay
+    Title: Auto Level Delay (Third Person Camera)
+    Summary: A Variable of Third Person Camera.
+    Description: 
+  - Key: variable:Remedy.Cameras.ThirdPersonCamera.AutoLevelSpeed
+    Title: Auto Level Speed (Third Person Camera)
+    Summary: A Variable of Third Person Camera.
+    Description: 
+  - Key: variable:Remedy.Cameras.ThirdPersonCamera.CollisionLayers
+    Title: Collision Layers (Third Person Camera)
+    Summary: What is collided with to move the Camera closer to the Player
+    Description: 
+  - Key: variable:Remedy.Cameras.ThirdPersonCamera.CollisionReactSpeed
+    Title: Collision React Speed (Third Person Camera)
+    Summary: A Variable of Third Person Camera.
+    Description: 
+  - Key: variable:Remedy.Cameras.ThirdPersonCamera.FollowOffset
+    Title: Follow Offset (Third Person Camera)
+    Summary: The Object to Follow.
+    Description: 
+  - Key: variable:Remedy.Cameras.ThirdPersonCamera.GroundedOffset
+    Title: Grounded Offset (Third Person Camera)
+    Summary: A Variable of Third Person Camera.
+    Description: 
+  - Key: variable:Remedy.Cameras.ThirdPersonCamera.HorizontalFollowSpeed
+    Title: Horizontal Follow Speed (Third Person Camera)
+    Summary: A Variable of Third Person Camera.
+    Description: 
+  - Key: variable:Remedy.Cameras.ThirdPersonCamera.LevelAngle
+    Title: Level Angle (Third Person Camera)
+    Summary: A Variable of Third Person Camera.
+    Description: 
+  - Key: variable:Remedy.Cameras.ThirdPersonCamera.LookaheadOrientationStrength
+    Title: Lookahead Orientation Strength (Third Person Camera)
+    Summary: A Variable of Third Person Camera.
+    Description: 
+  - Key: variable:Remedy.Cameras.ThirdPersonCamera.LookdownOrientationMaxAngle
+    Title: Lookdown Orientation Max Angle (Third Person Camera)
+    Summary: The maximum angle downward the to orient the camera when falling
+    Description: 
+  - Key: variable:Remedy.Cameras.ThirdPersonCamera.LookdownOrientationMaxVelocity
+    Title: Lookdown Orientation Max Velocity (Third Person Camera)
+    Summary: The Velocity (downward) at which the Rigidbody must be moving to fully forcefully orient the camera down.
+    Description: 
+  - Key: variable:Remedy.Cameras.ThirdPersonCamera.LookdownOrientationSpeed
+    Title: Lookdown Orientation Speed (Third Person Camera)
+    Summary: A Variable of Third Person Camera.
+    Description: 
+  - Key: variable:Remedy.Cameras.ThirdPersonCamera.LookupOrientationMaxAngle
+    Title: Lookup Orientation Max Angle (Third Person Camera)
+    Summary: The maximum angle upward to orient the camera when rising
+    Description: 
+  - Key: variable:Remedy.Cameras.ThirdPersonCamera.LookupOrientationMaxVelocity
+    Title: Lookup Orientation Max Velocity (Third Person Camera)
+    Summary: The Velocity (upward) at which the Rigidbody must be moving to fully forcefully orient the camera up.
+    Description: 
+  - Key: variable:Remedy.Cameras.ThirdPersonCamera.MaxDistance
+    Title: Max Distance (Third Person Camera)
+    Summary: Max distance from the Followed Object.
+    Description: 
+  - Key: variable:Remedy.Cameras.ThirdPersonCamera.OptimalDistance
+    Title: Optimal Distance (Third Person Camera)
+    Summary: A Variable of Third Person Camera.
+    Description: 
+  - Key: variable:Remedy.Cameras.ThirdPersonCamera.OptimalDistancePush
+    Title: Optimal Distance Push (Third Person Camera)
+    Summary: An angular force applied to distance the Camera Rotation away from walls over time.
+    Description: 
+  - Key: variable:Remedy.Cameras.ThirdPersonCamera.Rigidbody
+    Title: Rigidbody (Third Person Camera)
+    Summary: A Variable of Third Person Camera.
+    Description: 
+  - Key: variable:Remedy.Cameras.ThirdPersonCamera.VerticalFollowSpeed
+    Title: Vertical Follow Speed (Third Person Camera)
+    Summary: A Variable of Third Person Camera.
+    Description: 
+  - Key: variable:Remedy.Cameras.ThirdPersonCamera.YDistanceAllowance
+    Title: Y Distance Allowance (Third Person Camera)
+    Summary: The Camera sticks to the ground beneath the follow target until this distance is reached, then this is used as an offset from the Follow Target
+    Description: 
+  - Key: variable:Remedy.Cameras.ThirdPersonCamera.YOffsetTransitionSpeed
+    Title: Y Offset Transition Speed (Third Person Camera)
+    Summary: A Variable of Third Person Camera.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.CharacterControllerRig.CameraTransform
+    Title: Camera Transform (Character Controller Rig)
+    Summary: A Variable of Character Controller Rig.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.CharacterControllerRig.CharacterRenderer
+    Title: Character Renderer (Character Controller Rig)
+    Summary: A Variable of Character Controller Rig.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.CharacterControllerRig.CollisionLayer
+    Title: Collision Layer (Character Controller Rig)
+    Summary: A Variable of Character Controller Rig.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.CharacterControllerRig.DecalMaxScale
+    Title: Decal Max Scale (Character Controller Rig)
+    Summary: A Variable of Character Controller Rig.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.CharacterControllerRig.DecalMinScale
+    Title: Decal Min Scale (Character Controller Rig)
+    Summary: A Variable of Character Controller Rig.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.CharacterControllerRig.DecalScaleGap
+    Title: Decal Scale Gap (Character Controller Rig)
+    Summary: A Variable of Character Controller Rig.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.CharacterControllerRig.LedgeGrabHandTransform
+    Title: Ledge Grab Hand Transform (Character Controller Rig)
+    Summary: Bone that should be placed at the Ledge Position when Ledge Grabbing.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.CharacterControllerRig.Offset
+    Title: Offset (Character Controller Rig)
+    Summary: A Variable of Character Controller Rig.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.CharacterControllerRig.OrientToCameraSpeed
+    Title: Orient To Camera Speed (Character Controller Rig)
+    Summary: A Variable of Character Controller Rig.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.CharacterControllerRig.PositionFollowSpeed
+    Title: Position Follow Speed (Character Controller Rig)
+    Summary: A Variable of Character Controller Rig.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.CharacterControllerRig.RotateCharacterWhileJumping
+    Title: Rotate Character While Jumping (Character Controller Rig)
+    Summary: A Variable of Character Controller Rig.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.CharacterControllerRig.ScaleSpringDampening
+    Title: Scale Spring Dampening (Character Controller Rig)
+    Summary: A Variable of Character Controller Rig.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.CharacterControllerRig.ScaleSpringFrequency
+    Title: Scale Spring Frequency (Character Controller Rig)
+    Summary: A Variable of Character Controller Rig.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.CharacterControllerRig.ShadowDecal
+    Title: Shadow Decal (Character Controller Rig)
+    Summary: A Variable of Character Controller Rig.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.CharacterControllerRig.ShadowProjector
+    Title: Shadow Projector (Character Controller Rig)
+    Summary: A Variable of Character Controller Rig.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.CharacterControllerRig.TiltDampening
+    Title: Tilt Dampening (Character Controller Rig)
+    Summary: A Variable of Character Controller Rig.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.CharacterControllerRig.TurnDamening
+    Title: Turn Damening (Character Controller Rig)
+    Summary: A Variable of Character Controller Rig.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.CharacterControllerRig.VerticalVelocityScaleFactor
+    Title: Vertical Velocity Scale Factor (Character Controller Rig)
+    Summary: A Variable of Character Controller Rig.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.Gadgets.Pusher.Delay
+    Title: Delay (Pusher)
+    Summary: Milliseconds before the push is applied.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.Gadgets.Pusher.Force
+    Title: Force (Pusher)
+    Summary: A Variable of Pusher.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.Gadgets.Pusher.ScaleOnHit
+    Title: Scale On Hit (Pusher)
+    Summary: A Variable of Pusher.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.Hover.HoverController.CurrentVerticalSpeed
+    Title: Current Vertical Speed (Hover Controller)
+    Summary: A Variable of Hover Controller.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.Hover.HoverController.Properties
+    Title: Properties (Hover Controller)
+    Summary: A Variable of Hover Controller.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.Hover.HoverController.RotationVelocity
+    Title: Rotation Velocity (Hover Controller)
+    Summary: A Variable of Hover Controller.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.LedgeGrab.LedgeGrabController.CurrentWallSide
+    Title: Current Wall Side (Ledge Grab Controller)
+    Summary: A Variable of Ledge Grab Controller.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.LedgeGrab.LedgeGrabController.FacingRotation
+    Title: Facing Rotation (Ledge Grab Controller)
+    Summary: A Variable of Ledge Grab Controller.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.LedgeGrab.LedgeGrabController.Properties
+    Title: Properties (Ledge Grab Controller)
+    Summary: A Variable of Ledge Grab Controller.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.Stamina.StaminaController.Properties
+    Title: Properties (Stamina Controller)
+    Summary: A Variable of Stamina Controller.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.Stamina.StaminaController.Regenerating
+    Title: Regenerating (Stamina Controller)
+    Summary: A Variable of Stamina Controller.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.Stamina.StaminaController.Stamina
+    Title: Stamina (Stamina Controller)
+    Summary: A Variable of Stamina Controller.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.WallSlide.WallSlideController.CurrentWallSide
+    Title: Current Wall Side (Wall Slide Controller)
+    Summary: A Variable of Wall Slide Controller.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.WallSlide.WallSlideController.FacingRotation
+    Title: Facing Rotation (Wall Slide Controller)
+    Summary: A Variable of Wall Slide Controller.
+    Description: 
+  - Key: variable:Remedy.CharacterControllers.WallSlide.WallSlideController.Properties
+    Title: Properties (Wall Slide Controller)
+    Summary: A Variable of Wall Slide Controller.
+    Description: 
+  - Key: variable:Remedy.Damagables.DamageInstigator.Data
+    Title: Data (Damage Instigator)
+    Summary: A Variable of Damage Instigator.
+    Description: 
+  - Key: variable:Remedy.Damagables.Damageable.DamageLayer
+    Title: Damage Layer (Damageable)
+    Summary: A Variable of Damageable.
+    Description: 
+  - Key: variable:Remedy.Damagables.Damageable.Health
+    Title: Health (Damageable)
+    Summary: A Variable of Damageable.
+    Description: 
+  - Key: variable:Remedy.Damagables.Damageable.IsAlive
+    Title: Is Alive (Damageable)
+    Summary: A Variable of Damageable.
+    Description: 
+  - Key: variable:Remedy.Damagables.Damageable.MaxHealth
+    Title: Max Health (Damageable)
+    Summary: A Variable of Damageable.
+    Description: 
+  - Key: variable:Remedy.Inventories.CollectableInventory.CollectionData
+    Title: Collection Data (Collectable Inventory)
+    Summary: The items this collectable holds, and how it's displayed and picked up.
+    Description: 
+  - Key: variable:Remedy.Inventories.CollectableInventory.Items
+    Title: Items (Collectable Inventory)
+    Summary: 'This spawn''s items: a copy of the Collection Data''s contents.'
+    Description: 
+  - Key: variable:Remedy.Inventories.Inventory.NavigationModes
+    Title: Navigation Modes (Inventory)
+    Summary: A Variable of Inventory.
+    Description: 
+  - Key: variable:Remedy.Inventories.Inventory.StartingData
+    Title: Starting Data (Inventory)
+    Summary: The Inventory asset this object starts with. Copied per spawn.
+    Description: 
+  - Key: variable:Remedy.LevelDesign.SpawnPoint.AssignToLevel
+    Title: Assign To Level (Spawn Point)
+    Summary: If True, this Spawn Point will be assigned to the Level it's inside of, instead of being us ed globally.
+    Description: 
+  - Key: variable:Remedy.LevelDesign.SpawnPoint.ExtraSpawnBehaviour
+    Title: Extra Spawn Behaviour (Spawn Point)
+    Summary: Extra code to run on whatever is spawned here.
+    Description: 
+  - Key: variable:Remedy.LevelDesign.SpawnPoint.MustNotBeRotated
+    Title: Must Not Be Rotated (Spawn Point)
+    Summary: If True, this Spawn Point can only be used when the orientation is close to normal.
+    Description: 
+  - Key: variable:Remedy.LevelDesign.SpawnPoint.SpawnOffset
+    Title: Spawn Offset (Spawn Point)
+    Summary: Offset from the Spawner that the Player is Spawned at. This value is shared with all other Spawn Points.
+    Description: 
+  - Key: variable:Remedy.LevelDesign.TriggerVolume.ShowCollider
+    Title: Show Collider (Trigger Volume)
+    Summary: A Variable of Trigger Volume.
+    Description: 
+  - Key: variable:Remedy.LevelDesign.TriggerVolume.TriggerType
+    Title: Trigger Type (Trigger Volume)
+    Summary: Index into the Trigger Types defined in the Level Design Data.
+    Description: 
+  - Key: variable:Remedy.ManifoldNetwork.Schematics.Brain.Definition
+    Title: Definition (Brain)
+    Summary: 'The brain''s design: its slots, how it learns, and what it has learned. Created next to the prefab from the IO Dock.'
+    Description: 
+  - Key: variable:Remedy.Materials.MaterialComunicator.Properties
+    Title: Properties (Material Comunicator)
+    Summary: The Signal-to-shader-property mappings, assigned per object.
+    Description: 
+  - Key: variable:Remedy.Splines.OnRailsRig.Camera
+    Title: Camera (On Rails Rig)
+    Summary: A Variable of On Rails Rig.
+    Description: 
+  - Key: variable:Remedy.Splines.OnRailsRig.CameraFollow
+    Title: Camera Follow (On Rails Rig)
+    Summary: How much the camera drifts toward the ship (0 stays centred, 1 keeps the ship centred).
+    Description: 
+  - Key: variable:Remedy.Splines.OnRailsRig.InvertY
+    Title: Invert Y (On Rails Rig)
+    Summary: Invert vertical input (flight-style controls).
+    Description: 
+  - Key: variable:Remedy.Splines.OnRailsRig.MaxBank
+    Title: Max Bank (On Rails Rig)
+    Summary: Degrees the ship banks at full sideways input.
+    Description: 
+  - Key: variable:Remedy.Splines.OnRailsRig.MaxPitch
+    Title: Max Pitch (On Rails Rig)
+    Summary: Degrees the ship pitches at full vertical input.
+    Description: 
+  - Key: variable:Remedy.Splines.OnRailsRig.ScreenMargin
+    Title: Screen Margin (On Rails Rig)
+    Summary: Space kept between the ship and the screen edges, as a fraction of the screen (0-0.5).
+    Description: 
+  - Key: variable:Remedy.Splines.OnRailsRig.Ship
+    Title: Ship (On Rails Rig)
+    Summary: A Variable of On Rails Rig.
+    Description: 
+  - Key: variable:Remedy.Splines.OnRailsRig.ShipDepth
+    Title: Ship Depth (On Rails Rig)
+    Summary: How far in front of the camera the ship flies.
+    Description: 
+  - Key: variable:Remedy.Splines.OnRailsRig.ShipOffset
+    Title: Ship Offset (On Rails Rig)
+    Summary: The ship's position on the screen plane, relative to the camera's centre.
+    Description: 
+  - Key: variable:Remedy.Splines.OnRailsRig.ShipSpeed
+    Title: Ship Speed (On Rails Rig)
+    Summary: How fast the ship moves across the screen, in units per second.
+    Description: 
+  - Key: variable:Remedy.Splines.OnRailsRig.TiltResponse
+    Title: Tilt Response (On Rails Rig)
+    Summary: How quickly the ship's tilt follows the input.
+    Description: 
+  - Key: variable:Remedy.Splines.SplineAgent.CheckTriggers
+    Title: Check Triggers (Spline Agent)
+    Summary: Fire the spline's Dreamteck triggers when passing them.
+    Description: 
+  - Key: variable:Remedy.Splines.SplineAgent.FaceAlongSpline
+    Title: Face Along Spline (Spline Agent)
+    Summary: Turn the object to face along the spline.
+    Description: 
+  - Key: variable:Remedy.Splines.SplineAgent.FindNearestSpline
+    Title: Find Nearest Spline (Spline Agent)
+    Summary: With no spline set, start on the nearest spline in the scene.
+    Description: 
+  - Key: variable:Remedy.Splines.SplineAgent.Offset
+    Title: Offset (Spline Agent)
+    Summary: 'Offset from the spline: x to its right, y up, z forward.'
+    Description: 
+  - Key: variable:Remedy.Splines.SplineAgent.Paused
+    Title: Paused (Spline Agent)
+    Summary: A Variable of Spline Agent.
+    Description: 
+  - Key: variable:Remedy.Splines.SplineAgent.Percent
+    Title: Percent (Spline Agent)
+    Summary: The current position along the spline, 0-1.
+    Description: 
+  - Key: variable:Remedy.Splines.SplineAgent.Speed
+    Title: Speed (Spline Agent)
+    Summary: Units per second along the spline. Negative goes backwards.
+    Description: 
+  - Key: variable:Remedy.Splines.SplineAgent.Spline
+    Title: Spline (Spline Agent)
+    Summary: 'The spline to follow. Prefabs can''t reference scene splines: leave it empty and use Find Nearest Spline, or set it from a graph.'
+    Description: 
+  - Key: variable:Remedy.Splines.SplineAgent.StartAtClosestPoint
+    Title: Start At Closest Point (Spline Agent)
+    Summary: Start at the closest point to where the object is, instead of at Start Percent.
+    Description: 
+  - Key: variable:Remedy.Splines.SplineAgent.StartPercent
+    Title: Start Percent (Spline Agent)
+    Summary: A Variable of Spline Agent.
+    Description: 
+  - Key: variable:Remedy.Splines.SplineAgent.Wrap
+    Title: Wrap (Spline Agent)
+    Summary: A Variable of Spline Agent.
+    Description: 
+  - Key: variable:Remedy.Splines.SplinePairAgent.Back
+    Title: Back (Spline Pair Agent)
+    Summary: Optional object placed on the back point.
+    Description: 
+  - Key: variable:Remedy.Splines.SplinePairAgent.BackPercent
+    Title: Back Percent (Spline Pair Agent)
+    Summary: The back point's position along the spline, 0-1.
+    Description: 
+  - Key: variable:Remedy.Splines.SplinePairAgent.Distance
+    Title: Distance (Spline Pair Agent)
+    Summary: How far behind the front point the back point is.
+    Description: 
+  - Key: variable:Remedy.Splines.SplinePairAgent.DistanceMeasure
+    Title: Distance Measure (Spline Pair Agent)
+    Summary: A Variable of Spline Pair Agent.
+    Description: 
+  - Key: variable:Remedy.Splines.SplinePairAgent.Front
+    Title: Front (Spline Pair Agent)
+    Summary: Optional object placed on the front point.
+    Description: 
+  - Key: variable:Remedy.Splines.SplinePairAgent.PlaceBetween
+    Title: Place Between (Spline Pair Agent)
+    Summary: Put the object between the two points, facing from the back point to the front one.
+    Description: 
+  - Key: variable:Remedy.Splines.SplineTracker.FaceAlongSpline
+    Title: Face Along Spline (Spline Tracker)
+    Summary: A Variable of Spline Tracker.
+    Description: 
+  - Key: variable:Remedy.Splines.SplineTracker.FindNearestSpline
+    Title: Find Nearest Spline (Spline Tracker)
+    Summary: With no spline set, use the nearest spline in the scene.
+    Description: 
+  - Key: variable:Remedy.Splines.SplineTracker.LookAtTarget
+    Title: Look At Target (Spline Tracker)
+    Summary: Turn to look at the target instead (for cameras).
+    Description: 
+  - Key: variable:Remedy.Splines.SplineTracker.Offset
+    Title: Offset (Spline Tracker)
+    Summary: 'Offset from the spline: x to its right, y up, z forward.'
+    Description: 
+  - Key: variable:Remedy.Splines.SplineTracker.Percent
+    Title: Percent (Spline Tracker)
+    Summary: The tracked point's position along the spline, 0-1.
+    Description: 
+  - Key: variable:Remedy.Splines.SplineTracker.Smoothing
+    Title: Smoothing (Spline Tracker)
+    Summary: Roughly how many seconds it lags behind the closest point; 0 snaps there.
+    Description: 
+  - Key: variable:Remedy.Splines.SplineTracker.Spline
+    Title: Spline (Spline Tracker)
+    Summary: A Variable of Spline Tracker.
+    Description: 
+  - Key: variable:Remedy.Splines.SplineTracker.Target
+    Title: Target (Spline Tracker)
+    Summary: What to stay closest to.
+    Description: 
+  - Key: variable:Remedy.UI.UIComponent.Layer
+    Title: Layer (UI Component)
+    Summary: The UI Layer to render this Prefab's Canvas on.
+    Description: 
+  - Key: variable:Remedy.Weapons.Projectiles.Projectile.AimTargetPosition
+    Title: Aim Target Position (Projectile)
+    Summary: A Variable of Projectile.
+    Description: 
+  - Key: variable:Remedy.Weapons.Projectiles.Projectile.CollisionCount
+    Title: Collision Count (Projectile)
+    Summary: The current number of collisions
+    Description: 
+  - Key: variable:Remedy.Weapons.Projectiles.Projectile.Data
+    Title: Data (Projectile)
+    Summary: A Variable of Projectile.
+    Description: 
+  - Key: variable:Remedy.Weapons.Projectiles.Projectile.ParentFireMode
+    Title: Parent Fire Mode (Projectile)
+    Summary: A Variable of Projectile.
+    Description: 
+  - Key: variable:Remedy.Weapons.Projectiles.Projectile.Target
+    Title: Target (Projectile)
+    Summary: Used for magnetization or orientation to the Target object.
+    Description: 
+  - Key: variable:Remedy.Weapons.Projectiles.Projectile.TargetPosition
+    Title: Target Position (Projectile)
+    Summary: The position to interpolate toward until it has been reached.
+    Description: 
+  - Key: variable:Remedy.Weapons.Projectiles.Projectile.Velocity
+    Title: Velocity (Projectile)
+    Summary: Speed of motion
+    Description: 
+  - Key: variable:Remedy.Weapons.Weapon.AttackDirection
+    Title: Attack Direction (Weapon)
+    Summary: A Variable of Weapon.
+    Description: 
+  - Key: variable:Remedy.Weapons.Weapon.Data
+    Title: Data (Weapon)
+    Summary: The Data of the Weapon, as a Scriptable Object
+    Description: 
+  - Key: variable:Remedy.Weapons.Weapon.FireModeMuzzles
+    Title: Fire Mode Muzzles (Weapon)
+    Summary: The Transforms of the Muzzles to use for the FireModes of the Weapons.
+    Description: 
+  - Key: variable:Remedy.Weapons.Weapon.Holder
+    Title: Holder (Weapon)
+    Summary: The object holding, controlling and managing this Weapon (the one with the Weapon Holder).
+    Description: 
+  - Key: variable:Remedy.Weapons.Weapon.ID
+    Title: ID (Weapon)
+    Summary: A Variable of Weapon.
+    Description: 
+  - Key: variable:Remedy.Weapons.Weapon.InWorld
+    Title: In World (Weapon)
+    Summary: If true, the weapon will be placed in the world.
+    Description: 
+  - Key: variable:Remedy.Weapons.Weapon.PrimaryHandle
+    Title: Primary Handle (Weapon)
+    Summary: The handles of the Weapon, used to place the Weapon into a Weapon Holder's Weapon Socket.
+    Description: 
+  - Key: variable:Remedy.Weapons.Weapon.SecondHandle
+    Title: Second Handle (Weapon)
+    Summary: A Variable of Weapon.
+    Description: 
+  - Key: variable:Remedy.Weapons.Weapon.UsePhysics
+    Title: Use Physics (Weapon)
+    Summary: If the Weapon is not being held, and this is true, it will use Rigidbody physics.
+    Description: 
+  - Key: variable:Remedy.Weapons.Weapon.WeaponHolderRigidbody
+    Title: Weapon Holder Rigidbody (Weapon)
+    Summary: The Rigidbody of the WeaponHolder
+    Description: 
+  - Key: variable:Remedy.Weapons.WeaponHolder.ActiveWeaponSlot
+    Title: Active Weapon Slot (Weapon Holder)
+    Summary: The weapon we're currently using.
+    Description: 
+  - Key: variable:Remedy.Weapons.WeaponHolder.AimBones
+    Title: Aim Bones (Weapon Holder)
+    Summary: A Variable of Weapon Holder.
+    Description: 
+  - Key: variable:Remedy.Weapons.WeaponHolder.WeaponInputs
+    Title: Weapon Inputs (Weapon Holder)
+    Summary: Device inputs that are passed to Equipped Weapons
+    Description: 
+  - Key: variable:Remedy.Weapons.WeaponHolder.WeaponSockets
+    Title: Weapon Sockets (Weapon Holder)
+    Summary: Weapon Sockets are parent Transforms for Weapons that are added to this Weapon Holder and determine the orientation of them
+    Description: 
+  - Key: variable:StateMachine.CurrentState
+    Title: Current State (State Machine)
+    Summary: The innermost active state's name.
+    Description: 
+  - Key: variable:StateMachine.Definition
+    Title: Definition (State Machine)
+    Summary: A Variable of State Machine.
+    Description: 
+  - Key: window:GameObject
+    Title: Prefab Object
+    Summary: One of this prefab's objects. Behaviors attach to it; drag it into the graph to refer to it.
+    Description: 
+  - Key: window:GameView
+    Title: The Game View
+    Summary: What the player sees through the game's camera. Press Play to run the game here.
+    Description: 
+  - Key: window:InspectorWindow
+    Title: The Inspector
+    Summary: The settings of whatever is selected. Select something and drop me here, and I'll tell you about it.
+    Description: 
+  - Key: window:ProjectBrowser
+    Title: The Project Window
+    Summary: 'All of the project''s files: prefabs, graphs, scripts, art. Select one and drop me here to hear about it.'
+    Description: 
+  - Key: window:SceneHierarchyWindow
+    Title: The Hierarchy
+    Summary: Every object in the open scenes, as a tree (children under their parents). Select one and drop me here to hear about it.
+    Description: 
+  - Key: window:SceneView
+    Title: The Scene View
+    Summary: Your level. Drop me on an object here and I'll tell you what it is and which Behaviors it has. In Prefab Mode, it shows the prefab you're editing.
+    Description: 
+  - Key: window:SchematicGraphEditorWindow
+    Title: The Schematic Graph
+    Summary: "Where an object's logic lives. Events (On Start, On Signal Received\u2026) start flows that run through action nodes along the arrows. The IO Dock on the left lists the prefab's objects with their Behaviors, Variables and Signals; drag any of them in to use them."
+    Description: 

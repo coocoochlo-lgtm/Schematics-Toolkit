@@ -1,4 +1,5 @@
 using Remedy.Common;
+using Remedy.Schematics;
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
@@ -47,12 +48,12 @@ namespace Remedy.LevelDesign
             if (GUILayout.Button("Create Trigger Volume"))
             {
                 var go = new GameObject("Trigger Volume - " + triggerNames[selectedIndex]);
-                var volume = go.AddComponent<TriggerVolume>();
-                go.AddComponent<BoxCollider>().isTrigger = true;
+                var schematic = go.AddComponent<SchematicObject>();
+                var volume = schematic.AttachBehavior<TriggerVolume>();
+                go.GetComponent<BoxCollider>().isTrigger = true;
+                volume.SetOverride("TriggerType", selectedIndex, typeof(int));
 
-                volume.TriggerType = selectedIndex;
-                volume.TriggerInfo = GameData.Instance.Triggers;
-
+                Undo.RegisterCreatedObjectUndo(go, "Create Trigger Volume");
                 Selection.activeGameObject = go;
                 Close();
             }

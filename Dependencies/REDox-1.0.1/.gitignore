@@ -1,0 +1,16 @@
+﻿.DS_Store
+obj/
+bin/
+.vs/
+.idea/
+src/.vscode/launch.json
+src/.vs/
+.vscode/launch.json
+src/.DS_Store
+/src/.idea/.idea.REDox/.idea
+/tests/.idea
+tests/REDox.Tests.sln.DotSettings.user
+/tests/REDox.Serialization.DataContractJson.Tests/.idea
+/benchmarks/REDox.Benchmarks/BenchmarkDotNet.Artifacts
+REDox.sln.DotSettings.user
+BenchmarkDotNet.Artifacts/

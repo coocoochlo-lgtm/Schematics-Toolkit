@@ -8,7 +8,6 @@ using static SignalData;
 using SchematicAssets;
 using UnityEditor;
 using NaughtyAttributes;
-using Remedy.Schematics.Utils;
 
 public class SchematicEditorData : SingletonData<SchematicEditorData>
 {

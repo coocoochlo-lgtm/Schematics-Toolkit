@@ -1,0 +1,40 @@
+<Solution>
+    <Folder Name="/benchmarks/">
+        <Project Path="benchmarks/REDox.Benchmarks/REDox.Benchmarks.csproj" />
+        <Project Path="benchmarks/REDox.Json.Benchmarks/REDox.Json.Benchmarks.csproj" />
+        <Project Path="benchmarks/REDox.Cbor.Benchmarks/REDox.Cbor.Benchmarks.csproj" />
+        <Project Path="benchmarks/REDox.Dynamic.Benchmarks/REDox.Dynamic.Benchmarks.csproj" />
+        <Project Path="benchmarks/REDox.MessagePack.Benchmarks/REDox.MessagePack.Benchmarks.csproj" />
+    </Folder>
+    <Folder Name="/tests/">
+        <Project Path="tests/REDox.Cbor.Tests/REDox.Cbor.Tests.csproj" />
+        <Project Path="tests/REDox.Csv.Tests/REDox.Csv.Tests.csproj" />
+        <Project Path="tests/REDox.Dynamic.Tests/REDox.Dynamic.Tests.csproj" />
+        <Project Path="tests/REDox.Html.Tests/REDox.Html.Tests.csproj" />
+        <Project Path="tests/REDox.Ini.Tests/REDox.Ini.Tests.csproj" />
+        <Project Path="tests/REDox.MessagePack.Tests/REDox.MessagePack.Tests.csproj" />
+        <Project Path="tests/REDox.Serialization.DataContractJson.Tests/REDox.Serialization.DataContractJson.Tests.csproj" />
+        <Project Path="tests/REDox.Serialization.NewtonsoftJson.Tests/REDox.Serialization.NewtonsoftJson.Tests.csproj" />
+        <Project Path="tests/REDox.Serialization.SystemTextJson.Tests/REDox.Serialization.SystemTextJson.Tests.csproj" />
+        <Project Path="tests/REDox.Tests\REDox.Tests.csproj" />
+        <Project Path="tests/REDox.Toml.Tests/REDox.Toml.Tests.csproj" />
+        <Project Path="tests/REDox.Xml.Tests/REDox.Xml.Tests.csproj" />
+    </Folder>
+    <Folder Name="/experimental/">
+        <Project Path="experimental/REDox.Images/REDox.Images.csproj" />
+        <Project Path="experimental/REDox.Yaml/REDox.Yaml.csproj" />
+    </Folder>
+    <Project Path="src/REDox.Cbor/REDox.Cbor.csproj" />
+    <Project Path="src/REDox.Csv/REDox.Csv.csproj" />
+    <Project Path="src/REDox.Dynamic/REDox.Dynamic.csproj" />
+    <Project Path="src/REDox.Html/REDox.Html.csproj" />
+    <Project Path="src/REDox.Ini/REDox.Ini.csproj" />
+    <Project Path="src/REDox.MessagePack/REDox.MessagePack.csproj" />
+    <Project Path="src/REDox.Serialization.DataContractJson/REDox.Serialization.DataContractJson.csproj" />
+    <Project Path="src/REDox.Serialization.NewtonsoftJson/REDox.Serialization.NewtonsoftJson.csproj" />
+    <Project Path="src/REDox.Serialization.SystemTextJson/REDox.Serialization.SystemTextJson.csproj" />
+    <Project Path="src/REDox.Toml/REDox.Toml.csproj" />
+    <Project Path="src/REDox.Xml/REDox.Xml.csproj" />
+    <Project Path="src/REDox/REDox.csproj" />
+
+</Solution>

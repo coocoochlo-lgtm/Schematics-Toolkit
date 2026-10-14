@@ -1,3 +1,4 @@
+using Remedy.Box3DPhysics;
 using Remedy.Framework;
 using UnityEngine;
 using System.Collections.Generic;
@@ -13,9 +14,18 @@ namespace Remedy.CharacterControllers
     [SelectionBase]
     public class CharacterTrajectoryCalculator : Singleton<CharacterTrajectoryCalculator>
     {
-        public PhysicsBasedCharacterController controller;
+        /// <summary>
+        /// The character to simulate. Found automatically if left empty.
+        /// </summary>
+        public GameObject controller;
         public float Contrast = 3f;
-        private CharacterRaycastContext _raycastContext => controller.GetComponent<CharacterRaycastContext>();
+
+        // The first spawned object with a Character Controller.
+        private static GameObject FindCharacter()
+        {
+            var runtime = ExecutionContext.GetRuntime<PhysicsBasedCharacterController>();
+            return runtime != null && runtime.Count > 0 ? runtime[0].GameObject : null;
+        }
 
         /// <summary>
         /// Calculates the predicted trajectory points for a given initial velocity
@@ -40,15 +50,24 @@ namespace Remedy.CharacterControllers
             Vector3 position = startingPosition;
             Vector3 velocity = initialVelocity;
             if (Instance.controller == null)
-                Instance.controller = FindAnyObjectByType<PhysicsBasedCharacterController>();
-            Rigidbody rb = Instance.controller.gameObject.GetComponent<Rigidbody>();
-            float mass = rb.mass;
+                Instance.controller = FindCharacter();
+            if (Instance.controller == null ||
+                !PhysicsBasedCharacterController.TryGetProperties(Instance.controller, out var properties))
+                return trajectoryPoints.ToArray();
+
+            var raycast = Instance.controller.GetSchematicBehavior<CharacterRaycastContext>();
+            var raycastProperties = raycast != null ? raycast.Properties.Value : null;
+            if (raycastProperties == null)
+                return trajectoryPoints.ToArray();
+
+            float mass = Instance.controller.GetComponent<Box3D.Hybrid.Box3DBody>().GetMass();
 
             // Simulation parameters from controller
 
-            Vector3 baseGravity = (Physics.gravity * mass * 2f) + (Physics.gravity * mass * ((Instance.controller.Properties.FallSpeed + 1f))) ;
+            Vector3 worldGravity = SchematicPhysics.Gravity;
+            Vector3 baseGravity = (worldGravity * mass * 2f) + (worldGravity * mass * ((properties.FallSpeed + 1f))) ;
             Vector3 gravity = baseGravity;
-            LayerMask terrainLayer = Instance._raycastContext.Properties.CollisionMask;
+            LayerMask terrainLayer = raycastProperties.CollisionMask;
 
             trajectoryPoints.Add(position);
 
@@ -90,13 +109,13 @@ namespace Remedy.CharacterControllers
 
                 if (velocity.y <= 0)
                 {
-                    if (simulatedHangTime > Instance.controller.Properties.HangTimeDuration || !includeHangtime)
+                    if (simulatedHangTime > properties.HangTimeDuration || !includeHangtime)
                     {
                         // If we're very close to ground, we might be landing
-                        if (hitGround && groundHit.distance <= Instance.controller.Properties.RideHeight * 1.3f)
+                        if (hitGround && groundHit.distance <= properties.RideHeight * 1.3f)
                         {
                             // Character has landed, trajectory ends here
-                            trajectoryPoints.Add(groundHit.point + Vector3.up * Instance.controller.Properties.RideHeight);
+                            trajectoryPoints.Add(groundHit.point + Vector3.up * properties.RideHeight);
                             break;
                         }
 
@@ -130,13 +149,11 @@ namespace Remedy.CharacterControllers
             float rayLength,
             LayerMask terrainLayer)
         {
-            RaycastHit hit;
-            Ray ray = new Ray(position, Vector3.down);
-            bool hitGround = Physics.SphereCast(ray, 0.5f, out hit, rayLength, terrainLayer);
+            bool hitGround = SchematicPhysics.SphereCast(position, 0.5f, Vector3.down, out RaycastHit hit, out _, rayLength, terrainLayer);
 
             if (!hitGround)
             {
-                hitGround = Physics.SphereCast(ray, 0.15f, out hit, rayLength, terrainLayer);
+                hitGround = SchematicPhysics.SphereCast(position, 0.15f, Vector3.down, out hit, out _, rayLength, terrainLayer);
             }
 
             return (hitGround, hit);
@@ -153,16 +170,17 @@ namespace Remedy.CharacterControllers
             Vector3 horizontalVelocity = new Vector3(velocity.x, 0, velocity.z);
             Vector3 movementDirection = horizontalVelocity.normalized;
 
-            // Get wall collision parameters through reflection (since they're private)
-            LayerMask wallLayer = Instance._raycastContext.Properties.CollisionMask;
+            var raycast = Instance.controller != null ? Instance.controller.GetSchematicBehavior<CharacterRaycastContext>() : null;
+            var raycastProperties = raycast != null ? raycast.Properties.Value : null;
+            LayerMask wallLayer = raycastProperties != null ? raycastProperties.CollisionMask : (LayerMask)Physics.DefaultRaycastLayers;
             float wallSlideDistance = 2;
 
-            RaycastHit hit;
-            bool hitWall = Physics.SphereCast(
+            bool hitWall = SchematicPhysics.SphereCast(
                 position,
                 0.1f,
                 movementDirection,
-                out hit,
+                out RaycastHit hit,
+                out _,
                 wallSlideDistance,
                 wallLayer
             );

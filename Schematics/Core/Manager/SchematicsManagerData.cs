@@ -12,10 +12,6 @@ public class SchematicManagerData : SingletonData<SchematicManagerData>
     private SerializableDictionary<GameObject, SchematicGraph> _schematicPrefabs = new();
     public static SerializableDictionary<GameObject, SchematicGraph> SchematicPrefabs => Instance._schematicPrefabs;
 
-    [SerializeField]
-    private SerializableDictionary<GameObject, List<int>> _prefabIOBases = new();
-    public static SerializableDictionary<GameObject, List<int>> PrefabIOBases => Instance._prefabIOBases;
-
     [Tooltip("The Singletons Objects created by the Schematic Editor")]
     [SerializeField]
     private SchematicObject[] Singletons = new SchematicObject[0];
@@ -23,62 +19,29 @@ public class SchematicManagerData : SingletonData<SchematicManagerData>
     private List<SchematicGraph> _graphs;
     public static List<SchematicGraph> Graphs => Instance._graphs ??= new();
 
-    [SerializeField, HideInInspector]
-    private List<SingletonGraph> _singletonGraphs;
+    [Tooltip("Every Singleton Graph in the project, kept up to date by the editor. Each gets its own object when the game starts.")]
+    [SerializeField]
+    private List<SingletonGraph> _singletonGraphs = new();
     public static List<SingletonGraph> SingletonGraphs => Instance._singletonGraphs ??= new();
 
-    public static void AddSingletonGraph(SingletonGraph graph)
+#if UNITY_EDITOR
+    /// <summary>
+    /// Replaces the registered Singleton Graphs. Called by the editor whenever Singleton Graph assets change and
+    /// before builds. Returns true if the list changed.
+    /// </summary>
+    public static bool SetSingletonGraphs(List<SingletonGraph> graphs)
     {
-        if(Application.isPlaying)
-            Instance._singletonGraphs.RemoveAll(item => item == null);
+        var current = SingletonGraphs;
+        bool same = current.Count == graphs.Count;
+        for (int i = 0; same && i < graphs.Count; i++)
+            same = current[i] == graphs[i];
+        if (same)
+            return false;
 
-        if (!Instance._singletonGraphs.Contains(graph))
-        {
-            Instance._singletonGraphs.Add(graph);
-        }
+        current.Clear();
+        current.AddRange(graphs);
+        UnityEditor.EditorUtility.SetDirty(Instance);
+        return true;
     }
-
-    /// <summary>
-    /// Attempt to get Signal Data from the Schematic Graph with the given ID and it's contained
-    /// </summary>
-    /// <param name="schemaID"></param>
-    /// <param name="signalID"></param>
-    /// <param name="signalData"></param>
-    /// <returns></returns>
-    public static bool TryGetSignal(byte schemaID, byte signalID, out SignalData signalData)
-    {
-        if(SchematicGraph.Lookup.Count <= schemaID && 
-            SchematicGraph.Lookup[schemaID].TryGetSignal(signalID, out signalData))
-        {
-            return true;
-        }
-
-        signalData = null;
-        return false;
-    }
-
-    // TODO: Replace with global Behavior scoped Variable groups per-game object instance
-    /// <summary>
-    /// Attempt to get Variable Data from the Schematic Graph with the given ID and it's contained
-    /// </summary>
-    /// <param name="schemaID"></param>
-    /// <param name="variableID"></param>
-    /// <param name="variableData"></param>
-    /// <returns></returns>
-    //public static bool TryGetVariable(byte schemaID, byte variableID, out VariableData variableData)
-    //{
-    //    if (SchematicGraph.Lookup.Count <= schemaID &&
-    //        SchematicGraph.Lookup[schemaID].TryGetVariable(variableID, out variableData))
-    //    {
-    //        return true;
-    //    }
-
-    //    variableData = null;
-    //    return false;
-    //}
-
-    /// <summary>
-    /// Simply the number of variables to store per Schematic Behavior.
-    /// </summary>
-    public SerializableDictionary<Type, int> BehaviorDataTemplates;
+#endif
 }

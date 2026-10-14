@@ -1,0 +1,43 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='900' height='420' viewBox='0 0 900 420' font-family='Segoe UI, Helvetica, Arial, sans-serif'>
+<rect width='100%' height='100%' fill='#ffffff'/>
+<text x='20' y='28' font-size='18' font-weight='bold' fill='#111'>Speedup vs System.Text.Json JsonSerializer (higher is better)</text>
+<text x='20' y='48' font-size='12' fill='#666'>BenchmarkDotNet, .NET 10, AMD Ryzen Threadripper PRO 5975WX, Windows 11</text>
+<rect x='70' y='58' width='12' height='12' fill='#e4572e'/><text x='86' y='69' font-size='12' fill='#333'>Deserialize</text>
+<rect x='187' y='58' width='12' height='12' fill='#f3a712'/><text x='203' y='69' font-size='12' fill='#333'>Deserialize (parallel)</text>
+<rect x='381' y='58' width='12' height='12' fill='#4c78a8'/><text x='397' y='69' font-size='12' fill='#333'>Serialize</text>
+<line x1='70' y1='360' x2='870' y2='360' stroke='#e5e5e5'/>
+<text x='62' y='364' font-size='11' text-anchor='end' fill='#666'>0.0x</text>
+<line x1='70' y1='313.33' x2='870' y2='313.33' stroke='#e5e5e5'/>
+<text x='62' y='317.33' font-size='11' text-anchor='end' fill='#666'>0.5x</text>
+<line x1='70' y1='266.67' x2='870' y2='266.67' stroke='#999' stroke-dasharray='4 3'/>
+<text x='62' y='270.67' font-size='11' text-anchor='end' fill='#666'>1.0x</text>
+<line x1='70' y1='220' x2='870' y2='220' stroke='#e5e5e5'/>
+<text x='62' y='224' font-size='11' text-anchor='end' fill='#666'>1.5x</text>
+<line x1='70' y1='173.33' x2='870' y2='173.33' stroke='#e5e5e5'/>
+<text x='62' y='177.33' font-size='11' text-anchor='end' fill='#666'>2.0x</text>
+<line x1='70' y1='126.67' x2='870' y2='126.67' stroke='#e5e5e5'/>
+<text x='62' y='130.67' font-size='11' text-anchor='end' fill='#666'>2.5x</text>
+<line x1='70' y1='80' x2='870' y2='80' stroke='#e5e5e5'/>
+<text x='62' y='84' font-size='11' text-anchor='end' fill='#666'>3.0x</text>
+<rect x='103.33' y='203.2' width='60' height='156.8' rx='3' fill='#e4572e'/>
+<text x='133.33' y='198.2' font-size='12' font-weight='bold' text-anchor='middle' fill='#333'>1.68x</text>
+<rect x='173.33' y='94.93' width='60' height='265.07' rx='3' fill='#f3a712'/>
+<text x='203.33' y='89.93' font-size='12' font-weight='bold' text-anchor='middle' fill='#333'>2.84x</text>
+<rect x='243.33' y='261.07' width='60' height='98.93' rx='3' fill='#4c78a8'/>
+<text x='273.33' y='256.07' font-size='12' font-weight='bold' text-anchor='middle' fill='#333'>1.06x</text>
+<text x='203.33' y='382' font-size='13' text-anchor='middle' fill='#333'>canada.json</text>
+<rect x='370' y='194.8' width='60' height='165.2' rx='3' fill='#e4572e'/>
+<text x='400' y='189.8' font-size='12' font-weight='bold' text-anchor='middle' fill='#333'>1.77x</text>
+<rect x='440' y='150' width='60' height='210' rx='3' fill='#f3a712'/>
+<text x='470' y='145' font-size='12' font-weight='bold' text-anchor='middle' fill='#333'>2.25x</text>
+<rect x='510' y='208.8' width='60' height='151.2' rx='3' fill='#4c78a8'/>
+<text x='540' y='203.8' font-size='12' font-weight='bold' text-anchor='middle' fill='#333'>1.62x</text>
+<text x='470' y='382' font-size='13' text-anchor='middle' fill='#333'>citm_catalog.json</text>
+<rect x='636.67' y='233.07' width='60' height='126.93' rx='3' fill='#e4572e'/>
+<text x='666.67' y='228.07' font-size='12' font-weight='bold' text-anchor='middle' fill='#333'>1.36x</text>
+<rect x='706.67' y='141.6' width='60' height='218.4' rx='3' fill='#f3a712'/>
+<text x='736.67' y='136.6' font-size='12' font-weight='bold' text-anchor='middle' fill='#333'>2.34x</text>
+<rect x='776.67' y='227.47' width='60' height='132.53' rx='3' fill='#4c78a8'/>
+<text x='806.67' y='222.47' font-size='12' font-weight='bold' text-anchor='middle' fill='#333'>1.42x</text>
+<text x='736.67' y='382' font-size='13' text-anchor='middle' fill='#333'>twitter.json</text>
+</svg>
