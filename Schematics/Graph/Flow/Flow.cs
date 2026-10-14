@@ -125,6 +125,9 @@ namespace Remedy.Schematics
             var childScope = flow.Adopt(scope);
             for (int i = children.Count - 1; i >= 0; i--)
                 flow._stack.Add(new Step { Node = children[i], Scope = childScope });
+#if UNITY_EDITOR
+            ReportTraversed(instance, node, children);
+#endif
             flow.Run();
         }
 
@@ -271,6 +274,9 @@ namespace Remedy.Schematics
 
             for (int i = 0; i < children.Count; i++)
                 _pending.Add(new Step { Node = children[i], Scope = scope });
+#if UNITY_EDITOR
+            ReportTraversed(Instance, node, children);
+#endif
         }
 
         /// <summary>True while this flow is in the middle of running the given node.</summary>
@@ -283,6 +289,36 @@ namespace Remedy.Schematics
         public FlowScope Capture() => (ExecutingScope ?? _rootScope).Flatten();
 
         #endregion
+
+#if UNITY_EDITOR
+        #region Flow visualizer (editor only)
+
+        /// <summary>
+        /// Editor only: raised as a flow goes along a flow arrow (the object running it, the node it leaves, the node it
+        /// goes to), for the Schematic Graph window's flow visualizer to animate a ball along that arrow. Nobody listens
+        /// unless the visualizer is switched on, so with it off this costs a single null check per node.
+        /// </summary>
+        public static event Action<GameObject, SchematicGraphNode, SchematicGraphNode> EditorEdgeTraversed;
+
+        private static void ReportTraversed(GameObject instance, SchematicGraphNode from, List<SchematicActionNode> children)
+        {
+            var handler = EditorEdgeTraversed;
+            if (handler == null)
+                return;
+            // A listener's mistake must never break the game's flow.
+            try
+            {
+                for (int i = 0; i < children.Count; i++)
+                    handler(instance, from, children[i]);
+            }
+            catch (Exception exception)
+            {
+                Debug.LogException(exception);
+            }
+        }
+
+        #endregion
+#endif
 
         #region Pausing
 

@@ -358,13 +358,23 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
         Canvas.RegisterCallback<MouseUpEvent>(OnCanvasMouseUp, TrickleDown.TrickleDown);
 
         _motion = new CanvasMotion(Canvas);
+
+        // The flow visualizer (balls along the arrows flows go through, values over the wires; Play Mode, switched
+        // with the Flow button above the minimap). Under the minimap and the debug panel.
+        Canvas.Add(new FlowVisualizer(this));
+
         _minimap = new SchematicMinimap(Canvas, _motion);
+        _minimap.Buttons.Insert(0, FlowVisualizer.CreateToggle());
         Canvas.Add(_minimap);
 
         // Graph debugging: breakpoints, the stopped node's box, and the panel along the bottom.
         Canvas.styleSheets.Add(Resources.Load<StyleSheet>("FlowDebugger"));
         _debugPanel = new FlowDebugPanel(this);
         Canvas.Add(_debugPanel);
+        // The minimap moves up out of the panel's way while it shows.
+        var debugPanel = _debugPanel;
+        var minimap = _minimap;
+        debugPanel.Changed += () => minimap.SetBottomInset(debugPanel.ShownHeight);
         Canvas.RegisterCallback<ContextualMenuPopulateEvent>(OnDebugContextMenu);
         rootVisualElement.RegisterCallback<KeyDownEvent>(OnDebugKey, TrickleDown.TrickleDown);
         if (_nodeViewCreated != null)

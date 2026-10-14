@@ -609,6 +609,34 @@ namespace Remedy.Schematics
         }
 
         /// <summary>
+        /// An output's latest value as written while running for one object (for the flow visualizer), or else its last
+        /// value from anyone (see <see cref="PeekOutput"/>). False if nothing has written it yet. Doesn't run anything.
+        /// </summary>
+        public bool TryPeekOutputFor(GameObject instance, string name, out Union value)
+        {
+            value = default;
+            if (!Wiring.OutputIndexByName.TryGetValue(name, out int index))
+                return false;
+            if (!ReferenceEquals(instance, null) && _outputsByInstance != null
+                && _outputsByInstance.TryGetValue(instance, out var slots) && slots != null && index < slots.Length && slots[index].Has)
+            {
+                value = slots[index].Value;
+                return true;
+            }
+            if (_lastOutputs != null && index < _lastOutputs.Length && _lastOutputs[index].Has)
+            {
+                value = _lastOutputs[index].Value;
+                return true;
+            }
+            if (_memo != null && index < _memo.Length && _memo[index].HasValue)
+            {
+                value = PortValues.ToUnion(_memo[index].Value);
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
         /// The value an input would read in a flow (for the debugger and for replicating a node). False if nothing is
         /// connected to it. While a flow step is running this reads it for real (computing connected queries);
         /// otherwise it shows the last known values without running anything.

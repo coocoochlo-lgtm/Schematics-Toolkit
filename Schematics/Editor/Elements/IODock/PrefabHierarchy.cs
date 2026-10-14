@@ -2,6 +2,7 @@ using Remedy.Schematics;
 using System;
 using System.Collections.Generic;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.UIElements;
 
@@ -9,6 +10,17 @@ using UnityEngine.UIElements;
 /// The IO Dock's Prefab tab: the prefab's GameObjects, each with the Schematic Behaviors attached to it, and under each
 /// Behavior its Variables (above) and Signals. Every row can be dragged into the graph to make a node, and clicked to
 /// jump between the graph nodes that use it. GameObjects can be dragged in too, as Prefab Object nodes.
+/// <para>
+/// Laid out like Unity's Hierarchy: each GameObject's block is shaded a little lighter or darker than the one before
+/// it, its header lights up under the mouse, and the selected object's header is highlighted (selecting it also selects
+/// it in Unity, so the Inspector shows it too).
+/// </para>
+/// <para>
+/// While the prefab is open in Prefab Mode, the dock shows and edits that open copy, the same objects the Inspector
+/// shows, through the Inspector's own code (with Undo); Prefab Mode saves it. Otherwise it edits the prefab asset with
+/// a load-edit-save of the file. Either way it redraws itself when the prefab changes elsewhere (the Inspector, Undo,
+/// a Prefab Mode save).
+/// </para>
 /// </summary>
 public class PrefabHierarchy : VisualElement
 {
@@ -16,6 +28,19 @@ public class PrefabHierarchy : VisualElement
     private readonly SchematicObject _root;
     private readonly string _assetPath;
     private readonly SchematicGraphEditorWindow _window;
+
+    // What's shown and edited: the open Prefab Mode copy's root when the prefab is open there (live), else the asset.
+    private readonly GameObject _shown;
+    private readonly bool _live;
+
+    // The GameObject blocks in hierarchy order (for the alternating shading), and the selected one's path.
+    private readonly List<Foldout> _objectFoldouts = new();
+    private readonly Dictionary<string, Toggle> _headers = new();
+    private string _selectedPath;
+
+    // Redraws when the prefab changes from elsewhere (see Watch).
+    private int _signature;
+    private IVisualElementScheduledItem _watch;
 
     // Every row by its DockItem key, so the graph can reveal the row a node uses.
     private readonly Dictionary<string, VisualElement> _rows = new();
@@ -29,12 +54,33 @@ public class PrefabHierarchy : VisualElement
         _prefab = prefab;
         _window = window;
         _assetPath = AssetDatabase.GetAssetPath(prefab);
-        _root = prefab != null ? prefab.GetComponent<SchematicObject>() : null;
-        PrefabSaveTrace.Step(0, "dock built", _assetPath, dockObject: prefab);
+        var live = LiveRoot(_assetPath);
+        _live = live != null;
+        _shown = _live ? live : prefab;
+        _root = _shown != null ? _shown.GetComponent<SchematicObject>() : null;
+        PrefabSaveTrace.Step(0, _live ? "dock built (on the open Prefab Mode copy)" : "dock built", _assetPath, dockObject: prefab);
 
         AddToClassList("behavior-dock");
+        AddToClassList("prefab-hierarchy");
+        var styleSheet = Resources.Load<StyleSheet>("PrefabHierarchy");
+        if (styleSheet != null)
+            styleSheets.Add(styleSheet);
         RegisterCallback<MouseLeaveEvent>(_ => FlushPendingEdits());
-        RegisterCallback<DetachFromPanelEvent>(_ => FlushPendingEdits());
+        RegisterCallback<DetachFromPanelEvent>(_ =>
+        {
+            FlushPendingEdits();
+            Selection.selectionChanged -= OnUnitySelectionChanged;
+            _watch?.Pause();
+        });
+        RegisterCallback<AttachToPanelEvent>(_ =>
+        {
+            Selection.selectionChanged -= OnUnitySelectionChanged;
+            Selection.selectionChanged += OnUnitySelectionChanged;
+            _signature = Signature();
+            _watch ??= schedule.Execute(Watch).Every(WatchMs);
+            _watch.Resume();
+            OnUnitySelectionChanged();
+        });
         // IMGUI fields can ask for a lot of width; never let the dock grow over the graph.
         style.overflow = Overflow.Hidden;
         style.minWidth = 0;
@@ -46,11 +92,22 @@ public class PrefabHierarchy : VisualElement
     {
         Clear();
         _rows.Clear();
+        _objectFoldouts.Clear();
+        _headers.Clear();
 
         if (_root == null)
         {
             Add(new HelpBox("This prefab has no Schematic Object component, so it has no Schematic Behaviors.", HelpBoxMessageType.Warning));
-            if (_prefab != null)
+            if (_live && _shown != null)
+                Add(new Button(() =>
+                {
+                    var added = Undo.AddComponent<SchematicObject>(_shown);
+                    if (added != null)
+                        added.AssignObjectID(SchematicObjectIDs.For(_assetPath));
+                    MarkLiveDirty();
+                    _window.RedrawIODock();
+                }) { text = "Add Schematic Object" });
+            else if (_prefab != null)
                 Add(new Button(() =>
                 {
                     var contents = PrefabUtility.LoadPrefabContents(_assetPath);
@@ -60,8 +117,158 @@ public class PrefabHierarchy : VisualElement
             return;
         }
 
-        Add(CreateObjectFoldout(_prefab.transform));
+        if (_live)
+        {
+            var note = new Label("Editing the copy open in Prefab Mode");
+            note.AddToClassList("prefab-hierarchy-note");
+            note.tooltip = "Changes here go into the open Prefab Mode copy (with Undo), and Prefab Mode saves them into the prefab.";
+            Add(note);
+        }
+
+        Add(CreateObjectFoldout(_shown.transform));
+        Restripe();
+        ShowSelected();
     }
+
+    #region Live (Prefab Mode) and watching for changes
+
+    private const long WatchMs = 500;
+
+    // The root of the prefab's copy open in Prefab Mode, if it's open there.
+    private static GameObject LiveRoot(string assetPath)
+    {
+        if (string.IsNullOrEmpty(assetPath))
+            return null;
+        var stage = PrefabStageUtility.GetCurrentPrefabStage();
+        return stage != null && stage.assetPath == assetPath ? stage.prefabContentsRoot : null;
+    }
+
+    // Prefab Mode saves (by itself or with Save) what's changed in its scene.
+    private void MarkLiveDirty()
+    {
+        if (!_live || _shown == null)
+            return;
+        if (_root != null)
+            EditorUtility.SetDirty(_root);
+        if (_shown.scene.IsValid())
+            EditorSceneManager.MarkSceneDirty(_shown.scene);
+    }
+
+    /// <summary>
+    /// Twice a second: redraws when the prefab's objects or Behaviors changed from elsewhere (the Inspector, Undo, a
+    /// Prefab Mode save reimporting the asset), and starts over on the right copy when Prefab Mode opens or closes.
+    /// Values aren't watched: their fields draw the current value anyway.
+    /// </summary>
+    private void Watch()
+    {
+        if (_editing || EditorApplication.isCompiling || EditorApplication.isUpdating || panel == null)
+            return;
+
+        bool liveNow = LiveRoot(_assetPath) != null;
+        if (liveNow != _live || (_live && _shown == null) || (_shown != null && _shown.GetComponent<SchematicObject>() != _root))
+        {
+            // Not with value edits still waiting to be written into the file: they go first.
+            if (_pendingEdits.Count > 0 || _queuedEdits.Count > 0)
+                return;
+            _watch?.Pause();
+            _window.RedrawIODock();
+            return;
+        }
+
+        int signature = Signature();
+        if (signature == _signature)
+            return;
+        _signature = signature;
+        Rebuild();
+    }
+
+    // A cheap fingerprint of the hierarchy (names, order) and of which Behaviors are attached where.
+    private int Signature()
+    {
+        if (_shown == null)
+            return 0;
+        unchecked
+        {
+            int hash = 17;
+            foreach (var transform in _shown.GetComponentsInChildren<Transform>(true))
+            {
+                hash = hash * 31 + (transform.name?.GetHashCode() ?? 0);
+                hash = hash * 31 + transform.GetSiblingIndex();
+                hash = hash * 31 + transform.childCount;
+            }
+            var root = _shown.GetComponent<SchematicObject>();
+            if (root != null)
+                foreach (var entry in root.Behaviors)
+                {
+                    hash = hash * 31 + (entry.Key != null ? entry.Key.GetHashCode() : 7);
+                    if (entry.Value?.Items == null)
+                        continue;
+                    foreach (var attachment in entry.Value.Items)
+                        hash = hash * 31 + (attachment?.Metadata != null ? attachment.Metadata.GetHashCode() : 3);
+                }
+            return hash;
+        }
+    }
+
+    #endregion
+
+    #region Rows: shading and selection
+
+    // Each GameObject's block takes the next shade, top to bottom, counting only the ones that can be seen (like
+    // Unity's Hierarchy rows), so the shading stays alternating as objects are folded and unfolded.
+    private void Restripe()
+    {
+        int index = 0;
+        foreach (var foldout in _objectFoldouts)
+        {
+            bool visible = true;
+            for (var parent = foldout.parent; parent != null && parent != this; parent = parent.parent)
+                if (parent is Foldout outer && _objectFoldouts.Contains(outer) && !outer.value)
+                {
+                    visible = false;
+                    break;
+                }
+            if (!visible)
+                continue;
+            foldout.EnableInClassList("dock-object--odd", index % 2 == 1);
+            index++;
+        }
+    }
+
+    private void Select(string path, bool selectInUnity)
+    {
+        _selectedPath = path;
+        ShowSelected();
+        if (!selectInUnity || _shown == null)
+            return;
+        var target = Find(_shown, path);
+        if (target != null && Selection.activeGameObject != target.gameObject)
+            Selection.activeGameObject = target.gameObject;
+    }
+
+    private void ShowSelected()
+    {
+        foreach (var pair in _headers)
+            pair.Value.EnableInClassList("dock-object-header--selected", pair.Key == _selectedPath);
+    }
+
+    // Selecting one of the prefab's objects anywhere (Hierarchy, Scene view, Project) highlights it here too.
+    private void OnUnitySelectionChanged()
+    {
+        var selected = Selection.activeGameObject;
+        if (selected == null || _shown == null)
+            return;
+        var transform = selected.transform;
+        if (transform != _shown.transform && !transform.IsChildOf(_shown.transform))
+            return;
+        string path = PathOf(transform);
+        if (path == _selectedPath)
+            return;
+        _selectedPath = path;
+        ShowSelected();
+    }
+
+    #endregion
 
     #region GameObjects
 
@@ -71,18 +278,24 @@ public class PrefabHierarchy : VisualElement
         var foldout = new Foldout
         {
             text = transform.name,
-            value = SessionState.GetBool(FoldoutKey("go", path), transform == _prefab.transform),
+            value = SessionState.GetBool(FoldoutKey("go", path), transform == _shown.transform),
         };
         foldout.AddToClassList("dock-object");
+        _objectFoldouts.Add(foldout);
         foldout.RegisterValueChangedCallback(evt =>
         {
             if (evt.target == foldout)
+            {
                 SessionState.SetBool(FoldoutKey("go", path), evt.newValue);
+                Restripe();
+            }
         });
 
         // Drag the GameObject itself into the graph.
         var item = new DockItem { Kind = DockItem.ItemKind.GameObject, Path = path, GameObject = transform.gameObject };
         var toggle = foldout.Q<Toggle>();
+        toggle.AddToClassList("dock-object-header");
+        _headers[path] = toggle;
         var handle = CreateHandle(EditorGUIUtility.IconContent("GameObject Icon").image, "Drag into the graph for a Prefab Object node");
         MakeDraggable(handle, item, click: null);
         toggle.Add(handle);
@@ -91,19 +304,24 @@ public class PrefabHierarchy : VisualElement
 
         toggle.RegisterCallback<MouseDownEvent>(evt =>
         {
-            if (evt.clickCount == 2 && evt.button == 0)
+            if (evt.button != 0)
+                return;
+            if (evt.clickCount == 2)
             {
                 Rename(toggle, path, transform.name);
                 evt.StopPropagation();
+                return;
             }
+            // Selected here and in Unity, so the Inspector shows the same object.
+            Select(path, selectInUnity: true);
         });
         toggle.AddManipulator(new ContextualMenuManipulator(evt =>
         {
             evt.menu.AppendAction("Add Child", _ => AddChild(path));
             evt.menu.AppendAction("Rename", _ => Rename(toggle, path, transform.name));
-            if (transform != _prefab.transform)
+            if (transform != _shown.transform)
                 evt.menu.AppendAction("Delete", _ => DeleteObject(path));
-            evt.menu.AppendAction("Select in Project", _ => Selection.activeObject = transform.gameObject);
+            evt.menu.AppendAction(_live ? "Select" : "Select in Project", _ => Selection.activeObject = transform.gameObject);
         }));
 
         // Behaviors attached here.
@@ -118,7 +336,12 @@ public class PrefabHierarchy : VisualElement
         {
             var content = new GUIContent("+ Add Behavior");
             var rect = GUILayoutUtility.GetRect(content, EditorStyles.miniButton);
-            if (GUI.Button(rect, content, EditorStyles.miniButton))
+            if (!GUI.Button(rect, content, EditorStyles.miniButton))
+                return;
+            // Prefab Mode open: exactly what the Inspector's button does, on the same objects (with Undo).
+            if (_live)
+                SchematicBehaviorsHeaderGUI.ShowAddBehaviorDropdown(rect, _root, target, _ => AfterLiveEdit());
+            else
                 SchematicBehaviorsHeaderGUI.ShowBehaviorDropdown(rect, AttachedTypes(target), type => AddBehavior(path, type));
         });
         addButton.AddToClassList("dock-add-behavior");
@@ -206,7 +429,14 @@ public class PrefabHierarchy : VisualElement
                 "Variable: drag the name into the graph to Get or Set it; click it to find its nodes. The field is this object's starting value.");
             string variableName = variable.Name;
             var definition = variable;
-            var field = new IMGUIContainer(() => DrawVariableField(path, behaviorType, attachment, definition));
+            var field = new IMGUIContainer(() =>
+            {
+                // Prefab Mode open: the Inspector's own field for it (Undo, Prefab Mode saves it).
+                if (_live)
+                    SchematicBehaviorsHeaderGUI.DrawVariableGUI(_root, target, attachment, definition.Name);
+                else
+                    DrawVariableField(path, behaviorType, attachment, definition);
+            });
             ConstrainIMGUI(field);
             field.AddToClassList("dock-variable-value");
             row.Add(field);
@@ -467,7 +697,7 @@ public class PrefabHierarchy : VisualElement
 
     private static string TypeName(Type type) => DockRows.TypeName(type);
 
-    private string PathOf(Transform transform) => AnimationUtility.CalculateTransformPath(transform, _prefab.transform);
+    private string PathOf(Transform transform) => AnimationUtility.CalculateTransformPath(transform, _shown.transform);
 
     private string FoldoutKey(string kind, string path) => $"SchematicDock.{_assetPath}.{kind}.{path}";
 
@@ -584,6 +814,12 @@ public class PrefabHierarchy : VisualElement
 
     private void QueueEdit(string path, Type behavior, string variable, Type valueType, object value, bool revert = false)
     {
+        if (_live)
+        {
+            ApplyLive(path, behavior, variable, valueType, value, revert);
+            return;
+        }
+
         _pendingEdits[EditKey(path, behavior, variable)] = new PendingEdit
         {
             Path = path, Behavior = behavior, Variable = variable, ValueType = valueType, Value = value, Revert = revert,
@@ -593,6 +829,21 @@ public class PrefabHierarchy : VisualElement
         _flushScheduled?.Pause();
         _flushScheduled = schedule.Execute(FlushPendingEdits);
         _flushScheduled.ExecuteLater(FlushDelayMs);
+    }
+
+    // Prefab Mode open: a value goes straight into the open copy, with Undo, as the Inspector does.
+    private void ApplyLive(string path, Type behavior, string variable, Type valueType, object value, bool revert)
+    {
+        var target = _shown != null ? Find(_shown, path) : null;
+        var attachment = target != null && _root != null ? _root.FindAttachment(behavior, target.gameObject) : null;
+        if (attachment == null)
+            return;
+        Undo.RecordObject(_root, revert ? "Revert Schematic Variable" : "Set Schematic Variable");
+        if (revert)
+            attachment.Overrides.RemoveAll(o => o.Name == variable);
+        else
+            attachment.SetOverride(variable, value, valueType);
+        MarkLiveDirty();
     }
 
     private void FlushPendingEdits()
@@ -678,6 +929,18 @@ public class PrefabHierarchy : VisualElement
 
     private void AddChild(string parentPath)
     {
+        if (_live)
+        {
+            var parent = _shown != null ? Find(_shown, parentPath) : null;
+            if (parent == null)
+                return;
+            var child = new GameObject("New Child");
+            child.transform.SetParent(parent, false);   // into Prefab Mode's scene, with its parent
+            Undo.RegisterCreatedObjectUndo(child, "Add Child");
+            AfterLiveEdit();
+            return;
+        }
+
         EditContents(contents =>
         {
             var parent = Find(contents, parentPath);
@@ -688,6 +951,22 @@ public class PrefabHierarchy : VisualElement
 
     private void DeleteObject(string path)
     {
+        if (_live)
+        {
+            var target = _shown != null ? Find(_shown, path) : null;
+            if (target == null || target == _shown.transform)
+                return;
+            if (_root != null)
+            {
+                Undo.RecordObject(_root, "Delete Object");
+                foreach (var t in target.GetComponentsInChildren<Transform>(true))
+                    _root.Behaviors.Remove(t.gameObject);
+            }
+            Undo.DestroyObjectImmediate(target.gameObject);
+            AfterLiveEdit();
+            return;
+        }
+
         EditContents(contents =>
         {
             var target = Find(contents, path);
@@ -710,6 +989,15 @@ public class PrefabHierarchy : VisualElement
                                        {
                                            string name = value?.ToString();
                                            if (string.IsNullOrWhiteSpace(name) || name == current) return;
+                                           if (_live)
+                                           {
+                                               var live = _shown != null ? Find(_shown, path) : null;
+                                               if (live == null) return;
+                                               Undo.RecordObject(live.gameObject, "Rename");
+                                               live.name = name;
+                                               AfterLiveEdit();
+                                               return;
+                                           }
                                            EditContents(contents =>
                                            {
                                                var target = Find(contents, path);
@@ -721,6 +1009,17 @@ public class PrefabHierarchy : VisualElement
 
     internal void AddBehavior(string path, Type behaviorType)
     {
+        // Prefab Mode open: the Inspector's own add (required Behaviors and components, OnSetup, Undo).
+        if (_live)
+        {
+            var target = _shown != null && _root != null ? Find(_shown, path) : null;
+            if (target == null)
+                return;
+            SchematicBehaviorsHeaderGUI.AttachWithUndo(_root, target.gameObject, behaviorType);
+            AfterLiveEdit();
+            return;
+        }
+
         // Metadata first: attaching needs it, and generating it touches the asset database.
         if (BehaviorMetadataGenerator.GetOrCreate(behaviorType) == null)
             return;
@@ -736,6 +1035,17 @@ public class PrefabHierarchy : VisualElement
 
     private void RemoveBehavior(string path, Type behaviorType)
     {
+        if (_live)
+        {
+            var target = _shown != null && _root != null ? Find(_shown, path) : null;
+            var attachment = target != null ? _root.FindAttachment(behaviorType, target.gameObject) : null;
+            if (attachment == null)
+                return;
+            SchematicBehaviorsHeaderGUI.RemoveWithUndo(_root, target.gameObject, attachment);
+            AfterLiveEdit();
+            return;
+        }
+
         EditContents(contents =>
         {
             var root = contents.GetComponent<SchematicObject>();
@@ -746,6 +1056,14 @@ public class PrefabHierarchy : VisualElement
             if (list.Items.Count == 0)
                 root.Behaviors.Remove(target.gameObject);
         });
+    }
+
+    // After an edit of the open Prefab Mode copy: marked for Prefab Mode to save, and redrawn.
+    private void AfterLiveEdit()
+    {
+        MarkLiveDirty();
+        _signature = Signature();
+        Rebuild();
     }
 
     private async void Save(GameObject contents, int trace = 0)

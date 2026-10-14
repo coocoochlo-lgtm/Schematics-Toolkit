@@ -37,6 +37,22 @@ public class SchematicMinimap : VisualElement
     private static Texture BehaviorIcon => _behavior ??= EditorGUIUtility.IconContent("cs Script Icon").image;
 
     private const string VisibleKey = "SchematicMinimap.Visible";
+    private const float Margin = 8f;
+
+    /// <summary>The row of buttons above the map (Map, and any the window adds in front of it).</summary>
+    public VisualElement Buttons { get; }
+
+    /// <summary>
+    /// Keeps the minimap (and its buttons) above something along the bottom of the canvas, like the debugger's panel
+    /// while a flow is stopped or an error is showing: <paramref name="height"/> is how tall it is (0 when it's hidden).
+    /// </summary>
+    public void SetBottomInset(float height)
+    {
+        if (float.IsNaN(height) || height < 0f) height = 0f;
+        float bottom = Margin + height;
+        if (Mathf.Approximately(style.bottom.value.value, bottom)) return;
+        style.bottom = bottom;
+    }
 
     public SchematicMinimap(CanvasView canvas, CanvasMotion motion)
     {
@@ -44,13 +60,22 @@ public class SchematicMinimap : VisualElement
         _motion = motion;
         pickingMode = PickingMode.Ignore;
         style.position = Position.Absolute;
-        style.right = 8;
-        style.bottom = 8;
+        style.right = Margin;
+        style.bottom = Margin;
         style.alignItems = Align.FlexEnd;
+        // Slides up and down smoothly when something along the bottom of the graph (the debugger's panel) comes and goes.
+        style.transitionProperty = new List<StylePropertyName> { "bottom" };
+        style.transitionDuration = new List<TimeValue> { new TimeValue(0.15f, TimeUnit.Second) };
+        style.transitionTimingFunction = new List<EasingFunction> { new EasingFunction(EasingMode.EaseOut) };
+
+        // The graph's little row of buttons, above the map: others (the flow visualizer's toggle) go in front of Map.
+        Buttons = new VisualElement { pickingMode = PickingMode.Ignore };
+        Buttons.style.flexDirection = FlexDirection.Row;
+        Buttons.style.alignSelf = Align.FlexEnd;
+        Add(Buttons);
 
         var toggle = new Button(() => SetVisible(!_visible)) { text = "Map", tooltip = "Show or hide the minimap" };
-        toggle.style.alignSelf = Align.FlexEnd;
-        Add(toggle);
+        Buttons.Add(toggle);
 
         _frame = new VisualElement { pickingMode = PickingMode.Ignore };
         _frame.style.width = Width;

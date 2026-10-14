@@ -35,6 +35,8 @@ namespace Remedy.Schematics.Assistant
         private const string PositionKey = "Schematics.Assistant.Position";
         private const string AnchoredKey = "Schematics.Assistant.Anchored";
         private const float HomeMarginX = 24f, HomeMarginY = 28f;   // home: this far in from the bottom-right corner
+        private const float HomeMarginTop = 12f;                    // in a Schematic Graph window: this far below its top
+        private const string TopBarName = "timeline-graph-bar";      // a bar along the top of a graph (Timeline Graphs)
         private const int TickMs = 33;          // ~30 updates a second, and only while the editor has focus
         private const float BobHeight = 3f, BobSpeed = 2.2f;
 
@@ -298,7 +300,12 @@ namespace Remedy.Schematics.Assistant
             SessionState.SetString(PositionKey, string.Format(CultureInfo.InvariantCulture, "{0},{1}", _position.x, _position.y));
         }
 
-        /// <summary>His home spot in a window: tucked into its bottom-right corner (top-left of the robot, root space).</summary>
+        /// <summary>
+        /// His home spot in a window (top-left of the robot, root space): tucked into its bottom-right corner, except in
+        /// a Schematic Graph window, where he sits in the top-right corner instead (under anything along the top of the
+        /// graph, like a Timeline Graph's bar), because the bottom right of the graph is busy: the minimap, its
+        /// buttons, and the debugger's panel live there.
+        /// </summary>
         private Vector2 HomeSpot(EditorWindow window)
         {
             if (window == null)
@@ -307,7 +314,32 @@ namespace Remedy.Schematics.Assistant
             if (float.IsNaN(size.x) || size.x < 1f || float.IsNaN(size.y) || size.y < 1f)
                 size = window.position.size;
             // Never off the top-left, even in a tiny window.
-            return new Vector2(Mathf.Max(0f, size.x - _width - HomeMarginX), Mathf.Max(0f, size.y - _height - HomeMarginY));
+            float x = Mathf.Max(0f, size.x - _width - HomeMarginX);
+            if (window is SchematicGraphEditorWindow graph)
+                return new Vector2(x, Mathf.Clamp(GraphHomeTop(graph), 0f, Mathf.Max(0f, size.y - _height)));
+            return new Vector2(x, Mathf.Max(0f, size.y - _height - HomeMarginY));
+        }
+
+        // How far down a Schematic Graph window his top-right home is: just under the top of the graph canvas, or under
+        // a bar running along its top (the Timeline bar of Timeline Graphs) when there is one.
+        private static float GraphHomeTop(SchematicGraphEditorWindow graph)
+        {
+            var root = graph.rootVisualElement;
+            var canvas = graph.Canvas;
+            float top = 0f;
+            if (root == null || canvas == null || canvas.panel == null || canvas.panel != root.panel)
+                return top + HomeMarginTop;
+            var canvasTop = root.WorldToLocal(canvas.worldBound.position).y;
+            if (!float.IsNaN(canvasTop))
+                top = canvasTop;
+            var bar = canvas.Q(TopBarName);
+            if (bar != null && bar.resolvedStyle.display == DisplayStyle.Flex && !float.IsNaN(bar.worldBound.yMax) && bar.worldBound.height > 0f)
+            {
+                var barBottom = root.WorldToLocal(new Vector2(bar.worldBound.x, bar.worldBound.yMax)).y;
+                if (!float.IsNaN(barBottom))
+                    top = Mathf.Max(top, barBottom);
+            }
+            return top + HomeMarginTop;
         }
 
         /// <summary>Back to (and anchored at) his home spot in the window he's in, right away (no blip).</summary>
@@ -338,7 +370,7 @@ namespace Remedy.Schematics.Assistant
 
         /// <summary>
         /// Moves into another window at a position in its root space (instantly). With <paramref name="anchor"/>, the
-        /// position is ignored: he goes to his home spot in the bottom-right corner and stays anchored there.
+        /// position is ignored: he goes to his home spot (see <see cref="HomeSpot"/>) and stays anchored there.
         /// </summary>
         public void HopTo(EditorWindow window, Vector2 position, bool anchor = false)
         {
@@ -450,7 +482,7 @@ namespace Remedy.Schematics.Assistant
         private double _nextWatch;
 
         /// <summary>
-        /// Back to the bottom right of a Schematic Graph (if one is showing) or the Scene view: spinning out of where it
+        /// Back home in a Schematic Graph (its top right, if one is showing) or the Scene view (bottom right): spinning out of where it
         /// is and blooping in there, or instantly.
         /// </summary>
         public void Respawn(bool blip)

@@ -49,12 +49,35 @@ public class FlowDebugPanel : VisualElement
         RegisterCallback<WheelEvent>(evt => evt.StopPropagation());
 
         style.display = DisplayStyle.None;
+
+        // Its height settles once it's laid out (and changes as foldouts open): whatever keeps clear of it hears.
+        RegisterCallback<GeometryChangedEvent>(_ => Changed?.Invoke());
+    }
+
+    /// <summary>Raised when the panel shows, hides or changes size (the minimap moves up out of its way).</summary>
+    public event Action Changed;
+
+    /// <summary>How much of the bottom of the graph the panel covers right now (0 while it's hidden).</summary>
+    public float ShownHeight
+    {
+        get
+        {
+            if (style.display.value == DisplayStyle.None) return 0f;
+            float height = layout.height;
+            return float.IsNaN(height) ? 0f : height;
+        }
     }
 
     /// <summary>The error shown when no flow is stopped: the newest one in this graph.</summary>
     internal FlowDebugger.FlowError ShownError { get; private set; }
 
     public void Refresh()
+    {
+        RefreshContent();
+        Changed?.Invoke();
+    }
+
+    private void RefreshContent()
     {
         _buttons.Clear();
         _body.Clear();
