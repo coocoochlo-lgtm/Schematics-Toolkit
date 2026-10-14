@@ -323,6 +323,15 @@ namespace Remedy.Schematics.Browsers
             card.style.width = size;
             card.style.backgroundColor = GetTags(clip).FirstOrDefault()?.Color
                 ?? (EditorGUIUtility.isProSkin ? new Color(0.22f, 0.22f, 0.22f) : new Color(0.78f, 0.78f, 0.78f));
+            var thumbnail = new Image
+            {
+                image = WaveformFor(clip),
+                scaleMode = ScaleMode.StretchToFill,
+                pickingMode = PickingMode.Ignore
+            };
+            thumbnail.AddToClassList("audio-browser__waveform");
+            card.Add(thumbnail);
+
             var gloss = new Image
             {
                 image = GlossTexture,
@@ -346,26 +355,15 @@ namespace Remedy.Schematics.Browsers
             var timeline = BuildTimeline(clip);
             card.Add(timeline.Container);
 
-            var previewSurface = new VisualElement();
-            previewSurface.AddToClassList("audio-browser__thumbnail");
-            previewSurface.AddToClassList("audio-preview-surface");
-            var thumbnail = new Image
+            card.RegisterCallback<PointerDownEvent>(evt =>
             {
-                image = WaveformFor(clip),
-                scaleMode = ScaleMode.StretchToFill,
-                pickingMode = PickingMode.Ignore
-            };
-            thumbnail.AddToClassList("audio-browser__waveform");
-            previewSurface.Add(thumbnail);
-            previewSurface.RegisterCallback<PointerDownEvent>(evt =>
-            {
-                if (evt.button != 0)
+                if (evt.button != 0 || IsWithin(evt.target as VisualElement, "audio-player-control"))
                     return;
                 timeline.PressPosition = evt.position;
                 timeline.PressTime = EditorApplication.timeSinceStartup;
                 timeline.Pressed = true;
             });
-            previewSurface.RegisterCallback<PointerMoveEvent>(evt =>
+            card.RegisterCallback<PointerMoveEvent>(evt =>
             {
                 if (!timeline.Pressed || (evt.pressedButtons & 1) == 0)
                     return;
@@ -380,7 +378,7 @@ namespace Remedy.Schematics.Browsers
                 DragAndDrop.StartDrag(clip.name);
                 evt.StopPropagation();
             });
-            previewSurface.RegisterCallback<PointerUpEvent>(evt =>
+            card.RegisterCallback<PointerUpEvent>(evt =>
             {
                 if (!timeline.Pressed)
                 {
@@ -391,16 +389,16 @@ namespace Remedy.Schematics.Browsers
                 timeline.Pressed = false;
                 if (evt.button == 0
                     && !timeline.Dragged
+                    && !IsWithin(evt.target as VisualElement, "audio-player-control")
                     && EditorApplication.timeSinceStartup - timeline.PressTime <= 0.45d)
                     TogglePreview(clip);
                 timeline.Dragged = false;
             });
-            previewSurface.RegisterCallback<PointerLeaveEvent>(_ =>
+            card.RegisterCallback<PointerLeaveEvent>(_ =>
             {
                 if (timeline.Pressed)
                     timeline.Dragged = true;
             });
-            card.Add(previewSurface);
 
             _players.Add(timeline);
             card.RegisterCallback<ContextClickEvent>(evt => ShowClipMenu(clip));
@@ -412,6 +410,10 @@ namespace Remedy.Schematics.Browsers
             var container = new VisualElement();
             container.AddToClassList("audio-browser__timeline");
             container.AddToClassList("audio-player-control");
+            var time = new Label($"0:00 / {FormatTime(clip.length)}");
+            time.AddToClassList("audio-browser__time");
+            container.Add(time);
+
             var seek = new Slider(0f, Mathf.Max(clip.samples - 1, 1))
             {
                 value = 0f,
@@ -430,9 +432,6 @@ namespace Remedy.Schematics.Browsers
                     StopPreview();
             });
             container.Add(seek);
-            var time = new Label($"0:00 / {FormatTime(clip.length)}");
-            time.AddToClassList("audio-browser__time");
-            container.Add(time);
             return new PlayerControls(clip, container, seek, time);
         }
 
