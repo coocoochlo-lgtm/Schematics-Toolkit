@@ -158,6 +158,15 @@ namespace Remedy.Schematics
             }
         }
 
+        public Union GetInputValueUnion(string name)
+        {
+            if (IsDirty)
+                UpdateCaches();
+
+            PullMostRecentInputValue(name);
+            return _cachedInputsByName[name];
+        }
+
         public int GetInputPort(string name)
         {
             return _cachedInputsByName[name];

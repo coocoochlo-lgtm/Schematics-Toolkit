@@ -13,13 +13,20 @@ namespace Remedy.Schematics
         public GameObject Target;
         [Input("Position")]
         public Vector3 NewPosition;
+        [Editable]
+        public bool Local;
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
         {
-            Target = GetInputValue<GameObject>("Target");
-            Position = GetInputValue<Vector3>("Position");
+            var target = GetInputValue<GameObject>(nameof(Target), Target);
+            if (target == null)
+                throw new InvalidOperationException("Set Position requires a target GameObject.");
 
-            Target.transform.position = Position;
+            var position = GetInputValue<Vector3>("Position", NewPosition);
+            if (Local)
+                target.transform.localPosition = position;
+            else
+                target.transform.position = position;
         }
     }
 }

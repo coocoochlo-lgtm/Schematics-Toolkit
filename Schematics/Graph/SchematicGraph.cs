@@ -95,10 +95,33 @@ namespace Remedy.Schematics
 
         public bool TryGetVariable(int id, out VariableData variableData)
         {
-            if (_runtimeSignalCache.Count > id)
+            if (_runtimeVariableCache != null && id >= 0 && _runtimeVariableCache.Count > id)
             {
                 variableData = _runtimeVariableCache[id];
                 return true;
+            }
+
+            variableData = null;
+            return false;
+        }
+
+        public bool TryGetVariable(string name, out VariableData variableData)
+        {
+#if UNITY_EDITOR
+            if (_editorVariableCache != null && _editorVariableCache.TryGetValue(name, out variableData))
+                return variableData != null;
+#endif
+            if (_runtimeVariableCache != null)
+            {
+                for (var i = 0; i < _runtimeVariableCache.Count; i++)
+                {
+                    var variable = _runtimeVariableCache[i];
+                    if (variable != null && variable.Name == name)
+                    {
+                        variableData = variable;
+                        return true;
+                    }
+                }
             }
 
             variableData = null;
