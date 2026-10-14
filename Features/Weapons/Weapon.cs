@@ -9,9 +9,6 @@ using Remedy.Schematics;
 using Remedy.Weapons.Projectiles;
 using Remedy.Common;
 
-#if UNITY_EDITOR
-using UnityEditor;
-#endif
 
 namespace Remedy.Weapons
 {
@@ -642,33 +639,5 @@ namespace Remedy.Weapons
             Equip,
             Unequip
         }
-
-#if UNITY_EDITOR
-        [MenuItem("Remedy/Weapons/Create Weapon")]
-        public static void CreateWeaponPrefab()
-        {
-            string path = "Assets/Content/Prefabs/Weapons/New Weapon.prefab";
-
-            // Create a new Schematic Object with a Weapon Behavior
-            GameObject weaponObject = new GameObject("NewWeapon");
-            var schematic = weaponObject.AddComponent<SchematicObject>();
-            schematic.AttachBehavior<Weapon>();
-
-            // Ensure the directory exists
-            string directory = System.IO.Path.GetDirectoryName(path);
-            if (!System.IO.Directory.Exists(directory))
-            {
-                System.IO.Directory.CreateDirectory(directory);
-            }
-
-            // Create the prefab
-            var prefab = PrefabUtility.SaveAsPrefabAsset(weaponObject, path);
-
-            // Destroy the temporary GameObject in the scene
-            GameObject.DestroyImmediate(weaponObject);
-
-            Debug.Log("Weapon prefab created at: " + path, prefab);
-        }
-#endif
     }
 }

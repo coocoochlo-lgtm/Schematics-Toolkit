@@ -1,0 +1,120 @@
+/*
+ * Shared look of every Schematics browser window (Template Browser, Schematic Objects, and any you add by deriving
+ * from SchematicBrowserWindow). Change it here and every browser follows.
+ *
+ * The grid (SchematicTemplateGrid) sets its sizes and spacing inline, and inline styles beat stylesheet rules, so
+ * use the classes below for anything the grid doesn't set (fonts, borders, transitions, extra colors) and change
+ * the grid's built-in sizes in SchematicTemplateGrid.cs itself.
+ *
+ *   .schematic-browser                  the window's root (+ --dark / --light for the editor skin)
+ *   .schematic-browser__header          the row above the grid
+ *   .schematic-browser__hint            the hint at its left
+ *   .schematic-browser__controls        the window's own toggles and dropdowns
+ *   .schematic-browser__nav             the buttons to the other browsers (+ __nav-button, --current, __nav-icon, __nav-label)
+ *   .schematic-grid__toolbar / __chips / __chip / __chip--selected / __content / __tile / __tile--selected /
+ *   __tile--create / __thumbnail / __label / __details / __empty
+ */
+
+.schematic-browser {
+    flex-direction: column;
+    flex-grow: 1;
+}
+
+.schematic-browser--dark {
+    --schematic-header-background: #2b2b2b;
+    --schematic-border: rgba(0, 0, 0, 0.35);
+    --schematic-accent: #2c5d87;
+    --schematic-nav-hover: rgba(255, 255, 255, 0.08);
+}
+
+.schematic-browser--light {
+    --schematic-header-background: #d6d6d6;
+    --schematic-border: rgba(0, 0, 0, 0.2);
+    --schematic-accent: #3a72b0;
+    --schematic-nav-hover: rgba(0, 0, 0, 0.08);
+}
+
+.schematic-browser__header {
+    flex-direction: row;
+    align-items: center;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+    min-height: 26px;
+    padding: 2px 6px;
+    background-color: var(--schematic-header-background);
+    border-bottom-width: 1px;
+    border-bottom-color: var(--schematic-border);
+}
+
+.schematic-browser__hint {
+    flex-grow: 1;
+    flex-shrink: 1;
+    opacity: 0.7;
+    white-space: normal;
+    -unity-text-align: middle-left;
+    margin-right: 6px;
+}
+
+.schematic-browser__controls {
+    flex-direction: row;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.schematic-browser__controls > * {
+    margin-left: 6px;
+}
+
+.schematic-browser__toggle > Label {
+    min-width: 0;
+    margin-right: 4px;
+}
+
+.schematic-browser__nav {
+    flex-direction: row;
+    align-items: center;
+    flex-shrink: 0;
+    margin-left: 10px;
+    padding-left: 8px;
+    border-left-width: 1px;
+    border-left-color: var(--schematic-border);
+}
+
+.schematic-browser__nav-button {
+    flex-direction: row;
+    align-items: center;
+    height: 20px;
+    margin: 0 0 0 2px;
+    padding: 0 6px;
+    border-width: 0;
+    border-radius: 3px;
+    background-color: rgba(0, 0, 0, 0);
+}
+
+.schematic-browser__nav-button:hover {
+    background-color: var(--schematic-nav-hover);
+}
+
+.schematic-browser__nav-button--current {
+    background-color: var(--schematic-accent);
+    color: #ffffff;
+}
+
+.schematic-browser__nav-button--current:hover {
+    background-color: var(--schematic-accent);
+}
+
+.schematic-browser__nav-icon {
+    width: 16px;
+    height: 16px;
+    margin-right: 3px;
+}
+
+.schematic-browser__nav-label {
+    -unity-text-align: middle-left;
+}
+
+.schematic-grid__tile {
+    transition-property: background-color;
+    transition-duration: 0.08s;
+}

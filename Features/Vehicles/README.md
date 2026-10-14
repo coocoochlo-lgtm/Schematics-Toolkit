@@ -10,7 +10,7 @@ Drivable things for the toolkit, in two halves that work apart or together:
 
 ## Quick start
 
-**Tools → Remedy → Vehicles → Create Arcade Car** makes a ready-to-drive prefab in the selected Project folder: a
+`ArcadeCarMenu.CreateArcadeCarPrefab(folder)` (editor code, meant for a future Arcade Car template) makes a ready-to-drive prefab in the given Project folder: a
 Box3D body with a chassis and a cabin shape, Arcade Car with four wheels (placeholder cylinders), its Properties
 asset, and Vehicle Seats with a driver and a passenger seat, each with its Signals.
 

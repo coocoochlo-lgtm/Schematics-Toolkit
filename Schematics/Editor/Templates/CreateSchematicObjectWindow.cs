@@ -11,7 +11,9 @@ namespace Remedy.Schematics.Templates
     /// of your own in the selected folder (with its own copy of the template's graph), ready to rename.
     /// </summary>
     /// <remarks>
-    /// The old way (dragging a GameObject into the Project window) still works exactly as before.
+    /// The old way (dragging a GameObject into the Project window) still works exactly as before. This is the quick
+    /// pop-up for right-click creation; the dockable Template Browser (Window > Remedy > Template Browser, or the main
+    /// toolbar) lives in the Schematics Browsers assembly and shows the same grid.
     /// </remarks>
     public class CreateSchematicObjectWindow : EditorWindow
     {
@@ -135,10 +137,6 @@ namespace Remedy.Schematics.Templates
         {
             ShowForProject(SchematicObjectFactory.SelectedProjectFolder());
         }
-
-        /// <summary>Opens the browser on its own, to look at and manage templates.</summary>
-        [MenuItem("Tools/Remedy/Schematics/Templates/Template Browser", false, 0)]
-        private static void OpenBrowser() => ShowForScene();
 
         #endregion
 

@@ -12,7 +12,10 @@ Premade Schematic Objects you can start from, and the **Create New Schematic Obj
   or a Prefab Variant if you tick it in the browser's header) with **its own copy of the template's graph**, so editing it
   never changes the template. It's selected and ready to rename.
 - You can also drag a tile from the browser straight into the Scene view.
-- *Tools > Remedy > Schematics > Templates > Template Browser* opens the browser on its own.
+- The **Template Browser** (*Window > Remedy > Template Browser*, the **Templates** button on the main toolbar, or
+  *Tools > Remedy > Schematics > Templates > Template Browser*) is the same grid as a normal dockable tab: double-click
+  places a template at the Scene view's pivot. Its sibling, **Schematic Objects**, lists every Schematic prefab already in
+  the project. Both live in `Schematics/Editor/Browsers` (see its README).
 
 Double-click or Enter picks a template. Right-click a tile for Open Prefab, Open Schematic Graph, Ping, Level Design,
 Refresh Thumbnail and Remove From Templates. The old way (dragging a GameObject into the Project window) works as before.
@@ -70,6 +73,12 @@ SchematicTemplates.IsLevelDesign(template); SchematicTemplates.SetLevelDesign(te
 var grid = new SchematicTemplateGrid("MyTool.Grid") { Filter = SchematicTemplates.IsLevelDesign };
 grid.Picked += template => SchematicObjectFactory.InstantiateInScene(template, parent, point);
 root.Add(grid);
+
+// ...or showing anything else as tiles (prefabs wrapped in throwaway SchematicTemplates)
+grid.Source = () => myEntries;                                   // default: SchematicTemplates.All
+grid.CategoriesOf = entry => new[] { "Some Chip" };              // default: entry.CategoryOrDefault
+grid.TileMenu = (menu, entry) => menu.AppendAction("Hello", _ => { });
+grid.ShowCreateTile = false; grid.EmptyMessage = "Nothing here yet.";
 
 // Making objects
 SchematicObjectFactory.InstantiateInScene(template, parent, worldPoint);

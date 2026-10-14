@@ -10,6 +10,9 @@ namespace Remedy.Schematics.Templates
     [CustomEditor(typeof(SchematicTemplatesData))]
     public class SchematicTemplatesDataEditor : Editor
     {
+        /// <summary>The menu item that opens the dockable Template Browser.</summary>
+        public const string TemplateBrowserMenuPath = "Window/Remedy/Template Browser";
+
         public override void OnInspectorGUI()
         {
             EditorGUILayout.HelpBox(
@@ -29,7 +32,8 @@ namespace Remedy.Schematics.Templates
             EditorGUILayout.Space();
             using (new EditorGUILayout.HorizontalScope())
             {
-                if (GUILayout.Button("Open Template Browser"))
+                // The dockable browser lives in another assembly (which references this one), so it's opened by its menu.
+                if (GUILayout.Button("Open Template Browser") && !EditorApplication.ExecuteMenuItem(TemplateBrowserMenuPath))
                     CreateSchematicObjectWindow.ShowForScene();
                 if (GUILayout.Button("Refresh Thumbnails"))
                     foreach (var template in ((SchematicTemplatesData)target).Templates)

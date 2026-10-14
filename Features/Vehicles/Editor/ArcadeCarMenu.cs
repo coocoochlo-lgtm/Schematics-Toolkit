@@ -7,25 +7,33 @@ using UnityEngine;
 namespace Remedy.Vehicles.Editor
 {
     /// <summary>
-    /// Tools > Remedy > Vehicles > Create Arcade Car: a ready-to-drive car prefab to start from. A Box3D body with a
-    /// chassis and a cabin shape, Arcade Car with four wheels (placeholder cylinders), its Properties asset, and
-    /// Vehicle Seats with a driver and a passenger seat (and their Signals). Made in the selected Project folder.
+    /// Builds a ready-to-drive Arcade Car prefab to start from: a Box3D body with a chassis and a cabin shape, Arcade Car
+    /// with four wheels (placeholder cylinders), its Properties asset, and Vehicle Seats with a driver and a passenger
+    /// seat (and their Signals).
     /// </summary>
-    internal static class ArcadeCarMenu
+    /// <remarks>
+    /// This used to be the Tools > Remedy > Vehicles > Create Arcade Car menu item. Cars are meant to come from the
+    /// Template Browser now (make one, then list it as a template), so the menu item is gone; the builder stays so a
+    /// template generator (like the Level Kit's) can call <see cref="CreateArcadeCarPrefab"/> to make the starting prefab.
+    /// </remarks>
+    public static class ArcadeCarMenu
     {
         private const string DefaultFolder = "Assets/Content/Prefabs/Vehicles";
 
-        [MenuItem("Tools/Remedy/Vehicles/Create Arcade Car")]
-        private static void CreateArcadeCar()
+        /// <summary>
+        /// Makes a new Arcade Car prefab in <paramref name="folder"/> (null: the selected Project folder, or
+        /// Assets/Content/Prefabs/Vehicles) and returns it, or null if it couldn't.
+        /// </summary>
+        public static GameObject CreateArcadeCarPrefab(string folder = null)
         {
             // Attaching needs each Behavior's Metadata.
             if (BehaviorMetadataGenerator.GetOrCreate(typeof(ArcadeCar)) == null || BehaviorMetadataGenerator.GetOrCreate(typeof(VehicleSeats)) == null)
             {
                 Debug.LogError("Couldn't create the Behavior Metadata for Arcade Car / Vehicle Seats. Try Tools/Remedy/Schematics/Refresh Behavior Metadata.");
-                return;
+                return null;
             }
 
-            string folder = SelectedFolder();
+            folder = string.IsNullOrEmpty(folder) ? SelectedFolder() : folder.TrimEnd('/');
             if (!AssetDatabase.IsValidFolder(folder))
             {
                 Directory.CreateDirectory(folder);
@@ -105,6 +113,7 @@ namespace Remedy.Vehicles.Editor
                     EditorGUIUtility.PingObject(prefab);
                     Debug.Log($"Arcade Car created at {prefabPath}. Open it to place the seats and wheels; right-click its Properties for presets.", prefab);
                 }
+                return prefab;
             }
             finally
             {

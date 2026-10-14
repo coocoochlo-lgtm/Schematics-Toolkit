@@ -20,6 +20,12 @@ namespace Remedy.Schematics.Templates
     /// and the Level Designer both do). It listens to <see cref="SchematicTemplates.Changed"/> and the thumbnail
     /// renderer while it's attached to a panel, so it stays current by itself. Use <see cref="Filter"/> to show only
     /// some templates (e.g. <c>SchematicTemplates.IsLevelDesign</c>).
+    /// <para>
+    /// It isn't limited to templates: set <see cref="Source"/> to show any list of prefabs (wrapped in throwaway
+    /// <see cref="SchematicTemplate"/>s, as the Schematic Objects browser does), <see cref="CategoriesOf"/> to choose what
+    /// the chips group by, and <see cref="TileMenu"/> to replace the right-click menu. Its parts carry USS classes
+    /// (<c>schematic-grid__…</c>) so a window's stylesheet can restyle them.
+    /// </para>
     /// </remarks>
     public class SchematicTemplateGrid : VisualElement
     {
@@ -128,16 +134,51 @@ namespace Remedy.Schematics.Templates
         /// <summary>Whether new templates from the "+" tile are flagged as Level Design.</summary>
         public bool NewTemplatesAreLevelDesign { get; set; }
 
+        private Func<IEnumerable<SchematicTemplate>> _source;
+        private Func<SchematicTemplate, IEnumerable<string>> _categoriesOf;
+
+        /// <summary>
+        /// What the grid lists. Null (the default): every template (<see cref="SchematicTemplates.All"/>). Set it to show
+        /// anything else as tiles; call <see cref="Refresh"/> when that list changes. Keep handing back the same
+        /// objects for the same prefabs so the selection survives a refresh.
+        /// </summary>
+        public Func<IEnumerable<SchematicTemplate>> Source
+        {
+            get => _source;
+            set { _source = value; Refresh(); }
+        }
+
+        /// <summary>
+        /// The chips an item shows up under (it can be under several, e.g. one per tag). Null: its
+        /// <see cref="SchematicTemplate.CategoryOrDefault"/>.
+        /// </summary>
+        public Func<SchematicTemplate, IEnumerable<string>> CategoriesOf
+        {
+            get => _categoriesOf;
+            set { _categoriesOf = value; Refresh(); }
+        }
+
+        /// <summary>
+        /// Fills the right-click menu of a tile (already selected when this runs). Null: the template menu (Create,
+        /// Open Prefab, Open Schematic Graph, Ping, Level Design, Remove From Templates…).
+        /// </summary>
+        public Action<DropdownMenu, SchematicTemplate> TileMenu { get; set; }
+
+        /// <summary>What the grid says when there's nothing at all to show. Null: the "No templates yet" hint.</summary>
+        public string EmptyMessage { get; set; }
+
         /// <param name="prefsKey">Remembers the tile size and category per use (EditorPrefs key prefix).</param>
         public SchematicTemplateGrid(string prefsKey = "Remedy.Schematics.TemplateGrid")
         {
             _prefsKey = prefsKey;
             focusable = true;
+            AddToClassList("schematic-grid");
             style.flexGrow = 1;
             style.flexDirection = FlexDirection.Column;
 
             // Toolbar: search + size.
             var toolbar = new Toolbar();
+            toolbar.AddToClassList("schematic-grid__toolbar");
             toolbar.style.flexShrink = 0;
             _search = new ToolbarSearchField();
             _search.style.flexGrow = 1;
@@ -156,6 +197,7 @@ namespace Remedy.Schematics.Templates
 
             // Category chips.
             _categoryBar = new VisualElement();
+            _categoryBar.AddToClassList("schematic-grid__chips");
             _categoryBar.style.flexDirection = FlexDirection.Row;
             _categoryBar.style.flexWrap = Wrap.Wrap;
             _categoryBar.style.flexShrink = 0;
@@ -167,8 +209,10 @@ namespace Remedy.Schematics.Templates
 
             // The grid.
             _scroll = new ScrollView(ScrollViewMode.Vertical);
+            _scroll.AddToClassList("schematic-grid__scroll");
             _scroll.style.flexGrow = 1;
             _content = new VisualElement();
+            _content.AddToClassList("schematic-grid__content");
             _content.style.flexDirection = FlexDirection.Row;
             _content.style.flexWrap = Wrap.Wrap;
             _content.style.paddingLeft = 4;
@@ -179,6 +223,7 @@ namespace Remedy.Schematics.Templates
             Add(_scroll);
 
             _empty = new Label("No templates yet.\nClick + to make one, or run Tools > Remedy > Schematics > Templates > Generate Level Kit Templates.");
+            _empty.AddToClassList("schematic-grid__empty");
             _empty.style.whiteSpace = WhiteSpace.Normal;
             _empty.style.unityTextAlign = TextAnchor.MiddleCenter;
             _empty.style.opacity = 0.6f;
@@ -187,6 +232,7 @@ namespace Remedy.Schematics.Templates
             _empty.style.marginRight = 12;
 
             _details = new Label();
+            _details.AddToClassList("schematic-grid__details");
             _details.style.flexShrink = 0;
             _details.style.whiteSpace = WhiteSpace.Normal;
             _details.style.paddingLeft = 6;
@@ -251,7 +297,7 @@ namespace Remedy.Schematics.Templates
             _tiles.Clear();
 
             string search = _search.value?.Trim() ?? "";
-            foreach (var template in SchematicTemplates.InCategory(_category))
+            foreach (var template in ItemsInCategory(_category))
             {
                 if (_filter != null && !_filter(template))
                     continue;
@@ -274,7 +320,7 @@ namespace Remedy.Schematics.Templates
             {
                 _empty.text = search.Length > 0 || _category != AllCategory || _filter != null
                     ? "Nothing matches."
-                    : "No templates yet.\nClick + to make one, or run Tools > Remedy > Schematics > Templates > Generate Level Kit Templates.";
+                    : EmptyMessage ?? "No templates yet.\nClick + to make one, or run Tools > Remedy > Schematics > Templates > Generate Level Kit Templates.";
                 _content.Add(_empty);
             }
 
@@ -289,24 +335,42 @@ namespace Remedy.Schematics.Templates
                 UpdateDetails();
         }
 
-        private static bool Matches(SchematicTemplate template, string search)
+        private IEnumerable<SchematicTemplate> Items
+            => _source != null ? (_source() ?? Enumerable.Empty<SchematicTemplate>()).Where(t => t != null) : SchematicTemplates.All;
+
+        private IEnumerable<string> CategoriesFor(SchematicTemplate template)
+            => _categoriesOf != null ? _categoriesOf(template) ?? Enumerable.Empty<string>() : new[] { template.CategoryOrDefault };
+
+        private IEnumerable<SchematicTemplate> ItemsInCategory(string category)
+            => string.IsNullOrEmpty(category) || category == AllCategory ? Items : Items.Where(t => CategoriesFor(t).Contains(category));
+
+        private bool Matches(SchematicTemplate template, string search)
         {
             foreach (var word in search.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries))
             {
                 bool found = template.DisplayName.IndexOf(word, StringComparison.OrdinalIgnoreCase) >= 0
-                    || template.CategoryOrDefault.IndexOf(word, StringComparison.OrdinalIgnoreCase) >= 0
+                    || CategoriesFor(template).Any(c => c != null && c.IndexOf(word, StringComparison.OrdinalIgnoreCase) >= 0)
                     || (template.Description ?? "").IndexOf(word, StringComparison.OrdinalIgnoreCase) >= 0;
                 if (!found) return false;
             }
             return true;
         }
 
+        // The chips: the templates' own category order, or (for a custom Source/CategoriesOf) every category used, A to Z.
+        private IEnumerable<string> AllCategories()
+        {
+            if (_source == null && _categoriesOf == null)
+                return SchematicTemplates.Categories;
+            return Items.SelectMany(t => CategoriesFor(t)).Where(c => !string.IsNullOrEmpty(c)).Distinct()
+                .OrderBy(c => c, StringComparer.OrdinalIgnoreCase);
+        }
+
         private void BuildCategories()
         {
             _categoryBar.Clear();
             var categories = new List<string> { AllCategory };
-            foreach (var category in SchematicTemplates.Categories)
-                if (_filter == null || SchematicTemplates.InCategory(category).Any(_filter))
+            foreach (var category in AllCategories())
+                if (_filter == null || ItemsInCategory(category).Any(_filter))
                     categories.Add(category);
             if (!categories.Contains(_category))
                 _category = AllCategory;
@@ -315,6 +379,8 @@ namespace Remedy.Schematics.Templates
             {
                 var chip = new Button(() => Category = category) { text = category };
                 bool on = category == _category;
+                chip.AddToClassList("schematic-grid__chip");
+                if (on) chip.AddToClassList("schematic-grid__chip--selected");
                 chip.style.marginLeft = 0;
                 chip.style.marginRight = 4;
                 chip.style.marginTop = 1;
@@ -339,7 +405,7 @@ namespace Remedy.Schematics.Templates
                 _details.text = _tiles.Count > 0 && _tiles.All(t => t.Template == null) ? "Click + to make a template." : "";
                 return;
             }
-            string text = $"<b>{Selected.DisplayName}</b>  <color=#888888>{Selected.CategoryOrDefault}</color>";
+            string text = $"<b>{Selected.DisplayName}</b>  <color=#888888>{string.Join(", ", CategoriesFor(Selected))}</color>";
             if (!string.IsNullOrEmpty(Selected.Description))
                 text += "  " + Selected.Description;
             _details.text = text;
@@ -501,6 +567,12 @@ namespace Remedy.Schematics.Templates
         private void BuildTileMenu(ContextualMenuPopulateEvent evt, SchematicTemplate template)
         {
             Select(template);
+            if (TileMenu != null)
+            {
+                TileMenu(evt.menu, template);
+                evt.StopPropagation();
+                return;
+            }
             var prefab = template.Prefab;
             evt.menu.AppendAction("Create", _ => Picked?.Invoke(template));
             evt.menu.AppendSeparator();
@@ -560,6 +632,8 @@ namespace Remedy.Schematics.Templates
             {
                 _grid = grid;
                 Template = template;
+                AddToClassList("schematic-grid__tile");
+                if (template == null) AddToClassList("schematic-grid__tile--create");
                 style.marginLeft = TileMargin;
                 style.marginRight = TileMargin;
                 style.marginTop = TileMargin;
@@ -572,10 +646,12 @@ namespace Remedy.Schematics.Templates
                 SetRadius(style, 4);
 
                 _image = new Image { scaleMode = ScaleMode.ScaleToFit, pickingMode = PickingMode.Ignore };
+                _image.AddToClassList("schematic-grid__thumbnail");
                 SetRadius(_image.style, 3);
                 Add(_image);
 
                 _label = new Label { pickingMode = PickingMode.Ignore };
+                _label.AddToClassList("schematic-grid__label");
                 _label.style.unityTextAlign = TextAnchor.UpperCenter;
                 _label.style.whiteSpace = WhiteSpace.Normal;
                 _label.style.overflow = Overflow.Hidden;
@@ -612,9 +688,10 @@ namespace Remedy.Schematics.Templates
                 {
                     _label.text = template.DisplayName;
                     string path = AssetDatabase.GetAssetPath(template.Prefab);
-                    tooltip = string.IsNullOrEmpty(template.Description)
-                        ? $"{template.DisplayName}\n{template.CategoryOrDefault}\n{path}"
-                        : $"{template.DisplayName}\n{template.Description}\n{template.CategoryOrDefault} · {path}";
+                    string categories = string.Join(", ", grid.CategoriesFor(template));
+                    tooltip = string.IsNullOrEmpty(template.Description) || template.Description == path
+                        ? $"{template.DisplayName}\n{categories}\n{path}"
+                        : $"{template.DisplayName}\n{template.Description}\n{categories} · {path}";
                     UpdateThumbnail();
 
                     RegisterCallback<PointerDownEvent>(OnPointerDown);
@@ -651,6 +728,7 @@ namespace Remedy.Schematics.Templates
             public void SetSelected(bool selected)
             {
                 _selected = selected;
+                EnableInClassList("schematic-grid__tile--selected", selected);
                 Paint();
             }
 
