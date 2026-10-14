@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using Cysharp.Threading.Tasks;
 using System;
+using System.Collections;
 
 namespace Remedy.Schematics
 {
@@ -21,16 +22,22 @@ namespace Remedy.Schematics
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
         {
-            Target = GetOutputValue<GameObject>("Target");
-            MethodName = GetOutputValue<string>("Name");
-            MethodArguments = GetOutputValue<List<object>>("Arguments");
+            // (These used to be read with GetOutputValue on input names, which never found anything.)
+            var target = GetInputValue("Target", Target);
+            if (target == null)
+                target = instance;
+            string methodName = GetInputValue("Name", MethodName);
+            if (target == null || string.IsNullOrEmpty(methodName))
+                return;
 
-            var components = Target.GetComponents<MonoBehaviour>();
-           
-            foreach(var component in components)
-            {
-                component.CallMethod(MethodName, MethodArguments.ToArray());
-            }
+            var list = GetInputValue<IList>("Arguments", MethodArguments);
+            var arguments = new object[list != null ? list.Count : 0];
+            for (int i = 0; i < arguments.Length; i++)
+                arguments[i] = list[i] is Union union ? SignalArgs.ToObject(union) : list[i];
+
+            foreach (var component in target.GetComponents<MonoBehaviour>())
+                if (component != null)
+                    component.CallMethod(methodName, arguments);
         }
     }
 } 

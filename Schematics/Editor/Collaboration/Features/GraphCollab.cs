@@ -285,7 +285,7 @@ namespace Remedy.Schematics.Collaboration
         {
             GraphMsg msg;
             try { msg = JsonUtility.FromJson<GraphMsg>(json); }
-            catch (Exception) { return; }
+            catch (Exception e) { CollabLog.Warning($"Ignored an unreadable graph message from {peer?.Name ?? "a teammate"} ({e.Message})."); return; }
             if (msg == null || string.IsNullOrEmpty(msg.guid) || msg.from == CollabFeatures.LocalId) return;
             if (CollabSession.IsHost) CollabSession.SetShared(CollabChannels.SharedGraphKey(msg.guid), json);
             if (!CollabFeaturesSettings.instance.LiveGraphSync) return;

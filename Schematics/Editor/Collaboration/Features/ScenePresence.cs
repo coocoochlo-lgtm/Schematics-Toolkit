@@ -78,24 +78,8 @@ namespace Remedy.Schematics.Collaboration
                 return;
             }
 
-            var view = SceneView.lastActiveSceneView;
-            if (view != null && view.camera != null)
-            {
-                var cam = new CameraPresence
-                {
-                    scene = SceneSync.IsSyncedScene(SceneManager.GetActiveScene()) ? SceneManager.GetActiveScene().path : "",
-                    scenes = OpenScenePaths(),
-                    pivot = Round(view.pivot),
-                    rotation = view.rotation,
-                    size = view.size,
-                    ortho = view.orthographic,
-                    in2D = view.in2DMode,
-                    position = Round(view.camera.transform.position),
-                };
-                string json = JsonUtility.ToJson(cam);
-                if (json != _lastCameraJson) { _lastCameraJson = json; NoteActivity(); }
-                CollabFeatures.PublishPresence(CollabChannels.PresenceCamera, cam);
-            }
+            // The camera first, on its own: whatever goes wrong with selection or location must not stop it.
+            CollabFeatures.Safe(PublishCamera);
 
             var selection = new SelectionPresence { t = _selectionTime, scene = SceneManager.GetActiveScene().path };
             foreach (var go in Selection.gameObjects)
@@ -123,6 +107,47 @@ namespace Remedy.Schematics.Collaboration
             }
             location.status = EditorApplication.timeSinceStartup - _lastActivity > 120 ? "Idle" : "Active";
             CollabFeatures.PublishPresence(CollabChannels.PresenceLocation, location);
+        }
+
+        private static bool _repairedView;
+
+        private static void PublishCamera()
+        {
+            var view = SceneView.lastActiveSceneView;
+            if (view == null || view.camera == null) return;
+
+            // A Scene view whose rotation became invalid (for example by jumping to a teammate whose camera presence had
+            // a zero quaternion) logs "Quaternion To Matrix conversion failed" on every GUI call and its camera stops
+            // updating, so the avatar others see stops following. Repair it once and say so.
+            var viewRotation = view.rotation;
+            var safeViewRotation = CollabFeatures.SafeRotation(viewRotation);
+            if (safeViewRotation.x != viewRotation.x || safeViewRotation.y != viewRotation.y || safeViewRotation.z != viewRotation.z || safeViewRotation.w != viewRotation.w)
+            {
+                view.rotation = safeViewRotation;
+                if (!_repairedView)
+                {
+                    _repairedView = true;
+                    CollabLog.Warning("Your Scene view camera had an invalid rotation; it was reset so teammates see your camera again.");
+                }
+                return;   // the camera transform updates on the next repaint
+            }
+
+            // Where the Scene view camera really is (its transform), so the avatar follows orbiting, flying and zooming.
+            var cameraTransform = view.camera.transform;
+            var cam = new CameraPresence
+            {
+                scene = SceneSync.IsSyncedScene(SceneManager.GetActiveScene()) ? SceneManager.GetActiveScene().path : "",
+                scenes = OpenScenePaths(),
+                pivot = Round(CollabFeatures.SafePosition(view.pivot)),
+                rotation = CollabFeatures.SafeRotation(cameraTransform.rotation),
+                size = float.IsFinite(view.size) && view.size > 0f ? view.size : 10f,
+                ortho = view.orthographic,
+                in2D = view.in2DMode,
+                position = Round(CollabFeatures.SafePosition(cameraTransform.position)),
+            };
+            string json = JsonUtility.ToJson(cam);
+            if (json != _lastCameraJson) { _lastCameraJson = json; NoteActivity(); }
+            CollabFeatures.PublishPresence(CollabChannels.PresenceCamera, cam);
         }
 
         private static Vector3 Round(Vector3 v) => new(Mathf.Round(v.x * 1000f) / 1000f, Mathf.Round(v.y * 1000f) / 1000f, Mathf.Round(v.z * 1000f) / 1000f);
@@ -269,34 +294,44 @@ namespace Remedy.Schematics.Collaboration
         {
             var color = peer.Color;
             var settings = CollabFeaturesSettings.instance;
-            float scale = Mathf.Max(0.01f, settings.AvatarScale);
-            var position = cam.position;
-            var rotation = cam.rotation;
-            if (rotation.x == 0 && rotation.y == 0 && rotation.z == 0 && rotation.w == 0) rotation = Quaternion.identity;
+            float scale = Mathf.Max(0.01f, float.IsFinite(settings.AvatarScale) ? settings.AvatarScale : 1f);
+            // The remote peer's camera pose, validated (GetPresence already did; this guards older cached values).
+            var position = CollabFeatures.SafePosition(cam.position);
+            var rotation = CollabFeatures.SafeRotation(cam.rotation);
 
             var zTest = Handles.zTest;
+            var handlesColor = Handles.color;
             Handles.zTest = UnityEngine.Rendering.CompareFunction.Always;
-
-            if (settings.AvatarPrefab != null) AvatarRenderer.Draw(settings.AvatarPrefab, color, Matrix4x4.TRS(position, rotation, Vector3.one * scale));
-            else DrawPlaceholderAvatar(position, rotation, scale, color);
-
-            var labelStyle = new GUIStyle(EditorStyles.whiteBoldLabel) { alignment = TextAnchor.MiddleCenter, normal = { textColor = color } };
-            Handles.Label(position + Vector3.up * 0.75f * scale, peer.Name, labelStyle);
-
-            var selection = CollabFeatures.GetPresence<SelectionPresence>(peer, CollabChannels.PresenceSelection);
-            if (selection?.ids != null)
+            try
             {
-                Handles.color = color;
-                foreach (var id in selection.ids)
+                // Each part guarded on its own, so a broken avatar prefab still leaves the name and selection visible.
+                if (settings.AvatarPrefab != null)
+                    CollabFeatures.Safe(() => AvatarRenderer.Draw(settings.AvatarPrefab, color, Matrix4x4.TRS(position, rotation, Vector3.one * scale)));
+                else CollabFeatures.Safe(() => DrawPlaceholderAvatar(position, rotation, scale, color));
+
+                var labelStyle = new GUIStyle(EditorStyles.whiteBoldLabel) { alignment = TextAnchor.MiddleCenter, normal = { textColor = color } };
+                string label = peer.Role == CollabRole.Playtester ? peer.Name + " (playing)" : peer.Name;
+                Handles.Label(position + Vector3.up * 0.75f * scale, label, labelStyle);
+
+                var selection = CollabFeatures.GetPresence<SelectionPresence>(peer, CollabChannels.PresenceSelection);
+                if (selection?.ids != null)
                 {
-                    var go = CollabObjectIds.Resolve(id);
-                    if (go == null) continue;
-                    var bounds = WorldBounds(go);
-                    Handles.DrawDottedLine(position, bounds.center, 4f);
-                    DrawBox(bounds, color);
+                    Handles.color = color;
+                    foreach (var id in selection.ids)
+                    {
+                        var go = CollabObjectIds.Resolve(id);
+                        if (go == null) continue;
+                        var bounds = WorldBounds(go);
+                        Handles.DrawDottedLine(position, bounds.center, 4f);
+                        DrawBox(bounds, color);
+                    }
                 }
             }
-            Handles.zTest = zTest;
+            finally
+            {
+                Handles.zTest = zTest;
+                Handles.color = handlesColor;
+            }
         }
 
         private static void DrawPlaceholderAvatar(Vector3 position, Quaternion rotation, float scale, Color color)

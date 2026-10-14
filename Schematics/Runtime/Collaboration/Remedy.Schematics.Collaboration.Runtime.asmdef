@@ -1,0 +1,14 @@
+{
+    "name": "Remedy.Schematics.Collaboration.Runtime",
+    "rootNamespace": "Remedy.Schematics.Collaboration",
+    "references": [],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

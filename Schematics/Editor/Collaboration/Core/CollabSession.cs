@@ -26,8 +26,15 @@ namespace Remedy.Schematics.Collaboration
         /// </summary>
         public IReadOnlyDictionary<string, string> Presence = new Dictionary<string, string>();
         public bool IsLocal;
+        /// <summary>
+        /// Editor: editing in a Unity editor. Playtester: playing the game, in a build or in an editor's Play Mode.
+        /// Editors' scene edits reach playtesters who switched on "Receive live edits" (see CollabLiveEdits).
+        /// </summary>
+        public CollabRole Role;
+        /// <summary>True for a build of the game (a playtest client). Builds join sessions but never host them.</summary>
+        public bool IsBuild;
 
-        public override string ToString() => $"{Name} ({(Id != null && Id.Length > 8 ? Id.Substring(0, 8) : Id)}{(IsHost ? ", host" : "")})";
+        public override string ToString() => $"{Name} ({(Id != null && Id.Length > 8 ? Id.Substring(0, 8) : Id)}{(IsHost ? ", host" : "")}{(Role == CollabRole.Playtester ? ", playtester" : "")})";
     }
 
     /// <summary>
@@ -123,7 +130,7 @@ namespace Remedy.Schematics.Collaboration
             foreach (var handler in list.ToArray())
             {
                 try { handler(from, json); }
-                catch (Exception e) { Debug.LogException(e); }
+                catch (Exception e) { CollabLog.Exception($"A handler for channel '{channel}' threw", e); }
             }
         }
 
@@ -141,7 +148,7 @@ namespace Remedy.Schematics.Collaboration
             foreach (Action<T> handler in action.GetInvocationList())
             {
                 try { handler(value); }
-                catch (Exception e) { Debug.LogException(e); }
+                catch (Exception e) { CollabLog.Exception("A collaboration event handler threw", e); }
             }
         }
 
@@ -151,7 +158,7 @@ namespace Remedy.Schematics.Collaboration
             foreach (Action handler in action.GetInvocationList())
             {
                 try { handler(); }
-                catch (Exception e) { Debug.LogException(e); }
+                catch (Exception e) { CollabLog.Exception("A collaboration event handler threw", e); }
             }
         }
 
@@ -189,7 +196,7 @@ namespace Remedy.Schematics.Collaboration
             State = state;
             Message = message;
             try { Changed?.Invoke(); }
-            catch (Exception e) { Debug.LogException(e); }
+            catch (Exception e) { CollabLog.Exception("A CollabStatus.Changed handler threw", e); }
         }
     }
 }

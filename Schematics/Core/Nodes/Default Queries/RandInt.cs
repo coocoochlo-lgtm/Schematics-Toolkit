@@ -23,24 +23,10 @@ namespace Remedy.Schematics
 
         public override object OnRequestValue(Port port)
         {
-            try
-            {
-                LowerBound = GetOutputValue<int>("LowerBound");
-            }
-            catch
-            {
-                LowerBound = 0;
-            }
-            try
-            {
-                UpperBound = GetOutputValue<int>("UpperBound");
-            }
-            catch 
-            {
-                UpperBound = 1;
-            }
-
-            return UnityEngine.Random.Range(LowerBound, UpperBound);
+            // A new number every flow step (several inputs reading it in the same step see the same roll).
+            int lower = GetInputValue("LowerBound", LowerBound);
+            int upper = GetInputValue("UpperBound", UpperBound);
+            return UnityEngine.Random.Range(lower, upper);
         }
     }
 }

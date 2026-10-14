@@ -31,19 +31,17 @@ namespace Remedy.Schematics
 
         public override bool Condition()
         {
-            if (GetPort("First Value").ConnectionCount != 0)
-                FirstValue = GetInputValue<float>("First Value");
+            // Connected values are read fresh; unconnected, the numbers typed on the node (never overwritten).
+            float first = GetInputValue("First Value", FirstValue);
+            float second = GetInputValue("Second Value", SecondValue);
 
-            if (GetPort("Second Value").ConnectionCount != 0)
-                SecondValue = GetInputValue<float>("Second Value");
-
-            switch(Operator)
+            switch (Operator)
             {
-                case ComparisonOperator.LessThan: return FirstValue < SecondValue;
-                case ComparisonOperator.LessThanOrEqualTo: return FirstValue <= SecondValue;
-                case ComparisonOperator.EqualTo: return FirstValue == SecondValue;
-                case ComparisonOperator.GreaterThan: return FirstValue > SecondValue;
-                case ComparisonOperator.GreaterThanOrEqualTo: return FirstValue >= SecondValue;
+                case ComparisonOperator.LessThan: return first < second;
+                case ComparisonOperator.LessThanOrEqualTo: return first <= second;
+                case ComparisonOperator.EqualTo: return Mathf.Approximately(first, second);
+                case ComparisonOperator.GreaterThan: return first > second;
+                case ComparisonOperator.GreaterThanOrEqualTo: return first >= second;
             }
             return false;
         }

@@ -317,7 +317,7 @@ namespace Remedy.Schematics.Collaboration
             {
                 if (recordUndo) Undo.RecordObject(component, "Remote edit");
                 try { EditorJsonUtility.FromJsonOverwrite(data.json, component); }
-                catch (Exception e) { Debug.LogWarning("[Collaboration] Couldn't apply component data: " + e.Message); }
+                catch (Exception e) { CollabLog.Warning("Couldn't apply component data: " + e.Message); }
             }
             PropertyCodec.Apply(component, data.props, recordUndo);
         }

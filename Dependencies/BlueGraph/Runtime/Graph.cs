@@ -452,6 +452,8 @@ namespace BlueGraph
         {
             output.Connect(input);
             output.Node.Validate();
+            // The input's node caches where its values come from too, so it needs to hear about the new edge.
+            input.Node.Validate();
         }
 
         /// <summary>

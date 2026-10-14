@@ -27,14 +27,11 @@ namespace Remedy.Schematics
 
         public override object OnRequestValue(Port port)
         {
-            X = GetInputValue<float>("x", X);
-            Y = GetInputValue<float>("y", Y);
-            Z = GetInputValue<float>("z", Z);
-
-            Value = new UnityEngine.Vector3(X, Y, Z);
-
-            SetOutputValue(nameof(Value), Value);
-            return Value;
+            // Locals, not the fields: the fields are the numbers typed on the node.
+            return new UnityEngine.Vector3(
+                GetInputValue("x", X),
+                GetInputValue("y", Y),
+                GetInputValue("z", Z));
         }
     }
 }   

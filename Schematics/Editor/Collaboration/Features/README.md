@@ -1,7 +1,7 @@
 # Collaboration Features
 
 Editor-only features built on the collaboration session (`Remedy.Schematics.Collaboration`, in `../Core`). Everything
-here pauses while you're disconnected or in Play Mode.
+here pauses while you're disconnected or in Play Mode (live edits to a game in Play Mode go through `CollabRuntime`).
 
 | What | Where |
 | --- | --- |
@@ -12,6 +12,8 @@ here pauses while you're disconnected or in Play Mode.
 | Team window and chat (Window > Schematics > Team) | `TeamWindow`, `ChatService`, `CollabNavigation` |
 | Connection indicator (Scene view overlay "Collaboration") | `CollabStatusOverlay` |
 | Settings (Project Settings > Schematics > Collaboration Features) | `CollabFeaturesSettings` |
+| Playtest builds: build info and baked object ids | `CollabBuildSteps` (runtime side: `Schematics/Runtime/Collaboration`) |
+| Live edits in the editor's Play Mode | `CollabPlayModeIds` |
 
 ## What people see
 
@@ -31,6 +33,30 @@ here pauses while you're disconnected or in Play Mode.
 - **Team window.** Everyone's avatar, name, host crown, ping, what they're working on and whether they're active.
   Double-click someone to jump to them (their scene(s) from their camera, or their graph at their cursor). Chat at
   the bottom (Enter to send, unread count in the tab, optional sound).
+
+## Editors and playtesters
+
+Everyone in the room is an **editor** (a Unity editor in Edit Mode) or a **playtester** (a build of the game, or an
+editor in Play Mode). The Team window shows it as a badge (EDITOR, PLAYTESTER, PLAYTESTER · BUILD) and counts who's
+playtesting; `CollabPeer.Role` / `CollabPeer.IsBuild` give it to code. A build's player shows in the Scene view like a
+teammate (an avatar where its game camera is, "Name (playing)"), and its scene in the Team window.
+
+**Live edits reach the running game.** The scene edits editors send each other on the `scene` channel also reach
+playtesters. A playtester who ticks *Receive live edits* (the overlay in the corner of a build, or Team window menu >
+Receive Live Edits In Play Mode) sees them applied to the running game by `CollabLiveEdits`, best effort:
+
+- GameObject active state, name and layer; Transform local position, rotation (validated, normalized) and scale;
+  `enabled` of Behaviours, Renderers and Colliders;
+- serialized fields of components by reflection (public or `[SerializeField]`, nested structs, arrays and lists):
+  numbers, bools, strings, enums, vectors, quaternions, colours, rects; built-in components' `m_X` as their C# property
+  `x` where one exists.
+- Not mirrored: creating, deleting or re-parenting objects (the new local transform is applied), object references,
+  objects created after the build. Edits only received while the toggle is on.
+
+Builds can't compute GlobalObjectIds, so `CollabBuildSteps` adds one hidden object with a `CollabSceneIds` map
+(`"g:" + GlobalObjectId` → object) to each scene copy that goes into the build. In Play Mode, `CollabPlayModeIds`
+records each known id's hierarchy path just before Play Mode starts and finds the play-mode copy by it.
+`CollabRuntime.GetObjectId(GameObject)` / `CollabRuntime.FindObject(string)` expose the mapping to game code.
 
 ## How scene sync works
 
@@ -74,7 +100,7 @@ All JSON via `JsonUtility` (classes in `CollabMessages.cs`).
 | `scene` | `SceneMsg { op, scene, mid, from, id, comp, props[{p,v}], data, nodes[], parentId, sibling, aliases[] }`. `op`: `props` (property values of a GameObject (`comp` = "") or component), `comp` (whole component: `data`), `create` / `structure` (hierarchy snapshot: `nodes`, flattened, index 0 = root, with `parentId`/`sibling`), `destroy`, `parent` (new parent, sibling index and local transform), `committed` (host: aliases after a save). |
 | `graph` | `GraphMsg { op:"changed", guid, path, from, rev, enc:"text"\|"base64", data }`: the saved graph asset file. |
 | `chat` | `ChatMsg { id, from, name, color:"#RRGGBB", text, t:unixMs }` |
-| presence `camera` | `CameraPresence { scene, scenes[], pivot, rotation, size, ortho, in2D, position }` |
+| presence `camera` | `CameraPresence { scene, scenes[], pivot, rotation, size, ortho, in2D, position }` (builds send their game camera; rotations are validated where parsed) |
 | presence `selection` | `SelectionPresence { scene, ids[], t }` |
 | presence `location` | `LocationPresence { kind:"scene"\|"graph"\|"none", path, name, scenes[], status:"Active"\|"Idle"\|"Play Mode" }` |
 | presence `graph` | `GraphPresence { path, guid, cursor, cursorInside, selected[], t, viewPosition, viewScale }` |

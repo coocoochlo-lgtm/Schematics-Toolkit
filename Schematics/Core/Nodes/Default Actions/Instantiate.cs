@@ -22,33 +22,13 @@ namespace Remedy.Schematics
         
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
         {
-            if(awaiting)
-            {
-                //await UniTask.WaitForEndOfFrame();
+            var prefab = GetInputValue("Prefab", Prefab);
+            if (prefab == null)
+                throw new InvalidOperationException("Instantiate has no Prefab: connect one, or pick one on the node.");
 
-                InitPosition = GetInputValue<Vector3>("Position", InitPosition);
-                Rotation = GetInputValue<Vector3>("Rotation", Rotation);
-                Prefab = GetInputValue<GameObject>("Prefab", Prefab);
-
-                SetOutputValue(nameof(InstancedObject), ObjectManager.Instantiate(Prefab, InitPosition, Quaternion.Euler(Rotation)));
-
-                return;
-            }
-            else
-            {
-                InitPosition = GetInputValue<Vector3>("Position");
-                Rotation = GetInputValue<Vector3>("Rotation");
-                Prefab = GetInputValue<GameObject>("Prefab");
-
-                SetOutputValue(nameof(InstancedObject), ObjectManager.Instantiate(Prefab, InitPosition, Quaternion.Euler(Rotation)));
-            }
-        }
-
-        public override object OnRequestValue(Port port)
-        {
-            if (InstancedObject == null)
-                return Prefab;
-            return InstancedObject;
+            var position = GetInputValue("Position", InitPosition);
+            var rotation = GetInputValue("Rotation", Rotation);
+            SetOutputValue("Instanced Object", ObjectManager.Instantiate(prefab, position, Quaternion.Euler(rotation)));
         }
     }
 }

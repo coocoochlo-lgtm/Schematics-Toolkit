@@ -141,6 +141,24 @@ namespace Remedy.Schematics
 
             SetOutputValue(ValuePort, SignalArgs.ToUnion<object>(_runtime.GetVariableBoxed(behavior, _index)));
         }
+
+        // A Variable can be read any time, so connected inputs get its current value even when flow never passed here.
+        protected override bool AnswersOnRequest => true;
+
+        public override object OnRequestValue(Port port)
+        {
+            var instance = RunningInstance;
+            var behavior = instance != null ? Target.Resolve(instance) : null;
+            if (behavior == null)
+                return null;
+
+            if (_runtime != behavior.Runtime)
+            {
+                _runtime = behavior.Runtime;
+                _index = _runtime.IndexOfVariable(Variable);
+            }
+            return _index >= 0 ? _runtime.GetVariableBoxed(behavior, _index) : null;
+        }
     }
 
     /// <summary>

@@ -47,7 +47,7 @@ namespace Remedy.Schematics.Collaboration
             var view = SceneView.lastActiveSceneView;
             if (view == null) view = EditorWindow.GetWindow<SceneView>();
             view.in2DMode = cam.in2D;
-            view.LookAt(cam.pivot, cam.rotation, cam.size, cam.ortho, false);
+            view.LookAt(cam.pivot, CollabFeatures.SafeRotation(cam.rotation), cam.size > 0f ? cam.size : 10f, cam.ortho, false);
             view.Focus();
             view.ShowNotification(new GUIContent("With " + peer.Name), 1.0);
         }

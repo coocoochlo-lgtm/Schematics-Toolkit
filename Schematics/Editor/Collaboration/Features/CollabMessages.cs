@@ -11,7 +11,7 @@ namespace Remedy.Schematics.Collaboration
     public static class CollabChannels
     {
         /// <summary>Live scene edits (<see cref="SceneMsg"/>).</summary>
-        public const string Scene = "scene";
+        public const string Scene = CollabLiveEdits.Channel;
         /// <summary>Schematic Graph edits (<see cref="GraphMsg"/>).</summary>
         public const string Graph = "graph";
         /// <summary>Chat (<see cref="ChatMsg"/>).</summary>

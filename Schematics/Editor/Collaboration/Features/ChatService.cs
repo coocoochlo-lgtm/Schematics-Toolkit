@@ -32,7 +32,7 @@ namespace Remedy.Schematics.Collaboration
                 var saved = JsonUtility.FromJson<ChatLog>(SessionState.GetString(SessionKey, ""));
                 if (saved?.messages != null) foreach (var m in saved.messages) AddInternal(m, notify: false, share: false);
             }
-            catch (Exception) { }
+            catch (Exception e) { CollabLog.Warning("Couldn't restore the chat history after a script reload: " + e.Message); }
             CollabSession.Subscribe(CollabChannels.Chat, OnMessage);
             CollabSession.Connected += () => CollabFeatures.Safe(LoadShared);
             CollabSession.SharedChanged += key => { if (key == CollabChannels.SharedChat && !CollabSession.IsHost) CollabFeatures.Safe(LoadShared); };
@@ -62,7 +62,7 @@ namespace Remedy.Schematics.Collaboration
         {
             ChatMsg msg;
             try { msg = JsonUtility.FromJson<ChatMsg>(json); }
-            catch (Exception) { return; }
+            catch (Exception e) { CollabLog.Warning($"Ignored an unreadable chat message from {peer?.Name ?? "a teammate"} ({e.Message})."); return; }
             if (msg == null || string.IsNullOrEmpty(msg.text)) return;
             if (peer != null)
             {

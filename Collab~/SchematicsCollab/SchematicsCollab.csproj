@@ -16,7 +16,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- The wire protocol, shared word for word with the Unity editor bridge. -->
-    <Compile Include="../../Schematics/Editor/Collaboration/Core/CollabProtocol.cs" Link="Protocol/CollabProtocol.cs" />
+    <!-- The wire protocol, shared word for word with Unity (it lives in the runtime assembly, so builds speak it too). -->
+    <Compile Include="../../Schematics/Runtime/Collaboration/CollabProtocol.cs" Link="Protocol/CollabProtocol.cs" />
+    <!-- The playtest client that runs inside builds (pure C#), so the self test can join a session the way a build does. -->
+    <Compile Include="../../Schematics/Runtime/Collaboration/CollabRuntimeClient.cs" Link="Protocol/CollabRuntimeClient.cs" />
+    <Compile Include="../../Schematics/Runtime/Collaboration/CollabLiveEditCodec.cs" Link="Protocol/CollabLiveEditCodec.cs" />
   </ItemGroup>
 </Project>

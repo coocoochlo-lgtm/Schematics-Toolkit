@@ -130,7 +130,7 @@ namespace Remedy.Schematics.Collaboration
                     _undoCovered[current.target] = now;
                 }
             }
-            catch (Exception e) { Debug.LogException(e); }
+            catch (Exception e) { CollabLog.Exception("Capturing a scene edit failed", e); }
             return modifications;
         }
 
@@ -140,7 +140,7 @@ namespace Remedy.Schematics.Collaboration
             for (int i = 0; i < stream.length; i++)
             {
                 try { Capture(ref stream, i); }
-                catch (Exception e) { Debug.LogException(e); }
+                catch (Exception e) { CollabLog.Exception("Capturing a scene change failed", e); }
             }
         }
 
@@ -383,7 +383,7 @@ namespace Remedy.Schematics.Collaboration
         {
             SceneMsg msg;
             try { msg = JsonUtility.FromJson<SceneMsg>(json); }
-            catch (Exception) { return; }
+            catch (Exception e) { CollabLog.Warning($"Ignored an unreadable scene message from {peer?.Name ?? "a teammate"} ({e.Message})."); return; }
             if (msg == null || string.IsNullOrEmpty(msg.scene)) return;
             if (!string.IsNullOrEmpty(msg.from) && msg.from == CollabFeatures.LocalId) return;   // our own, echoed
 
@@ -660,10 +660,10 @@ namespace Remedy.Schematics.Collaboration
             if (_logs.TryGetValue(scenePath, out var log)) return log;
             string json = null;
             try { json = CollabSession.GetShared(CollabChannels.SharedSceneKey(scenePath)); }
-            catch (Exception) { }
+            catch (Exception e) { CollabLog.Exception("Reading the shared scene log failed", e); }
             if (string.IsNullOrEmpty(json)) return null;
             try { log = JsonUtility.FromJson<SceneLog>(json); }
-            catch (Exception) { return null; }
+            catch (Exception e) { CollabLog.Warning($"The shared edit log of {scenePath} is unreadable and was ignored ({e.Message})."); return null; }
             if (CollabSession.IsHost) _logs[scenePath] = log;
             return log;
         }

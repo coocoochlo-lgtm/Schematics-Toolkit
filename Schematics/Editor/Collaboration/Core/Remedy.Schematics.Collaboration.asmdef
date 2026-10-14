@@ -1,7 +1,9 @@
 {
     "name": "Remedy.Schematics.Collaboration",
     "rootNamespace": "Remedy.Schematics.Collaboration",
-    "references": [],
+    "references": [
+        "Remedy.Schematics.Collaboration.Runtime"
+    ],
     "includePlatforms": [
         "Editor"
     ],

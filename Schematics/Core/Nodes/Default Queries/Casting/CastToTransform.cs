@@ -19,30 +19,17 @@ namespace Remedy.Schematics
         public Vector3 EulerAngles;
         public override object OnRequestValue(Port port)
         {
-            var value = GetOutputValue<object>("Value");
+            var value = GetInputValue<object>("Value", null);
+            if (!PortValues.TryFromObject(value, out Transform transform) || transform == null)
+                return null;
 
-            if (value.GetType() == typeof(Transform))
-                CastedValue = (Transform)value;
-            if (value.GetType() == typeof(GameObject))
-                CastedValue = ((GameObject)value).transform;
-            if (value.GetType() == typeof(Component))
-                CastedValue = ((Component)value).transform;
-            if (value.GetType() == typeof(MonoBehaviour))
-                CastedValue = ((MonoBehaviour)value).transform;
-
-            if (port.Name == "Casted")
+            switch (port.Name)
             {
-                return CastedValue;
+                case "Casted": return transform;
+                case "Position": return transform.position;
+                case "EulerAngles": return transform.eulerAngles;
+                default: return null;
             }
-            else if (port.Name == "Position")
-            {
-                return CastedValue.position;
-            }
-            else if (port.Name == "EulerAngles")
-            {
-                return CastedValue.eulerAngles;
-            }
-            return null;
         }
     }
 }

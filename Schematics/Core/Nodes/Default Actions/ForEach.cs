@@ -9,6 +9,7 @@ using UnityEngine;
 using System.Threading.Tasks;
 using Cysharp.Threading.Tasks;
 using System;
+using System.Collections;
 
 namespace Remedy.Schematics
 {
@@ -26,13 +27,20 @@ namespace Remedy.Schematics
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
         {
-            Items = GetInputValue<List<Union>>("Pool");
+            // The nodes after this one run once per item (below), not once more at the end.
             _processChildren = false;
-            
-            for(int i = 0; i < Items.Count - 1; i++)
+
+            // Any list works: Find With Tag's List<Union>, Create List's List<object>, an array...
+            // (This used to read a port named "Pool", which doesn't exist, and skipped the last item.)
+            var items = GetInputValue<IList>("Items", Items);
+            if (items == null)
+                return;
+
+            var unions = items as List<Union>;
+            for (int i = 0; i < items.Count; i++)
             {
-                SetOutputValue(nameof(CurrentItem), Items[i]);
-                SetOutputValue(nameof(Index), i);
+                SetOutputValue("This", unions != null ? unions[i] : PortValues.ToUnion(items[i]));
+                SetOutputValue("Index", i);
                 ProcessChildren(instance);
             }
         }

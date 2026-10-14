@@ -25,32 +25,19 @@ namespace Remedy.Schematics
 
         internal override bool ExecuteInFlow(Flow flow, FlowScope scope, Union[] arguments)
         {
-            if (IsDirty)
-                UpdateCaches();
-
             // The event's arguments fill its output pins in order.
             if (arguments != null)
             {
-                int i = 0;
-                foreach (var key in _cachedOutputsByName.Keys)
-                {
-                    if (i >= arguments.Length)
-                        break;
-                    _argumentKeys.Add(key);
-                    i++;
-                }
-                for (i = 0; i < _argumentKeys.Count; i++)
-                    SetOutputValue(_argumentKeys[i], arguments[i]);
-                _argumentKeys.Clear();
+                var outputs = DataOutputNames;
+                int count = Math.Min(outputs.Count, arguments.Length);
+                for (int i = 0; i < count; i++)
+                    SetOutputValue(outputs[i], arguments[i]);
             }
 
             _blocked = false;
             OnTrigger(flow.Instance, arguments ?? Array.Empty<Union>());
             return !_blocked;
         }
-
-        // Output names are copied out first: setting a value while enumerating the dictionary would throw.
-        private static readonly System.Collections.Generic.List<string> _argumentKeys = new();
 
         protected virtual void OnTrigger(GameObject instance, params Union[] arguments)
         { }

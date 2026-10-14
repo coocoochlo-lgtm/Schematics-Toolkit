@@ -92,9 +92,17 @@ namespace Remedy.Schematics.Collaboration
                 var prop = so.FindProperty(pv.p);
                 if (prop == null) continue;
                 try { Decode(prop, pv.v); }
-                catch (Exception) { /* malformed value from another version: skip that property */ }
+                catch (Exception e) { CollabLog.Warning($"Skipped {target.GetType().Name}.{pv.p}: its value '{Short(pv.v)}' couldn't be applied ({e.Message})."); }
             }
-            return recordUndo ? so.ApplyModifiedProperties() : so.ApplyModifiedPropertiesWithoutUndo();
+            bool applied = recordUndo ? so.ApplyModifiedProperties() : so.ApplyModifiedPropertiesWithoutUndo();
+            // Rotations often arrive one axis at a time ("m_LocalRotation.x"...): make sure the result is a valid one.
+            if (applied && target is Transform transform)
+            {
+                var rotation = transform.localRotation;
+                var safe = CollabFeatures.SafeRotation(rotation);
+                if (safe.x != rotation.x || safe.y != rotation.y || safe.z != rotation.z || safe.w != rotation.w) transform.localRotation = safe;
+            }
+            return applied;
         }
 
         #endregion
@@ -151,7 +159,7 @@ namespace Remedy.Schematics.Collaboration
                 case SerializedPropertyType.Vector2: { var f = Fs(v, 2); p.vector2Value = new Vector2(f[0], f[1]); break; }
                 case SerializedPropertyType.Vector3: { var f = Fs(v, 3); p.vector3Value = new Vector3(f[0], f[1], f[2]); break; }
                 case SerializedPropertyType.Vector4: { var f = Fs(v, 4); p.vector4Value = new Vector4(f[0], f[1], f[2], f[3]); break; }
-                case SerializedPropertyType.Quaternion: { var f = Fs(v, 4); p.quaternionValue = new Quaternion(f[0], f[1], f[2], f[3]); break; }
+                case SerializedPropertyType.Quaternion: { var f = Fs(v, 4); p.quaternionValue = CollabFeatures.SafeRotation(new Quaternion(f[0], f[1], f[2], f[3])); break; }
                 case SerializedPropertyType.Rect: { var f = Fs(v, 4); p.rectValue = new Rect(f[0], f[1], f[2], f[3]); break; }
                 case SerializedPropertyType.Bounds: { var f = Fs(v, 6); p.boundsValue = new Bounds(new Vector3(f[0], f[1], f[2]), new Vector3(f[3], f[4], f[5])); break; }
                 case SerializedPropertyType.Vector2Int: { var n = Is(v, 2); p.vector2IntValue = new Vector2Int(n[0], n[1]); break; }
@@ -161,6 +169,8 @@ namespace Remedy.Schematics.Collaboration
                 case SerializedPropertyType.Hash128: p.hash128Value = Hash128.Parse(v); break;
             }
         }
+
+        private static string Short(string v) => v == null ? "" : v.Length > 40 ? v.Substring(0, 40) + "…" : v;
 
         private static string F(params float[] values)
         {

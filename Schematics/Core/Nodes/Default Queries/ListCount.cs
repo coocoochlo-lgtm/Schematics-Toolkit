@@ -3,6 +3,7 @@
 #pragma warning disable 0414
 
 using BlueGraph;
+using System.Collections;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -22,9 +23,9 @@ namespace Remedy.Schematics
 
         public override object OnRequestValue(Port port)
         {
-            List = GetOutputValue<List<object>>("List");
-
-            return List.Count;
+            // (This used to read its input with GetOutputValue, which never found it.)
+            var list = GetInputValue<IList>("List", List);
+            return list != null ? list.Count : 0;
         }
     }
 }

@@ -233,12 +233,15 @@ sealed class HostRoom
 
     public CollabPeerInfo[] Roster()
     {
-        if (_isRelay && (_lead == null || !_members.ContainsKey(_lead)))
+        bool leadIsBuild = _lead != null && _members.TryGetValue(_lead, out var leader) && !Session.CanHost(leader.Info);
+        if (_isRelay && (_lead == null || !_members.ContainsKey(_lead) || (leadIsBuild && _members.Values.Any(m => Session.CanHost(m.Info)))))
         {
-            // The relay never edits, so someone else leads: the best average ping, then the lowest id. They keep the
-            // role while they stay, so it doesn't flip back and forth as pings change.
+            // The relay never edits, so someone else leads: an editor (builds never lead: the lead commits scene
+            // snapshots), the best average ping, then the lowest id. They keep the role while they stay, so it doesn't
+            // flip back and forth as pings change.
             _lead = _members.Values
-                .OrderBy(m => AveragePing(m.Info.id) < 0 ? int.MaxValue : AveragePing(m.Info.id))
+                .OrderBy(m => Session.CanHost(m.Info) ? 0 : 1)
+                .ThenBy(m => AveragePing(m.Info.id) < 0 ? int.MaxValue : AveragePing(m.Info.id))
                 .ThenBy(m => m.Info.id, StringComparer.Ordinal)
                 .Select(m => m.Info.id).FirstOrDefault();
         }
@@ -294,6 +297,8 @@ sealed class HostRoom
         if (profile.avatarId != null) info.avatarId = profile.avatarId;
         if (!Kv.Empty(profile.gitName)) info.gitName = profile.gitName;
         if (!Kv.Empty(profile.gitEmail)) info.gitEmail = profile.gitEmail;
+        if (!Kv.Empty(profile.role)) info.role = profile.role;
+        if (!Kv.Empty(profile.client)) info.client = profile.client;
     }
 
     private void Deliver(Member member, CollabFrame frame)

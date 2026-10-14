@@ -5,6 +5,7 @@
 using BlueGraph;
 using UnityEngine;
 using System;
+using System.Collections.Generic;
 
 namespace Remedy.Schematics
 {
@@ -19,19 +20,29 @@ namespace Remedy.Schematics
         public bool Not;
         [Editable]
         public bool TriggerOnce;
-        private bool _triggered = false;
+
+        // Trigger Once is per object running the graph (the graph asset is shared by all of them).
+        [NonSerialized] private HashSet<GameObject> _triggered;
+        [NonSerialized] private bool _triggeredWithoutObject;
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
         {
-            bool pass = GetInputValue<bool>(nameof(Condition)) != Not;
+            // A connected Condition (Comparison, Is Null, ...) is evaluated now; unconnected, the checkbox on the node.
+            bool pass = GetInputValue("Condition", Condition) != Not;
 
             // Trigger Once: only the first time the condition passes.
             if (TriggerOnce && pass)
             {
-                if (_triggered)
-                    pass = false;
+                if (instance == null)
+                {
+                    pass = !_triggeredWithoutObject;
+                    _triggeredWithoutObject = true;
+                }
                 else
-                    _triggered = true;
+                {
+                    _triggered ??= new HashSet<GameObject>();
+                    pass = _triggered.Add(instance);
+                }
             }
 
             _processChildren = pass;

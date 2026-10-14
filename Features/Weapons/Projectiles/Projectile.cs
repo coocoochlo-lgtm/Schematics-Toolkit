@@ -1,5 +1,6 @@
 /*using SaintsField;
 using SaintsField.Playa;*/
+using Remedy.Framework;
 using Remedy.Schematics;
 using UnityEngine;
 
@@ -134,13 +135,24 @@ namespace Remedy.Weapons.Projectiles
                 return;
 
             bool isTarget = data.TargetingMode == ProjectileData.TargetMode.MatchingTag
-                ? other.gameObject.CompareTag(data.TargetTag)
+                ? IsTagged(other, data.TargetTag)
                 : Target.Value != null && other.gameObject == Target.Value.gameObject;
 
             if (isTarget)
                 OnHitTarget.Invoke(instance, other.gameObject);
 
             OnHit.Invoke(instance, other.sharedMaterial);
+        }
+
+        // The collider's own object, or the body it's part of (tags usually live on the root). Untagged matches nothing.
+        private static bool IsTagged(Collider other, IntTag tag)
+        {
+            if (!tag.IsTagged)
+                return false;
+            if (other.gameObject.HasIntTag(tag))
+                return true;
+            var body = other.attachedRigidbody;
+            return body != null && body.gameObject != other.gameObject && body.gameObject.HasIntTag(tag);
         }
 
         /// <summary>
