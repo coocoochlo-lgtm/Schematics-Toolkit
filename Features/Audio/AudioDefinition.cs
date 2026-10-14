@@ -16,6 +16,8 @@ namespace Remedy.Audio
 
         public AudioClip Clip;
 
+        public AudioType Type = AudioType.SoundEffect;
+
         [Range(0f, 1f)]
         public float Volume = 1f;
         [Range(.1f, 3f)]
@@ -52,10 +54,19 @@ namespace Remedy.Audio
 
         public Action OnComplete;
 
+        public AudioDefinition() { }
+
+        public AudioDefinition(AudioClip clip)
+        {
+            Name = clip != null ? clip.name : null;
+            Clip = clip;
+        }
+
         public AudioDefinition(AudioDefinition original, Action OnComplete = null)
         {
             this.Name = original.Name;
             this.Clip = original.Clip;
+            this.Type = original.Type;
             this.Duration = original.Clip.length * 1;
             this.StartTime = Time.time;
             this.Volume = original.Volume;
@@ -67,6 +78,8 @@ namespace Remedy.Audio
 
         public bool IsComplete()
         {
+            if (Loop && Source != null && Source.isPlaying)
+                return false;
             if (Time.time > StartTime + Duration)
             {
                 OnComplete?.Invoke();
