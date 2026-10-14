@@ -394,7 +394,10 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
 
         Profiler.StopTracking(loadProcess);
 
-        if (Prefab != null && Prefab.TryGetComponent(out SchematicObject schematicObject))
+        // Only links a prefab that has no graph yet (in memory; the Prefab tab's next save writes it into the file). A
+        // State's graph (or another graph shown for the same prefab) must not replace the Schematic Object's own.
+        if (Prefab != null && Prefab.TryGetComponent(out SchematicObject schematicObject) && schematicObject.SchematicGraph == null
+            && !(SchematicGraph is SingletonGraph))
             schematicObject.SchematicGraph = SchematicGraph;
     }
 
