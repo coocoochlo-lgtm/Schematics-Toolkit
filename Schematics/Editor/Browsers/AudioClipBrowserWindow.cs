@@ -322,6 +322,7 @@ namespace Remedy.Schematics.Browsers
             card.AddToClassList("audio-browser__card");
             card.style.width = size;
             card.style.height = size;
+            card.style.flexDirection = FlexDirection.Column;
             card.style.borderTopColor = card.style.borderRightColor = card.style.borderBottomColor = card.style.borderLeftColor =
                 EditorGUIUtility.isProSkin ? new Color(1f, 1f, 1f, 0.35f) : new Color(0f, 0f, 0f, 0.35f);
             card.style.backgroundColor = GetTags(clip).FirstOrDefault()?.Color
@@ -356,6 +357,10 @@ namespace Remedy.Schematics.Browsers
             card.Add(tagName);
 
             var timeline = BuildTimeline(clip);
+            timeline.Container.style.position = Position.Absolute;
+            timeline.Container.style.left = 7f;
+            timeline.Container.style.right = 7f;
+            timeline.Container.style.bottom = 5f;
             card.Add(timeline.Container);
 
             card.RegisterCallback<PointerDownEvent>(evt =>
