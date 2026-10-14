@@ -321,6 +321,9 @@ namespace Remedy.Schematics.Browsers
             var card = new VisualElement();
             card.AddToClassList("audio-browser__card");
             card.style.width = size;
+            card.style.height = size;
+            card.style.borderTopColor = card.style.borderRightColor = card.style.borderBottomColor = card.style.borderLeftColor =
+                EditorGUIUtility.isProSkin ? new Color(1f, 1f, 1f, 0.35f) : new Color(0f, 0f, 0f, 0.35f);
             card.style.backgroundColor = GetTags(clip).FirstOrDefault()?.Color
                 ?? (EditorGUIUtility.isProSkin ? new Color(0.22f, 0.22f, 0.22f) : new Color(0.78f, 0.78f, 0.78f));
             var thumbnail = new Image
