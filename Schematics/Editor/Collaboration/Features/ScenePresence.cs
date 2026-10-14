@@ -9,8 +9,13 @@ namespace Remedy.Schematics.Collaboration
     /// <summary>
     /// Shows teammates in the Scene view and keeps people from editing the same thing at once.
     /// - Publishes your Scene view camera, selection and location (about 10 times a second, only when they change).
-    /// - Draws each teammate who has one of your open scenes open: their avatar where their camera is, their name, a
-    ///   dotted line to each object they have selected and a box around it, all in their colour.
+    /// - Draws each teammate who has one of your open scenes open: the simple avatar (a sphere with a camera frustum)
+    ///   where their camera is, their name, a dotted line to each object they have selected and a box around it, all in
+    ///   their colour.
+    /// - Variants: a level is a blockout scene with variant scenes loaded on top. Someone who has a scene open that you
+    ///   don't (another variant of the same blockout) is drawn faded, as a ghost, labelled "Name — Variant"; their edits
+    ///   to that variant aren't applied here (SceneSync only applies changes to scenes you have loaded), while edits to
+    ///   the blockout you share are. Click their avatar to move to their variant.
     /// - Selection locks: you can't select what someone else has selected (it's deselected with "Selected by Name" and
     ///   made unpickable in the Scene view until they let go). If two people grab the same object at the same moment,
     ///   whoever selected first keeps it.
@@ -35,6 +40,11 @@ namespace Remedy.Schematics.Collaboration
             CollabSession.PeerLeft += _ => CollabFeatures.Safe(OnPeersChanged);
             CollabSession.Connected += () => { CollabFeatures.ResetPublishedPresence(); _lastPublish = 0; };
             CollabFeatures.Paused += () => CollabFeatures.Safe(OnPaused);
+            // Play Mode publishes the game camera as "camera" (CollabRuntimeRunner): send the Scene view's again after.
+            EditorApplication.playModeStateChanged += change =>
+            {
+                if (change == PlayModeStateChange.EnteredEditMode) { CollabFeatures.ResetPublishedPresence(); _lastPublish = 0; }
+            };
             _selectionTime = CollabFeatures.Now;
             _lastActivity = EditorApplication.timeSinceStartup;
         }
@@ -279,6 +289,11 @@ namespace Remedy.Schematics.Collaboration
             var current = Event.current;
             if (current.type == EventType.MouseDown || current.type == EventType.KeyDown || current.type == EventType.ScrollWheel)
                 NoteActivity();
+            if (current.type == EventType.MouseDown && current.button == 0 && !current.alt)
+            {
+                CollabFeatures.Safe(() => ClickAvatar(view, current));
+                if (current.type == EventType.Used) return;
+            }
             if (current.type != EventType.Repaint) return;
 
             var open = new HashSet<string>(OpenScenePaths());
@@ -286,15 +301,63 @@ namespace Remedy.Schematics.Collaboration
             {
                 var cam = CollabFeatures.GetPresence<CameraPresence>(peer, CollabChannels.PresenceCamera);
                 if (cam == null || cam.scenes == null || !cam.scenes.Any(open.Contains)) continue;
-                CollabFeatures.Safe(() => DrawPeer(view, peer, cam));
+                CollabFeatures.Safe(() => DrawPeer(view, peer, cam, OtherSceneOf(cam, open)));
             }
         }
 
-        private static void DrawPeer(SceneView view, CollabPeer peer, CameraPresence cam)
+        /// <summary>
+        /// The scene a teammate has open that you don't (their variant), or null when they're in the scenes you have.
+        /// Their active scene wins when it's one of those.
+        /// </summary>
+        public static string OtherSceneOf(CameraPresence cam, HashSet<string> open)
         {
+            if (cam?.scenes == null) return null;
+            if (!string.IsNullOrEmpty(cam.scene) && !open.Contains(cam.scene)) return cam.scene;
+            return cam.scenes.FirstOrDefault(s => !string.IsNullOrEmpty(s) && !open.Contains(s));
+        }
+
+        /// <summary>A scene path's display name: the Level Designer's "Level — Variant" when it knows the scene, else the file name.</summary>
+        public static string SceneDisplayName(string path) => CollabLevelDesignerLink.DisplayName(path);
+
+        // Clicking a teammate who is in another variant offers to move there.
+        private static void ClickAvatar(SceneView view, Event current)
+        {
+            if (view.camera == null) return;
+            var open = new HashSet<string>(OpenScenePaths());
+            CollabPeer hit = null;
+            string variant = null;
+            float best = 28f;
+            foreach (var peer in CollabFeatures.RemotePeers())
+            {
+                var cam = CollabFeatures.GetPresence<CameraPresence>(peer, CollabChannels.PresenceCamera);
+                if (cam == null || cam.scenes == null || !cam.scenes.Any(open.Contains)) continue;
+                string other = OtherSceneOf(cam, open);
+                if (other == null) continue;
+                var position = CollabFeatures.SafePosition(cam.position);
+                if (view.camera.WorldToViewportPoint(position).z <= 0f) continue;
+                float distance = (HandleUtility.WorldToGUIPoint(position) - current.mousePosition).magnitude;
+                if (distance < best) { best = distance; hit = peer; variant = other; }
+            }
+            if (hit == null) return;
+            current.Use();
+            var peerToJoin = hit;
+            string target = variant;
+            // Not from inside the Scene view's GUI pass: a modal dialog there breaks the GUI layout.
+            EditorApplication.delayCall += () => CollabFeatures.Safe(() =>
+            {
+                string name = SceneDisplayName(target);
+                if (EditorUtility.DisplayDialog("Move to " + name + "?",
+                        $"{peerToJoin.Name} is working on {name}.\n\nMove to {name}? Your current variant is closed (you'll be asked to save changes); the blockout stays.",
+                        "Move", "Cancel"))
+                    CollabNavigation.MoveToScene(peerToJoin, target);
+            });
+        }
+
+        private static void DrawPeer(SceneView view, CollabPeer peer, CameraPresence cam, string otherScene)
+        {
+            bool ghost = otherScene != null;
             var color = peer.Color;
-            var settings = CollabFeaturesSettings.instance;
-            float scale = Mathf.Max(0.01f, float.IsFinite(settings.AvatarScale) ? settings.AvatarScale : 1f);
+            if (ghost) color.a = 0.35f;
             // The remote peer's camera pose, validated (GetPresence already did; this guards older cached values).
             var position = CollabFeatures.SafePosition(cam.position);
             var rotation = CollabFeatures.SafeRotation(cam.rotation);
@@ -304,14 +367,19 @@ namespace Remedy.Schematics.Collaboration
             Handles.zTest = UnityEngine.Rendering.CompareFunction.Always;
             try
             {
-                // Each part guarded on its own, so a broken avatar prefab still leaves the name and selection visible.
-                if (settings.AvatarPrefab != null)
-                    CollabFeatures.Safe(() => AvatarRenderer.Draw(settings.AvatarPrefab, color, Matrix4x4.TRS(position, rotation, Vector3.one * scale)));
-                else CollabFeatures.Safe(() => DrawPlaceholderAvatar(position, rotation, scale, color));
+                CollabFeatures.Safe(() => DrawPlaceholderAvatar(position, rotation, 1f, color));
 
-                var labelStyle = new GUIStyle(EditorStyles.whiteBoldLabel) { alignment = TextAnchor.MiddleCenter, normal = { textColor = color } };
+                var labelColor = peer.Color;
+                if (ghost) labelColor.a = 0.7f;
+                var labelStyle = new GUIStyle(EditorStyles.whiteBoldLabel) { alignment = TextAnchor.MiddleCenter, normal = { textColor = labelColor } };
                 string label = peer.Role == CollabRole.Playtester ? peer.Name + " (playing)" : peer.Name;
-                Handles.Label(position + Vector3.up * 0.75f * scale, label, labelStyle);
+                if (ghost) label += " — " + SceneDisplayName(otherScene);
+                Handles.Label(position + Vector3.up * 0.75f, label, labelStyle);
+                if (ghost)
+                {
+                    var hint = new GUIStyle(EditorStyles.miniLabel) { alignment = TextAnchor.MiddleCenter, normal = { textColor = labelColor } };
+                    Handles.Label(position + Vector3.up * 0.55f, "click to move there", hint);
+                }
 
                 var selection = CollabFeatures.GetPresence<SelectionPresence>(peer, CollabChannels.PresenceSelection);
                 if (selection?.ids != null)
@@ -334,7 +402,8 @@ namespace Remedy.Schematics.Collaboration
             }
         }
 
-        private static void DrawPlaceholderAvatar(Vector3 position, Quaternion rotation, float scale, Color color)
+        /// <summary>The avatar: a sphere where their camera is and a small camera frustum pointing where they look.</summary>
+        public static void DrawPlaceholderAvatar(Vector3 position, Quaternion rotation, float scale, Color color)
         {
             Handles.color = color;
             Handles.SphereHandleCap(0, position, rotation, 0.45f * scale, EventType.Repaint);
@@ -347,7 +416,7 @@ namespace Remedy.Schematics.Collaboration
             var corners = new[] { far + right * w + up * h, far - right * w + up * h, far - right * w - up * h, far + right * w - up * h };
             foreach (var corner in corners) Handles.DrawLine(tip, corner, 2f);
             for (int i = 0; i < 4; i++) Handles.DrawLine(corners[i], corners[(i + 1) % 4], 2f);
-            Handles.color = new Color(color.r, color.g, color.b, 0.15f);
+            Handles.color = new Color(color.r, color.g, color.b, 0.15f * Mathf.Clamp01(color.a));
             Handles.DrawAAConvexPolygon(corners);
         }
 
@@ -383,63 +452,5 @@ namespace Remedy.Schematics.Collaboration
         }
 
         #endregion
-    }
-
-    /// <summary>Draws the avatar prefab's meshes immediately (inside Scene view GUI), tinted with the peer's colour.</summary>
-    internal static class AvatarRenderer
-    {
-        private static GameObject _cachedPrefab;
-        private static readonly List<(Mesh mesh, Matrix4x4 local, Material[] materials)> _parts = new();
-        private static readonly Dictionary<(Material, Color), Material> _tinted = new();
-
-        public static void Draw(GameObject prefab, Color color, Matrix4x4 world)
-        {
-            if (prefab != _cachedPrefab) Cache(prefab);
-            foreach (var (mesh, local, materials) in _parts)
-            {
-                var matrix = world * local;
-                for (int sub = 0; sub < mesh.subMeshCount; sub++)
-                {
-                    var source = materials.Length > 0 ? materials[Mathf.Min(sub, materials.Length - 1)] : null;
-                    var material = Tinted(source, color);
-                    if (material == null || !material.SetPass(0)) continue;
-                    Graphics.DrawMeshNow(mesh, matrix, sub);
-                }
-            }
-        }
-
-        private static void Cache(GameObject prefab)
-        {
-            _cachedPrefab = prefab;
-            _parts.Clear();
-            var rootInverse = prefab.transform.worldToLocalMatrix;
-            foreach (var filter in prefab.GetComponentsInChildren<MeshFilter>(true))
-            {
-                if (filter.sharedMesh == null) continue;
-                var renderer = filter.GetComponent<MeshRenderer>();
-                _parts.Add((filter.sharedMesh, rootInverse * filter.transform.localToWorldMatrix, renderer != null ? renderer.sharedMaterials : new Material[0]));
-            }
-            foreach (var skinned in prefab.GetComponentsInChildren<SkinnedMeshRenderer>(true))
-                if (skinned.sharedMesh != null)
-                    _parts.Add((skinned.sharedMesh, rootInverse * skinned.transform.localToWorldMatrix, skinned.sharedMaterials));
-        }
-
-        private static Material Tinted(Material source, Color color)
-        {
-            if (_tinted.TryGetValue((source, color), out var cached) && cached != null) return cached;
-            Material material;
-            if (source != null) material = new Material(source);
-            else
-            {
-                var shader = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Color");
-                if (shader == null) return null;
-                material = new Material(shader);
-            }
-            material.hideFlags = HideFlags.HideAndDontSave;
-            if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", color);
-            if (material.HasProperty("_Color")) material.SetColor("_Color", color);
-            _tinted[(source, color)] = material;
-            return material;
-        }
     }
 }

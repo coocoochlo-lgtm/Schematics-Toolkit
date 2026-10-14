@@ -20,6 +20,7 @@ namespace Remedy.Schematics.Collaboration
         private const string NameKey = "SchematicsCollab.Name";
 
         private readonly CollabRuntimeClient _client;
+        private CollabStableId _identity;
         private readonly HashSet<string> _channels = new HashSet<string>();
         private readonly List<CollabRuntimePeer> _peers = new List<CollabRuntimePeer>();
         private Color _localColor = Color.white;
@@ -30,21 +31,35 @@ namespace Remedy.Schematics.Collaboration
         }
 
         /// <summary>The build's transport, or null when this build doesn't collaborate (no build info, switched off, WebGL).</summary>
-        public static CollabNetworkTransport TryCreate(out CollabBuildInfo info)
+        public static CollabNetworkTransport TryCreate(CollabBuildInfo info)
         {
-            info = CollabBuildInfo.Load();
-            if (info == null || !info.Enabled || string.IsNullOrEmpty(info.ProjectKey)) return null;
+            // Every step says what it found in the log (Player.log in builds), so "the build doesn't connect" can be
+            // read off the log instead of guessed.
+            if (info == null) { CollabLog.Info("This build has no collaboration build info: it doesn't join editors."); return null; }
+            if (!info.Enabled || string.IsNullOrEmpty(info.ProjectKey))
+            {
+                CollabLog.Info("Collaboration is switched off in this build (Project Settings > Schematics > Collaboration Features > Playtest builds).");
+                return null;
+            }
             var args = Environment.GetCommandLineArgs();
-            if (HasArg(args, "-collab-off")) return null;
-            _verbose = Debug.isDebugBuild;
+            if (HasArg(args, "-collab-off")) { CollabLog.Info("Collaboration is off for this run (-collab-off)."); return null; }
             if (Application.platform == RuntimePlatform.WebGLPlayer)
             {
                 CollabLog.Info("Collaboration isn't available in WebGL builds (browsers don't allow the sockets it needs).");
                 return null;
             }
 
+            CollabStableId identity = null;
+            try
+            {
+                identity = CollabStableId.Claim(System.IO.Path.Combine(Application.persistentDataPath, "SchematicsCollab"),
+                    System.Diagnostics.Process.GetCurrentProcess().Id, IsAlive);
+            }
+            catch (Exception e) { CollabLog.Info("No stable peer id for this run (" + e.Message + "); using a fresh one."); }
+
             var options = new CollabRuntimeClientOptions
             {
+                Id = identity?.Id ?? Guid.NewGuid().ToString("N"),
                 Key = info.ProjectKey,
                 Name = PlayerName(args),
                 Role = CollabProtocol.RolePlaytester,
@@ -65,12 +80,19 @@ namespace Remedy.Schematics.Collaboration
                 return null;
             }
             CollabLog.Info($"Looking for the editors of {Describe(info)} as {options.Name}"
-                           + (options.Relay != null ? $" through the relay {options.Relay}." : " on the local network."));
-            return new CollabNetworkTransport(client);
+                           + (options.Relay != null ? $" through the relay {options.Relay}." : " on the local network (beacons on UDP " + CollabProtocol.DiscoveryPort + ", and asking)")
+                           + $" Room key {info.ProjectKey}, built from {(string.IsNullOrEmpty(info.Commit) ? "?" : info.Commit)} by {info.BuiltBy} at {info.BuiltAt}; peer id {Short(options.Id)}.");
+            return new CollabNetworkTransport(client) { _identity = identity };
         }
 
-        // Connection chatter (joined, left) only in development builds; read once on the main thread.
-        private static bool _verbose;
+        private static string Short(string id) => string.IsNullOrEmpty(id) || id.Length <= 12 ? id : id.Substring(0, 8) + "…" + id.Substring(id.Length - 2);
+
+        private static bool IsAlive(int pid)
+        {
+            try { using (var p = System.Diagnostics.Process.GetProcessById(pid)) return !p.HasExited; }
+            catch (ArgumentException) { return false; }   // no such process
+            catch { return true; }                         // can't tell on this platform: treat the slot as taken
+        }
 
         private static string Describe(CollabBuildInfo info) =>
             string.IsNullOrEmpty(info.Repository) ? "this project" : $"{info.Repository} ({info.Branch})";
@@ -82,7 +104,7 @@ namespace Remedy.Schematics.Collaboration
             {
                 case "error": CollabLog.Error(text); break;
                 case "warning": CollabLog.Warning(text); break;
-                default: if (_verbose) CollabLog.Info(text); break;
+                default: CollabLog.Info(text); break;
             }
         }
 
@@ -121,7 +143,12 @@ namespace Remedy.Schematics.Collaboration
         public void SetShared(string key, string json) => _client.SetShared(key, json);
         public string GetShared(string key) => _client.GetShared(key);
         public void SetPresence(string key, string json) => _client.SetPresence(key, json);
-        public void Shutdown() => _client.Stop();
+        public void Shutdown()
+        {
+            _client.Stop();
+            _identity?.Dispose();
+            _identity = null;
+        }
 
         public void Update()
         {
@@ -174,7 +201,17 @@ namespace Remedy.Schematics.Collaboration
                 IsBuild = info.client == CollabProtocol.ClientBuild,
                 IsHost = info.isHost,
                 IsLocal = isLocal,
+                Presence = Presence(info.presence),
             };
+        }
+
+        private static Dictionary<string, string> Presence(CollabKV[] entries)
+        {
+            var map = new Dictionary<string, string>();
+            if (entries == null) return map;
+            foreach (var kv in entries)
+                if (kv != null && !string.IsNullOrEmpty(kv.key)) map[kv.key] = kv.value ?? "";
+            return map;
         }
 
         #endregion

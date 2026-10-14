@@ -64,6 +64,7 @@ namespace Remedy.Schematics.Collaboration
                         IsBuild = peer.IsBuild,
                         IsHost = peer.IsHost,
                         IsLocal = peer.IsLocal,
+                        Presence = peer.Presence ?? new Dictionary<string, string>(),
                     });
                 }
                 return _peers;

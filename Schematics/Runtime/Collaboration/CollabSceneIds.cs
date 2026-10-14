@@ -19,6 +19,12 @@ namespace Remedy.Schematics.Collaboration
         public const string HolderName = "__SchematicsCollabSceneIds";
 
         public string ScenePath;
+
+        /// <summary>
+        /// The build's <see cref="CollabBuildInfo"/> as JSON (written at build time). Normally the build reads it from
+        /// Resources before the first scene loads; this copy is the fallback if that asset is missing from the build.
+        /// </summary>
+        public string BuildInfoJson;
         public List<string> Ids = new List<string>();
         public List<GameObject> Objects = new List<GameObject>();
 
@@ -28,6 +34,8 @@ namespace Remedy.Schematics.Collaboration
 
         private void Awake()
         {
+            if (!Application.isEditor && !CollabRuntime.IsAvailable && !string.IsNullOrEmpty(BuildInfoJson))
+                CollabRuntime.BootFromScene(BuildInfoJson);
             _maps.Add(this);
             int count = Mathf.Min(Ids.Count, Objects.Count);
             for (int i = 0; i < count; i++)

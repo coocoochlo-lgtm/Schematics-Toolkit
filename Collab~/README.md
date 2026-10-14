@@ -17,7 +17,27 @@ holds the helper program those use. Unity ignores this folder because its name e
   for minutes during an import stays in the session. It exits when the editor exits.
 - After a script reload the editor reconnects within about a second. Events it missed (messages, store changes, git
   results) are replayed from the helper's buffer, which keeps the newest 20,000.
-- Runtime files live in `<project>/Library/SchematicsCollab/`: `helper.json` (pid and ports), `collab.log`.
+- Runtime files live in `<project>/Library/SchematicsCollab/`: `helper.json` (pid and ports), `collab.log`,
+  `helper.lock` (one helper per project folder) and `peer-id`.
+
+## One entry per person
+
+Each project folder has a **stable peer id** (`Library/SchematicsCollab/peer-id`, made once). A helper that restarts
+(editor restart, rebuild, crash) joins with the same id, and the host replaces the old entry instead of adding one
+(same colour too). Only one helper runs per project folder: it takes `helper.lock` before anything else, and others
+exit at once (code 3). The editor waits up to 30 s for a helper it started before it tries again, and once per editor
+session it stops leftover helpers of the project (processes running `SchematicsCollab.dll` with this project's state
+folder on their command line; also before every rebuild, since running helpers lock the files on Windows). A helper no
+editor attaches to within 2 minutes, or whose editor has been gone 10 minutes, stops by itself.
+
+Why: older versions started a new helper every half second until the first one had written `helper.json` (a few
+seconds on a cold Windows machine). Each extra helper joined with a new random id and kept sending heartbeats, so it
+never timed out: one person showed up many times in the Team window, with no scene. A host of version 3 also removes
+such leftovers from older versions (no presence after 90 s, `--orphan-timeout-ms`) and refuses them for 10 minutes;
+the Team window folds any remaining duplicates of a person that have no editor behind them.
+
+Builds get a stable id too: `<install id>-<slot>`, kept under `Application.persistentDataPath/SchematicsCollab`
+(`CollabStableId`). Copies running at once take different slots.
 - .NET: the helper uses the same dotnet as Sprocket's setup (`Agent~/dotnet-path.txt`, `Agent~/.dotnet`). If neither
   exists, it uses `dotnet` from the PATH. It needs no NuGet packages. To build it yourself:
   `dotnet build Collab~/SchematicsCollab/SchematicsCollab.csproj -c Release -o Collab~/bin`.
@@ -75,6 +95,17 @@ An editor in Play Mode is a playtester as well; its game uses the editor's own c
   the host keeps the store and commits scene snapshots, which only an editor's helper can do. When the host goes, the
   build waits for the next host's beacon and joins again (the editors elect one among themselves). With nobody to join,
   it keeps looking. Two builds alone (no editor) only meet through a relay.
+- **Finding the room.** Besides listening for beacons, a build *asks*: every 1.5 s it sends a `discover` datagram
+  (multicast, broadcast, each subnet's broadcast, 127.0.0.1 and any `-collab-peer`) and any helper in that room answers
+  with the host's address. The answer comes back to the socket that asked, so this works when the firewall blocks the
+  game's inbound UDP, and when an editor on the same machine already holds the beacon port.
+- **Build info.** Written to `Resources/SchematicsCollabBuildInfo` during the build, and also into every built scene
+  (`CollabSceneIds.BuildInfoJson`), which the game uses if the Resources asset is missing. `link.xml` keeps the runtime
+  assembly whole under code stripping.
+- **Player.log.** Every step is logged with `[Collab]`: build info found or not (and why: switched off, development
+  only, WebGL, `-collab-off`), the room key, commit and peer id, where the host was found, beacons heard from another
+  room (another branch: the usual reason a build finds nobody), joined/left, and "still looking" after 10 s, 30 s, 1 min,
+  3 min and 10 min with what to check.
 - **Command line** (all optional): `-collab-off`, `-collab-name NAME`, `-collab-relay HOST:PORT`,
   `-collab-peer HOST:PORT` (ask an editor's helper directly when UDP broadcast is blocked; repeatable),
   `-collab-live-edits`.
@@ -134,6 +165,10 @@ assembly, used by the editor bridge and by builds) compile that file, so a helpe
 older `Version` and the editor rebuilds it. The helper also compiles the build's client (`CollabRuntimeClient.cs`,
 `CollabLiveEditCodec.cs`, plain C#) for its self test. UDP beacons and pings are one JSON frame per datagram.
 
+Version 3 added stable peer ids, the `discover` frame (a build asks who hosts; helpers answer with a beacon naming the
+host in `text`/`port`) and `version` in `CollabProfile` / `CollabPeerInfo` (0 = older peer), which the host uses to
+find leftover helpers of older versions.
+
 Version 2 added roles: `CollabProfile` / `CollabPeerInfo` carry `role` (`editor` | `playtester`) and `client`
 (`editor` | `build`), the state frame and `helper.json` carry the project `key`, and log frames carry a repeat `count`.
 
@@ -152,3 +187,8 @@ co-authors; live-scene protection; postponing over local edits; never pushing yo
 build's real client (`CollabRuntimeClient`): it joins the room by project key as a playtester, exchanges channel
 messages and shared keys with editors, receives and decodes a live scene edit, sees an editor turn playtester in Play
 Mode, follows a host migration without ever hosting, and a helper warning reaches the editor for the Console.
+The identity group reproduces the duplicated-user report (six helpers started at once for one project folder: one
+keeps running, the session shows that person once), restarts a helper (same id, same entry, same colour), reconnects a
+build over a silent old connection (replaced, not added), finds the host by asking with no beacon listener, logs a
+foreign room's beacon, removes an old editorless helper while keeping an old real editor, stops an unattended helper,
+and checks builds' stable ids (`CollabStableId`). `--only session|discovery|relay|runtime|identity|git` runs one group.

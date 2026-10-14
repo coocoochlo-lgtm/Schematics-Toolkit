@@ -29,6 +29,13 @@ namespace Remedy.Schematics.Collaboration
         private const string InstanceKey = "Schematics.Collab.Instance";
         private const string RebuiltKey = "Schematics.Collab.RebuiltForVersion";
         private const string StartedPidKey = "Schematics.Collab.StartedPid";
+        private const string StartedAtKey = "Schematics.Collab.StartedAtUtc";
+        private const string SweptKey = "Schematics.Collab.SweptOrphans";
+        /// <summary>How long a helper we started may take to write helper.json before we give up on it.</summary>
+        private const double StartupGraceSeconds = 30;
+        private static Task<int> _sweeping;
+        // Read once on the main thread (the sweep runs on a worker thread).
+        private static readonly bool IsWindowsEditor = Application.platform == RuntimePlatform.WindowsEditor;
 
         private static readonly ConcurrentQueue<CollabFrame> _incoming = new ConcurrentQueue<CollabFrame>();
         private static readonly List<CollabFrame> _outbox = new List<CollabFrame>();
@@ -207,8 +214,34 @@ namespace Remedy.Schematics.Collaboration
             if (state != null && IsAlive(state.pid))
             {
                 Connect(state.controlPort);
+                SweepOrphansOnce(state.pid);
                 return;
             }
+
+            // A helper we started is still starting (dotnet's start-up and the git checks take a few seconds, longer on
+            // a cold Windows machine): wait for it. Starting another one every half second meanwhile is what made
+            // people appear in the session many times over (each extra helper joined as another copy of them).
+            int startedPid = SessionState.GetInt(StartedPidKey, 0);
+            if (startedPid > 0 && IsAlive(startedPid))
+            {
+                long.TryParse(SessionState.GetString(StartedAtKey, "0"), out long startedTicks);
+                double age = (DateTime.UtcNow - new DateTime(Math.Max(0, startedTicks), DateTimeKind.Utc)).TotalSeconds;
+                if (age >= 0 && age < StartupGraceSeconds)
+                {
+                    if (CollabStatus.State != CollabState.Starting) CollabStatus.Set(CollabState.Starting, "Starting the collaboration helper...");
+                    return;
+                }
+                KillHelper(startedPid, "it didn't get ready within 30 s");
+            }
+            SessionState.EraseInt(StartedPidKey);
+
+            // Helpers left behind by older versions (see SweepOrphans) hold the helper's files and sit in the session.
+            if (_sweeping == null && SessionState.GetString(SweptKey, "") != "1")
+            {
+                SweepOrphansOnce(0);
+                return;
+            }
+            if (_sweeping != null && !_sweeping.IsCompleted) return;
             string folder = CollabFolder;
             if (folder == null)
             {
@@ -258,8 +291,11 @@ namespace Remedy.Schematics.Collaboration
             string log = Path.Combine(folder, "build.log");
             CollabStatus.Set(CollabState.Building, "Building the collaboration helper (first time only)...");
             Debug.Log($"[Collab] Building the collaboration helper with {dotnet} (first time only; log: {log}).");
+            string stateFolder = StateFolder;
             _building = Task.Run(() =>
             {
+                // Running helpers keep the old build's files open (on Windows the build then can't replace them).
+                try { SweepOrphans(stateFolder, 0); } catch { }
                 var info = new ProcessStartInfo(dotnet, $"build \"{project}\" -c Release -o \"{output}\" -nologo")
                 {
                     WorkingDirectory = folder,
@@ -321,6 +357,7 @@ namespace Remedy.Schematics.Collaboration
             {
                 var process = Process.Start(info);
                 SessionState.SetInt(StartedPidKey, process.Id);
+                SessionState.SetString(StartedAtKey, DateTime.UtcNow.Ticks.ToString());
                 _startedAt = EditorApplication.timeSinceStartup;
                 CollabStatus.Set(CollabState.Starting, "Starting the collaboration helper...");
             }
@@ -353,6 +390,106 @@ namespace Remedy.Schematics.Collaboration
             catch { }
         }
 
+        private static void KillHelper(int pid, string why)
+        {
+            try
+            {
+                using (var process = Process.GetProcessById(pid))
+                {
+                    if (process.HasExited) return;
+                    process.Kill();
+                    process.WaitForExit(2000);
+                }
+                CollabLog.Warning($"Stopped the collaboration helper process {pid}: {why}.");
+            }
+            catch { }
+        }
+
+        /// <summary>Runs <see cref="SweepOrphans"/> once per editor session, in the background.</summary>
+        private static void SweepOrphansOnce(int keepPid)
+        {
+            if (_sweeping != null || SessionState.GetString(SweptKey, "") == "1") return;
+            SessionState.SetString(SweptKey, "1");
+            string stateFolder = StateFolder;
+            _sweeping = Task.Run(() => SweepOrphans(stateFolder, keepPid));
+            _sweeping.ContinueWith(t =>
+            {
+                if (t.IsFaulted) CollabLog.Warning("Looking for leftover collaboration helpers failed: " + t.Exception?.GetBaseException().Message);
+                else if (t.Result > 0) CollabLog.Info($"Stopped {t.Result} leftover collaboration helper(s) of this project (they showed up as extra copies of you in the session).");
+            });
+        }
+
+        /// <summary>
+        /// Stops every helper process of this project except <paramref name="keepPid"/>: processes running
+        /// SchematicsCollab.dll whose command line names this project's state folder. Older versions of this bridge
+        /// could start several helpers while the first was still starting; they stayed until the editor quit, each in
+        /// the session as another copy of the user, and they lock the helper's files so it can't be rebuilt.
+        /// Returns how many were stopped.
+        /// </summary>
+        internal static int SweepOrphans(string stateFolder, int keepPid)
+        {
+            int stopped = 0;
+            int self = Process.GetCurrentProcess().Id;
+            string needle = Normalize(stateFolder);
+            foreach (var (pid, commandLine) in ListProcesses())
+            {
+                if (pid == keepPid || pid == self || string.IsNullOrEmpty(commandLine)) continue;
+                if (commandLine.IndexOf("SchematicsCollab", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                if (Normalize(commandLine).IndexOf(needle, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                try
+                {
+                    using (var process = Process.GetProcessById(pid))
+                    {
+                        process.Kill();
+                        process.WaitForExit(2000);
+                        stopped++;
+                    }
+                }
+                catch { }
+            }
+            return stopped;
+        }
+
+        private static string Normalize(string path) => (path ?? "").Replace('\\', '/').TrimEnd('/');
+
+        /// <summary>Process ids with their command lines (PowerShell/CIM on Windows, ps elsewhere). Empty if neither works.</summary>
+        private static List<(int pid, string commandLine)> ListProcesses()
+        {
+            var result = new List<(int, string)>();
+            bool windows = IsWindowsEditor;
+            ProcessStartInfo info;
+            if (windows)
+            {
+                string script = "Get-CimInstance Win32_Process -Filter \"Name='dotnet.exe' OR Name='SchematicsCollab.exe'\" | ForEach-Object { [string]$_.ProcessId + '|' + $_.CommandLine }";
+                string encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
+                info = new ProcessStartInfo("powershell", "-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + encoded);
+            }
+            else info = new ProcessStartInfo("ps", "-A -ww -o pid= -o args=");
+            info.UseShellExecute = false;
+            info.CreateNoWindow = true;
+            info.RedirectStandardOutput = true;
+            info.RedirectStandardError = true;
+            try
+            {
+                using (var process = Process.Start(info))
+                {
+                    var output = process.StandardOutput.ReadToEndAsync();
+                    process.StandardError.ReadToEndAsync();
+                    if (!process.WaitForExit(15000)) { try { process.Kill(); } catch { } return result; }
+                    foreach (var raw in output.Result.Split('\n'))
+                    {
+                        string line = raw.Trim();
+                        if (line.Length == 0) continue;
+                        int split = windows ? line.IndexOf('|') : line.IndexOf(' ');
+                        if (split <= 0) continue;
+                        if (int.TryParse(line.Substring(0, split).Trim(), out int pid)) result.Add((pid, line.Substring(split + 1)));
+                    }
+                }
+            }
+            catch { }
+            return result;
+        }
+
         /// <summary>Stops the helper and starts a fresh one (and rebuilds it if its sources changed).</summary>
         internal static void Restart()
         {
@@ -367,6 +504,9 @@ namespace Remedy.Schematics.Collaboration
                 StopStale();
                 SessionState.EraseInt(RebuiltKey);
                 SessionState.EraseString(InstanceKey);
+                SessionState.EraseInt(StartedPidKey);
+                SessionState.EraseString(SweptKey);
+                _sweeping = null;
                 _nextAttempt = 0;
             };
         }
@@ -497,6 +637,7 @@ namespace Remedy.Schematics.Collaboration
             avatarId = CollabSettings.AvatarId,
             role = EditorApplication.isPlayingOrWillChangePlaymode ? CollabProtocol.RolePlaytester : CollabProtocol.RoleEditor,
             client = CollabProtocol.ClientEditor,
+            version = CollabProtocol.Version,
         };
 
         private static CollabKV[] SettingsEntries() => new[]
@@ -786,6 +927,7 @@ namespace Remedy.Schematics.Collaboration
             if (isLocal) Set(ref peer.Role, EditorApplication.isPlayingOrWillChangePlaymode ? CollabRole.Playtester : CollabRole.Editor);
             else Set(ref peer.Role, info.role == CollabProtocol.RolePlaytester ? CollabRole.Playtester : CollabRole.Editor);
             Set(ref peer.IsBuild, info.client == CollabProtocol.ClientBuild);
+            Set(ref peer.ProtocolVersion, isLocal ? CollabProtocol.Version : info.version);
             if (!string.IsNullOrEmpty(info.color) && ColorUtility.TryParseHtmlString(info.color, out var color)) Set(ref peer.Color, color);
 
             var presence = new Dictionary<string, string>();

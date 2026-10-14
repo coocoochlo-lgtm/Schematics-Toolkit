@@ -19,7 +19,10 @@ namespace Remedy.Schematics.Collaboration
     /// <summary>How a <see cref="CollabRuntimeClient"/> finds and joins its room.</summary>
     internal sealed class CollabRuntimeClientOptions
     {
-        /// <summary>This client's peer id (fresh per run).</summary>
+        /// <summary>
+        /// This client's peer id. Builds pass a stable one (<see cref="CollabStableId"/>), so a restarted game takes its
+        /// own place in the room again; the default is fresh per run.
+        /// </summary>
         public string Id = Guid.NewGuid().ToString("N");
         /// <summary>The project key (the room), baked into the build: see <see cref="CollabProtocol.ProjectKey"/>.</summary>
         public string Key;
@@ -32,6 +35,16 @@ namespace Remedy.Schematics.Collaboration
         public List<string> Seeds = new List<string>();
         /// <summary>UDP ports to hear host beacons on (the LAN discovery port by default).</summary>
         public List<int> ListenPorts = new List<int> { CollabProtocol.DiscoveryPort };
+        /// <summary>
+        /// Ask actively: send "who hosts this project?" (<see cref="CollabFrameType.Discover"/>) to the LAN discovery
+        /// port by multicast, broadcast, each subnet's broadcast and 127.0.0.1 (an editor on this machine). Answers come
+        /// back to the asking socket, so this works even when the firewall blocks the game's inbound UDP (beacons).
+        /// </summary>
+        public bool DiscoverOnLan = true;
+        /// <summary>The LAN discovery port helpers listen on (CollabProtocol.DiscoveryPort; tests use another).</summary>
+        public int DiscoveryPort = CollabProtocol.DiscoveryPort;
+        /// <summary>More "host:port" places to send discovery questions to (the -collab-peer helpers are added too).</summary>
+        public List<string> DiscoverTargets = new List<string>();
         /// <summary>The host is considered gone after this long without a word (the host sends heartbeats every second).</summary>
         public int TimeoutMs = 20000;
         /// <summary>JSON for frames: JsonUtility in Unity, System.Text.Json in the helper. Both may be called off the main thread.</summary>
@@ -100,6 +113,11 @@ namespace Remedy.Schematics.Collaboration
         private string _hostId;
         private int _pingMs = -1;
         private string _lastError;
+        private Socket _ask;                                  // sends discovery questions and hears the answers
+        private DateTime _nextAsk;
+        private readonly HashSet<string> _foreignKeys = new HashSet<string>();
+        private string _lastHostHeard;
+        private int _searchNotes;
 
         public CollabRuntimeClient(CollabRuntimeClientOptions options)
         {
@@ -149,7 +167,10 @@ namespace Remedy.Schematics.Collaboration
             if (string.IsNullOrEmpty(Options.Key)) throw new InvalidOperationException("A project key is needed to find the room.");
             if (Options.ToJson == null || Options.FromJson == null) throw new InvalidOperationException("JSON functions are needed.");
             if (string.IsNullOrEmpty(Options.Relay))
+            {
                 foreach (int port in Options.ListenPorts) ListenForBeacons(port);
+                OpenAskSocket();
+            }
             _main = new Thread(Run) { IsBackground = true, Name = "Collab client" };
             _main.Start();
             _heartbeat = new Thread(HeartbeatLoop) { IsBackground = true, Name = "Collab client heartbeat" };
@@ -229,6 +250,7 @@ namespace Remedy.Schematics.Collaboration
             avatarId = Options.AvatarId ?? "",
             role = Options.Role ?? CollabProtocol.RolePlaytester,
             client = CollabProtocol.ClientBuild,
+            version = CollabProtocol.Version,
         };
 
         private static CollabKV[] Kv(Dictionary<string, string> map)
@@ -286,15 +308,133 @@ namespace Remedy.Schematics.Collaboration
                 CollabFrame beacon;
                 try { beacon = Options.FromJson(Encoding.UTF8.GetString(buffer, 0, length)); }
                 catch { continue; }   // not ours (anything may arrive on a broadcast port)
-                if (beacon == null || beacon.type != CollabFrameType.Beacon || beacon.key != Options.Key || !beacon.flag || beacon.port <= 0) continue;
+                if (beacon == null || beacon.type != CollabFrameType.Beacon) continue;
                 var address = ((IPEndPoint)remote).Address;
                 if (address.IsIPv4MappedToIPv6) address = address.MapToIPv4();
+                if (beacon.key != Options.Key)
+                {
+                    // Editors of another project or branch. Worth saying once: a build made from another branch than
+                    // the editors are on is the most common reason a build doesn't find them.
+                    bool first;
+                    lock (_lock) first = !string.IsNullOrEmpty(beacon.key) && _foreignKeys.Count < 20 && _foreignKeys.Add(beacon.key);
+                    if (first)
+                        Log("info", "Heard collaboration helpers at " + address + " for another room (key " + beacon.key + "); this build's room is "
+                            + Options.Key + ". Builds only meet editors of the same repository, branch and project folder they were built from.");
+                    continue;
+                }
+                if (!beacon.flag || beacon.port <= 0) continue;
+                // A discovery answer may name the host (text); a beacon or the host's own answer means "here".
+                string host = address.ToString();
+                if (!string.IsNullOrEmpty(beacon.text))
+                {
+                    IPAddress named;
+                    host = IPAddress.TryParse(beacon.text, out named) && IPAddress.IsLoopback(named) && !IPAddress.IsLoopback(address) ? address.ToString() : beacon.text;
+                }
+                bool announce;
                 lock (_lock)
                 {
-                    _hostBeacon = new Target { Host = address.ToString(), Port = beacon.port };
+                    _hostBeacon = new Target { Host = host, Port = beacon.port };
                     _hostBeaconSeen = DateTime.UtcNow;
+                    string heard = host + ":" + beacon.port;
+                    announce = !_connected && heard != _lastHostHeard;
+                    _lastHostHeard = heard;
                 }
+                if (announce) Log("info", "Found the room's host at " + host + ":" + beacon.port + ".");
             }
+        }
+
+        private void OpenAskSocket()
+        {
+            if (!Options.DiscoverOnLan && Options.DiscoverTargets.Count == 0 && Options.Seeds.Count == 0) return;
+            try
+            {
+                var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp) { EnableBroadcast = true };
+                socket.Bind(new IPEndPoint(IPAddress.Any, 0));
+                try { socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 2); } catch { }
+                try { socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastLoopback, true); } catch { }
+                lock (_udp) _udp.Add(socket);
+                _ask = socket;
+                var thread = new Thread(() => BeaconLoop(socket)) { IsBackground = true, Name = "Collab client discovery" };
+                thread.Start();
+            }
+            catch (Exception e)
+            {
+                Log("warning", "Can't open a UDP socket to look for editors (" + e.Message + "); only beacons, a relay or -collab-peer can find them.");
+            }
+        }
+
+        /// <summary>While searching: asks everywhere a helper could be who hosts this project (every 1.5 s).</summary>
+        private void Ask()
+        {
+            var socket = _ask;
+            if (socket == null || _connected || !string.IsNullOrEmpty(Options.Relay) || DateTime.UtcNow < _nextAsk) return;
+            _nextAsk = DateTime.UtcNow.AddMilliseconds(1500);
+            byte[] bytes;
+            try { bytes = Encoding.UTF8.GetBytes(Options.ToJson(new CollabFrame { type = CollabFrameType.Discover, key = Options.Key, id = Id })); }
+            catch { return; }
+            foreach (var target in AskTargets())
+                try { socket.SendTo(bytes, target); } catch { /* unreachable networks are normal */ }
+        }
+
+        private List<IPEndPoint> _lanTargets;
+        private DateTime _lanTargetsAt;
+
+        private IEnumerable<IPEndPoint> AskTargets()
+        {
+            var list = new List<IPEndPoint>();
+            if (Options.DiscoverOnLan)
+            {
+                if (_lanTargets == null || (DateTime.UtcNow - _lanTargetsAt).TotalSeconds > 30)
+                {
+                    _lanTargetsAt = DateTime.UtcNow;
+                    _lanTargets = new List<IPEndPoint>
+                    {
+                        new IPEndPoint(IPAddress.Parse(CollabProtocol.MulticastGroup), Options.DiscoveryPort),
+                        new IPEndPoint(IPAddress.Broadcast, Options.DiscoveryPort),
+                        new IPEndPoint(IPAddress.Loopback, Options.DiscoveryPort),
+                    };
+                    try
+                    {
+                        foreach (var nic in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+                        {
+                            if (nic.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up) continue;
+                            foreach (var unicast in nic.GetIPProperties().UnicastAddresses)
+                            {
+                                if (unicast.Address.AddressFamily != AddressFamily.InterNetwork || unicast.IPv4Mask == null) continue;
+                                byte[] ip = unicast.Address.GetAddressBytes(), mask = unicast.IPv4Mask.GetAddressBytes();
+                                bool anyMask = false;
+                                foreach (var b in mask) if (b != 0) anyMask = true;
+                                if (!anyMask) continue;
+                                var broadcast = new byte[4];
+                                for (int i = 0; i < 4; i++) broadcast[i] = (byte)(ip[i] | ~mask[i]);
+                                _lanTargets.Add(new IPEndPoint(new IPAddress(broadcast), Options.DiscoveryPort));
+                            }
+                        }
+                    }
+                    catch { /* not every platform lists its network interfaces; the broadcast above still goes out */ }
+                }
+                list.AddRange(_lanTargets);
+            }
+            foreach (var text in Options.DiscoverTargets) AddTarget(list, text, Options.DiscoveryPort);
+            foreach (var text in Options.Seeds) AddTarget(list, text, Options.DiscoveryPort);
+            return list;
+        }
+
+        private static void AddTarget(List<IPEndPoint> list, string text, int defaultPort)
+        {
+            var target = ParseAddress(text, defaultPort);
+            try
+            {
+                IPAddress address;
+                if (!IPAddress.TryParse(target.Host, out address))
+                {
+                    address = null;
+                    foreach (var candidate in Dns.GetHostAddresses(target.Host))
+                        if (candidate.AddressFamily == AddressFamily.InterNetwork) { address = candidate; break; }
+                }
+                if (address != null) list.Add(new IPEndPoint(address, target.Port));
+            }
+            catch { /* a name that doesn't resolve right now */ }
         }
 
         private Target PickTarget()
@@ -337,6 +477,8 @@ namespace Remedy.Schematics.Collaboration
                 catch (Exception e) { Log("error", "Choosing where to connect failed: " + e); target = null; }
                 if (target == null)
                 {
+                    try { Ask(); } catch (Exception e) { Note("warning", "Asking for the room's host failed: " + e.Message); }
+                    NoteStillSearching();
                     Thread.Sleep(250);
                     continue;
                 }
@@ -437,6 +579,7 @@ namespace Remedy.Schematics.Collaboration
                         _outbox.Clear();
                         _connected = true;
                         _lastError = null;
+                        _searchNotes = 0;
                     }
                     Log("info", "Joined the room (host " + Short(_hostId) + ", " + _roster.Length + " in it).");
                     _events.Enqueue(new Event { Kind = EventKind.Connected });
@@ -605,8 +748,106 @@ namespace Remedy.Schematics.Collaboration
             Log(level, text);
         }
 
+        // Every so often while nothing is found: say so in the log (Player.log in builds), with what to check.
+        private void NoteStillSearching()
+        {
+            double seconds = (DateTime.UtcNow - _searchingSince).TotalSeconds;
+            int[] marks = { 10, 30, 60, 180, 600 };
+            if (_searchNotes >= marks.Length || seconds < marks[_searchNotes]) return;
+            _searchNotes++;
+            Log("info", "Still looking for the room after " + (int)seconds + " s (key " + Options.Key
+                + (string.IsNullOrEmpty(Options.Relay) ? ", local network" : ", relay " + Options.Relay) + "). Check that an editor of this repository and "
+                + "branch has collaboration on, that both machines are on the same network (or use a relay), and that the firewall lets the "
+                + "editor's helper (dotnet) accept connections. -collab-peer HOST:PORT names an editor's helper directly.");
+        }
+
         private static string Short(string id) => string.IsNullOrEmpty(id) ? "?" : id.Length > 8 ? id.Substring(0, 8) : id;
 
         #endregion
+    }
+
+    /// <summary>
+    /// A peer id that stays the same across runs of a game on one machine, but differs between copies running at the
+    /// same time: "&lt;install id&gt;-&lt;slot&gt;". The install id is made once and kept in <c>folder</c>; each running copy
+    /// claims the lowest free slot (a lock file, plus the claiming process id written in it, because not every
+    /// runtime enforces file locks between processes). A restarted game claims its old slot again and so rejoins as
+    /// the same peer, replacing its old entry instead of adding one. Anything that fails falls back to a fresh id.
+    /// </summary>
+    internal sealed class CollabStableId : IDisposable
+    {
+        private static readonly HashSet<string> ClaimedInProcess = new HashSet<string>();
+        private FileStream _lock;
+        private string _lockPath;
+
+        public string Id { get; private set; }
+        public int Slot { get; private set; } = -1;
+
+        /// <summary>Claims an id under <paramref name="folder"/>. <paramref name="isAlive"/> says whether a process id still runs (null: assume it does).</summary>
+        public static CollabStableId Claim(string folder, int processId, Func<int, bool> isAlive)
+        {
+            var result = new CollabStableId();
+            try
+            {
+                Directory.CreateDirectory(folder);
+                string installFile = Path.Combine(folder, "install-id");
+                string install = File.Exists(installFile) ? File.ReadAllText(installFile).Trim() : "";
+                if (install.Length < 16)
+                {
+                    install = Guid.NewGuid().ToString("N");
+                    File.WriteAllText(installFile, install);
+                }
+                for (int slot = 0; slot < 64; slot++)
+                {
+                    string path = Path.Combine(folder, "slot-" + slot + ".lock");
+                    lock (ClaimedInProcess) if (ClaimedInProcess.Contains(path)) continue;
+                    FileStream stream;
+                    try { stream = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
+                    catch (IOException) { continue; }
+                    catch (UnauthorizedAccessException) { continue; }
+                    string recorded;
+                    try
+                    {
+                        var bytes = new byte[64];
+                        int n = stream.Read(bytes, 0, bytes.Length);
+                        recorded = Encoding.UTF8.GetString(bytes, 0, n).Trim();
+                    }
+                    catch { recorded = ""; }
+                    int owner;
+                    if (int.TryParse(recorded, out owner) && owner != processId && owner > 0)
+                    {
+                        bool alive;
+                        try { alive = isAlive == null || isAlive(owner); } catch { alive = true; }
+                        if (alive) { stream.Dispose(); continue; }
+                    }
+                    var mine = Encoding.UTF8.GetBytes(processId.ToString());
+                    stream.SetLength(0);
+                    stream.Write(mine, 0, mine.Length);
+                    stream.Flush();
+                    lock (ClaimedInProcess) ClaimedInProcess.Add(path);
+                    result._lock = stream;
+                    result._lockPath = path;
+                    result.Slot = slot;
+                    result.Id = install + "-" + slot;
+                    return result;
+                }
+            }
+            catch { /* fall through to a fresh id */ }
+            result.Id = Guid.NewGuid().ToString("N");
+            return result;
+        }
+
+        /// <summary>Gives the slot back (the next run, or another copy, may take it).</summary>
+        public void Dispose()
+        {
+            if (_lock == null) return;
+            try
+            {
+                _lock.SetLength(0);
+                _lock.Dispose();
+            }
+            catch { }
+            lock (ClaimedInProcess) ClaimedInProcess.Remove(_lockPath);
+            _lock = null;
+        }
     }
 }

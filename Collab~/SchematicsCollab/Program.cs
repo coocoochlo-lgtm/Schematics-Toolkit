@@ -14,6 +14,10 @@ namespace SchematicsCollab;
 ///   --peer HOST:PORT     also send beacons straight to this peer (repeatable)   --relay-address HOST:PORT  use a relay instead of the LAN
 ///   --key K              override the project key                               --no-git       don't touch git
 ///   --timeout-ms N       peer timeout (default 20000)                           --console      log to stdout too
+///   --id ID              override the peer id (default: Library/SchematicsCollab/peer-id, created once per project folder)
+///   --editor-wait-s N    exit when no editor attached within N s of starting (default 120; 0 = wait forever)
+///   --editor-idle-s N    exit when the editor has been gone for N s (default 600; 0 = never)
+///   --orphan-timeout-ms N  host: remove a pre-protocol-3 helper that never published presence after N ms (default 90000)
 ///   --relay --port N     run as a relay for internet sessions
 ///   --selftest           run the multi-process self test
 /// </summary>
@@ -42,7 +46,20 @@ static class Program
         Log.Init(Path.Combine(stateDir, "collab.log"));
         string stateFile = Path.Combine(stateDir, "helper.json");
 
-        // One helper per project: if another one is alive and answering, it's the one.
+        // One helper per project. The lock file is taken before anything else (it's released by the OS when the
+        // process ends, however it ends), so helpers started at the same moment can't both get past this point: older
+        // editors started a new helper every half second until the first one wrote helper.json, and every extra one
+        // joined the session as another copy of the same person.
+        FileStream instanceLock;
+        try
+        {
+            instanceLock = new FileStream(Path.Combine(stateDir, "helper.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        }
+        catch (IOException)
+        {
+            Log.Write("Another helper is already running for this project (helper.lock is taken); exiting.");
+            return 3;
+        }
         if (OtherHelperRunning(stateFile))
         {
             Log.Write("Another helper is already running for this project; exiting.");
@@ -67,8 +84,11 @@ static class Program
             DiscoveryPort = int.Parse(a.Get("--discovery-port") ?? CollabProtocol.DiscoveryPort.ToString()),
             Relay = string.IsNullOrWhiteSpace(a.Get("--relay-address")) ? null : a.Get("--relay-address").Trim(),
             TimeoutMs = int.Parse(a.Get("--timeout-ms") ?? "20000"),
+            OrphanTimeoutMs = int.Parse(a.Get("--orphan-timeout-ms") ?? "90000"),
         };
-        if (a.Get("--id") is { } id) options.Id = id;
+        // The same id every time this project folder's helper runs, so a restarted helper (editor restart, rebuild,
+        // crash) takes its own place in the session again instead of appearing as one more person.
+        options.Id = a.Get("--id") ?? StablePeerId(stateDir);
         foreach (var seed in a.All("--peer"))
         {
             var (host, port) = Session.ParseAddress(seed);
@@ -89,6 +109,7 @@ static class Program
         {
             if (from != null) profile = new CollabProfile { name = from.name, avatarId = from.avatarId, role = Kv.Empty(from.role) ? CollabProtocol.RoleEditor : from.role };
             profile.client = CollabProtocol.ClientEditor;
+            profile.version = CollabProtocol.Version;
             profile.gitName = git.Info.userName;
             profile.gitEmail = git.Info.userEmail;
             if (Kv.Empty(profile.name)) profile.name = !Kv.Empty(git.Info.userName) ? git.Info.userName : Environment.UserName;
@@ -185,6 +206,7 @@ static class Program
 
         if (git.HasRepo) Background("The git poll loop", () => git.PollLoopAsync(Stop.Token));
         if (int.TryParse(a.Get("--parent-pid"), out int parentPid)) _ = Task.Run(() => WatchParent(parentPid));
+        _ = Task.Run(() => WatchEditor(editor, int.Parse(a.Get("--editor-wait-s") ?? "120"), int.Parse(a.Get("--editor-idle-s") ?? "600")));
         AppDomain.CurrentDomain.ProcessExit += (_, _) => Stop.Cancel();
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; Stop.Cancel(); };
 
@@ -198,6 +220,8 @@ static class Program
         }
         catch { }
         Log.Write("Helper stopped.");
+        GC.KeepAlive(instanceLock);
+        instanceLock.Dispose();
         return 0;
     }
 
@@ -231,6 +255,60 @@ static class Program
             if (!alive)
             {
                 Log.Write("The editor exited; stopping.");
+                Stop.Cancel();
+                return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// This project folder's peer id: made once and kept in the state folder (Library/SchematicsCollab/peer-id, so a
+    /// copy of the project elsewhere, which has its own Library, gets its own id).
+    /// </summary>
+    private static string StablePeerId(string stateDir)
+    {
+        string file = Path.Combine(stateDir, "peer-id");
+        try
+        {
+            if (File.Exists(file))
+            {
+                string existing = File.ReadAllText(file).Trim();
+                if (existing.Length >= 16 && existing.All(char.IsLetterOrDigit)) return existing;
+            }
+            string id = Guid.NewGuid().ToString("N");
+            File.WriteAllText(file, id + "\n");
+            return id;
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"Couldn't keep a peer id in {file} ({e.Message}); using a new one for this run.");
+            return Guid.NewGuid().ToString("N");
+        }
+    }
+
+    /// <summary>
+    /// A helper nobody uses leaves: one no editor attached to within <paramref name="waitSeconds"/> of starting, or whose
+    /// editor has been gone for <paramref name="idleSeconds"/> (script reloads take seconds; this is for helpers left
+    /// behind). The editor starts a new one whenever it needs one.
+    /// </summary>
+    private static async Task WatchEditor(EditorLink editor, int waitSeconds, int idleSeconds)
+    {
+        var started = DateTime.UtcNow;
+        DateTime? lastSeen = null;
+        while (!Stop.IsCancellationRequested)
+        {
+            await Task.Delay(1000);
+            var now = DateTime.UtcNow;
+            if (editor.Attached) { lastSeen = now; continue; }
+            if (lastSeen == null && waitSeconds > 0 && (now - started).TotalSeconds > waitSeconds)
+            {
+                Log.Write($"No editor attached within {waitSeconds} s; stopping.");
+                Stop.Cancel();
+                return;
+            }
+            if (lastSeen != null && idleSeconds > 0 && (now - lastSeen.Value).TotalSeconds > idleSeconds)
+            {
+                Log.Write($"The editor has been gone for {idleSeconds} s; stopping.");
                 Stop.Cancel();
                 return;
             }

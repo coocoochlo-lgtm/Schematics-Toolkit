@@ -21,7 +21,7 @@ namespace Remedy.Schematics.Collaboration
     internal static class CollabProtocol
     {
         /// <summary>Bumped whenever the protocol or the helper's behaviour changes, so stale helpers get rebuilt.</summary>
-        public const int Version = 2;
+        public const int Version = 3;
 
         /// <summary>UDP port the LAN beacons go to (broadcast and multicast).</summary>
         public const int DiscoveryPort = 47811;
@@ -35,7 +35,6 @@ namespace Remedy.Schematics.Collaboration
         /// <summary>Marks commits the helper made, so it only ever pushes its own commits automatically.</summary>
         public const string CommitTrailer = "Schematics-Collab: auto";
 
-        /// <summary>Session colours, handed out by the host so each participant has a different one.</summary>
         /// <summary>Peer roles (<see cref="CollabProfile.role"/>): editing in a Unity editor, or playing the game.</summary>
         public const string RoleEditor = "editor";
         public const string RolePlaytester = "playtester";
@@ -89,6 +88,7 @@ namespace Remedy.Schematics.Collaboration
             return u;
         }
 
+        /// <summary>Session colours, handed out by the host so each participant has a different one.</summary>
         public static readonly string[] Palette =
         {
             "#4C9AFF", "#FF5630", "#36B37E", "#FFAB00", "#6554C0", "#00B8D9",
@@ -135,6 +135,12 @@ namespace Remedy.Schematics.Collaboration
         public const string Beacon = "beacon";           // UDP: key, id, flag = is host, host, epoch, seq = startedAt, port, count
         public const string Ping = "ping";               // UDP: id, seq = ticks
         public const string Pong = "pong";               // UDP: id, seq echoed
+        // A build asking "who hosts this project?" (UDP, to broadcast, multicast, 127.0.0.1 and named helpers): key, id.
+        // Any helper in that project's session answers the sender with a Beacon naming the host (flag = true, port =
+        // the host's peer port, text = the host's address, or empty when the answering helper is the host). Unlike
+        // beacons it needs no open inbound UDP port on the build's machine: the answer comes back to the socket that
+        // asked, which firewalls let through.
+        public const string Discover = "discover";
     }
 
     /// <summary>One message. A single flat shape for everything keeps it readable by Unity's JsonUtility.</summary>
@@ -190,6 +196,7 @@ namespace Remedy.Schematics.Collaboration
         public long startedAt;
         public string role;         // CollabProtocol.RoleEditor / RolePlaytester ("" from old peers = editor)
         public string client;       // CollabProtocol.ClientEditor / ClientBuild; builds never host
+        public int version;         // the peer's protocol version (0 = older than 3)
         public CollabKV[] presence;
     }
 
@@ -202,6 +209,7 @@ namespace Remedy.Schematics.Collaboration
         public string gitEmail;
         public string role;         // CollabProtocol.RoleEditor / RolePlaytester (an editor in Play Mode is a playtester)
         public string client;       // CollabProtocol.ClientEditor / ClientBuild
+        public int version;         // the sender's CollabProtocol.Version (0 from peers older than version 3)
     }
 
     [Serializable]

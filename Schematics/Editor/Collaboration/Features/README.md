@@ -7,7 +7,8 @@ here pauses while you're disconnected or in Play Mode (live edits to a game in P
 | --- | --- |
 | Live scene editing | `SceneSync`, `SceneSnapshot`, `PropertyCodec`, `CollabObjectIds` |
 | Placeholders for assets still on their way | `CollabPlaceholders`, `CollabPlaceholder`, `NewAssetTracker` |
-| Teammates in the Scene view, selection locks | `ScenePresence` |
+| Teammates in the Scene view, selection locks, variants | `ScenePresence`, `CollabLevelDesignerLink` |
+| Players' ghosts in the Scene view | `ScenePlayerGhosts` (runtime side: `CollabRuntimeGhosts`, `CollabWorldOverlay`, `CollabRuntimeChat`) |
 | Teammates in Schematic Graphs, graph sync | `GraphCollab` |
 | Team window and chat (Window > Schematics > Team) | `TeamWindow`, `ChatService`, `CollabNavigation` |
 | Connection indicator (Scene view overlay "Collaboration") | `CollabStatusOverlay` |
@@ -17,10 +18,16 @@ here pauses while you're disconnected or in Play Mode (live edits to a game in P
 
 ## What people see
 
-- **Each other in the Scene view.** Anyone who has one of your open scenes open (a blockout scene or one of its art
-  scenes) appears where their Scene view camera is: the avatar prefab from settings (tinted in their colour), or a
-  head-and-camera-frustum placeholder, with their name. A dotted line runs to everything they have selected, with a box
-  around it, in their colour.
+- **Each other in the Scene view.** Anyone who has one of your open scenes open appears where their Scene view camera
+  is, as a sphere with a small camera frustum in their colour, with their name. A dotted line runs to everything they
+  have selected, with a box around it, in their colour.
+- **Variants.** A level is a blockout scene with variant scenes loaded additively on top. Someone who has a scene open
+  that you don't (another variant of your blockout) is drawn faded, labelled "Name — Level · Variant" (names from the
+  Level Designer when it knows the scene). Click their avatar and you're asked whether to move to that variant: the
+  Level Designer opens it with its blockout (`LevelDesigner.OpenVariant`, by reflection), or without it your open
+  scenes are matched to theirs. Scene sync is per scene: changes are applied only to scenes you have loaded, so their
+  edits to their variant never touch yours, while edits to the shared blockout reach everyone. A variant you open later
+  is brought up to date from the host's log of it.
 - **Selection locks.** You can't select what someone else has selected: it's deselected with "Selected by Name", and
   it can't be clicked in the Scene view until they let go. If two people grab the same thing at once, whoever
   selected it first keeps it.
@@ -30,9 +37,26 @@ here pauses while you're disconnected or in Play Mode (live edits to a game in P
   labelled with its name, until git delivers the asset; then it turns into the real thing.
 - **Schematic Graphs.** Teammates' cursors and selected nodes show in your graph window; nodes they've selected can't
   be selected; edits arrive a second or two after they're made.
-- **Team window.** Everyone's avatar, name, host crown, ping, what they're working on and whether they're active.
+- **Team window.** Everyone's colour and initials, name, host crown, ping, what they're working on and whether they're active.
   Double-click someone to jump to them (their scene(s) from their camera, or their graph at their cursor). Chat at
   the bottom (Enter to send, unread count in the tab, optional sound).
+
+## Players
+
+Builds and editors in Play Mode share what their player controls: Schematic Objects that get input from Remedy Input
+(they listen to one of Remedy Input's Signals: a graph's On Received or a Behavior's subscription; camera rigs are left
+out), plus anything marked with `CollabRuntime.SetControlled(go, true)`. They say so in presence `control` (the Team
+window shows "▶ controls X") and stream pose and rough shape (capsule from a CharacterController/CapsuleCollider, else
+renderer bounds) on the `ghost` channel about 12 times a second while it moves.
+
+- Editors see each player's ghost in the Scene view (Edit Mode and Play Mode): a translucent capsule or box in their
+  colour, "Name (playing)", facing line. Change the level around them and, with Receive Live Edits on, watch them react.
+- Players see editors in the game as the same sphere-and-frustum avatar where their Scene view camera is, and other
+  players' ghosts (GL lines over the game cameras; the overlay's "Show editors and other players" hides them).
+- Builds have a chat: Enter opens it, Enter sends, Esc closes; same `chat` channel and history as the Team window.
+
+Settings (Project Settings > Schematics > Collaboration Features > Players): Share Player Ghosts, Show Team In Builds,
+Chat In Builds.
 
 ## Editors and playtesters
 
@@ -99,7 +123,9 @@ All JSON via `JsonUtility` (classes in `CollabMessages.cs`).
 | --- | --- |
 | `scene` | `SceneMsg { op, scene, mid, from, id, comp, props[{p,v}], data, nodes[], parentId, sibling, aliases[] }`. `op`: `props` (property values of a GameObject (`comp` = "") or component), `comp` (whole component: `data`), `create` / `structure` (hierarchy snapshot: `nodes`, flattened, index 0 = root, with `parentId`/`sibling`), `destroy`, `parent` (new parent, sibling index and local transform), `committed` (host: aliases after a save). |
 | `graph` | `GraphMsg { op:"changed", guid, path, from, rev, enc:"text"\|"base64", data }`: the saved graph asset file. |
-| `chat` | `ChatMsg { id, from, name, color:"#RRGGBB", text, t:unixMs }` |
+| `chat` | `ChatMsg { id, from, name, color:"#RRGGBB", text, t:unixMs }` (builds: `CollabChatMessage`, same fields) |
+| `ghost` | `CollabGhostFrame { scene, scenes[], objects[CollabGhostObject { id, name, position, rotation, shape:"capsule"\|"box", center, size, radius, height }], t }`; an empty `objects` removes the ghost |
+| presence `control` | `CollabControlPresence { ids[], names[] }`: what a player controls |
 | presence `camera` | `CameraPresence { scene, scenes[], pivot, rotation, size, ortho, in2D, position }` (builds send their game camera; rotations are validated where parsed) |
 | presence `selection` | `SelectionPresence { scene, ids[], t }` |
 | presence `location` | `LocationPresence { kind:"scene"\|"graph"\|"none", path, name, scenes[], status:"Active"\|"Idle"\|"Play Mode" }` |

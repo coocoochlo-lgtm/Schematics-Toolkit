@@ -6,18 +6,11 @@ namespace Remedy.Schematics.Collaboration
 {
     /// <summary>
     /// Project-wide settings for the collaboration features (Project Settings > Schematics > Collaboration Features).
-    /// They live in ProjectSettings/ so every teammate gets the same avatar and the same sync behaviour from git.
+    /// They live in ProjectSettings/ so every teammate gets the same sync behaviour from git.
     /// </summary>
     [FilePath("ProjectSettings/SchematicsCollaborationFeatures.asset", FilePathAttribute.Location.ProjectFolder)]
     public sealed class CollabFeaturesSettings : ScriptableSingleton<CollabFeaturesSettings>
     {
-        [Tooltip("The 3D model drawn where each teammate's Scene view camera is. Leave empty for the built-in placeholder (a head and a camera frustum). " +
-                 "It's tinted with the teammate's colour where its shader has a _BaseColor or _Color property.")]
-        public GameObject AvatarPrefab;
-
-        [Tooltip("Uniform scale applied to the avatar model.")]
-        public float AvatarScale = 1f;
-
         [Tooltip("Send scene edits to teammates as they happen.")]
         public bool LiveSceneSync = true;
 
@@ -53,6 +46,17 @@ namespace Remedy.Schematics.Collaboration
         [Tooltip("Playtest builds apply editors' live edits from the start (each playtester can still turn it off in the overlay).")]
         public bool ReceiveLiveEditsByDefault = false;
 
+        [Header("Players")]
+        [Tooltip("Builds and Play Mode share the objects their player controls (Schematic Objects driven by Remedy Input) as ghosts " +
+                 "that editors and other players see.")]
+        public bool SharePlayerGhosts = true;
+
+        [Tooltip("Playtest builds show editors' cameras and other players' ghosts in the game (each player can hide them in the overlay).")]
+        public bool ShowTeamInBuilds = true;
+
+        [Tooltip("Playtest builds have a small chat (Enter to open) on the same channel as the Team window's chat.")]
+        public bool ChatInBuilds = true;
+
         /// <summary>Saves the settings file after an edit.</summary>
         public void SaveSettings() => Save(true);
     }
@@ -87,7 +91,7 @@ namespace Remedy.Schematics.Collaboration
                         settings.SaveSettings();
                     }
                 },
-                keywords = new[] { "collaboration", "avatar", "team", "chat", "multiplayer" },
+                keywords = new[] { "collaboration", "team", "chat", "multiplayer", "ghost", "playtest" },
             };
         }
     }

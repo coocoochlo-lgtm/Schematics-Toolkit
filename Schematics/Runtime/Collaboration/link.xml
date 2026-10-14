@@ -1,0 +1,7 @@
+<!--
+  Keeps the collaboration client whole in builds with managed code stripping: its wire types are only touched through
+  JsonUtility and its entry point through [RuntimeInitializeOnLoadMethod], which the linker can't fully follow.
+-->
+<linker>
+  <assembly fullname="Remedy.Schematics.Collaboration.Runtime" preserve="all" />
+</linker>

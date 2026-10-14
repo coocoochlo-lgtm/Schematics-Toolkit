@@ -19,6 +19,8 @@ namespace Remedy.Schematics.Collaboration
         /// <summary>The peer editors see as host (it keeps the shared store). Never a build.</summary>
         public bool IsHost;
         public bool IsLocal;
+        /// <summary>Their replicated presence (camera, location, control...), as JSON per key. Never null.</summary>
+        public IReadOnlyDictionary<string, string> Presence = new Dictionary<string, string>();
         public override string ToString() => $"{Name} ({Role}{(IsBuild ? ", build" : "")})";
     }
 
@@ -102,6 +104,18 @@ namespace Remedy.Schematics.Collaboration
             if (string.IsNullOrEmpty(key) || _transport == null) return;
             CollabLog.Safe("Setting shared key '" + key + "'", () => _transport.SetShared(key, json));
         }
+
+        /// <summary>Channel the player ghosts travel on (<see cref="CollabGhostFrame"/>).</summary>
+        public const string GhostChannel = "ghost";
+
+        /// <summary>Chat channel shared with the editors' Team window.</summary>
+        public const string ChatChannel = "chat";
+
+        /// <summary>
+        /// Marks an object as controlled by this game's player, so editors and other players see it as a ghost. Objects
+        /// driven by a Remedy Input Behavior are found by themselves; this is for anything else (or to stop sharing one).
+        /// </summary>
+        public static void SetControlled(GameObject go, bool controlled) => CollabRuntimeGhosts.SetControlled(go, controlled);
 
         /// <summary>The value of a shared store key, or null.</summary>
         public static string GetShared(string key)
@@ -248,10 +262,14 @@ namespace Remedy.Schematics.Collaboration
                 {
                     if (_transport == null)
                     {
-                        var transport = CollabNetworkTransport.TryCreate(out var info);
-                        BuildInfo = info;
-                        if (transport == null) return;
-                        Use(transport);
+                        var info = CollabBuildInfo.Load();
+                        if (info == null)
+                        {
+                            // Maybe the scenes carry it (CollabSceneIds.BuildInfoJson): they boot us when they load.
+                            CollabLog.Info("No collaboration build info in Resources (" + CollabBuildInfo.ResourceName + "); checking the first scene for it.");
+                            return;
+                        }
+                        StartBuildClient(info);
                     }
                 }
                 if (_transport == null) return;
@@ -262,6 +280,36 @@ namespace Remedy.Schematics.Collaboration
             {
                 CollabLog.Exception("Starting collaboration in the game failed (the game itself is unaffected)", e);
             }
+        }
+
+        private static bool _sceneBootTried;
+
+        /// <summary>Fallback start from the build info a built scene carries (see <see cref="CollabSceneIds.BuildInfoJson"/>).</summary>
+        internal static void BootFromScene(string json)
+        {
+            if (_sceneBootTried || _transport != null || Application.isEditor) return;
+            _sceneBootTried = true;
+            try
+            {
+                var info = CollabBuildInfo.FromJson(json);
+                if (info == null) return;
+                CollabLog.Info("Using the collaboration build info stored in the scene.");
+                StartBuildClient(info);
+                if (_transport == null) return;
+                CollabLiveEdits.Init();
+                CollabRuntimeRunner.Ensure();
+            }
+            catch (Exception e)
+            {
+                CollabLog.Exception("Starting collaboration in the game failed (the game itself is unaffected)", e);
+            }
+        }
+
+        private static void StartBuildClient(CollabBuildInfo info)
+        {
+            BuildInfo = info;
+            var transport = CollabNetworkTransport.TryCreate(info);
+            if (transport != null) Use(transport);
         }
 
         #endregion

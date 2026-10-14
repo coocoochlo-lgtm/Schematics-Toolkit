@@ -28,6 +28,7 @@ namespace Remedy.Schematics.Collaboration
         public int callbackOrder => 0;
 
         private static bool _active;
+        private static string _infoJson;
 
         private static bool Wanted(BuildReport report)
         {
@@ -44,7 +45,15 @@ namespace Remedy.Schematics.Collaboration
             try
             {
                 RemoveGenerated();
-                if (!Wanted(report)) return;
+                _infoJson = null;
+                if (!Wanted(report))
+                {
+                    var why = !CollabFeaturesSettings.instance.PlaytestBuildsJoinSessions ? "Playtest builds is switched off"
+                        : report != null && report.summary.platform == BuildTarget.WebGL ? "WebGL builds can't open sockets"
+                        : "only development builds join (Development Builds Only is on)";
+                    CollabLog.Info($"This build won't join the collaboration room: {why} (Project Settings > Schematics > Collaboration Features).");
+                    return;
+                }
                 var identity = CollabProjectIdentity.Current();
                 var settings = CollabFeaturesSettings.instance;
                 var info = ScriptableObject.CreateInstance<CollabBuildInfo>();
@@ -59,6 +68,15 @@ namespace Remedy.Schematics.Collaboration
                 info.BuiltAt = DateTime.UtcNow.ToString("u");
                 info.ShowOverlay = settings.ShowPlaytestOverlay;
                 info.ReceiveLiveEditsByDefault = settings.ReceiveLiveEditsByDefault;
+                info.SharePlayerGhosts = settings.SharePlayerGhosts;
+                info.ShowTeam = settings.ShowTeamInBuilds;
+                info.Chat = settings.ChatInBuilds;
+                if (string.IsNullOrEmpty(info.ProjectKey))
+                {
+                    CollabLog.Warning("Couldn't work out this project's collaboration key; the build won't find editors.");
+                    return;
+                }
+                _infoJson = JsonUtility.ToJson(info);
 
                 if (!AssetDatabase.IsValidFolder(GeneratedFolder)) AssetDatabase.CreateFolder("Assets", Path.GetFileName(GeneratedFolder));
                 if (!AssetDatabase.IsValidFolder(GeneratedFolder + "/Resources")) AssetDatabase.CreateFolder(GeneratedFolder, "Resources");
@@ -79,6 +97,7 @@ namespace Remedy.Schematics.Collaboration
         public void OnPostprocessBuild(BuildReport report)
         {
             _active = false;
+            _infoJson = null;
             CollabLog.Safe("Cleaning up the build's collaboration info", RemoveGenerated);
         }
 
@@ -97,7 +116,6 @@ namespace Remedy.Schematics.Collaboration
                 foreach (var t in root.GetComponentsInChildren<Transform>(true))
                     if ((t.gameObject.hideFlags & HideFlags.DontSaveInBuild) == 0 && !t.gameObject.CompareTag("EditorOnly"))
                         objects.Add(t.gameObject);
-            if (objects.Count == 0) return;
             var array = objects.ToArray();
             var gids = new GlobalObjectId[array.Length];
             GlobalObjectId.GetGlobalObjectIdsSlow(array, gids);
@@ -106,6 +124,8 @@ namespace Remedy.Schematics.Collaboration
             SceneManager.MoveGameObjectToScene(holder, scene);
             var map = holder.AddComponent<CollabSceneIds>();
             map.ScenePath = scene.path;
+            // A second copy of the build info, read if the Resources asset somehow isn't in the build.
+            map.BuildInfoJson = _infoJson;
             for (int i = 0; i < array.Length; i++)
             {
                 var gid = gids[i];

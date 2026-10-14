@@ -16,6 +16,7 @@ sealed class SessionOptions
     public string Relay;                       // host:port of a relay; replaces LAN discovery and election
     public int TimeoutMs = 20000;              // a peer is gone after this long without a word (helpers, not editors, send them)
     public int DiscoveryWindowMs = 2500;       // how long a new peer listens for a host before electing one
+    public int OrphanTimeoutMs = 90000;        // host: an older helper with no editor attached is removed after this long
 }
 
 /// <summary>
@@ -262,6 +263,7 @@ sealed class Session
         gitEmail = _profile.gitEmail,
         role = Kv.Empty(_profile.role) ? CollabProtocol.RoleEditor : _profile.role,
         client = CollabProtocol.ClientEditor,
+        version = CollabProtocol.Version,
         port = PeerPort,
         startedAt = StartedAt,
         isHost = _role == Role.Host,
@@ -531,7 +533,7 @@ sealed class Session
         _epoch = epoch;
         _hostId = Id;
         _hostConn = null;
-        _room = new HostRoom(Key, epoch, Id, FromHost, _o.TimeoutMs, _store, _roster);
+        _room = new HostRoom(Key, epoch, Id, FromHost, _o.TimeoutMs, _store, _roster, _o.OrphanTimeoutMs);
         SetRole(Role.Host);
         _room.AddLocal(LocalInfo());
         Log.Write($"Hosting the session (epoch {epoch}).");
@@ -801,6 +803,9 @@ sealed class Session
                     Seen = DateTime.UtcNow,
                 };
                 break;
+            case CollabFrameType.Discover:
+                AnswerDiscover(socket, frame, from);
+                break;
             case CollabFrameType.Ping:
                 try { socket.SendTo(Json.Bytes(new CollabFrame { type = CollabFrameType.Pong, id = Id, seq = frame.seq }), from); } catch { }
                 break;
@@ -811,6 +816,39 @@ sealed class Session
                 _rtt[frame.id] = smoothed;
                 break;
         }
+    }
+
+    /// <summary>
+    /// A build asks who hosts its project: anyone in the session answers with the host's address and port. The host
+    /// leaves the address empty (the build uses where the answer came from); a client names the host as it reaches it,
+    /// except a loopback address, which the build couldn't use from another machine (then it's the answering machine's).
+    /// </summary>
+    private void AnswerDiscover(Socket socket, CollabFrame frame, IPEndPoint from)
+    {
+        if (frame.key != Key || !InSession || _o.Relay != null) return;
+        string address = "";
+        int port = PeerPort;
+        if (_role == Role.Client)
+        {
+            var host = _roster.FirstOrDefault(p => p.id == _hostId);
+            address = host?.address ?? _hostConn?.RemoteIp ?? "";
+            port = host?.port ?? 0;
+            if (port <= 0 || Kv.Empty(address)) return;
+            if (IPAddress.TryParse(address, out var ip) && IPAddress.IsLoopback(ip) && !IPAddress.IsLoopback(from.Address)) address = "";
+        }
+        var reply = new CollabFrame
+        {
+            type = CollabFrameType.Beacon,
+            key = Key,
+            id = Id,
+            flag = true,
+            host = _hostId,
+            text = address,
+            port = port,
+            epoch = _epoch,
+            count = _role == Role.Host ? _room.Count : _roster.Length,
+        };
+        try { socket.SendTo(Json.Bytes(reply), from); } catch { }
     }
 
     public static (string host, int port) ParseAddress(string text)

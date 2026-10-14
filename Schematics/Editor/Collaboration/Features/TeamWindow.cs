@@ -8,7 +8,7 @@ namespace Remedy.Schematics.Collaboration
 {
     /// <summary>
     /// Window/Schematics/Team: who's here and what they're working on, plus chat.
-    /// Each teammate shows their avatar (or a circle in their colour), name, a crown for the host, ping, what they have
+    /// Each teammate shows a circle in their colour with their initials, name, a crown for the host, ping, what they have
     /// open and whether they're active. Double-click someone to jump to them: same scene or graph, same view.
     /// </summary>
     public sealed class TeamWindow : EditorWindow
@@ -106,7 +106,7 @@ namespace Remedy.Schematics.Collaboration
                 bool connected = CollabSession.IsConnected;
                 var dot = GUILayoutUtility.GetRect(12, 18, GUILayout.Width(12));
                 DrawDisc(new Rect(dot.x + 1, dot.y + 4, 10, 10), connected ? new Color(0.3f, 0.85f, 0.4f) : new Color(0.6f, 0.6f, 0.6f));
-                int count = CollabSession.Peers?.Count ?? 0;
+                int count = VisiblePeers(out _).Count;
                 string state = connected ? $"Connected · {count} {(count == 1 ? "person" : "people")}" : "Not connected · " + CollabStatus.Message;
                 if (connected && EditorApplication.isPlayingOrWillChangePlaymode) state += " · paused (Play Mode)";
                 int playtesters = (CollabSession.Peers ?? (IReadOnlyList<CollabPeer>)Array.Empty<CollabPeer>()).Count(p => !p.IsLocal && p.Role == CollabRole.Playtester);
@@ -139,12 +139,17 @@ namespace Remedy.Schematics.Collaboration
 
         private void DrawPeers(float height)
         {
-            var peers = (CollabSession.Peers ?? (IReadOnlyList<CollabPeer>)Array.Empty<CollabPeer>())
+            var peers = VisiblePeers(out int hidden)
                 .OrderByDescending(p => p.IsLocal).ThenByDescending(p => p.IsHost).ThenBy(p => p.Name).ToList();
             _peerScroll = EditorGUILayout.BeginScrollView(_peerScroll, GUILayout.Height(Mathf.Max(60, height)));
             if (!CollabSession.IsConnected)
                 EditorGUILayout.HelpBox("Not in a session. Teammates on the same network or relay appear here once you're connected.", MessageType.Info);
             foreach (var peer in peers) DrawPeer(peer);
+            if (hidden > 0)
+                GUILayout.Label(new GUIContent($"<color=#888888>{hidden} leftover connection{(hidden == 1 ? "" : "s")} hidden</color>",
+                    "Extra entries for the same person with no editor behind them (helpers left running by an older version of the " +
+                    "collaboration tools on their machine). The host removes them within a couple of minutes; restarting that person's " +
+                    "Unity also clears them."), _detailStyle);
             EditorGUILayout.EndScrollView();
         }
 
@@ -198,6 +203,34 @@ namespace Remedy.Schematics.Collaboration
             }
         }
 
+        /// <summary>
+        /// Everyone, with leftover duplicates of one person folded away: several entries with the same name, git email,
+        /// role and kind (editor/build) where some have an editor behind them (they publish presence) and the others
+        /// don't. Those others are helpers an older version left running; they look like the same person many times.
+        /// </summary>
+        internal static List<CollabPeer> VisiblePeers(out int hidden)
+        {
+            hidden = 0;
+            var all = (CollabSession.Peers ?? (IReadOnlyList<CollabPeer>)Array.Empty<CollabPeer>()).Where(p => p != null).ToList();
+            var result = new List<CollabPeer>();
+            foreach (var group in all.GroupBy(p => (p.Name ?? "", Email(p), p.IsBuild, p.Role)))
+            {
+                var members = group.ToList();
+                if (members.Count == 1) { result.Add(members[0]); continue; }
+                var live = members.Where(p => p.IsLocal || HasEditorBehind(p)).ToList();
+                if (live.Count == 0) live.Add(members.OrderByDescending(p => p.IsHost).First());
+                result.AddRange(live);
+                hidden += members.Count - live.Count;
+            }
+            return result;
+        }
+
+        private static string Email(CollabPeer peer) =>
+            peer.Presence != null && peer.Presence.TryGetValue("git.email", out var email) ? email ?? "" : "";
+
+        private static bool HasEditorBehind(CollabPeer peer) =>
+            peer.Presence != null && (peer.Presence.ContainsKey(CollabChannels.PresenceLocation) || peer.Presence.ContainsKey(CollabChannels.PresenceCamera));
+
         /// <summary>"EDITOR" or "PLAYTESTER" (with "· BUILD" for a build of the game), as a small coloured pill.</summary>
         private void DrawRoleBadge(Rect rect, CollabPeer peer)
         {
@@ -217,56 +250,27 @@ namespace Remedy.Schematics.Collaboration
         private static string Describe(CollabPeer peer)
         {
             var location = CollabFeatures.GetPresence<LocationPresence>(peer, CollabChannels.PresenceLocation);
-            if (location == null) return "<color=#888888>—</color>";
+            var control = CollabFeatures.GetPresence<CollabControlPresence>(peer, CollabRuntimeGhosts.ControlPresenceKey);
+            string controls = control?.names != null && control.names.Count > 0
+                ? $"  <color=#5AA0E0>▶ controls {Escape(string.Join(", ", control.names))}</color>" : "";
+            if (location == null) return string.IsNullOrEmpty(controls) ? "<color=#888888>—</color>" : controls.TrimStart();
             string where = location.kind switch
             {
-                "scene" => "Scene: " + Escape(location.name) + (location.scenes != null && location.scenes.Count > 1 ? $" (+{location.scenes.Count - 1})" : ""),
+                "scene" => "Scene: " + Escape(CollabLevelDesignerLink.DisplayName(location.path)) + (location.scenes != null && location.scenes.Count > 1 ? $" (+{location.scenes.Count - 1})" : ""),
                 "graph" => "Graph: " + Escape(location.name),
                 _ => "Nothing open",
             };
             string statusColor = location.status == "Active" ? "#6BC46D" : location.status == "Play Mode" ? "#5AA0E0" : "#888888";
-            return $"{where}  <color={statusColor}>● {Escape(location.status)}</color>";
+            return $"{where}  <color={statusColor}>● {Escape(location.status)}</color>{controls}";
         }
 
-        private static readonly Dictionary<string, Texture> _avatarPreviews = new();
-
+        /// <summary>A disc in their colour with their initials.</summary>
         private void DrawAvatar(Rect rect, CollabPeer peer)
         {
-            var preview = AvatarPreview(peer);
-            if (preview != null)
-            {
-                GUI.DrawTexture(rect, preview, ScaleMode.ScaleAndCrop, true, 0, Color.white, 0, rect.width * 0.5f);
-                // A ring in their colour.
-                GUI.DrawTexture(rect, EditorGUIUtility.whiteTexture, ScaleMode.StretchToFill, true, 0, peer.Color, 2f, rect.width * 0.5f);
-                return;
-            }
             DrawDisc(rect, peer.Color);
             var initials = string.Concat((peer.Name ?? "?").Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).Take(2).Select(w => char.ToUpperInvariant(w[0])));
             var style = new GUIStyle(_badgeStyle) { fontSize = 13, normal = { textColor = peer.Color.grayscale > 0.6f ? Color.black : Color.white } };
             GUI.Label(rect, initials, style);
-        }
-
-        /// <summary>A preview of the peer's avatar: AvatarId as an asset GUID, else the project's avatar prefab.</summary>
-        private Texture AvatarPreview(CollabPeer peer)
-        {
-            string key = string.IsNullOrEmpty(peer.AvatarId) ? "" : peer.AvatarId;
-            if (_avatarPreviews.TryGetValue(key, out var cached) && cached != null) return cached;
-            GameObject prefab = null;
-            if (!string.IsNullOrEmpty(key))
-            {
-                var path = AssetDatabase.GUIDToAssetPath(key);
-                if (!string.IsNullOrEmpty(path)) prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
-            }
-            if (prefab == null) prefab = CollabFeaturesSettings.instance.AvatarPrefab;
-            if (prefab == null) return null;
-            var texture = AssetPreview.GetAssetPreview(prefab);
-            if (texture == null)
-            {
-                if (AssetPreview.IsLoadingAssetPreviews()) Repaint();
-                return null;
-            }
-            _avatarPreviews[key] = texture;
-            return texture;
         }
 
         private static void DrawDisc(Rect rect, Color color)

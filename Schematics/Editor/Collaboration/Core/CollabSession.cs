@@ -33,6 +33,8 @@ namespace Remedy.Schematics.Collaboration
         public CollabRole Role;
         /// <summary>True for a build of the game (a playtest client). Builds join sessions but never host them.</summary>
         public bool IsBuild;
+        /// <summary>The protocol version of their collaboration helper or build (0 = older than version 3).</summary>
+        public int ProtocolVersion;
 
         public override string ToString() => $"{Name} ({(Id != null && Id.Length > 8 ? Id.Substring(0, 8) : Id)}{(IsHost ? ", host" : "")}{(Role == CollabRole.Playtester ? ", playtester" : "")})";
     }

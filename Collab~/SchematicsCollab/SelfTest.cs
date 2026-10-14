@@ -28,11 +28,15 @@ static class SelfTest
         int basePort = 42000 + Random.Shared.Next(0, 400) * 10;
         try
         {
-            await SessionTests(basePort);
-            await DiscoveryTest(basePort + 100);
-            await RelayTest(basePort + 200);
-            await RuntimeClientTest(basePort + 400);
-            await GitTests(basePort + 300);
+            // --only session|discovery|relay|runtime|identity|git runs one group (the default runs them all).
+            string only = args.Get("--only");
+            bool Run(string name) => only == null || only == name;
+            if (Run("session")) await SessionTests(basePort);
+            if (Run("discovery")) await DiscoveryTest(basePort + 100);
+            if (Run("relay")) await RelayTest(basePort + 200);
+            if (Run("runtime")) await RuntimeClientTest(basePort + 400);
+            if (Run("identity")) { StableIdTest(); await IdentityTests(basePort + 500); }
+            if (Run("git")) await GitTests(basePort + 300);
         }
         catch (Exception e)
         {
@@ -488,6 +492,173 @@ static class SelfTest
         Check(await Until(() => d.Editor.Of(CollabFrameType.Log).Any(f => f.key == "warning" && f.text.Contains("in use")), 5000),
             "a helper's warnings (here: its port was taken) are sent to the editor for the Console");
         foreach (var n in new[] { c, d }) { try { n.Process.Kill(true); } catch { } }
+    }
+
+    #endregion
+
+    #region Identity: no duplicate peers
+
+    /// <summary>A raw member connection (an old helper, or a dead connection that hasn't timed out yet).</summary>
+    private static async Task<FrameConn> RawJoin(int hostPort, string key, string id, string name, int version, string client, CollabKV[] presence, int port = 1)
+    {
+        var conn = await FrameConn.ConnectAsync("127.0.0.1", hostPort, 3000) ?? throw new Exception("couldn't reach the host");
+        conn.Received = (_, _) => { };
+        conn.Start();
+        conn.Send(new CollabFrame
+        {
+            type = CollabFrameType.Join, id = id, key = key, port = port, seq = DateTime.UtcNow.Ticks, presence = presence,
+            profile = new CollabProfile { name = name, role = CollabProtocol.RoleEditor, client = client, version = version },
+        });
+        return conn;
+    }
+
+    private static List<string> HelperArgs(string state, string project, int peerPort, int discovery, string key, params string[] extra)
+    {
+        var list = new List<string> { "--project", project, "--state", state, "--peer-port", peerPort.ToString(), "--discovery-port", discovery.ToString(),
+            "--timeout-ms", "6000", "--parent-pid", Environment.ProcessId.ToString(), "--key", key, "--no-git" };
+        list.AddRange(extra);
+        return list;
+    }
+
+    /// <summary>Builds' peer ids: the same across runs, different for copies running at once.</summary>
+    private static void StableIdTest()
+    {
+        string folder = Path.Combine(_work, "stable-id");
+        int me = Environment.ProcessId;
+        bool Alive(int pid) { try { using var p = Process.GetProcessById(pid); return !p.HasExited; } catch { return false; } }
+        var first = CollabStableId.Claim(folder, me, Alive);
+        var second = CollabStableId.Claim(folder, me, Alive);
+        Check(first.Slot == 0 && second.Slot == 1 && first.Id != second.Id && first.Id.Split('-')[0] == second.Id.Split('-')[0],
+            $"two copies of a game at once get different ids on one install ({first.Id}, {second.Id})");
+        string firstId = first.Id;
+        first.Dispose();
+        var restarted = CollabStableId.Claim(folder, me, Alive);
+        Check(restarted.Id == firstId, "a restarted game claims its old id again");
+        restarted.Dispose();
+        second.Dispose();
+        // A copy that crashed left its process id in the slot: a dead process doesn't keep it.
+        File.WriteAllText(Path.Combine(folder, "slot-0.lock"), "999999");
+        var afterCrash = CollabStableId.Claim(folder, me, pid => pid == me);
+        Check(afterCrash.Slot == 0, "a slot left behind by a crashed copy is reused");
+        afterCrash.Dispose();
+        File.WriteAllText(Path.Combine(folder, "slot-0.lock"), "424242");
+        var busy = CollabStableId.Claim(folder, me, _ => true);
+        Check(busy.Slot == 1, "a slot whose process still runs is skipped even where file locks aren't enforced");
+        busy.Dispose();
+    }
+
+    private static async Task IdentityTests(int port)
+    {
+        Console.WriteLine("Identity: one entry per person (the duplicated-user report), orphan cleanup, discovery for builds");
+        int discovery = port + 50;
+        string key = "ident-" + Guid.NewGuid().ToString("N")[..8];
+        string project = Path.Combine(_work, "nogit-project");
+        var host = await StartNode("H", project, port, discovery, key, new[] { port + 1 }, "--orphan-timeout-ms", "2500");
+
+        // The report: "my user keeps duplicating". Older editors started a new helper every half second until the first
+        // one wrote helper.json; each one joined with a new random id and stayed (they heartbeat, so they never time
+        // out). Reproduce the race: six helpers for one project folder started at the same moment.
+        string dupState = Path.Combine(_work, "state-dup");
+        Directory.CreateDirectory(dupState);
+        var racers = Enumerable.Range(0, 6).Select(_ => Launch(HelperArgs(dupState, project, 0, discovery, key, "--peer", $"127.0.0.1:{port}"))).ToList();
+        bool settled = await Until(() => racers.Count(r => !r.HasExited) == 1, 10000);
+        Check(settled && racers.Where(r => r.HasExited).All(r => r.ExitCode == 3),
+            $"six helpers started at once for one project: one keeps running, the rest exit ({racers.Count(r => !r.HasExited)} running)");
+        await Task.Delay(3500);
+        Check(await Until(() => host.Editor.Peers.Length == 2, 8000), $"...and the session shows that person once ({host.Editor.Peers.Length} people)");
+        var survivor = racers.First(r => !r.HasExited);
+        var dupHelper = Json.Parse<CollabHelperState>(File.ReadAllText(Path.Combine(dupState, "helper.json")));
+        var dup = new Node { Name = "dup", StateDir = dupState, Process = survivor, Editor = new FakeEditor("Dup", dupHelper.controlPort) };
+        await dup.Editor.ConnectAsync();
+        Check(await Until(() => dup.Editor.InSession && dup.Id != null, 8000), "an editor attaches to the one that kept running");
+        string firstId = dup.Id;
+        string firstColor = host.Editor.Peers.FirstOrDefault(p => p.id == firstId)?.color;
+        Check(File.Exists(Path.Combine(dupState, "peer-id")) && File.ReadAllText(Path.Combine(dupState, "peer-id")).Trim() == firstId,
+            "the peer id is kept in the project's state folder (peer-id)");
+
+        // A restart (editor restart, rebuild, crash) comes back as the same person, not one more.
+        survivor.Kill(true);
+        survivor.WaitForExit(5000);
+        var again = Launch(HelperArgs(dupState, project, 0, discovery, key, "--peer", $"127.0.0.1:{port}"));
+        CollabHelperState againState = null;
+        await Until(() =>
+        {
+            try { againState = Json.Parse<CollabHelperState>(File.ReadAllText(Path.Combine(dupState, "helper.json"))); return againState?.pid == again.Id; }
+            catch { return false; }
+        }, 15000);
+        var dup2 = new FakeEditor("Dup", againState?.controlPort ?? 0);
+        if (againState != null) await dup2.ConnectAsync();
+        Check(await Until(() => dup2.InSession && dup2.State?.id == firstId, 15000), "a restarted helper keeps its peer id");
+        Check(await Until(() => host.Editor.Peers.Length == 2 && host.Editor.Peers.Count(p => p.id == firstId) == 1, 8000),
+            $"...and takes its old place: still one entry ({host.Editor.Peers.Length} people)");
+        Check(host.Editor.Peers.FirstOrDefault(p => p.id == firstId)?.color == firstColor, "...with the same colour");
+
+        // A reconnect before the old connection timed out replaces the old entry.
+        string buildId = "build-" + Guid.NewGuid().ToString("N")[..8];
+        var stale = await RawJoin(port, key, buildId, "Player", CollabProtocol.Version, CollabProtocol.ClientBuild, null, port: 0);
+        Check(await Until(() => host.Editor.Peers.Any(p => p.id == buildId), 5000), "a build joins (its connection will go silent)");
+        var probe = new RuntimeProbe(key, "Player", new[] { discovery });
+        probe.Client.Options.Id = buildId;
+        probe.Client.Options.ListenPorts.Clear();
+        probe.Client.Options.DiscoverOnLan = false;
+        probe.Client.Options.DiscoverTargets.Add($"127.0.0.1:{discovery}");
+        probe.Client.Start();
+        Check(await Until(() => probe.Client.IsConnected, 10000),
+            "a build with no beacon listener finds the host by asking (discover → answer to the asking socket)");
+        Check(await Until(() => stale.IsClosed, 5000) && host.Editor.Peers.Count(p => p.id == buildId) == 1 && host.Editor.Peers.Length == 3,
+            $"the same build reconnecting replaces its silent old connection ({host.Editor.Peers.Length} people)");
+        lock (probe.Logs) Check(probe.Logs.Any(l => l.Contains("Found the room's host")), "the build logs where it found the host");
+        probe.Client.Stop();
+
+        // A build of another branch hears these helpers and says why it doesn't join.
+        var foreign = new RuntimeProbe("other-" + key, "Elsewhere", Array.Empty<int>());
+        foreign.Client.Options.DiscoverOnLan = false;
+        foreign.Client.Options.DiscoverTargets.Add($"127.0.0.1:{port}");
+        foreign.Client.Start();
+        await Task.Delay(500);
+        // Helpers only answer their own key; a beacon of another room is what a build hears on the LAN. Send one.
+        using (var udp = new System.Net.Sockets.UdpClient())
+        {
+            var bytes = Json.Bytes(new CollabFrame { type = CollabFrameType.Beacon, key = key, id = "x", flag = true, port = port });
+            var field = typeof(CollabRuntimeClient).GetField("_ask", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var socket = field?.GetValue(foreign.Client) as System.Net.Sockets.Socket;
+            if (socket != null) udp.Send(bytes, bytes.Length, new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, ((System.Net.IPEndPoint)socket.LocalEndPoint).Port));
+        }
+        Check(await Until(() => { lock (foreign.Logs) return foreign.Logs.Any(l => l.Contains("another room")); }, 5000),
+            "a build that hears editors of another room says so (key mismatch) in its log");
+        Check(!foreign.Client.IsConnected, "...and doesn't join them");
+        foreign.Client.Stop();
+
+        // Helpers from older versions that no editor ever attached to are removed by the host; real old editors stay.
+        string orphanId = "orphan-" + Guid.NewGuid().ToString("N")[..8];
+        var orphan = await RawJoin(port, key, orphanId, "Dup", 0, CollabProtocol.ClientEditor, null);
+        var oldEditor = await RawJoin(port, key, "oldeditor-" + Guid.NewGuid().ToString("N")[..8], "Old", 0, CollabProtocol.ClientEditor,
+            new[] { new CollabKV { key = "location", value = "{\"kind\":\"scene\"}" } });
+        using var beat = new CancellationTokenSource();
+        _ = Task.Run(async () =>
+        {
+            while (!beat.IsCancellationRequested)
+            {
+                foreach (var c in new[] { orphan, oldEditor }) if (!c.IsClosed) c.Send(new CollabFrame { type = CollabFrameType.Heartbeat, seq = DateTime.UtcNow.Ticks });
+                try { await Task.Delay(1000, beat.Token); } catch { }
+            }
+        });
+        Check(await Until(() => host.Editor.Peers.Length == 4, 5000), "an old editorless helper and an old real editor join");
+        Check(await Until(() => orphan.IsClosed && host.Editor.Peers.Length == 3, 10000), "the host removes the old helper with no editor attached");
+        await Task.Delay(1500);
+        Check(!oldEditor.IsClosed && host.Editor.Peers.Any(p => p.name == "Old"), "...but keeps an old editor that publishes presence");
+        var back = await RawJoin(port, key, orphanId, "Dup", 0, CollabProtocol.ClientEditor, null);
+        Check(await Until(() => back.IsClosed, 5000), "...and refuses it when it tries to come back");
+        beat.Cancel();
+        oldEditor.Close();
+
+        // A helper nobody attaches to doesn't linger.
+        string idleState = Path.Combine(_work, "state-idle");
+        Directory.CreateDirectory(idleState);
+        var idle = Launch(HelperArgs(idleState, project, 0, discovery, key, "--editor-wait-s", "2"));
+        Check(await Until(() => idle.HasExited, 12000), "a helper no editor attaches to stops by itself");
+
+        foreach (var n in new[] { host.Process, again }) { try { n.Kill(true); } catch { } }
     }
 
     #endregion

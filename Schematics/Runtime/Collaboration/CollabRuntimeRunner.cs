@@ -33,6 +33,11 @@ namespace Remedy.Schematics.Collaboration
             _instance = go.AddComponent<CollabRuntimeRunner>();
             var info = CollabRuntime.BuildInfo;
             ShowOverlay = !Application.isEditor && (info == null || info.ShowOverlay);
+            // Editors and other players in the game world, player ghosts out, and (builds) a small chat.
+            go.AddComponent<CollabWorldOverlay>();
+            CollabRuntimeGhosts.Share = info == null || info.SharePlayerGhosts;
+            CollabRuntimeChat.Enabled = !Application.isEditor && (info == null || info.Chat);
+            go.AddComponent<CollabRuntimeChat>();
         }
 
         private void Update()
@@ -44,12 +49,14 @@ namespace Remedy.Schematics.Collaboration
             {
                 try { transport.Update(); }
                 catch (Exception e) { CollabLog.Exception("Collaboration update failed", e); }
-                if (Time.unscaledTime >= _nextPresence)
-                {
-                    _nextPresence = Time.unscaledTime + 0.2f;
-                    CollabLog.Safe("Publishing the playtester's presence", PublishPresence);
-                }
             }
+            // Builds and the editor's Play Mode both say where their game camera is (editors draw the player there).
+            if (Time.unscaledTime >= _nextPresence)
+            {
+                _nextPresence = Time.unscaledTime + 0.2f;
+                CollabLog.Safe("Publishing the playtester's presence", PublishPresence);
+            }
+            CollabRuntimeGhosts.Tick();
         }
 
         private void OnApplicationQuit()
@@ -102,12 +109,16 @@ namespace Remedy.Schematics.Collaboration
                 if (scene.isLoaded && !string.IsNullOrEmpty(scene.path) && !scenes.Contains(scene.path)) scenes.Add(scene.path);
             }
 
-            var location = new LocationShape { path = active.path, name = active.name, scenes = scenes };
-            string locationJson = JsonUtility.ToJson(location);
-            if (locationJson != _lastLocation)
+            // In the editor's Play Mode the editor publishes "location" itself (Team window); only builds do it here.
+            if (CollabRuntime.Transport != null && CollabRuntime.Transport.IsBuild)
             {
-                _lastLocation = locationJson;
-                CollabRuntime.SetPresence("location", locationJson);
+                var location = new LocationShape { path = active.path, name = active.name, scenes = scenes };
+                string locationJson = JsonUtility.ToJson(location);
+                if (locationJson != _lastLocation)
+                {
+                    _lastLocation = locationJson;
+                    CollabRuntime.SetPresence("location", locationJson);
+                }
             }
 
             var cam = Camera.main;
@@ -167,7 +178,7 @@ namespace Remedy.Schematics.Collaboration
                 : $"{dot} Collab: looking for editors…";
 
             float width = 290f;
-            var area = new Rect(Screen.width - width - 10f, 10f, width, _collapsed ? 30f : 82f);
+            var area = new Rect(Screen.width - width - 10f, 10f, width, _collapsed ? 30f : 126f);
             GUI.Box(area, GUIContent.none, _box);
             GUILayout.BeginArea(new Rect(area.x + 8f, area.y + 5f, area.width - 16f, area.height - 8f));
             GUILayout.BeginHorizontal();
@@ -183,6 +194,9 @@ namespace Remedy.Schematics.Collaboration
                     ? $"{CollabLiveEdits.AppliedCount} applied · {CollabLiveEdits.LastSummary}"
                     : (CollabLiveEdits.Enabled ? "Waiting for edits…" : "Off: the game runs as built");
                 GUILayout.Label($"<size=10>{status}</size>", _label);
+                bool team = GUILayout.Toggle(CollabWorldOverlay.Visible, " Show editors and other players");
+                if (team != CollabWorldOverlay.Visible) CollabWorldOverlay.Visible = team;
+                if (CollabRuntimeChat.Enabled) GUILayout.Label("<size=10>Enter: chat with the team</size>", _label);
             }
             GUILayout.EndArea();
         }

@@ -14,6 +14,7 @@ sealed class HostRoom
         public FrameConn Conn;            // null for the local member
         public CollabPeerInfo Info;
         public Dictionary<string, int> Pings = new();   // this member's round trips to the others, in ms
+        public DateTime JoinedAt = DateTime.UtcNow;
     }
 
     public readonly string Key;
@@ -29,13 +30,17 @@ sealed class HostRoom
     public readonly Dictionary<string, string> Store = new();
     private readonly Dictionary<string, int> _colors = new();   // kept for people who leave and come back
     private readonly int _timeoutMs;
+    private readonly int _orphanMs;
+    // Ids sent away as orphaned helpers (see Tick): their joins are refused for a while so they don't bounce back in.
+    private readonly Dictionary<string, DateTime> _banned = new();
     private bool _rosterDirty;
     private string _lastRosterSignature = "";
     private DateTime _nextHeartbeat, _nextRosterCheck;
 
     public HostRoom(string key, long epoch, string hostId, Action<CollabFrame> local, int timeoutMs,
-        IDictionary<string, string> store, IEnumerable<CollabPeerInfo> previousRoster)
+        IDictionary<string, string> store, IEnumerable<CollabPeerInfo> previousRoster, int orphanTimeoutMs = 90000)
     {
+        _orphanMs = orphanTimeoutMs;
         Key = key;
         Epoch = epoch;
         HostId = hostId;
@@ -67,10 +72,35 @@ sealed class HostRoom
     public void Join(FrameConn conn, CollabFrame join)
     {
         string id = join.id;
-        if (_members.TryGetValue(id, out var old) && old.Conn != null && old.Conn != conn)
+        if (_banned.TryGetValue(id, out var bannedUntil))
         {
-            old.Conn.SuppressLoss = true;
-            old.Conn.Close();
+            if (DateTime.UtcNow < bannedUntil)
+            {
+                conn.SuppressLoss = true;
+                conn.Close();
+                return;
+            }
+            _banned.Remove(id);
+        }
+        if (_members.TryGetValue(id, out var old))
+        {
+            if (old.Conn == null)
+            {
+                // Someone joining with the host's own id: two helpers share an identity (a copied Library folder?).
+                Log.Warn($"Refused a join from {conn.RemoteIp} that uses this host's own peer id ({id[..Math.Min(8, id.Length)]}). "
+                         + "Is a copy of this project's Library/SchematicsCollab folder in use elsewhere? Delete its peer-id file there.");
+                conn.SuppressLoss = true;
+                conn.Close();
+                return;
+            }
+            if (old.Conn != conn)
+            {
+                // The same peer again (its helper restarted, or it reconnected before the old connection timed out):
+                // the new connection replaces the old entry instead of adding a second one.
+                Log.Write($"{old.Info.name} ({id[..Math.Min(8, id.Length)]}) reconnected; replacing its previous connection.");
+                old.Conn.SuppressLoss = true;
+                old.Conn.Close();
+            }
         }
         var info = new CollabPeerInfo
         {
@@ -166,6 +196,11 @@ sealed class HostRoom
         }
     }
 
+    private bool IsOrphan(Member member, DateTime now) =>
+        _orphanMs > 0 && member.Info.version < 3 && member.Info.client != CollabProtocol.ClientBuild
+        && (member.Info.presence == null || member.Info.presence.Length == 0)
+        && (now - member.JoinedAt).TotalMilliseconds > _orphanMs;
+
     /// <summary>The local member's own ping table (the hosting helper measures it like everyone else).</summary>
     public void SetLocalPings(string localId, Dictionary<string, int> pings)
     {
@@ -185,8 +220,22 @@ sealed class HostRoom
                 Leave(member.Info.id, "timed out");
                 member.Conn.SuppressLoss = true;
                 member.Conn.Close();
+                continue;
+            }
+            if (IsOrphan(member, now))
+            {
+                // A helper from before protocol 3 that no editor ever attached to: older editors could start several
+                // helpers at once while the first was still starting, and the extra ones joined the session as more
+                // copies of the same person (they keep sending heartbeats, so they never time out). A real editor
+                // publishes presence (camera, location) within a second; these never do.
+                Log.Write($"Removing {member.Info.name} ({member.Info.id[..Math.Min(8, member.Info.id.Length)]}): an older helper with no editor attached.");
+                _banned[member.Info.id] = now.AddMinutes(10);
+                Leave(member.Info.id, "no editor attached");
+                member.Conn.SuppressLoss = true;
+                member.Conn.Close();
             }
         }
+        foreach (var expired in _banned.Where(b => b.Value < now).Select(b => b.Key).ToList()) _banned.Remove(expired);
         if (now >= _nextHeartbeat)
         {
             _nextHeartbeat = now.AddSeconds(1);
@@ -299,6 +348,7 @@ sealed class HostRoom
         if (!Kv.Empty(profile.gitEmail)) info.gitEmail = profile.gitEmail;
         if (!Kv.Empty(profile.role)) info.role = profile.role;
         if (!Kv.Empty(profile.client)) info.client = profile.client;
+        if (profile.version > 0) info.version = profile.version;
     }
 
     private void Deliver(Member member, CollabFrame frame)

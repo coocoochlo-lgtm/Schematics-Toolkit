@@ -30,7 +30,10 @@ namespace Remedy.Schematics.Collaboration
             set { EditorPrefs.SetString(Prefix + "DisplayName", value ?? ""); Changed?.Invoke(); }
         }
 
-        /// <summary>Which avatar others see for you (an id the team window understands).</summary>
+        /// <summary>
+        /// Kept for the session API (<see cref="CollabPeer.AvatarId"/>); nothing draws it any more. Teammates are drawn as
+        /// the simple avatar (a sphere with a camera frustum) in their colour.
+        /// </summary>
         public static string AvatarId
         {
             get => EditorPrefs.GetString(Prefix + "AvatarId", "default");
@@ -102,8 +105,6 @@ namespace Remedy.Schematics.Collaboration
                 EditorGUILayout.LabelField("You", EditorStyles.boldLabel);
                 string name = EditorGUILayout.DelayedTextField(new GUIContent("Display Name", $"Empty uses \"{EffectiveName}\"."), DisplayName);
                 if (name != DisplayName) DisplayName = name;
-                string avatar = EditorGUILayout.DelayedTextField(new GUIContent("Avatar Id"), AvatarId);
-                if (avatar != AvatarId) AvatarId = avatar;
 
                 EditorGUILayout.Space();
                 EditorGUILayout.LabelField("Network", EditorStyles.boldLabel);

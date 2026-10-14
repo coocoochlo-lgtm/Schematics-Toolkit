@@ -39,6 +39,35 @@ namespace Remedy.Schematics.Collaboration
         [Tooltip("Apply editors' live edits from the start (each playtester can still switch it off in the overlay).")]
         public bool ReceiveLiveEditsByDefault;
 
+        [Tooltip("Share the objects the player controls (Schematic Objects driven by Remedy Input) as ghosts editors and other players see.")]
+        public bool SharePlayerGhosts = true;
+
+        [Tooltip("Show editors' cameras and other players' ghosts in the game (each player can hide them in the overlay).")]
+        public bool ShowTeam = true;
+
+        [Tooltip("A small chat in the game (Enter to open), on the same channel as the editors' Team window.")]
+        public bool Chat = true;
+
+        /// <summary>
+        /// The same info as JSON, also written into every built scene (<see cref="CollabSceneIds"/>), so a build still
+        /// finds its room if the Resources asset didn't make it into the build.
+        /// </summary>
+        public static CollabBuildInfo FromJson(string json)
+        {
+            if (string.IsNullOrEmpty(json)) return null;
+            try
+            {
+                var info = CreateInstance<CollabBuildInfo>();
+                JsonUtility.FromJsonOverwrite(json, info);
+                return string.IsNullOrEmpty(info.ProjectKey) ? null : info;
+            }
+            catch (System.Exception e)
+            {
+                CollabLog.Exception("Reading the collaboration build info from a scene failed", e);
+                return null;
+            }
+        }
+
         /// <summary>The build's info, or null in builds made without it (and in the editor).</summary>
         public static CollabBuildInfo Load()
         {
