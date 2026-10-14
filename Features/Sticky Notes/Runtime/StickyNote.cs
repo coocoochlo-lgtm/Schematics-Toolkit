@@ -17,6 +17,20 @@ namespace Remedy.StickyNotes
     }
 
     /// <summary>
+    /// Which Kanban column a note is in. It isn't stored: it follows from <see cref="StickyNote.Resolved"/> and
+    /// <see cref="StickyNote.Assignee"/>, so the board can never disagree with the notes themselves.
+    /// </summary>
+    public enum StickyNoteStatus
+    {
+        /// <summary>Open and nobody has taken it.</summary>
+        ToDo = 0,
+        /// <summary>Open and someone took it (it has an assignee).</summary>
+        InProgress = 1,
+        /// <summary>Resolved.</summary>
+        Done = 2,
+    }
+
+    /// <summary>
     /// One note stuck to a point in the world. Plain data (JsonUtility friendly) so the same object travels over the
     /// collaboration room, sits in the per-scene JSON file in the repository and is embedded in builds.
     ///
@@ -64,12 +78,51 @@ namespace Remedy.StickyNotes
         /// </summary>
         public bool Deleted;
 
+        /// <summary>
+        /// Who took the note on the Kanban board (their name), empty while it's in To Do. Kept together with
+        /// <see cref="AssigneeId"/> because collaboration ids change between sessions while names usually don't.
+        /// </summary>
+        public string Assignee = "";
+        /// <summary>The assignee's collaboration id when they took it (empty without a session).</summary>
+        public string AssigneeId = "";
+        /// <summary>When it was taken (same format as <see cref="Created"/>). Used to return tasks of people who are long gone.</summary>
+        public string ClaimedAt = "";
+        /// <summary>
+        /// Optional performance snapshot taken when the note was made, as compact "key=value;..." text (see
+        /// <see cref="StickyNotePerf"/>). Empty when no snapshot was attached. Text rather than a nested object because
+        /// JsonUtility always writes nested objects, and most notes have no snapshot.
+        /// </summary>
+        public string Perf = "";
+        /// <summary>
+        /// Project-relative path of a short Profiler capture (.raw) recorded when the note was made in the editor's Play
+        /// Mode. Only meaningful on the machine (or repository) that has the file.
+        /// </summary>
+        public string PerfCapture = "";
+
         /// <summary><see cref="Type"/> as an enum (unknown text reads as Default).</summary>
         public StickyNoteType NoteType
         {
             get => Enum.TryParse(Type, true, out StickyNoteType t) ? t : StickyNoteType.Default;
             set => Type = value.ToString();
         }
+
+        /// <summary>The Kanban column this note is in.</summary>
+        public StickyNoteStatus Status => Resolved ? StickyNoteStatus.Done
+            : !string.IsNullOrEmpty(Assignee) || !string.IsNullOrEmpty(AssigneeId) ? StickyNoteStatus.InProgress
+            : StickyNoteStatus.ToDo;
+
+        /// <summary>
+        /// True when the note is assigned to this person: the same collaboration id, or (because ids change between
+        /// sessions) the same name.
+        /// </summary>
+        public bool IsAssignedTo(string peerId, string name)
+        {
+            if (!string.IsNullOrEmpty(peerId) && AssigneeId == peerId) return true;
+            return !string.IsNullOrEmpty(name) && string.Equals(Assignee, name, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>The note has a performance snapshot attached.</summary>
+        public bool HasPerf => !string.IsNullOrEmpty(Perf);
 
         public StickyNote Clone() => (StickyNote)MemberwiseClone();
 
@@ -154,6 +207,89 @@ namespace Remedy.StickyNotes
             }
         }
 
+        #region Paper (the sticky note image)
+
+        /// <summary>
+        /// The sticky-note paper image (media/StickyNote.png in the toolkit). The editor sets it when it loads (Project
+        /// Settings can point it at another texture); builds get it from the scene data object the build step adds.
+        /// Null means "draw the plain coloured square instead".
+        /// </summary>
+        public static Texture2D PaperTexture;
+
+        /// <summary>
+        /// Where text and buttons may go on the paper, as fractions of its size (left, top, right, bottom). The bottom
+        /// margin is bigger because of the curled corner in the default image. Change it if you use your own image.
+        /// </summary>
+        public static Vector4 PaperInsets = new Vector4(0.075f, 0.065f, 0.075f, 0.15f);
+
+        /// <summary>Width / height of the paper (the image's own aspect, or roughly square without one).</summary>
+        public static float PaperAspect => PaperTexture != null && PaperTexture.height > 0 ? (float)PaperTexture.width / PaperTexture.height : 0.95f;
+
+        /// <summary>
+        /// The tint multiplied onto the (yellow) paper: none for Default, orange for Warning, red for Error, a muted green
+        /// once resolved.
+        /// </summary>
+        public static Color PaperTint(StickyNote note)
+        {
+            if (note == null) return Color.white;
+            if (note.Resolved) return new Color(0.70f, 1f, 0.80f, 0.9f);
+            return PaperTint(note.NoteType);
+        }
+
+        public static Color PaperTint(StickyNoteType type)
+        {
+            switch (type)
+            {
+                case StickyNoteType.Warning: return new Color(1f, 0.64f, 0.36f);
+                case StickyNoteType.Error: return new Color(1f, 0.36f, 0.32f);
+                default: return Color.white;
+            }
+        }
+
+        /// <summary>The part of a paper rect that text and buttons may use (inside <see cref="PaperInsets"/>).</summary>
+        public static Rect PaperContentRect(Rect paper)
+        {
+            var i = PaperInsets;
+            return new Rect(paper.x + paper.width * i.x, paper.y + paper.height * i.y,
+                paper.width * (1f - i.x - i.z), paper.height * (1f - i.y - i.w));
+        }
+
+        /// <summary>The biggest rect with the paper's aspect that fits in <paramref name="area"/>, centred (scale-to-fit).</summary>
+        public static Rect FitPaper(Rect area)
+        {
+            float aspect = PaperAspect;
+            float w = area.width, h = area.width / aspect;
+            if (h > area.height) { h = area.height; w = h * aspect; }
+            return new Rect(area.x + (area.width - w) * 0.5f, area.y + (area.height - h) * 0.5f, w, h);
+        }
+
+        /// <summary>
+        /// Draws the paper image tinted for the note (IMGUI; works in the editor and in game). Returns false when there's
+        /// no image, so the caller draws its fallback.
+        /// </summary>
+        public static bool DrawPaper(Rect rect, Color tint)
+        {
+            var tex = PaperTexture;
+            if (tex == null || Event.current == null || Event.current.type != EventType.Repaint) return tex != null;
+            var old = GUI.color;
+            GUI.color = new Color(old.r * tint.r, old.g * tint.g, old.b * tint.b, old.a * tint.a);
+            GUI.DrawTexture(rect, tex, ScaleMode.StretchToFill, true);
+            GUI.color = old;
+            return true;
+        }
+
+        /// <summary>Smooth 0..1 ease for the open animation.</summary>
+        public static float EaseOut(float t)
+        {
+            t = Mathf.Clamp01(t);
+            return 1f - (1f - t) * (1f - t) * (1f - t);
+        }
+
+        /// <summary>How long the note takes to scale up into its editor panel (seconds).</summary>
+        public static float OpenAnimationSeconds = 0.15f;
+
+        #endregion
+
         public static Color ParseColor(string html, Color fallback) => ColorUtility.TryParseHtmlString(html, out var c) ? c : fallback;
 
         public static string ToHtml(Color c) => "#" + ColorUtility.ToHtmlStringRGB(c);
@@ -167,6 +303,28 @@ namespace Remedy.StickyNotes
             text = text.Trim();
             if (text.Length == 0) text = "(empty note)";
             return text.Length > max ? text.Substring(0, max - 1) + "…" : text;
+        }
+
+        /// <summary>"just now", "5 min ago", "3 h ago", "2 d ago" or a date.</summary>
+        public static string Ago(string iso)
+        {
+            var local = StickyNote.ParseTime(iso);
+            if (local == DateTime.MinValue) return "";
+            var span = DateTime.Now - local;
+            if (span.TotalMinutes < 1) return "just now";
+            if (span.TotalHours < 1) return $"{(int)span.TotalMinutes} min ago";
+            if (span.TotalDays < 1) return $"{(int)span.TotalHours} h ago";
+            if (span.TotalDays < 30) return $"{(int)span.TotalDays} d ago";
+            return local.ToString("d");
+        }
+
+        /// <summary>Sort order of the board's To Do column: errors, then warnings, then remarks; oldest first within each.</summary>
+        public static int CompareByPriority(StickyNote a, StickyNote b)
+        {
+            int c = b.NoteType.CompareTo(a.NoteType);
+            if (c != 0) return c;
+            c = string.CompareOrdinal(a.Created, b.Created);
+            return c != 0 ? c : string.CompareOrdinal(a.Id, b.Id);
         }
     }
 }

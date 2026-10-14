@@ -177,12 +177,13 @@ namespace Remedy.StickyNotes
 
         /// <summary>Sticks a new note into a scene and shares it. Returns the note.</summary>
         public static StickyNote Add(string scene, Vector3 position, Vector3 normal, StickyNoteType type, string text,
-            string attachedId = null, string attachedName = null)
+            string attachedId = null, string attachedName = null, string perf = null, string perfCapture = null, string id = null)
         {
             string now = StickyNote.Now();
             var note = new StickyNote
             {
-                Id = Guid.NewGuid().ToString("N"),
+                // A draft's id can be kept (so a Profiler capture named after it matches); never reuse a known one.
+                Id = !string.IsNullOrEmpty(id) && FindAny(id) == null ? id : Guid.NewGuid().ToString("N"),
                 Scene = scene ?? "",
                 Position = position,
                 Normal = normal.sqrMagnitude > 1e-6f ? normal.normalized : Vector3.up,
@@ -195,6 +196,8 @@ namespace Remedy.StickyNotes
                 Updated = now,
                 AttachedId = attachedId ?? "",
                 AttachedName = attachedName ?? "",
+                Perf = perf ?? "",
+                PerfCapture = perfCapture ?? "",
             };
             Commit(note, "add");
             return note;
@@ -228,8 +231,84 @@ namespace Remedy.StickyNotes
             var copy = note.Clone();
             copy.Resolved = resolved;
             copy.ResolvedBy = resolved ? LocalName : "";
+            // Reopened work goes back to To Do: whoever had it finished it once, so it's up for grabs again.
+            if (!resolved) ClearAssignee(copy);
             return Update(copy, resolved ? "resolve" : "reopen");
         }
+
+        #region Kanban (taking tasks)
+
+        /// <summary>
+        /// Takes a note as a task: assigns it to you (your collaboration name and id) and so moves it to In Progress.
+        /// A resolved note is reopened. Returns false when it was already yours or the note is unknown.
+        /// </summary>
+        public static bool Claim(string id)
+        {
+            var note = Find(id);
+            if (note == null) return false;
+            if (!note.Resolved && note.IsAssignedTo(LocalPeerId, LocalName) && note.AssigneeId == LocalPeerId) return false;
+            var copy = note.Clone();
+            copy.Resolved = false;
+            copy.ResolvedBy = "";
+            copy.Assignee = LocalName;
+            copy.AssigneeId = LocalPeerId;
+            copy.ClaimedAt = StickyNote.Now();
+            return Update(copy, "claim");
+        }
+
+        /// <summary>Gives a task back: clears its assignee so it's in To Do again (reopening it if it was done).</summary>
+        public static bool GiveBack(string id) => ReturnToDo(id, "giveback");
+
+        /// <summary>
+        /// Puts a note back in To Do (no assignee, not resolved). <paramref name="op"/> is informational ("giveback" when
+        /// someone hands it back, "return" when the room returns the task of someone who left).
+        /// </summary>
+        public static bool ReturnToDo(string id, string op = "return")
+        {
+            var note = Find(id);
+            if (note == null || note.Status == StickyNoteStatus.ToDo) return false;
+            var copy = note.Clone();
+            copy.Resolved = false;
+            copy.ResolvedBy = "";
+            ClearAssignee(copy);
+            return Update(copy, op);
+        }
+
+        /// <summary>Moves a note to a Kanban column (To Do: unassigned; In Progress: taken by you; Done: resolved).</summary>
+        public static bool MoveTo(string id, StickyNoteStatus status)
+        {
+            var note = Find(id);
+            if (note == null) return false;
+            switch (status)
+            {
+                case StickyNoteStatus.ToDo: return ReturnToDo(id, "giveback");
+                case StickyNoteStatus.InProgress: return Claim(id);
+                default: return SetResolved(id, true);
+            }
+        }
+
+        /// <summary>
+        /// Refreshes <see cref="StickyNote.ClaimedAt"/> on a task you hold, which tells the room you're still on it (tasks
+        /// whose assignee has been gone longer than the grace period are returned to To Do).
+        /// </summary>
+        public static bool TouchClaim(string id)
+        {
+            var note = Find(id);
+            if (note == null || note.Status != StickyNoteStatus.InProgress) return false;
+            var copy = note.Clone();
+            copy.ClaimedAt = StickyNote.Now();
+            if (!string.IsNullOrEmpty(LocalPeerId)) copy.AssigneeId = LocalPeerId;   // ids change between sessions
+            return Update(copy, "claim");
+        }
+
+        private static void ClearAssignee(StickyNote note)
+        {
+            note.Assignee = "";
+            note.AssigneeId = "";
+            note.ClaimedAt = "";
+        }
+
+        #endregion
 
         public static bool Delete(string id)
         {

@@ -51,6 +51,11 @@ namespace Remedy.StickyNotes.Editor
 
         static StickyNotesEditorService()
         {
+            Safe(StickyNotesSettings.Apply);
+            // Use your collaboration name even outside a session, so tasks you take are recognised as yours either way.
+            Safe(() => { var name = CollabSettings.EffectiveName; if (!string.IsNullOrEmpty(name)) StickyNoteStore.FallbackName = name; });
+            // The asset database may not be ready this early on the first import; try again once it is.
+            EditorApplication.delayCall += () => Safe(StickyNotesSettings.Apply);
             RestoreMemory();
 
             _loading = true;
@@ -260,6 +265,8 @@ namespace Remedy.StickyNotes.Editor
         {
             Safe(() =>
             {
+                // Unfinished tasks of ours go back to To Do first, so the saved file and the room both have them there.
+                if (StickyNotesSettings.Instance.ReturnMyTasksOnQuit) StickyNotesTaskReturn.ReturnMine();
                 // Never lose notes on quit: write them even if we were held (worst case a teammate's commit and ours agree).
                 if (IsSoleEditor || _heldAfterDisconnect) WriteNow(force: true);
                 if (IsSoleEditor && StickyNotesSettings.Instance.CommitWhenLastEditorLeaves && CollabSession.IsConnected)

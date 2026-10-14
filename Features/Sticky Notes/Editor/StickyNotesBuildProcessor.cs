@@ -36,7 +36,10 @@ namespace Remedy.StickyNotes.Editor
 
             var go = new GameObject("Sticky Notes (build data)");
             SceneManager.MoveGameObjectToScene(go, scene);
-            go.AddComponent<StickyNotesSceneData>().Set(scene.path, json);
+            var data = go.AddComponent<StickyNotesSceneData>();
+            data.Set(scene.path, json);
+            // The paper image travels as a reference on this object, which is what puts it into the build.
+            data.SetOptions(StickyNotesSettings.LoadPaperTexture(), StickyNotesSettings.Instance.AutoSnapshotForWarningsAndErrors);
         }
 
         private static bool Included(BuildReport report)

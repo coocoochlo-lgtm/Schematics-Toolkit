@@ -91,6 +91,8 @@ namespace Remedy.StickyNotes.Editor
                 GUILayout.FlexibleSpace();
                 bool show = GUILayout.Toggle(StickyNotesSettings.ShowInSceneView, new GUIContent("Visible", "Show notes in the Scene view"), EditorStyles.toolbarButton);
                 if (show != StickyNotesSettings.ShowInSceneView) StickyNotesSettings.ShowInSceneView = show;
+                if (GUILayout.Button(new GUIContent("Board", "The Kanban board: To Do, In Progress, Done"), EditorStyles.toolbarButton))
+                    StickyNotesKanbanWindow.Open(_selectedId);
                 if (GUILayout.Button(new GUIContent("Add", "Click in the Scene view where the note goes"), EditorStyles.toolbarButton))
                 {
                     StickyNotesSceneGUI.Placing = true;
@@ -178,7 +180,7 @@ namespace Remedy.StickyNotes.Editor
                 EditorGUI.DrawRect(new Rect(rect.x + 2, rect.y + 14, 12, 2), StickyNoteStyle.ParseColor(note.AuthorColor, Color.white));
             }
             var when = StickyNote.ParseTime(note.Updated);
-            string right = $"{note.Author} · {Ago(when)}";
+            string right = note.Status == StickyNoteStatus.InProgress ? $"→ {note.Assignee} · {Ago(when)}" : $"{note.Author} · {Ago(when)}";
             float rightWidth = Mathf.Min(170, rect.width * 0.4f);
             GUI.Label(new Rect(rect.x + 20, rect.y, rect.width - 24 - rightWidth, rect.height),
                 (note.Resolved ? "<color=#888888>" : "") + StickyNoteStyle.Summary(note, 80) + (note.Resolved ? "</color>" : ""), _rowStyle);
@@ -209,6 +211,8 @@ namespace Remedy.StickyNotes.Editor
                 }
                 GUILayout.Label(note.Text, _previewStyle);
                 if (!string.IsNullOrEmpty(note.AttachedName)) GUILayout.Label($"On {note.AttachedName}", EditorStyles.miniLabel);
+                if (note.Status == StickyNoteStatus.InProgress) GUILayout.Label($"In progress: {note.Assignee}", EditorStyles.miniLabel);
+                if (note.HasPerf) GUILayout.Label(new GUIContent("Snapshot: " + StickyNotePerf.Summary(note.Perf), StickyNotePerf.Details(note.Perf)), EditorStyles.miniLabel);
             }
         }
 

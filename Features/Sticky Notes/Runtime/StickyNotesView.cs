@@ -8,9 +8,12 @@ namespace Remedy.StickyNotes
 {
     /// <summary>
     /// The in-game sticky note view. Hidden until someone turns it on (<see cref="ToggleKey"/>, F8 by default, or
-    /// <see cref="Enabled"/> from code); then every note in the loaded scenes shows as a small coloured square where it was
-    /// stuck (yellow Default, orange Warning, red Error, green once resolved). Hover one to read it, click it to edit, and
-    /// press <see cref="AddKey"/> (F9) or "Add Note" to stick a new one where the camera is looking.
+    /// <see cref="Enabled"/> from code); then every note in the loaded scenes shows as a small piece of sticky-note paper
+    /// where it was stuck (the paper image, tinted: yellow Default, orange Warning, red Error, green once resolved, with a
+    /// type badge in the corner; a coloured square when there's no image). Hover one to read it; click it and it scales
+    /// up (about 0.15 s) into the editor panel, which is laid out on the paper itself. Press <see cref="AddKey"/> (F9) or
+    /// "Add Note" to stick a new one where the camera is looking, and "Tasks" for a small list of open notes and who's on
+    /// them.
     ///
     /// It draws with IMGUI on purpose: it needs no assets, theme or package, works with either input backend and in any
     /// build, and the panel is small. A hidden object (never saved, survives scene loads) hosts it.
@@ -103,7 +106,7 @@ namespace Remedy.StickyNotes
         {
             if (note == null || !Available) return;
             Enabled = true;
-            _host?.BeginEdit(note);
+            _host?.BeginEdit(note, default);
         }
 
         /// <summary>Creates the hidden host object if it isn't there yet (done automatically when the game starts).</summary>
@@ -117,15 +120,30 @@ namespace Remedy.StickyNotes
 
         #endregion
 
+        /// <summary>Shows the small list of open notes (To Do and In Progress) under the toolbar.</summary>
+        public static bool ShowTaskList;
+
+        /// <summary>Default for the "Attach performance snapshot" box on new notes (warnings and errors may get one anyway).</summary>
+        public static bool AttachSnapshotByDefault;
+
         private static StickyNotesView _host;
+
+        private const float PanelWidth = 380f;
 
         private StickyNote _draft;          // the note being edited (a copy), or a new one not saved yet
         private bool _draftIsNew;
         private bool _confirmDelete;
+        private bool _attachPerf;
+        private string _draftPerf;          // snapshot taken when a new note was started
+        private bool _showPerfDetails;
         private string _hoverId;
-        private Vector2 _scroll;
-        private Rect _panelRect = new Rect(0, 0, 340, 300);
+        private Vector2 _scroll, _taskScroll;
+        private Rect _panelRect = new Rect(0, 0, PanelWidth, PanelWidth);
         private bool _panelPlaced;
+        private Rect _openFrom;             // where the open animation starts (the note's icon)
+        private float _openStart = -10f;
+        private bool _draggingPanel;
+        private Vector2 _dragOffset;
         private float _scale = 1f;
         private float _nextFlush;
         private string _status;
@@ -136,7 +154,7 @@ namespace Remedy.StickyNotes
         private bool _cursorSaved;
 
         private static Texture2D _white;
-        private GUIStyle _glyphStyle, _labelStyle, _boxStyle;
+        private GUIStyle _glyphStyle, _labelStyle, _boxStyle, _paperLabel, _paperSmall, _paperToggle, _paperTitle;
 
         private readonly List<(StickyNote note, Rect rect, float depth)> _visible = new List<(StickyNote, Rect, float)>();
 
@@ -148,6 +166,7 @@ namespace Remedy.StickyNotes
 
         private void Update()
         {
+            StickyNotePerf.Tick();
             if (!Application.isEditor && Time.unscaledTime > _nextFlush)
             {
                 _nextFlush = Time.unscaledTime + 5f;
@@ -198,6 +217,7 @@ namespace Remedy.StickyNotes
             {
                 if (e.keyCode == ToggleKey) { Toggle(); e.Use(); return; }
                 if (_enabled && e.keyCode == AddKey) { BeginNewNote(); e.Use(); return; }
+                if (_enabled && _draft != null && e.keyCode == KeyCode.Escape) { _draft = null; e.Use(); return; }
             }
             if (!_enabled) return;
 
@@ -209,6 +229,7 @@ namespace Remedy.StickyNotes
             {
                 DrawToolbar();
                 DrawIcons();
+                if (ShowTaskList) DrawTaskList();
                 if (_draft != null) DrawPanel();
             }
             finally { GUI.matrix = oldMatrix; }
@@ -218,12 +239,15 @@ namespace Remedy.StickyNotes
 
         private void DrawToolbar()
         {
-            var r = new Rect(10, 10, 430, 30);
+            var r = new Rect(10, 10, 520, 30);
             Fill(r, new Color(0f, 0f, 0f, 0.65f));
             GUILayout.BeginArea(new Rect(r.x + 6, r.y + 4, r.width - 12, r.height - 8));
             GUILayout.BeginHorizontal();
             GUILayout.Label($"Sticky Notes ({ToggleKey})", _labelStyle, GUILayout.Width(150));
             if (GUILayout.Button($"Add Note ({AddKey})", GUILayout.Width(120))) BeginNewNote();
+            int open = 0;
+            foreach (var n in LoadedNotes()) if (!n.Resolved) open++;
+            ShowTaskList = GUILayout.Toggle(ShowTaskList, $"Tasks ({open})", GUI.skin.button, GUILayout.Width(80));
             ShowResolved = GUILayout.Toggle(ShowResolved, "Resolved", GUILayout.Width(80));
             GUILayout.Label(StickyNoteStore.IsConnected ? "● live" : "○ local", _labelStyle);
             GUILayout.EndHorizontal();
@@ -231,9 +255,19 @@ namespace Remedy.StickyNotes
 
             if (!string.IsNullOrEmpty(_status) && Time.unscaledTime < _statusUntil)
             {
-                var s = new Rect(10, 44, 430, 22);
+                var s = new Rect(10, 44, 520, 22);
                 Fill(s, new Color(0f, 0f, 0f, 0.65f));
                 GUI.Label(new Rect(s.x + 6, s.y + 2, s.width - 12, s.height - 4), _status, _labelStyle);
+            }
+        }
+
+        private static IEnumerable<StickyNote> LoadedNotes()
+        {
+            for (int i = 0; i < SceneManager.sceneCount; i++)
+            {
+                var scene = SceneManager.GetSceneAt(i);
+                if (!scene.isLoaded || string.IsNullOrEmpty(scene.path)) continue;
+                foreach (var note in StickyNoteStore.GetNotes(scene.path)) yield return note;
             }
         }
 
@@ -243,23 +277,20 @@ namespace Remedy.StickyNotes
             if (cam == null) return;
             var e = Event.current;
             Vector2 mouse = e.mousePosition;
+            float aspect = StickyNoteStyle.PaperAspect;
 
             _visible.Clear();
-            for (int i = 0; i < SceneManager.sceneCount; i++)
+            foreach (var note in LoadedNotes())
             {
-                var scene = SceneManager.GetSceneAt(i);
-                if (!scene.isLoaded || string.IsNullOrEmpty(scene.path)) continue;
-                foreach (var note in StickyNoteStore.GetNotes(scene.path))
-                {
-                    if (note.Resolved && !ShowResolved) continue;
-                    var world = note.Position + note.Normal * 0.05f;
-                    var sp = cam.WorldToScreenPoint(world);
-                    if (sp.z <= 0.05f || sp.z > MaxDistance) continue;
-                    // Screen pixels (origin bottom-left) to GUI units (origin top-left, scaled).
-                    var gp = new Vector2(sp.x, Screen.height - sp.y) / _scale;
-                    float size = Mathf.Lerp(26f, 14f, Mathf.InverseLerp(5f, MaxDistance, sp.z));
-                    _visible.Add((note, new Rect(gp.x - size * 0.5f, gp.y - size * 0.5f, size, size), sp.z));
-                }
+                if (note.Resolved && !ShowResolved) continue;
+                var world = note.Position + note.Normal * 0.05f;
+                var sp = cam.WorldToScreenPoint(world);
+                if (sp.z <= 0.05f || sp.z > MaxDistance) continue;
+                // Screen pixels (origin bottom-left) to GUI units (origin top-left, scaled).
+                var gp = new Vector2(sp.x, Screen.height - sp.y) / _scale;
+                float size = Mathf.Lerp(30f, 16f, Mathf.InverseLerp(5f, MaxDistance, sp.z));
+                float w = StickyNoteStyle.PaperTexture != null ? size * aspect : size;
+                _visible.Add((note, new Rect(gp.x - w * 0.5f, gp.y - size * 0.5f, w, size), sp.z));
             }
             // Far ones first so near ones draw on top; hover picks the nearest under the mouse.
             _visible.Sort((a, b) => b.depth.CompareTo(a.depth));
@@ -268,32 +299,62 @@ namespace Remedy.StickyNotes
             for (int i = _visible.Count - 1; i >= 0; i--)
                 if (_visible[i].rect.Contains(mouse)) { hover = _visible[i].note.Id; break; }
             if (_draft != null && _panelRect.Contains(mouse)) hover = null;
+            if (ShowTaskList && TaskListRect().Contains(mouse)) hover = null;
             _hoverId = hover;
 
             foreach (var (note, rect, _) in _visible)
             {
+                if (_draft != null && _draft.Id == note.Id && OpenProgress < 1f) continue;   // it's flying into the panel
                 bool selected = _draft != null && _draft.Id == note.Id;
-                bool hovered = note.Id == _hoverId;
-                var outline = selected ? Color.white : new Color(0f, 0f, 0f, 0.8f);
-                Fill(new Rect(rect.x - 2, rect.y - 2, rect.width + 4, rect.height + 4), outline);
-                Fill(rect, StickyNoteStyle.ColorOf(note));
-                // The author's colour as a thin stripe at the bottom.
-                Fill(new Rect(rect.x, rect.yMax - 3, rect.width, 3), StickyNoteStyle.ParseColor(note.AuthorColor, Color.white));
-                GUI.Label(rect, StickyNoteStyle.GlyphOf(note), _glyphStyle);
-                if (hovered) DrawTooltip(note, rect);
+                DrawNoteIcon(note, rect, selected || note.Id == _hoverId);
+                if (note.Id == _hoverId) DrawTooltip(note, rect);
             }
 
             if (e.type == EventType.MouseDown && e.button == 0 && _hoverId != null)
             {
                 var note = StickyNoteStore.Find(_hoverId);
-                if (note != null) BeginEdit(note);
+                if (note != null)
+                {
+                    Rect from = default;
+                    foreach (var v in _visible) if (v.note.Id == note.Id) from = v.rect;
+                    BeginEdit(note, from);
+                }
                 e.Use();
             }
         }
 
+        /// <summary>One note as a small piece of paper, tinted for its type, with a type badge and the author's stripe.</summary>
+        private void DrawNoteIcon(StickyNote note, Rect rect, bool highlighted)
+        {
+            if (StickyNoteStyle.PaperTexture != null)
+            {
+                if (highlighted) Fill(new Rect(rect.x - 2, rect.y - 2, rect.width + 4, rect.height + 4), new Color(1f, 1f, 1f, 0.55f));
+                StickyNoteStyle.DrawPaper(rect, StickyNoteStyle.PaperTint(note));
+                // Type badge in the corner, and the author's colour as a thin stripe along the bottom.
+                float b = Mathf.Max(7f, rect.height * 0.36f);
+                var badge = new Rect(rect.xMax - b * 0.8f, rect.y - b * 0.2f, b, b);
+                Fill(new Rect(badge.x - 1, badge.y - 1, badge.width + 2, badge.height + 2), new Color(0f, 0f, 0f, 0.8f));
+                Fill(badge, StickyNoteStyle.ColorOf(note));
+                var old = _glyphStyle.fontSize;
+                _glyphStyle.fontSize = Mathf.RoundToInt(Mathf.Clamp(b * 0.8f, 7f, 12f));
+                GUI.Label(badge, StickyNoteStyle.GlyphOf(note), _glyphStyle);
+                _glyphStyle.fontSize = old;
+                Fill(new Rect(rect.x + rect.width * 0.08f, rect.yMax - rect.height * 0.12f, rect.width * 0.6f, 2f), StickyNoteStyle.ParseColor(note.AuthorColor, Color.white));
+                return;
+            }
+            // No image: the plain coloured square.
+            Fill(new Rect(rect.x - 2, rect.y - 2, rect.width + 4, rect.height + 4), highlighted ? Color.white : new Color(0f, 0f, 0f, 0.8f));
+            Fill(rect, StickyNoteStyle.ColorOf(note));
+            Fill(new Rect(rect.x, rect.yMax - 3, rect.width, 3), StickyNoteStyle.ParseColor(note.AuthorColor, Color.white));
+            GUI.Label(rect, StickyNoteStyle.GlyphOf(note), _glyphStyle);
+        }
+
         private void DrawTooltip(StickyNote note, Rect icon)
         {
-            string text = $"<b>{note.NoteType}</b>{(note.Resolved ? " (resolved)" : "")} — {note.Author}\n{Truncate(note.Text, 300)}";
+            string extra = "";
+            if (note.Status == StickyNoteStatus.InProgress) extra += $"\n<i>In progress: {note.Assignee}</i>";
+            if (note.HasPerf) extra += $"\n<size=10>{StickyNotePerf.Summary(note.Perf)}</size>";
+            string text = $"<b>{note.NoteType}</b>{(note.Resolved ? " (resolved)" : "")} — {note.Author}\n{Truncate(note.Text, 300)}{extra}";
             var content = new GUIContent(text);
             float width = 280f;
             float height = _boxStyle.CalcHeight(content, width);
@@ -302,26 +363,115 @@ namespace Remedy.StickyNotes
             GUI.Box(r, content, _boxStyle);
         }
 
-        private void DrawPanel()
+        private Rect TaskListRect() => new Rect(10, 70, 340, 260);
+
+        // A small read-only list of open notes for playtesters: what's still to do, and who's on what.
+        private void DrawTaskList()
         {
-            if (!_panelPlaced)
+            var r = TaskListRect();
+            Fill(r, new Color(0f, 0f, 0f, 0.72f));
+            var open = new List<StickyNote>();
+            foreach (var n in LoadedNotes()) if (!n.Resolved) open.Add(n);
+            open.Sort((a, b) =>
             {
-                _panelRect.x = Screen.width / _scale - _panelRect.width - 16;
-                _panelRect.y = 60;
-                _panelPlaced = true;
+                int c = a.Status.CompareTo(b.Status);   // To Do first, then In Progress
+                return c != 0 ? c : StickyNoteStyle.CompareByPriority(a, b);
+            });
+
+            GUILayout.BeginArea(new Rect(r.x + 6, r.y + 4, r.width - 12, r.height - 8));
+            GUILayout.Label($"<b>Open notes</b> ({open.Count})", _labelStyle);
+            _taskScroll = GUILayout.BeginScrollView(_taskScroll);
+            StickyNote clicked = null;
+            if (open.Count == 0) GUILayout.Label("Nothing open in this level.", _labelStyle);
+            foreach (var n in open)
+            {
+                var row = GUILayoutUtility.GetRect(10, 20, GUILayout.ExpandWidth(true));
+                Fill(new Rect(row.x, row.y + 4, 12, 12), StickyNoteStyle.ColorOf(n));
+                string who = n.Status == StickyNoteStatus.InProgress ? $"<color=#9fd0ff>{n.Assignee}</color>" : "<color=#bbbbbb>to do</color>";
+                GUI.Label(new Rect(row.x + 18, row.y, row.width - 110, row.height), StickyNoteStyle.Summary(n, 40), _labelStyle);
+                GUI.Label(new Rect(row.xMax - 90, row.y, 90, row.height), who, _labelStyle);
+                if (Event.current.type == EventType.MouseDown && row.Contains(Event.current.mousePosition)) { clicked = n; Event.current.Use(); }
             }
-            _panelRect = GUI.Window(0x57A11E, _panelRect, DrawPanelContents, _draftIsNew ? "New Sticky Note" : "Sticky Note");
+            GUILayout.EndScrollView();
+            GUILayout.EndArea();
+            if (clicked != null) BeginEdit(clicked, new Rect(r.x + 18, r.y + 30, 20, 20));
         }
 
-        private void DrawPanelContents(int id)
+        private float OpenProgress => StickyNoteStyle.OpenAnimationSeconds <= 0f ? 1f
+            : Mathf.Clamp01((Time.unscaledTime - _openStart) / StickyNoteStyle.OpenAnimationSeconds);
+
+        private void DrawPanel()
+        {
+            float height = StickyNoteStyle.PaperTexture != null ? PanelWidth / StickyNoteStyle.PaperAspect : 330f;
+            if (!_panelPlaced)
+            {
+                _panelRect = new Rect(Screen.width / _scale - PanelWidth - 16, 60, PanelWidth, height);
+                _panelPlaced = true;
+            }
+            _panelRect.height = height;
+
+            // The scale-up from the note's icon into the panel.
+            float t = StickyNoteStyle.EaseOut(OpenProgress);
+            if (t < 1f)
+            {
+                var from = _openFrom.width > 0 ? _openFrom : new Rect(_panelRect.center.x - 10, _panelRect.center.y - 10, 20, 20);
+                var r = new Rect(Vector2.Lerp(from.position, _panelRect.position, t), Vector2.Lerp(from.size, _panelRect.size, t));
+                if (!StickyNoteStyle.DrawPaper(r, StickyNoteStyle.PaperTint(_draft))) Fill(r, StickyNoteStyle.ColorOf(_draft));
+                return;
+            }
+
+            HandlePanelDrag();
+            bool paper = StickyNoteStyle.DrawPaper(_panelRect, StickyNoteStyle.PaperTint(_draft));
+            Rect content;
+            if (paper) content = StickyNoteStyle.PaperContentRect(_panelRect);
+            else
+            {
+                Fill(_panelRect, new Color(0.13f, 0.13f, 0.13f, 0.95f));
+                Fill(new Rect(_panelRect.x, _panelRect.y, _panelRect.width, 5), StickyNoteStyle.ColorOf(_draft));
+                content = new Rect(_panelRect.x + 10, _panelRect.y + 12, _panelRect.width - 20, _panelRect.height - 20);
+            }
+            // Clicks on the panel never reach the game or the icons behind it.
+            GUILayout.BeginArea(content);
+            DrawPanelContents(paper);
+            GUILayout.EndArea();
+            if (Event.current.type == EventType.MouseDown && _panelRect.Contains(Event.current.mousePosition)) Event.current.Use();
+        }
+
+        // Drag the panel by its top margin (the strip above the content).
+        private void HandlePanelDrag()
+        {
+            var e = Event.current;
+            var grip = new Rect(_panelRect.x, _panelRect.y, _panelRect.width, Mathf.Max(14f, _panelRect.height * StickyNoteStyle.PaperInsets.y));
+            if (e.type == EventType.MouseDown && e.button == 0 && grip.Contains(e.mousePosition))
+            {
+                _draggingPanel = true;
+                _dragOffset = e.mousePosition - _panelRect.position;
+                e.Use();
+            }
+            else if (_draggingPanel && e.type == EventType.MouseDrag)
+            {
+                _panelRect.position = e.mousePosition - _dragOffset;
+                e.Use();
+            }
+            else if (_draggingPanel && (e.type == EventType.MouseUp || e.rawType == EventType.MouseUp)) _draggingPanel = false;
+        }
+
+        private void DrawPanelContents(bool onPaper)
         {
             var note = _draft;
             if (note == null) return;
+            var label = onPaper ? _paperLabel : _labelStyle;
+            var small = onPaper ? _paperSmall : _labelStyle;
+
+            GUILayout.BeginHorizontal();
+            string title = _draftIsNew ? "New note" : note.Status == StickyNoteStatus.Done ? "Done" : note.Status == StickyNoteStatus.InProgress ? $"In progress · {note.Assignee}" : "To do";
+            GUILayout.Label(title, onPaper ? _paperTitle : label, GUILayout.ExpandWidth(true));
+            GUILayout.EndHorizontal();
 
             int type = GUILayout.Toolbar((int)note.NoteType, new[] { "Default", "Warning", "Error" });
             if (type != (int)note.NoteType) note.NoteType = (StickyNoteType)type;
 
-            _scroll = GUILayout.BeginScrollView(_scroll, GUILayout.Height(140));
+            _scroll = GUILayout.BeginScrollView(_scroll, GUILayout.ExpandHeight(true));
             GUI.SetNextControlName("StickyNoteText");
             note.Text = GUILayout.TextArea(note.Text ?? "", GUILayout.ExpandHeight(true));
             GUILayout.EndScrollView();
@@ -330,10 +480,25 @@ namespace Remedy.StickyNotes
             {
                 var created = StickyNote.ParseTime(note.Created);
                 GUILayout.Label($"{note.Author}{(created != DateTime.MinValue ? " · " + created.ToString("g") : "")}" +
-                                (string.IsNullOrEmpty(note.AttachedName) ? "" : $" · on {note.AttachedName}"));
-                if (note.Resolved && !string.IsNullOrEmpty(note.ResolvedBy)) GUILayout.Label($"Resolved by {note.ResolvedBy}");
+                                (string.IsNullOrEmpty(note.AttachedName) ? "" : $" · on {note.AttachedName}"), small);
+                if (note.Resolved && !string.IsNullOrEmpty(note.ResolvedBy)) GUILayout.Label($"Resolved by {note.ResolvedBy}", small);
+                if (note.HasPerf)
+                {
+                    _showPerfDetails = GUILayout.Toggle(_showPerfDetails, "Snapshot: " + StickyNotePerf.Summary(note.Perf), onPaper ? _paperToggle : GUI.skin.toggle);
+                    if (_showPerfDetails) GUILayout.Label(StickyNotePerf.Details(note.Perf), small);
+                }
             }
-            else if (!string.IsNullOrEmpty(note.AttachedName)) GUILayout.Label($"On {note.AttachedName}");
+            else
+            {
+                if (!string.IsNullOrEmpty(note.AttachedName)) GUILayout.Label($"On {note.AttachedName}", small);
+                bool auto = StickyNotePerf.ShouldAttach(note.NoteType, false);
+                using (new GUIEnabledScope(!auto))
+                {
+                    bool v = GUILayout.Toggle(_attachPerf || auto, auto ? "Attach performance snapshot (automatic)" : "Attach performance snapshot",
+                        onPaper ? _paperToggle : GUI.skin.toggle);
+                    if (!auto) _attachPerf = v;
+                }
+            }
 
             // Buttons only record what to do; it's done after the layout group closes so IMGUI's layout stays balanced.
             Action action = null;
@@ -348,7 +513,7 @@ namespace Remedy.StickyNotes
                         StickyNoteStore.SetResolved(note.Id, !note.Resolved);
                         _draft = StickyNoteStore.Find(note.Id)?.Clone();
                     };
-                if (GUILayout.Button(_confirmDelete ? "Really delete?" : "Delete"))
+                if (GUILayout.Button(_confirmDelete ? "Really?" : "Delete"))
                     action = () =>
                     {
                         if (_confirmDelete) { StickyNoteStore.Delete(note.Id); _draft = null; }
@@ -358,20 +523,34 @@ namespace Remedy.StickyNotes
             if (GUILayout.Button("Cancel")) action = () => _draft = null;
             GUILayout.EndHorizontal();
 
-            GUI.DragWindow(new Rect(0, 0, 10000, 20));
             if (action != null) action();
+        }
+
+        private readonly struct GUIEnabledScope : IDisposable
+        {
+            private readonly bool _old;
+            public GUIEnabledScope(bool enabled) { _old = GUI.enabled; GUI.enabled = _old && enabled; }
+            public void Dispose() => GUI.enabled = _old;
         }
 
         #endregion
 
         #region Editing
 
-        private void BeginEdit(StickyNote note)
+        private void BeginEdit(StickyNote note, Rect from = default)
         {
             _draft = note.Clone();
             _draftIsNew = false;
             _confirmDelete = false;
+            _showPerfDetails = false;
             _scroll = Vector2.zero;
+            StartOpenAnimation(from);
+        }
+
+        private void StartOpenAnimation(Rect from)
+        {
+            _openFrom = from;
+            _openStart = Time.unscaledTime;
         }
 
         private void BeginNewNote()
@@ -410,9 +589,17 @@ namespace Remedy.StickyNotes
                 AttachedId = attachedId,
                 AttachedName = hitObject != null ? hitObject.name : "",
             };
+            // The snapshot is taken now, before the tester spends a while typing (and the panel itself costs frames).
+            try { _draftPerf = StickyNotePerf.Capture(scene.path, point, cam); }
+            catch (Exception ex) { Debug.LogException(ex); _draftPerf = null; }
+            _attachPerf = AttachSnapshotByDefault;
             _draftIsNew = true;
             _confirmDelete = false;
             _scroll = Vector2.zero;
+            // Grow from where the note goes (the middle of the screen when it's off screen).
+            var sp = cam.WorldToScreenPoint(point);
+            var gp = sp.z > 0 ? new Vector2(sp.x, Screen.height - sp.y) / _scale : new Vector2(Screen.width, Screen.height) * 0.5f / _scale;
+            StartOpenAnimation(new Rect(gp.x - 10, gp.y - 10, 20, 20));
             GUI.FocusControl("StickyNoteText");
         }
 
@@ -422,10 +609,12 @@ namespace Remedy.StickyNotes
             if (d == null) return;
             if (_draftIsNew)
             {
-                var added = StickyNoteStore.Add(d.Scene, d.Position, d.Normal, d.NoteType, d.Text, d.AttachedId, d.AttachedName);
+                StickyNotePerf.AttachIfWanted(d, _attachPerf, _draftPerf, ViewCamera);
+                var added = StickyNoteStore.Add(d.Scene, d.Position, d.Normal, d.NoteType, d.Text, d.AttachedId, d.AttachedName, d.Perf, d.PerfCapture, d.Id);
                 Status(StickyNoteStore.IsConnected ? "Note added and shared." : "Note added (not connected: kept locally).");
                 _draft = keepOpen ? added.Clone() : null;
                 _draftIsNew = false;
+                _draftPerf = null;
                 return;
             }
             var current = StickyNoteStore.Find(d.Id);
@@ -482,12 +671,22 @@ namespace Remedy.StickyNotes
                 _white.Apply();
             }
             if (_glyphStyle != null) return;
-            _glyphStyle = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold, fontSize = 13 };
+            _glyphStyle = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold, fontSize = 13, padding = new RectOffset(0, 0, 0, 0) };
             _glyphStyle.normal.textColor = new Color(0.1f, 0.1f, 0.1f);
             _labelStyle = new GUIStyle(GUI.skin.label) { richText = true };
             _labelStyle.normal.textColor = Color.white;
             _boxStyle = new GUIStyle(GUI.skin.box) { richText = true, wordWrap = true, alignment = TextAnchor.UpperLeft, padding = new RectOffset(8, 8, 6, 6) };
             _boxStyle.normal.textColor = Color.white;
+
+            // Dark "ink" for text written on the paper.
+            var ink = new Color(0.12f, 0.10f, 0.05f);
+            _paperLabel = new GUIStyle(GUI.skin.label) { richText = true, wordWrap = true };
+            _paperLabel.normal.textColor = ink;
+            _paperTitle = new GUIStyle(_paperLabel) { fontStyle = FontStyle.Bold, fontSize = 14 };
+            _paperSmall = new GUIStyle(_paperLabel) { fontSize = 11 };
+            _paperToggle = new GUIStyle(GUI.skin.toggle) { wordWrap = true, fontSize = 11 };
+            _paperToggle.normal.textColor = _paperToggle.onNormal.textColor = _paperToggle.hover.textColor =
+                _paperToggle.onHover.textColor = _paperToggle.active.textColor = _paperToggle.onActive.textColor = ink;
         }
 
         private static void Fill(Rect r, Color c)
