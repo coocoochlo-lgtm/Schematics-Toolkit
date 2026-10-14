@@ -38,8 +38,8 @@ namespace Remedy.Schematics
     }
 
     [Serializable]
-    [Node(Path = "Objects/Transform"), Tags("Object")]
-    public class Translate : SchematicActionNode
+    [Node(Path = "Objects/Transform", Name="Translate"), Tags("Object")]
+    public class TranslateTransform : SchematicActionNode
     {
         [Input("Target")] public GameObject Target;
         [Input("Translation")] public Vector3 Translation;
@@ -54,8 +54,8 @@ namespace Remedy.Schematics
     }
 
     [Serializable]
-    [Node(Path = "Objects/Transform"), Tags("Object")]
-    public class Rotate : SchematicActionNode
+    [Node(Path = "Objects/Transform", Name="Rotate"), Tags("Object")]
+    public class RotateTransform : SchematicActionNode
     {
         [Input("Target")] public GameObject Target;
         [Input("Euler Angles")] public Vector3 EulerAngles;

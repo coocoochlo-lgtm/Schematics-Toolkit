@@ -176,15 +176,15 @@ namespace Remedy.Schematics.Browsers
                 AssetDatabase.SaveAssets();
         }
 
-        private AudioType TypeOf(AudioClip clip)
+        private Remedy.Audio.AudioType TypeOf(AudioClip clip)
         {
             var tag = GetTags(clip).FirstOrDefault();
             if (tag != null)
                 return tag.Type;
             var path = AssetDatabase.GetAssetPath(clip);
             return path.StartsWith(MusicRoot + "/", StringComparison.OrdinalIgnoreCase)
-                ? AudioType.Music
-                : AudioType.SoundEffect;
+                ? Remedy.Audio.AudioType.Music
+                : Remedy.Audio.AudioType.SoundEffect;
         }
 
         private void RefreshControls()
@@ -542,7 +542,7 @@ namespace Remedy.Schematics.Browsers
             else
                 labels.Add(guid);
             AssetDatabase.SetLabels(clip, labels.ToArray());
-            MoveClip(clip, tag.Type == AudioType.Music ? MusicRoot : SfxRoot, true);
+            MoveClip(clip, tag.Type == Remedy.Audio.AudioType.Music ? MusicRoot : SfxRoot, true);
             ReloadAssets();
         }
 
@@ -573,7 +573,7 @@ namespace Remedy.Schematics.Browsers
             {
                 string guid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(tag));
                 foreach (var clip in _clips.Where(clip => AssetDatabase.GetLabels(clip).Contains(guid)).ToArray())
-                    MoveClip(clip, tag.Type == AudioType.Music ? MusicRoot : SfxRoot, true);
+                    MoveClip(clip, tag.Type == Remedy.Audio.AudioType.Music ? MusicRoot : SfxRoot, true);
             }
             ReloadAssets();
         }
@@ -756,8 +756,8 @@ namespace Remedy.Schematics.Browsers
         {
             foreach (var entry in new[]
             {
-                (Name: "Music", Type: AudioType.Music, Color: new Color(0.48f, 0.34f, 0.82f)),
-                (Name: "SFX", Type: AudioType.SoundEffect, Color: new Color(0.15f, 0.65f, 0.53f))
+                (Name: "Music", Type: Remedy.Audio.AudioType.Music, Color: new Color(0.48f, 0.34f, 0.82f)),
+                (Name: "SFX", Type: Remedy.Audio.AudioType.SoundEffect, Color: new Color(0.15f, 0.65f, 0.53f))
             })
             {
                 bool exists = AssetDatabase.FindAssets("t:AudioClipTag", new[] { TagRoot })
@@ -862,7 +862,7 @@ namespace Remedy.Schematics.Browsers
                     return;
                 }
                 _tag.TagName = tagName;
-                _tag.Type = (AudioType)type.value;
+                _tag.Type = (Remedy.Audio.AudioType)type.value;
                 _tag.Color = color.value;
                 EditorUtility.SetDirty(_tag);
                 AssetDatabase.SaveAssets();
