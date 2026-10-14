@@ -75,7 +75,7 @@ namespace Remedy.LevelDesigner
         private const int MeshVersion = 2;
 
         /// <summary>
-        /// Set by an <see cref="ArtDesignScene"/> that brings its blockout into Play Mode for collision only: shapes
+        /// Set by a <see cref="VariantScene"/> that brings its blockout into Play Mode for collision only: shapes
         /// that wake while it's set switch their renderers off.
         /// </summary>
         public static bool HideRenderersInPlayMode;

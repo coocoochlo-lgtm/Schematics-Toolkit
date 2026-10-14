@@ -172,7 +172,7 @@ namespace Remedy.LevelDesigner.Editor
                 }
                 string hint = (perpendicular ? "Perpendicular (Shift)" : "Shift: perpendicular") +
                               (LevelDesignerSettings.KeepCtrlRulers ? "" : "\nAlt + release to keep");
-                LevelDesignerSceneGUI.DrawMeasurement(_measureStart, _measureEnd, new Color(1f, 0.85f, 0.2f), hint);
+                LevelDesignerSceneGUI.DrawMeasurement(_measureStart, _measureEnd, LevelDesignerSettings.RulerColor, hint);
             }
 
             if (EditorApplication.isPlaying)
@@ -192,10 +192,10 @@ namespace Remedy.LevelDesigner.Editor
                 bool selected = Selection.Contains(ruler.gameObject);
                 switch (ruler.Kind)
                 {
-                    case BlockoutRulerKind.Distance: DrawDistance(ruler, selected); break;
-                    case BlockoutRulerKind.Height: DrawHeight(ruler, selected); break;
                     case BlockoutRulerKind.JumpArc: DrawJumpArc(ruler, selected); break;
                     case BlockoutRulerKind.RunDistance: DrawRun(ruler, selected); break;
+                    // Distance, and anything older (the retired Height kind) that hasn't been converted yet.
+                    default: DrawDistance(ruler, selected); break;
                 }
             }
         }
@@ -204,51 +204,78 @@ namespace Remedy.LevelDesigner.Editor
         {
             Vector3 start = ruler.transform.position;
             LevelDesignerSceneGUI.DrawMeasurement(start, ruler.WorldEnd, ruler.Color, ruler.Label);
-            if (selected && !BlockoutPlaceTool.IsActive)
-                EndHandle(ruler, false);
+            if (selected && !BlockoutPlaceTool.IsActive && !BlockoutPaintTool.IsActive)
+                EndHandle(ruler);
         }
 
-        private static void DrawHeight(BlockoutRuler ruler, bool selected)
-        {
-            Vector3 bottom = ruler.transform.position;
-            float height = ruler.End.y;
-            Vector3 top = bottom + Vector3.up * height;
-            if (Event.current.type == EventType.Repaint)
-            {
-                using (new Handles.DrawingScope(ruler.Color))
-                {
-                    Handles.DrawLine(bottom, top, 3f);
-                    int ticks = Mathf.FloorToInt(Mathf.Abs(height) / 0.5f);
-                    for (int i = 1; i <= ticks; i++)
-                    {
-                        float y = i * 0.5f * Mathf.Sign(height);
-                        float size = i % 2 == 0 ? 0.25f : 0.12f;
-                        Handles.DrawLine(bottom + Vector3.up * y, bottom + Vector3.up * y + Vector3.right * size);
-                    }
-                    Handles.DrawWireDisc(bottom, Vector3.up, 0.25f);
-                    Handles.DrawWireDisc(top, Vector3.up, 0.25f);
-                }
-            }
-            LevelDesignerSceneGUI.Label(top + Vector3.up * 0.2f,
-                (string.IsNullOrEmpty(ruler.Label) ? "" : ruler.Label + "\n") + LevelDesignerSceneGUI.Meters(Mathf.Abs(height)), ruler.Color);
-            if (selected && !BlockoutPlaceTool.IsActive)
-                EndHandle(ruler, true);
-        }
-
-        private static void EndHandle(BlockoutRuler ruler, bool verticalOnly)
+        private static void EndHandle(BlockoutRuler ruler)
         {
             Vector3 end = ruler.WorldEnd;
             EditorGUI.BeginChangeCheck();
             float size = HandleUtility.GetHandleSize(end) * 0.12f;
-            Vector3 moved = verticalOnly
-                ? Handles.Slider(end, Vector3.up, size, Handles.SphereHandleCap, LevelDesignerSettings.Snap)
-                : Handles.FreeMoveHandle(end, size, Vector3.one * LevelDesignerSettings.Snap, Handles.SphereHandleCap);
+            Vector3 moved = Handles.FreeMoveHandle(end, size, Vector3.one * LevelDesignerSettings.Snap, Handles.SphereHandleCap);
             if (EditorGUI.EndChangeCheck())
             {
                 Undo.RecordObject(ruler, "Move Ruler End");
                 ruler.End = (LevelDesignerSettings.Snap > 0f ? LevelDesignerSettings.SnapPoint(moved) : moved) - ruler.transform.position;
-                if (verticalOnly)
-                    ruler.End = new Vector3(0f, ruler.End.y, 0f);
+            }
+        }
+
+        /// <summary>
+        /// The ruler drawn nearest to a GUI point (within <paramref name="maxPixels"/>), for clicking rulers in the
+        /// Scene view (the paint bucket). Rulers are drawn with handles, not renderers, so Unity's picking can't
+        /// find them.
+        /// </summary>
+        public static BlockoutRuler PickRuler(Vector2 guiPoint, float maxPixels = 8f)
+        {
+            if (_dirty)
+            {
+                _dirty = false;
+                _rulers.Clear();
+                _rulers.AddRange(Object.FindObjectsByType<BlockoutRuler>(FindObjectsInactive.Exclude, FindObjectsSortMode.None));
+            }
+            BlockoutRuler best = null;
+            float bestDistance = maxPixels;
+            foreach (var ruler in _rulers)
+            {
+                if (ruler == null || !ruler.isActiveAndEnabled)
+                    continue;
+                RulerPath(ruler, _path);
+                for (int i = 1; i < _path.Count; i++)
+                {
+                    float distance = HandleUtility.DistancePointLine(guiPoint, HandleUtility.WorldToGUIPoint(_path[i - 1]), HandleUtility.WorldToGUIPoint(_path[i]));
+                    if (distance < bestDistance)
+                    {
+                        bestDistance = distance;
+                        best = ruler;
+                    }
+                }
+            }
+            return best;
+        }
+
+        // The line a ruler is drawn along (start to end, the run, or the jump arc).
+        private static void RulerPath(BlockoutRuler ruler, List<Vector3> path)
+        {
+            path.Clear();
+            Vector3 start = ruler.transform.position;
+            switch (ruler.Kind)
+            {
+                case BlockoutRulerKind.JumpArc:
+                    if (ruler.Metrics.IsValid)
+                        EvaluateJump(ruler, path, out _);
+                    break;
+                case BlockoutRulerKind.RunDistance:
+                    if (ruler.Metrics.IsValid)
+                    {
+                        path.Add(start);
+                        path.Add(start + Flat(ruler.transform.forward) * ruler.Metrics.RunDistance(ruler.Seconds));
+                    }
+                    break;
+                default:
+                    path.Add(start);
+                    path.Add(ruler.WorldEnd);
+                    break;
             }
         }
 
@@ -303,9 +330,11 @@ namespace Remedy.LevelDesigner.Editor
                 using (new Handles.DrawingScope(color))
                 {
                     Handles.DrawAAPolyLine(4f, _path.ToArray());
-                    Handles.DrawWireDisc(start, Vector3.up, 0.2f);
                     Handles.ArrowHandleCap(0, start, Quaternion.LookRotation(ruler.transform.forward), 0.8f, EventType.Repaint);
                 }
+                // The arc keeps its green / red verdict; the ruler's own (painted) colour marks its take-off ring.
+                using (new Handles.DrawingScope(ruler.Color))
+                    Handles.DrawWireDisc(start, Vector3.up, 0.2f);
 
                 // The top of the jump, and the level it starts from (dotted) for reading heights.
                 Vector3 forward = Flat(ruler.transform.forward);

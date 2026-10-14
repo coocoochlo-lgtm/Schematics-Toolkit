@@ -10,10 +10,11 @@ namespace Remedy.LevelDesigner.Editor
 {
     /// <summary>
     /// The Level Designer window. <b>Levels</b>: blockouts on the left (+ makes a new blockout scene, - removes one),
-    /// and on the right the art designs built on the selected blockout, as cards (open, duplicate, rename, remove),
-    /// with + to start a new art design over the blockout. <b>Characters</b>: the movement numbers of character
-    /// prefabs (jump height, air time, run speed…), exported to JSON or CSV, and which character the blockout's
-    /// jump and run rulers use. The header holds the blockout X-ray toggle and opacity, the snapping step, and the
+    /// and on the right the variants built on the selected blockout, as cards (open, duplicate, rename, remove,
+    /// "Compose into build"), with + to start a new variant over the blockout and <b>Test Composed Scene</b> to play
+    /// the blockout merged with picked variants. <b>Characters</b>: the movement numbers of character prefabs (jump
+    /// height, air time, run speed…), exported to JSON or CSV, and which character the blockout's jump and run rulers
+    /// use. <b>Palette</b>: the team's named blockout colours. The header holds the blockout X-ray toggle and opacity, the snapping step, and the
     /// Levels menu (the folder every scene goes in, moving existing scenes there, capturing a thumbnail).<br/>
     /// A normal dockable editor window built with UI Toolkit: drag its tab next to the Inspector, the Scene view or
     /// anywhere else, and it stays there across sessions like any built-in window.
@@ -32,10 +33,19 @@ namespace Remedy.LevelDesigner.Editor
         private static GUIContent Title()
         {
             var icon = EditorGUIUtility.IconContent("SceneAsset Icon")?.image;
-            return new GUIContent("Level Designer", icon, "Blockouts, art designs and character metrics");
+            return new GUIContent("Level Designer", icon, "Blockouts, variants, character metrics and the blockout palette");
         }
 
-        private enum Tab { Levels, Characters }
+        /// <summary>Opens the window on its Palette tab (the blockout colours).</summary>
+        public static void OpenPalette()
+        {
+            Open();
+            var window = GetWindow<LevelDesignerWindow>(false, "Level Designer", true);
+            window._tab = Tab.Palette;
+            window.CreateGUI();
+        }
+
+        private enum Tab { Levels, Characters, Palette }
 
         [SerializeField] private Tab _tab;
         [SerializeField] private int _selectedBlockout;
@@ -111,8 +121,10 @@ namespace Remedy.LevelDesigner.Editor
             _body.Clear();
             if (_tab == Tab.Levels)
                 BuildLevels();
-            else
+            else if (_tab == Tab.Characters)
                 BuildCharacters();
+            else
+                BuildPalette();
             SyncHeader();
         }
 
@@ -124,13 +136,17 @@ namespace Remedy.LevelDesigner.Editor
 
             var levels = new ToolbarToggle { text = "Levels", value = _tab == Tab.Levels };
             var characters = new ToolbarToggle { text = "Characters", value = _tab == Tab.Characters };
-            levels.RegisterValueChangedCallback(evt => SwitchTab(Tab.Levels, levels, characters));
-            characters.RegisterValueChangedCallback(evt => SwitchTab(Tab.Characters, levels, characters));
+            var palette = new ToolbarToggle { text = "Palette", value = _tab == Tab.Palette, tooltip = "The team's named blockout colours" };
+            _tabToggles = new[] { levels, characters, palette };
+            levels.RegisterValueChangedCallback(evt => SwitchTab(Tab.Levels));
+            characters.RegisterValueChangedCallback(evt => SwitchTab(Tab.Characters));
+            palette.RegisterValueChangedCallback(evt => SwitchTab(Tab.Palette));
             toolbar.Add(levels);
             toolbar.Add(characters);
+            toolbar.Add(palette);
             toolbar.Add(new ToolbarSpacer { flex = true });
 
-            _xrayToggle = new ToolbarToggle { text = "Blockout Overlay", tooltip = "While editing an art design, show its blockout as an X-ray through the art" };
+            _xrayToggle = new ToolbarToggle { text = "Blockout Overlay", tooltip = "While editing a variant, show its blockout as an X-ray through it" };
             _xrayToggle.RegisterValueChangedCallback(evt => LevelDesignerSettings.XRayEnabled = evt.newValue);
             toolbar.Add(_xrayToggle);
 
@@ -159,11 +175,17 @@ namespace Remedy.LevelDesigner.Editor
                 if (LevelDesignerContext.MoveScenesIntoLayout() > 0)
                     Rebuild();
             });
+            levelsMenu.menu.AppendAction("Compose Flagged Variants into Builds", _ =>
+            {
+                LevelDesignerContext.RecordProject("Compose Variants into Builds");
+                Project.ComposeVariantsOnBuild = !Project.ComposeVariantsOnBuild;
+                AssetDatabase.SaveAssets();
+            }, _ => Project.ComposeVariantsOnBuild ? DropdownMenuAction.Status.Checked : DropdownMenuAction.Status.Normal);
             levelsMenu.menu.AppendSeparator();
             levelsMenu.menu.AppendAction("Capture Thumbnail of the Active Scene", _ =>
             {
                 if (!LevelThumbnails.CaptureActive())
-                    EditorUtility.DisplayDialog("Level Designer", "Open a blockout or an art design (and a Scene view) first.", "OK");
+                    EditorUtility.DisplayDialog("Level Designer", "Open a blockout or a variant (and a Scene view) first.", "OK");
             });
             levelsMenu.RegisterCallback<PointerDownEvent>(_ => RefreshLevelsMenuTitle(levelsMenu), TrickleDown.TrickleDown);
             toolbar.Add(levelsMenu);
@@ -183,7 +205,7 @@ namespace Remedy.LevelDesigner.Editor
             string current = LevelDesignerContext.LevelsRoot;
             string projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, "..")).Replace('\\', '/') + "/";
             string start = Directory.Exists(projectRoot + current) ? projectRoot + current : Application.dataPath;
-            string absolute = EditorUtility.OpenFolderPanel("Levels Folder (where every blockout and art design scene goes)", start, "");
+            string absolute = EditorUtility.OpenFolderPanel("Levels Folder (where every blockout and variant scene goes)", start, "");
             if (string.IsNullOrEmpty(absolute))
                 return;
             absolute = absolute.Replace('\\', '/');
@@ -202,11 +224,14 @@ namespace Remedy.LevelDesigner.Editor
             Rebuild();
         }
 
-        private void SwitchTab(Tab tab, ToolbarToggle levels, ToolbarToggle characters)
+        private ToolbarToggle[] _tabToggles;
+
+        private void SwitchTab(Tab tab)
         {
             _tab = tab;
-            levels.SetValueWithoutNotify(tab == Tab.Levels);
-            characters.SetValueWithoutNotify(tab == Tab.Characters);
+            if (_tabToggles != null)
+                for (int i = 0; i < _tabToggles.Length; i++)
+                    _tabToggles[i].SetValueWithoutNotify((int)tab == i);
             Rebuild();
         }
 
@@ -275,7 +300,7 @@ namespace Remedy.LevelDesigner.Editor
                 left.Add(Hint("No blockouts yet. Press + to make one: a new scene with a floor, ready for the blockout tools in the Scene view."));
             split.Add(left);
 
-            // Right: art designs of the selected blockout.
+            // Right: variants of the selected blockout.
             _artPane = new ScrollView(ScrollViewMode.Vertical) { style = { flexGrow = 1 } };
             split.Add(_artPane);
 
@@ -286,7 +311,7 @@ namespace Remedy.LevelDesigner.Editor
             BuildArtPane();
         }
 
-        // A blockout row: its thumbnail, then its name (● when it's the one open) and art design count.
+        // A blockout row: its thumbnail, then its name (● when it's the one open) and variant count.
         private static VisualElement MakeBlockoutItem()
         {
             var row = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, paddingLeft = 4 } };
@@ -307,7 +332,7 @@ namespace Remedy.LevelDesigner.Editor
             var label = element.Q<Label>("name");
             bool current = LevelDesignerContext.CurrentBlockoutEntry == blockout;
             label.text = (current ? "● " : "") + (string.IsNullOrEmpty(blockout.Name) ? "(unnamed)" : blockout.Name) +
-                         (blockout.ArtDesigns.Count > 0 ? $"  ({blockout.ArtDesigns.Count})" : "");
+                         (blockout.Variants.Count > 0 ? $"  ({blockout.Variants.Count})" : "");
             label.style.unityFontStyleAndWeight = current ? FontStyle.Bold : FontStyle.Normal;
             element.tooltip = LevelDesignerContext.PathOf(blockout);
             element.Q<Image>("thumbnail").image = LevelThumbnails.Get(SceneGuidOf(blockout.SceneGuid, LevelDesignerContext.PathOf(blockout)));
@@ -321,7 +346,7 @@ namespace Remedy.LevelDesigner.Editor
             return string.IsNullOrEmpty(path) ? null : AssetDatabase.AssetPathToGUID(path);
         }
 
-        // A 16:9 thumbnail for an art card (a dark placeholder until the scene is first saved while open).
+        // A 16:9 thumbnail for a variant card (a dark placeholder until the scene is first saved while open).
         private static VisualElement CardThumbnail(string sceneGuid, string scenePath)
         {
             var image = new Image { scaleMode = ScaleMode.ScaleAndCrop, image = LevelThumbnails.Get(SceneGuidOf(sceneGuid, scenePath)) };
@@ -360,7 +385,7 @@ namespace Remedy.LevelDesigner.Editor
             if (blockout == null)
                 return;
             int choice = EditorUtility.DisplayDialogComplex("Remove Blockout",
-                $"Remove \"{blockout.Name}\" and its {blockout.ArtDesigns.Count} art design(s) from the Level Designer?",
+                $"Remove \"{blockout.Name}\" and its {blockout.Variants.Count} variant(s) from the Level Designer?",
                 "Remove from List", "Cancel", "Remove and Delete Scenes");
             if (choice == 1)
                 return;
@@ -377,7 +402,7 @@ namespace Remedy.LevelDesigner.Editor
             var blockout = SelectedBlockout;
             if (blockout == null)
             {
-                _artPane.Add(Hint("Select a blockout to see its art designs."));
+                _artPane.Add(Hint("Select a blockout to see its variants."));
                 return;
             }
 
@@ -404,72 +429,138 @@ namespace Remedy.LevelDesigner.Editor
             _artPane.Add(blockoutThumb);
             _artPane.Add(NotesField(blockout.Notes, value => blockout.Notes = value, "Notes about this blockout"));
 
-            // Art designs.
-            var artHeader = Header("Art Designs");
-            var newName = new TextField { value = "", style = { flexGrow = 1 }, tooltip = "Name for the new art design" };
-            newName.textEdition.placeholder = "New art design name";
-            artHeader.Add(newName);
-            artHeader.Add(SmallButton("+ Add Art Design", "Make a new art design scene over this blockout and open it", () =>
+            // Variants.
+            var variantHeader = Header("Variants");
+            var newName = new TextField { value = "", style = { flexGrow = 1 }, tooltip = "Name for the new variant" };
+            newName.textEdition.placeholder = "New variant name";
+            variantHeader.Add(newName);
+            variantHeader.Add(SmallButton("+ Add Variant", "Make a new variant scene over this blockout and open it", () =>
             {
-                var art = LevelDesignerContext.CreateArtDesign(blockout, newName.value);
-                if (art != null)
+                var variant = LevelDesignerContext.CreateVariant(blockout, newName.value);
+                if (variant != null)
                     BuildArtPane();
             }));
-            _artPane.Add(artHeader);
+            Button testButton = null;
+            testButton = SmallButton("▶ Test Composed Scene…", "Merge the blockout with the picked variants (the ones flagged for the build by default) and play it", () =>
+            {
+                var bounds = testButton.worldBound;
+                UnityEditor.PopupWindow.Show(bounds, new ComposeTestPopup(blockout));
+            });
+            variantHeader.Add(testButton);
+            _artPane.Add(variantHeader);
+
+            var composeRow = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, paddingLeft = 6, marginBottom = 4 } };
+            var blockoutMode = new EnumField("Blockout when composed", blockout.ComposedBlockout)
+            {
+                tooltip = "In the composed scene (builds and Test Composed Scene): keep the blockout visible, keep only its collision, or leave it out",
+            };
+            blockoutMode.RegisterValueChangedCallback(evt =>
+            {
+                LevelDesignerContext.RecordProject("Composed Blockout");
+                blockout.ComposedBlockout = (ComposedBlockoutMode)evt.newValue;
+                AssetDatabase.SaveAssets();
+            });
+            composeRow.Add(blockoutMode);
+            _artPane.Add(composeRow);
+            if (!Project.ComposeVariantsOnBuild)
+                _artPane.Add(Hint("Composing variants into builds is switched off (Levels menu)."));
+
+            var oldArt = LevelDesignerContext.ScenesInOldArtFolders();
+            if (oldArt.Count > 0 && !EditorPrefs.GetBool(DismissArtMigrationKey, false))
+                _artPane.Add(ArtMigrationBanner(oldArt.Count));
 
             var grid = new VisualElement { style = { flexDirection = FlexDirection.Row, flexWrap = Wrap.Wrap, paddingLeft = 4, paddingRight = 4 } };
-            foreach (var art in blockout.ArtDesigns)
-                grid.Add(ArtCard(blockout, art));
+            foreach (var variant in blockout.Variants)
+                grid.Add(VariantCard(blockout, variant));
             grid.Add(PlusCard(blockout, newName));
             _artPane.Add(grid);
         }
 
-        private VisualElement ArtCard(BlockoutLevel blockout, ArtDesign art)
+        private VisualElement VariantCard(BlockoutLevel blockout, Variant variant)
         {
             var card = Card();
-            string artPath = LevelDesignerContext.PathOf(art);
-            bool isOpen = SceneManager.GetActiveScene().path == artPath;
+            string variantPath = LevelDesignerContext.PathOf(variant);
+            bool isOpen = SceneManager.GetActiveScene().path == variantPath;
             if (isOpen)
                 card.style.borderLeftColor = card.style.borderRightColor = card.style.borderTopColor = card.style.borderBottomColor = new Color(0.35f, 0.7f, 1f);
 
-            card.Add(CardThumbnail(art.SceneGuid, artPath));
-            var name = new TextField { value = art.Name, isDelayed = true };
+            card.Add(CardThumbnail(variant.SceneGuid, variantPath));
+            var name = new TextField { value = variant.Name, isDelayed = true };
             name.RegisterValueChangedCallback(evt =>
             {
-                LevelDesignerContext.RecordProject("Rename Art Design");
-                art.Name = evt.newValue;
+                LevelDesignerContext.RecordProject("Rename Variant");
+                variant.Name = evt.newValue;
             });
             card.Add(name);
 
-            bool exists = !string.IsNullOrEmpty(artPath) && File.Exists(artPath);
-            var pathLabel = new Label(exists ? Path.GetFileName(artPath) : "Scene missing!") { tooltip = artPath };
+            bool exists = !string.IsNullOrEmpty(variantPath) && File.Exists(variantPath);
+            var pathLabel = new Label(exists ? Path.GetFileName(variantPath) : "Scene missing!") { tooltip = variantPath };
             pathLabel.style.fontSize = 10;
             pathLabel.style.color = exists ? new Color(0.6f, 0.6f, 0.6f) : new Color(1f, 0.4f, 0.3f);
             card.Add(pathLabel);
-            card.Add(NotesField(art.Notes, value => art.Notes = value, "Notes"));
+
+            var compose = new Toggle("Compose into build")
+            {
+                value = variant.ComposeIntoBuild,
+                tooltip = "When the game is built, merge this variant with the blockout (and the level's other flagged variants) into one scene that replaces the blockout in the build",
+            };
+            compose.RegisterValueChangedCallback(evt =>
+            {
+                LevelDesignerContext.RecordProject("Compose Variant into Build");
+                variant.ComposeIntoBuild = evt.newValue;
+                AssetDatabase.SaveAssets();
+            });
+            card.Add(compose);
+            card.Add(NotesField(variant.Notes, value => variant.Notes = value, "Notes"));
 
             var buttons = new VisualElement { style = { flexDirection = FlexDirection.Row, marginTop = 4 } };
-            buttons.Add(SmallButton(isOpen ? "Opened" : "Open", "Open this art design with the blockout underneath", () => LevelDesignerContext.OpenArtDesign(blockout, art)));
-            buttons.Add(SmallButton("Duplicate", "Copy this art design's scene into a new art design", () =>
+            buttons.Add(SmallButton(isOpen ? "Opened" : "Open", "Open this variant with the blockout underneath", () => LevelDesignerContext.OpenVariant(blockout, variant)));
+            buttons.Add(SmallButton("Duplicate", "Copy this variant's scene into a new variant", () =>
             {
-                LevelDesignerContext.DuplicateArtDesign(blockout, art);
+                LevelDesignerContext.DuplicateVariant(blockout, variant);
                 BuildArtPane();
             }));
-            buttons.Add(SmallButton("✕", "Remove this art design", () =>
+            buttons.Add(SmallButton("✕", "Remove this variant", () =>
             {
-                int choice = EditorUtility.DisplayDialogComplex("Remove Art Design", $"Remove \"{art.Name}\"?", "Remove from List", "Cancel", "Remove and Delete Scene");
+                int choice = EditorUtility.DisplayDialogComplex("Remove Variant", $"Remove \"{variant.Name}\"?", "Remove from List", "Cancel", "Remove and Delete Scene");
                 if (choice == 1)
                     return;
-                LevelDesignerContext.RemoveArtDesign(blockout, art, choice == 2);
+                LevelDesignerContext.RemoveVariant(blockout, variant, choice == 2);
                 BuildArtPane();
             }));
             card.Add(buttons);
             card.RegisterCallback<MouseDownEvent>(evt =>
             {
                 if (evt.clickCount == 2)
-                    LevelDesignerContext.OpenArtDesign(blockout, art);
+                    LevelDesignerContext.OpenVariant(blockout, variant);
             });
             return card;
+        }
+
+        private const string DismissArtMigrationKey = "Remedy.LevelDesigner.DismissArtFolderMigration";
+
+        // Variants used to be "art designs" in an "Art" folder. Offered, never automatic: moving scenes touches
+        // version control, so the user reviews the moves first (the same dialog as "Move Existing Scenes").
+        private VisualElement ArtMigrationBanner(int count)
+        {
+            var banner = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, marginLeft = 6, marginRight = 6, marginBottom = 6, paddingLeft = 6, paddingRight = 4, paddingTop = 4, paddingBottom = 4 } };
+            banner.style.backgroundColor = new Color(0.35f, 0.6f, 1f, 0.15f);
+            banner.style.borderTopLeftRadius = banner.style.borderTopRightRadius = banner.style.borderBottomLeftRadius = banner.style.borderBottomRightRadius = 4;
+            banner.Add(new Label($"Art designs are now called variants and live in a \"{LevelDesignerContext.VariantsFolderName}\" folder. {count} scene(s) are still in old \"{LevelDesignerContext.OldArtFolderName}\" folders.")
+            {
+                style = { whiteSpace = WhiteSpace.Normal, flexGrow = 1, flexShrink = 1 },
+            });
+            banner.Add(SmallButton("Review Move…", "Show what would move (GUIDs and references are kept) and move on confirmation", () =>
+            {
+                if (LevelDesignerContext.MoveScenesIntoLayout() > 0)
+                    Rebuild();
+            }));
+            banner.Add(SmallButton("Dismiss", "Keep them where they are (Levels → Move Existing Scenes does it later)", () =>
+            {
+                EditorPrefs.SetBool(DismissArtMigrationKey, true);
+                BuildArtPane();
+            }));
+            return banner;
         }
 
         private VisualElement PlusCard(BlockoutLevel blockout, TextField nameField)
@@ -479,18 +570,18 @@ namespace Remedy.LevelDesigner.Editor
             card.style.alignItems = Align.Center;
             var plus = new Button(() =>
             {
-                if (LevelDesignerContext.CreateArtDesign(blockout, nameField.value) != null)
+                if (LevelDesignerContext.CreateVariant(blockout, nameField.value) != null)
                     BuildArtPane();
             })
             {
                 text = "+",
-                tooltip = "New art design over this blockout",
+                tooltip = "New variant over this blockout",
             };
             plus.style.fontSize = 32;
             plus.style.width = 64;
             plus.style.height = 64;
             card.Add(plus);
-            card.Add(new Label("New Art Design") { style = { marginTop = 4 } });
+            card.Add(new Label("New Variant") { style = { marginTop = 4 } });
             return card;
         }
 
@@ -670,9 +761,99 @@ namespace Remedy.LevelDesigner.Editor
                 $"{metrics.CharacterName} {(kind == BlockoutRulerKind.JumpArc ? "Jump" : "Run")}");
             ruler.Character = prefab;
             ruler.Metrics = metrics;
-            if (kind == BlockoutRulerKind.RunDistance)
-                ruler.Color = new Color(0.45f, 0.75f, 1f);
             Selection.activeGameObject = ruler.gameObject;
+        }
+
+        // ---------------------------------------------------------------- palette
+
+        // The project's palette: rename, recolour, reorder, remove, add. Changes are undoable and saved in the
+        // LevelDesignProject asset, so the whole team shares the colour language.
+        private void BuildPalette()
+        {
+            var header = Header("Palette");
+            header.Add(SmallButton("+ Add Colour", "Add a colour to the palette", () =>
+            {
+                LevelDesignerContext.RecordProject("Add Palette Colour");
+                var color = LevelDesignerSettings.HasCurrentColor ? LevelDesignerSettings.CurrentColor : Color.white;
+                Project.Palette.Add(new PaletteColor("Colour " + (Project.Palette.Count + 1), color));
+                AssetDatabase.SaveAssets();
+                Rebuild();
+            }));
+            header.Add(SmallButton("Reset to Defaults", "Replace the palette with the category colours", () =>
+            {
+                if (!EditorUtility.DisplayDialog("Level Designer", "Replace the whole palette with the default category colours?", "Reset", "Cancel"))
+                    return;
+                LevelDesignerContext.RecordProject("Reset Palette");
+                Project.Palette = LevelDesignProject.DefaultPalette();
+                AssetDatabase.SaveAssets();
+                Rebuild();
+            }));
+            _body.Add(header);
+            _body.Add(Hint("Named colours for the blockout toolbar's swatch and paint bucket. Give each a meaning (\"Climbable\", \"Enemy zone\") so blockouts read the same for everyone. Stored in the LevelDesignProject asset, so commit it to share."));
+
+            var scroll = new ScrollView { style = { flexGrow = 1, marginTop = 6 } };
+            _body.Add(scroll);
+            var palette = Project.Palette;
+            for (int i = 0; i < palette.Count; i++)
+            {
+                var entry = palette[i];
+                if (entry == null)
+                    continue;
+                int index = i;
+                var row = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, paddingLeft = 6, paddingRight = 6, marginBottom = 2 } };
+
+                var color = new ColorField { value = entry.Color, showAlpha = false, style = { width = 70 } };
+                color.RegisterValueChangedCallback(evt =>
+                {
+                    LevelDesignerContext.RecordProject("Change Palette Colour");
+                    entry.Color = evt.newValue;
+                });
+                row.Add(color);
+
+                var name = new TextField { value = entry.Name, isDelayed = true, style = { flexGrow = 1 } };
+                name.RegisterValueChangedCallback(evt =>
+                {
+                    LevelDesignerContext.RecordProject("Rename Palette Colour");
+                    entry.Name = evt.newValue;
+                    AssetDatabase.SaveAssets();
+                });
+                row.Add(name);
+
+                row.Add(SmallButton("Use", "Make this the blockout toolbar's colour", () => LevelDesignerSettings.CurrentColor = entry.Color));
+                row.Add(SmallButton("Paint Selected", "Paint the selected blockout shapes and rulers with this colour", () =>
+                {
+                    LevelDesignerSettings.CurrentColor = entry.Color;
+                    BlockoutPainter.PaintSelectionWithCurrent();
+                }));
+                var up = SmallButton("▲", "Move up", () => MovePaletteEntry(index, -1));
+                up.SetEnabled(index > 0);
+                row.Add(up);
+                var down = SmallButton("▼", "Move down", () => MovePaletteEntry(index, 1));
+                down.SetEnabled(index < palette.Count - 1);
+                row.Add(down);
+                row.Add(SmallButton("✕", "Remove from the palette (painted objects keep their colour)", () =>
+                {
+                    LevelDesignerContext.RecordProject("Remove Palette Colour");
+                    Project.Palette.RemoveAt(index);
+                    AssetDatabase.SaveAssets();
+                    Rebuild();
+                }));
+                scroll.Add(row);
+            }
+            // Colour fields change on every drag step; save once the pointer is let go.
+            scroll.RegisterCallback<PointerUpEvent>(_ => AssetDatabase.SaveAssets());
+        }
+
+        private void MovePaletteEntry(int index, int direction)
+        {
+            var palette = Project.Palette;
+            int target = index + direction;
+            if (target < 0 || target >= palette.Count)
+                return;
+            LevelDesignerContext.RecordProject("Reorder Palette");
+            (palette[index], palette[target]) = (palette[target], palette[index]);
+            AssetDatabase.SaveAssets();
+            Rebuild();
         }
 
         // ---------------------------------------------------------------- small helpers
@@ -703,6 +884,61 @@ namespace Remedy.LevelDesigner.Editor
             {
                 style = { whiteSpace = WhiteSpace.Normal, color = new Color(0.65f, 0.65f, 0.65f), marginLeft = 8, marginRight = 8, marginTop = 8 },
             };
+        }
+    }
+
+    /// <summary>
+    /// The "Test Composed Scene" picker: which variants to merge with the blockout (the ones flagged "Compose into
+    /// build" are ticked to start with; all of them when none is flagged), how the blockout takes part, then Play.
+    /// </summary>
+    public class ComposeTestPopup : PopupWindowContent
+    {
+        private readonly BlockoutLevel _blockout;
+        private readonly bool[] _picked;
+        private ComposedBlockoutMode _mode;
+        private Vector2 _scroll;
+
+        public ComposeTestPopup(BlockoutLevel blockout)
+        {
+            _blockout = blockout;
+            _mode = blockout.ComposedBlockout;
+            _picked = new bool[blockout.Variants.Count];
+            bool anyFlagged = blockout.HasComposedVariants;
+            for (int i = 0; i < _picked.Length; i++)
+                _picked[i] = blockout.Variants[i] != null && (!anyFlagged || blockout.Variants[i].ComposeIntoBuild);
+        }
+
+        public override Vector2 GetWindowSize() => new Vector2(300f, Mathf.Min(420f, 110f + 20f * _picked.Length));
+
+        public override void OnGUI(Rect rect)
+        {
+            EditorGUILayout.LabelField("Test Composed Scene", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Merge " + _blockout.Name + " with:", EditorStyles.miniLabel);
+            _scroll = EditorGUILayout.BeginScrollView(_scroll);
+            for (int i = 0; i < _picked.Length; i++)
+            {
+                var variant = _blockout.Variants[i];
+                if (variant == null)
+                    continue;
+                _picked[i] = EditorGUILayout.ToggleLeft(new GUIContent(variant.Name + (variant.ComposeIntoBuild ? "  (in build)" : "")), _picked[i]);
+            }
+            if (_picked.Length == 0)
+                EditorGUILayout.HelpBox("This blockout has no variants yet: only the blockout will play.", MessageType.None);
+            EditorGUILayout.EndScrollView();
+            _mode = (ComposedBlockoutMode)EditorGUILayout.EnumPopup(new GUIContent("Blockout", "Visible, collision only, or left out"), _mode);
+
+            if (GUILayout.Button("Compose and Play"))
+            {
+                var variants = new List<Variant>();
+                for (int i = 0; i < _picked.Length; i++)
+                    if (_picked[i] && _blockout.Variants[i] != null)
+                        variants.Add(_blockout.Variants[i]);
+                var blockout = _blockout;
+                var mode = _mode;
+                editorWindow.Close();
+                // Scenes are opened and Play Mode entered after this GUI pass is over.
+                EditorApplication.delayCall += () => LevelComposer.TestComposed(blockout, variants, mode);
+            }
         }
     }
 }

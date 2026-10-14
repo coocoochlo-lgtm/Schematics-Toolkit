@@ -71,8 +71,7 @@ namespace Remedy.LevelDesigner.Editor
             AddPrimitive("hazard", "Hazard", BlockoutShapeKind.Box, new Vector3(2, 0.25f, 2), BlockoutCategory.Hazard);
             AddPrimitive("water", "Water", BlockoutShapeKind.Box, new Vector3(6, 0.5f, 6), BlockoutCategory.Water);
 
-            AddRuler("ruler.distance", "Distance", BlockoutRulerKind.Distance, 0f, "Drag from one point to another: total, horizontal and vertical distance.");
-            AddRuler("ruler.height", "Height", BlockoutRulerKind.Height, 0f, "Click a surface and drag up: a height pole.");
+            AddRuler("ruler.distance", "Distance", BlockoutRulerKind.Distance, 0f, "Drag from one point to another: total, horizontal and vertical distance. Hold Shift to measure straight out of the surface (heights, clearances).");
             AddRuler("ruler.jump", "Jump Arc", BlockoutRulerKind.JumpArc, 0f, "Click a take-off point and drag the direction: the active character's running jump.");
             AddRuler("ruler.run1", "Run 1 s", BlockoutRulerKind.RunDistance, 1f, "How far the active character runs in 1 second.");
             AddRuler("ruler.run3", "Run 3 s", BlockoutRulerKind.RunDistance, 3f, "How far the active character runs in 3 seconds.");
@@ -356,12 +355,6 @@ namespace Remedy.LevelDesigner.Editor
                     Line(new Vector2(8, 24), new Vector2(8, 40));
                     Line(new Vector2(56, 24), new Vector2(56, 40));
                     for (int x = 16; x < 56; x += 8) Line(new Vector2(x, 32), new Vector2(x, 36));
-                    break;
-                case BlockoutRulerKind.Height:
-                    Line(new Vector2(32, 6), new Vector2(32, 58));
-                    Line(new Vector2(22, 6), new Vector2(42, 6));
-                    Line(new Vector2(22, 58), new Vector2(42, 58));
-                    for (int y = 14; y < 58; y += 8) Line(new Vector2(32, y), new Vector2(37, y));
                     break;
                 case BlockoutRulerKind.JumpArc:
                 {

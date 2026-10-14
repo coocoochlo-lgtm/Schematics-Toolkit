@@ -76,7 +76,7 @@ namespace Remedy.LevelDesigner.Editor
             // While the Blockout Place tool is active, clicks belong to placing: the face handles would otherwise sit
             // under the mouse (the shape just placed stays selected) and a click meant to start the next shape
             // would grab one and resize this shape instead. Only the size label is shown then.
-            if (BlockoutPlaceTool.IsActive)
+            if (BlockoutPlaceTool.IsActive || BlockoutPaintTool.IsActive)
             {
                 DrawSizeLabel(shape);
                 return;

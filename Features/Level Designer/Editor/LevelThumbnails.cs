@@ -9,7 +9,7 @@ using UnityEngine.SceneManagement;
 namespace Remedy.LevelDesigner.Editor
 {
     /// <summary>
-    /// Thumbnails of blockout and art design scenes for the Level Designer window. Whenever a blockout or art design
+    /// Thumbnails of blockout and variant scenes for the Level Designer window. Whenever a blockout or variant
     /// is saved while it's the active scene, the Scene view's current camera is rendered into a small picture
     /// (<see cref="Width"/> x <see cref="Height"/> PNG), so the thumbnail always shows the level the way the last
     /// person to save it was looking at it.<br/>
@@ -53,11 +53,14 @@ namespace Remedy.LevelDesigner.Editor
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode)
                 return;
-            // Only the scene being looked at: when an art design and its blockout are saved together, the Scene view
-            // shows the art, so only the art design's picture is taken.
+            // Only the scene being looked at: when a variant and its blockout are saved together, the Scene view
+            // shows the art, so only the variant's picture is taken.
             if (scene != SceneManager.GetActiveScene())
                 return;
-            if (LevelDesignerContext.Find<BlockoutScene>(scene) == null && LevelDesignerContext.Find<ArtDesignScene>(scene) == null)
+            // Composed scenes (builds, "Test Composed Scene") are generated copies: no thumbnails for them.
+            if (LevelComposer.IsGenerated(scene.path))
+                return;
+            if (LevelDesignerContext.Find<BlockoutScene>(scene) == null && LevelDesignerContext.Find<VariantScene>(scene) == null)
                 return;
             // Saving is a busy moment (Unity may be in the middle of a build or a batch save); take the picture right after.
             string path = scene.path;
@@ -70,8 +73,8 @@ namespace Remedy.LevelDesigner.Editor
         }
 
         /// <summary>
-        /// Renders the Scene view's camera into a thumbnail for <paramref name="scene"/> and saves it. For an art
-        /// design, its blockout underneath is left out of the picture. Returns false when there's no Scene view or
+        /// Renders the Scene view's camera into a thumbnail for <paramref name="scene"/> and saves it. For a
+        /// variant, its blockout underneath is left out of the picture. Returns false when there's no Scene view or
         /// the scene isn't saved yet.
         /// </summary>
         public static bool Capture(Scene scene)
@@ -85,12 +88,12 @@ namespace Remedy.LevelDesigner.Editor
             if (view == null || view.camera == null)
                 return false;
 
-            // Keep the blockout under an art design out of the art's picture (Scene visibility only affects the
+            // Keep the blockout under a variant out of the variant's picture (Scene visibility only affects the
             // Scene view's own camera, not this one).
             var hidden = new List<Renderer>();
-            if (LevelDesignerContext.Mode == LevelDesignerMode.ArtDesign && scene == SceneManager.GetActiveScene())
+            if (LevelDesignerContext.Mode == LevelDesignerMode.Variant && scene == SceneManager.GetActiveScene())
             {
-                var blockout = LevelDesignerContext.BlockoutSceneUnderArt;
+                var blockout = LevelDesignerContext.BlockoutSceneUnderVariant;
                 if (blockout.IsValid() && blockout.isLoaded)
                 {
                     foreach (var root in blockout.GetRootGameObjects())
@@ -158,11 +161,11 @@ namespace Remedy.LevelDesigner.Editor
             return true;
         }
 
-        /// <summary>Captures the active scene's thumbnail now (when it's a blockout or an art design).</summary>
+        /// <summary>Captures the active scene's thumbnail now (when it's a blockout or a variant).</summary>
         public static bool CaptureActive()
         {
             var scene = SceneManager.GetActiveScene();
-            if (LevelDesignerContext.Find<BlockoutScene>(scene) == null && LevelDesignerContext.Find<ArtDesignScene>(scene) == null)
+            if (LevelDesignerContext.Find<BlockoutScene>(scene) == null && LevelDesignerContext.Find<VariantScene>(scene) == null)
                 return false;
             return Capture(scene);
         }

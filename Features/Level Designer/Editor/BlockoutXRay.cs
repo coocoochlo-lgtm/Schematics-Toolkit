@@ -10,7 +10,7 @@ using UnityEngine.UIElements;
 namespace Remedy.LevelDesigner.Editor
 {
     /// <summary>
-    /// While an art design is the active scene and its blockout is loaded underneath, the blockout's own rendering
+    /// While a variant is the active scene and its blockout is loaded underneath, the blockout's own rendering
     /// is hidden in the Scene view and it's drawn instead as a see-through X-ray (on top of the art, fainter where
     /// art covers it), so art can be lined up with the blockout precisely. Blockout objects can't be picked in this
     /// mode, so clicks land on the art. Turning the overlay off hides the blockout completely.<br/>
@@ -57,19 +57,19 @@ namespace Remedy.LevelDesigner.Editor
 
         private static double _nextCheck;
 
-        // The blockout under an art design must stay hidden in the Scene view (the X-ray stands in for it). This
+        // The blockout under a variant must stay hidden in the Scene view (the X-ray stands in for it). This
         // checks a few times a second and hides it again if anything showed it: a saved visibility state restored
         // late, the hierarchy's eye icon, an object added at the root. Cheap: one flag per root object.
         private static void KeepHidden()
         {
-            if (LevelDesignerContext.Mode != LevelDesignerMode.ArtDesign || EditorApplication.isPlayingOrWillChangePlaymode)
+            if (LevelDesignerContext.Mode != LevelDesignerMode.Variant || EditorApplication.isPlayingOrWillChangePlaymode)
                 return;
             double now = EditorApplication.timeSinceStartup;
             if (now < _nextCheck)
                 return;
             _nextCheck = now + 0.25;
 
-            var scene = LevelDesignerContext.BlockoutSceneUnderArt;
+            var scene = LevelDesignerContext.BlockoutSceneUnderVariant;
             if (!scene.IsValid() || !scene.isLoaded)
                 return;
             var visibility = SceneVisibilityManager.instance;
@@ -89,8 +89,8 @@ namespace Remedy.LevelDesigner.Editor
 
         /// <summary>True while the X-ray is being drawn.</summary>
         public static bool IsActive =>
-            LevelDesignerContext.Mode == LevelDesignerMode.ArtDesign && LevelDesignerSettings.XRayEnabled &&
-            LevelDesignerContext.BlockoutSceneUnderArt.IsValid();
+            LevelDesignerContext.Mode == LevelDesignerMode.Variant && LevelDesignerSettings.XRayEnabled &&
+            LevelDesignerContext.BlockoutSceneUnderVariant.IsValid();
 
         // Hides (or shows again) the blockout's normal rendering and picking in the Scene view.
         private static void ApplyVisibility()
@@ -98,9 +98,9 @@ namespace Remedy.LevelDesigner.Editor
             _itemsDirty = true;
             var visibility = SceneVisibilityManager.instance;
 
-            // Whatever was hidden for an art design before, shown again (unless it's still the one under the art).
-            var blockoutUnderArt = LevelDesignerContext.Mode == LevelDesignerMode.ArtDesign ? LevelDesignerContext.BlockoutSceneUnderArt : default;
-            if (_hiddenScene.IsValid() && _hiddenScene.isLoaded && _hiddenScene != blockoutUnderArt)
+            // Whatever was hidden for a variant before, shown again (unless it's still the one under the art).
+            var blockoutUnderVariant = LevelDesignerContext.Mode == LevelDesignerMode.Variant ? LevelDesignerContext.BlockoutSceneUnderVariant : default;
+            if (_hiddenScene.IsValid() && _hiddenScene.isLoaded && _hiddenScene != blockoutUnderVariant)
                 Restore(_hiddenScene);
             _hiddenScene = default;
 
@@ -113,16 +113,16 @@ namespace Remedy.LevelDesigner.Editor
                     Restore(active);
             }
 
-            if (!blockoutUnderArt.IsValid() || !blockoutUnderArt.isLoaded)
+            if (!blockoutUnderVariant.IsValid() || !blockoutUnderVariant.isLoaded)
             {
                 SceneView.RepaintAll();
                 return;
             }
 
-            var blockoutRoots = blockoutUnderArt.GetRootGameObjects();
+            var blockoutRoots = blockoutUnderVariant.GetRootGameObjects();
             visibility.Hide(blockoutRoots, true);
             visibility.DisablePicking(blockoutRoots, true);
-            _hiddenScene = blockoutUnderArt;
+            _hiddenScene = blockoutUnderVariant;
             SceneView.RepaintAll();
         }
 
@@ -147,7 +147,7 @@ namespace Remedy.LevelDesigner.Editor
         {
             _itemsDirty = false;
             _items.Clear();
-            var scene = LevelDesignerContext.BlockoutSceneUnderArt;
+            var scene = LevelDesignerContext.BlockoutSceneUnderVariant;
             if (!scene.IsValid() || !scene.isLoaded)
                 return;
 
@@ -204,13 +204,13 @@ namespace Remedy.LevelDesigner.Editor
     }
 
     /// <summary>
-    /// The art design panel in the Scene view: the blockout X-ray toggle and its opacity, or a button to bring the
-    /// blockout in when the art design was opened on its own.
+    /// The variant panel in the Scene view: the blockout X-ray toggle and its opacity, or a button to bring the
+    /// blockout in when the variant was opened on its own.
     /// </summary>
-    [Overlay(typeof(SceneView), "Remedy.LevelDesigner.ArtDesign", "Art Design", true)]
-    public class ArtDesignOverlay : Overlay, ITransientOverlay
+    [Overlay(typeof(SceneView), "Remedy.LevelDesigner.Variant", "Variant", true)]
+    public class VariantOverlay : Overlay, ITransientOverlay
     {
-        public bool visible => LevelDesignerContext.Mode == LevelDesignerMode.ArtDesign;
+        public bool visible => LevelDesignerContext.Mode == LevelDesignerMode.Variant;
 
         private VisualElement _root;
         private Toggle _toggle;
@@ -241,10 +241,10 @@ namespace Remedy.LevelDesigner.Editor
             _root.Clear();
             _toggle = null;
 
-            if (!LevelDesignerContext.BlockoutSceneUnderArt.IsValid())
+            if (!LevelDesignerContext.BlockoutSceneUnderVariant.IsValid())
             {
                 _root.Add(new Label("The blockout isn't loaded."));
-                _root.Add(new Button(LevelDesignerContext.LoadBlockoutUnderActiveArt) { text = "Load Blockout Underneath" });
+                _root.Add(new Button(LevelDesignerContext.LoadBlockoutUnderActiveVariant) { text = "Load Blockout Underneath" });
                 return;
             }
 

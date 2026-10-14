@@ -6,7 +6,7 @@ namespace Remedy.LevelDesigner.Editor
 {
     /// <summary>
     /// The Level Designer's per-user preferences (kept in EditorPrefs, so they're personal and not committed):
-    /// the blockout X-ray overlay, snapping and the Ctrl ruler.
+    /// the blockout X-ray overlay, snapping, the Ctrl ruler and the colour picked on the blockout toolbar.
     /// </summary>
     public static class LevelDesignerSettings
     {
@@ -15,7 +15,7 @@ namespace Remedy.LevelDesigner.Editor
         /// <summary>Raised when any setting changes (the window, overlays and Scene view refresh).</summary>
         public static event Action Changed;
 
-        /// <summary>Shows the blockout as an X-ray while editing one of its art designs.</summary>
+        /// <summary>Shows the blockout as an X-ray while editing one of its variants.</summary>
         public static bool XRayEnabled
         {
             get => EditorPrefs.GetBool(Prefix + "XRay", true);
@@ -62,6 +62,42 @@ namespace Remedy.LevelDesigner.Editor
             get => EditorPrefs.GetBool(Prefix + "KeepCtrlRulers", false);
             set => Set(() => EditorPrefs.SetBool(Prefix + "KeepCtrlRulers", value));
         }
+
+        // ---------------------------------------------------------------- colour
+
+        /// <summary>
+        /// True when a colour is picked on the blockout toolbar's swatch: new shapes and rulers take it, and the
+        /// paint bucket applies it. False means "Auto": shapes use their category colour, rulers their usual one.
+        /// </summary>
+        public static bool HasCurrentColor
+        {
+            get => EditorPrefs.GetBool(Prefix + "HasColor", false);
+            set => Set(() => EditorPrefs.SetBool(Prefix + "HasColor", value));
+        }
+
+        /// <summary>The colour picked on the blockout toolbar's swatch (see <see cref="HasCurrentColor"/>).</summary>
+        public static Color CurrentColor
+        {
+            get => ColorUtility.TryParseHtmlString("#" + EditorPrefs.GetString(Prefix + "Color", "FFD933FF"), out var color) ? color : new Color(1f, 0.85f, 0.2f);
+            set => Set(() =>
+            {
+                EditorPrefs.SetString(Prefix + "Color", ColorUtility.ToHtmlStringRGBA(value));
+                EditorPrefs.SetBool(Prefix + "HasColor", true);
+            });
+        }
+
+        /// <summary>The picked colour, when there is one.</summary>
+        public static bool TryGetCurrentColor(out Color color)
+        {
+            color = CurrentColor;
+            return HasCurrentColor;
+        }
+
+        /// <summary>The colour new rulers (and the Ctrl ruler) are drawn with: the picked colour, or the usual yellow.</summary>
+        public static Color RulerColor => HasCurrentColor ? CurrentColor : DefaultRulerColor;
+
+        /// <summary>The rulers' usual colour.</summary>
+        public static readonly Color DefaultRulerColor = new Color(1f, 0.85f, 0.2f);
 
         /// <summary>Rounds a length to the snapping step (lengths never snap to zero).</summary>
         public static float SnapLength(float value)

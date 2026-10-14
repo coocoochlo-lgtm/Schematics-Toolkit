@@ -6,12 +6,12 @@ using UnityEngine.SceneManagement;
 namespace Remedy.LevelDesigner.Editor
 {
     /// <summary>
-    /// An art design loads its blockout in Play Mode by path (<see cref="ArtDesignScene.BlockoutScenePath"/>), but the
+    /// A variant loads its blockout in Play Mode by path (<see cref="VariantScene.BlockoutScenePath"/>), but the
     /// blockout scene may have been moved or renamed since (for example by "Move Scenes into the Levels Folder").
     /// While a scene is processed for a build or for entering Play Mode, this rewrites that path from the blockout's
-    /// GUID, so the right scene is loaded even when the art scene itself wasn't opened and re-saved after the move.
+    /// GUID, so the right scene is loaded even when the variant scene itself wasn't opened and re-saved after the move.
     /// </summary>
-    public class ArtDesignScenePathFixer : IProcessSceneWithReport
+    public class VariantScenePathFixer : IProcessSceneWithReport
     {
         public int callbackOrder => 0;
 
@@ -19,13 +19,13 @@ namespace Remedy.LevelDesigner.Editor
         {
             foreach (var root in scene.GetRootGameObjects())
             {
-                foreach (var art in root.GetComponentsInChildren<ArtDesignScene>(true))
+                foreach (var variant in root.GetComponentsInChildren<VariantScene>(true))
                 {
-                    if (string.IsNullOrEmpty(art.BlockoutSceneGuid))
+                    if (string.IsNullOrEmpty(variant.BlockoutSceneGuid))
                         continue;
-                    string path = AssetDatabase.GUIDToAssetPath(art.BlockoutSceneGuid);
+                    string path = AssetDatabase.GUIDToAssetPath(variant.BlockoutSceneGuid);
                     if (!string.IsNullOrEmpty(path))
-                        art.BlockoutScenePath = path;
+                        variant.BlockoutScenePath = path;
                 }
             }
         }

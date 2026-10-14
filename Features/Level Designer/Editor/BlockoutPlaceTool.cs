@@ -12,11 +12,12 @@ namespace Remedy.LevelDesigner.Editor
     /// drag direction is the shape's forward, so ramps and stairs rise the way you dragged), let go, move the
     /// mouse to set the height and click. Hold Shift when letting go of the drag to keep the default height.</item>
     /// <item><b>Rulers</b>: Distance drags from point to point (hold Shift to go straight out of the surface it
-    /// started on instead of onto the surface under the mouse), Height drags up from a surface, Jump Arc and Run
-    /// drag the direction from the take-off point (using the active character's numbers).</item>
+    /// started on instead of onto the surface under the mouse, which is how heights and clearances are measured),
+    /// Jump Arc and Run drag the direction from the take-off point (using the active character's numbers).</item>
     /// <item><b>Schematics</b>: click to place, or drag to face it in the drag direction.</item>
     /// </list>
-    /// Esc or right-click cancels. Ctrl+drag measures with the temporary ruler, as everywhere in a blockout.
+    /// Esc or right-click cancels. Ctrl+drag measures with the temporary ruler, as everywhere in a blockout.<br/>
+    /// New shapes and rulers take the colour picked on the blockout toolbar's swatch (when one is picked).
     /// </summary>
     [EditorTool("Blockout Place")]
     public class BlockoutPlaceTool : EditorTool
@@ -224,6 +225,11 @@ namespace Remedy.LevelDesigner.Editor
             var shape = go.AddComponent<BlockoutShape>();
             shape.Kind = Item.ShapeKind;
             shape.Category = Item.Category;
+            if (LevelDesignerSettings.TryGetCurrentColor(out var color))
+            {
+                shape.Category = BlockoutCategory.Custom;
+                shape.CustomColor = color;
+            }
             shape.Size = new Vector3(Mathf.Max(0.05f, footprint.x), Mathf.Max(0.05f, height), Mathf.Max(0.05f, footprint.y));
             shape.Material = LevelDesignerContext.BlockoutMaterial;
             shape.Rebuild();
@@ -233,7 +239,7 @@ namespace Remedy.LevelDesigner.Editor
 
         private void DrawPrimitivePreview(Event e)
         {
-            var color = BlockoutShape.ColorOf(Item.Category);
+            var color = LevelDesignerSettings.TryGetCurrentColor(out var picked) ? picked : BlockoutShape.ColorOf(Item.Category);
             Vector3 center, forward;
             Vector3 size;
 
@@ -296,7 +302,6 @@ namespace Remedy.LevelDesigner.Editor
                     }
                     _start = _current = LevelDesignerSettings.Snap > 0f ? LevelDesignerSettings.SnapPoint(hit.Point) : hit.Point;
                     _rulerNormal = hit.OnSurface && hit.Normal.sqrMagnitude > 1e-6f ? hit.Normal.normalized : Vector3.up;
-                    _height = 0f;
                     _stage = Stage.Dragging;
                     GUIUtility.hotControl = control;
                     e.Use();
@@ -304,10 +309,7 @@ namespace Remedy.LevelDesigner.Editor
 
                 case EventType.MouseDrag when _stage == Stage.Dragging && GUIUtility.hotControl == control:
                 {
-                    var ray = HandleUtility.GUIPointToWorldRay(e.mousePosition);
-                    if (Item.RulerKind == BlockoutRulerKind.Height)
-                        _height = LevelDesignerSettings.SnapLength(Mathf.Max(0.05f, LevelDesignerSceneGUI.ClosestOnLine(ray, _start, Vector3.up)));
-                    else if (Item.RulerKind == BlockoutRulerKind.Distance)
+                    if (Item.RulerKind == BlockoutRulerKind.Distance)
                     {
                         if (e.shift)
                             _current = BlockoutRulerDrawer.PerpendicularEnd(e.mousePosition, _start, _rulerNormal);
@@ -350,14 +352,6 @@ namespace Remedy.LevelDesigner.Editor
                     Selection.activeGameObject = ruler.gameObject;
                     break;
                 }
-                case BlockoutRulerKind.Height:
-                {
-                    var ruler = LevelDesignerSceneGUI.CreateRuler(BlockoutRulerKind.Height, _start, Quaternion.identity);
-                    ruler.End = new Vector3(0f, Mathf.Max(0.25f, _height), 0f);
-                    ruler.Color = new Color(0.5f, 1f, 0.6f);
-                    Selection.activeGameObject = ruler.gameObject;
-                    break;
-                }
                 default:
                 {
                     if (!ActiveCharacter.TryGetMetrics(out var metrics))
@@ -367,7 +361,6 @@ namespace Remedy.LevelDesigner.Editor
                     ruler.Character = ActiveCharacter.Prefab;
                     ruler.Metrics = metrics;
                     ruler.Seconds = Item.Seconds > 0f ? Item.Seconds : 1f;
-                    ruler.Color = Item.RulerKind == BlockoutRulerKind.RunDistance ? new Color(0.45f, 0.75f, 1f) : ruler.Color;
                     Selection.activeGameObject = ruler.gameObject;
                     break;
                 }
@@ -380,7 +373,7 @@ namespace Remedy.LevelDesigner.Editor
             {
                 if (LevelDesignerSceneGUI.Raycast(e.mousePosition, out var hover))
                 {
-                    using (new Handles.DrawingScope(new Color(1f, 0.85f, 0.2f)))
+                    using (new Handles.DrawingScope(LevelDesignerSettings.RulerColor))
                         Handles.DrawWireDisc(hover.Point, hover.Normal, HandleUtility.GetHandleSize(hover.Point) * 0.15f);
                     LevelDesignerSceneGUI.Label(hover.Point + Vector3.up * HandleUtility.GetHandleSize(hover.Point) * 0.4f, Item.Name, Color.white);
                 }
@@ -390,11 +383,8 @@ namespace Remedy.LevelDesigner.Editor
             switch (Item.RulerKind)
             {
                 case BlockoutRulerKind.Distance:
-                    LevelDesignerSceneGUI.DrawMeasurement(_start, _current, new Color(1f, 0.85f, 0.2f),
+                    LevelDesignerSceneGUI.DrawMeasurement(_start, _current, LevelDesignerSettings.RulerColor,
                         e.shift ? "Perpendicular (Shift)" : "Shift: perpendicular");
-                    break;
-                case BlockoutRulerKind.Height:
-                    LevelDesignerSceneGUI.DrawMeasurement(_start, _start + Vector3.up * _height, new Color(0.5f, 1f, 0.6f));
                     break;
                 default:
                     if (ActiveCharacter.TryGetMetrics(out var metrics))

@@ -12,7 +12,8 @@ namespace Remedy.LevelDesigner.Editor
     /// The blockout toolbar in the Scene view, shown while a blockout is the active scene. Its main buttons are
     /// <b>Primitive</b>, <b>Rulers</b> and <b>Schematics</b>: a left click places the last item used from that button,
     /// a right click opens a searchable list of everything it offers (with thumbnails), laid out across the toolbar.
-    /// A snap menu sets the placement grid.
+    /// Next to them: the colour swatch (new shapes and rulers take its colour; click it for the project palette),
+    /// the <b>Paint</b> bucket, and a snap menu that sets the placement grid.
     /// </summary>
     [Overlay(typeof(SceneView), "Remedy.LevelDesigner.BlockoutToolbar", "Blockout Tools", true)]
     public class BlockoutToolbarOverlay : Overlay, ITransientOverlay, ICreateHorizontalToolbar, ICreateVerticalToolbar
@@ -46,6 +47,8 @@ namespace Remedy.LevelDesigner.Editor
             container.Add(MainButton("Primitive", BlockoutPalette.Primitives, vertical));
             container.Add(MainButton("Rulers", BlockoutPalette.Rulers, vertical));
             container.Add(MainButton("Schematics", BlockoutPalette.Schematics, vertical));
+            container.Add(ColorSwatch());
+            container.Add(PaintButton());
 
             var snap = new EditorToolbarDropdown(SnapText(), null);
             snap.tooltip = "Snapping step for placing and sizing blockout shapes";
@@ -65,10 +68,54 @@ namespace Remedy.LevelDesigner.Editor
                 menu.AddSeparator("");
                 menu.AddItem(new GUIContent("Ctrl + Drag Ruler"), LevelDesignerSettings.CtrlRuler, () => LevelDesignerSettings.CtrlRuler = !LevelDesignerSettings.CtrlRuler);
                 menu.AddItem(new GUIContent("Keep Ctrl + Drag Rulers (else Alt + release)"), LevelDesignerSettings.KeepCtrlRulers, () => LevelDesignerSettings.KeepCtrlRulers = !LevelDesignerSettings.KeepCtrlRulers);
+                menu.AddItem(new GUIContent("Paint Selected with Current Colour"), false, BlockoutPainter.PaintSelectionWithCurrent);
+                menu.AddItem(new GUIContent("Edit Palette…"), false, LevelDesignerWindow.OpenPalette);
                 menu.AddItem(new GUIContent("Open Level Designer"), false, LevelDesignerWindow.Open);
                 menu.DropDown(snap.worldBound);
             };
             container.Add(snap);
+        }
+
+        // The colour square: shows the current colour ("Auto" when none is picked); click for the palette menu.
+        private EditorToolbarDropdown ColorSwatch()
+        {
+            var swatch = new EditorToolbarDropdown("Auto", null);
+            swatch.tooltip = "Colour for new shapes and rulers, and for the paint bucket (click for the palette)";
+            void Sync()
+            {
+                bool has = LevelDesignerSettings.TryGetCurrentColor(out var color);
+                swatch.icon = BlockoutPainter.Swatch(color, !has);
+                swatch.text = has ? "" : "Auto";
+            }
+            Sync();
+            swatch.clicked += () =>
+            {
+                var window = containerWindow;
+                Vector2 origin = window != null ? window.position.position : Vector2.zero;
+                BlockoutColorPopup.Show(new Rect(origin + swatch.worldBound.position, swatch.worldBound.size));
+            };
+            swatch.RegisterCallback<AttachToPanelEvent>(_ => LevelDesignerSettings.Changed += Sync);
+            swatch.RegisterCallback<DetachFromPanelEvent>(_ => LevelDesignerSettings.Changed -= Sync);
+            return swatch;
+        }
+
+        // The paint bucket: on while its tool is active.
+        private static EditorToolbarToggle PaintButton()
+        {
+            var toggle = new EditorToolbarToggle("Paint");
+            toggle.tooltip = "Paint bucket: click a shape or ruler to give it the current colour (Esc to stop)";
+            void Sync() => toggle.SetValueWithoutNotify(BlockoutPaintTool.IsActive);
+            Sync();
+            toggle.RegisterValueChangedCallback(evt =>
+            {
+                if (evt.newValue)
+                    BlockoutPaintTool.Activate();
+                else if (BlockoutPaintTool.IsActive)
+                    UnityEditor.EditorTools.ToolManager.RestorePreviousPersistentTool();
+            });
+            toggle.RegisterCallback<AttachToPanelEvent>(_ => UnityEditor.EditorTools.ToolManager.activeToolChanged += Sync);
+            toggle.RegisterCallback<DetachFromPanelEvent>(_ => UnityEditor.EditorTools.ToolManager.activeToolChanged -= Sync);
+            return toggle;
         }
 
         private static string SnapText() => LevelDesignerSettings.Snap <= 0f ? "Snap: Off" : "Snap: " + BlockoutShape.FormatMeters(LevelDesignerSettings.Snap) + " m";

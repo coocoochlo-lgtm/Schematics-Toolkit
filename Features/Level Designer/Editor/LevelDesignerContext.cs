@@ -12,17 +12,17 @@ namespace Remedy.LevelDesigner.Editor
     /// <summary>What the Scene view is editing right now, as far as the Level Designer is concerned.</summary>
     public enum LevelDesignerMode
     {
-        /// <summary>Neither a blockout nor an art design is the active scene (or Play Mode is on).</summary>
+        /// <summary>Neither a blockout nor a variant is the active scene (or Play Mode is on).</summary>
         None,
         /// <summary>The active scene is a blockout: the blockout tools are shown.</summary>
         Blockout,
-        /// <summary>The active scene is an art design: its blockout is shown as an X-ray.</summary>
-        ArtDesign,
+        /// <summary>The active scene is a variant of a blockout: its blockout is shown as an X-ray.</summary>
+        Variant,
     }
 
     /// <summary>
     /// The Level Designer's bookkeeping in the editor: which mode the active scene puts it in, the project's
-    /// <see cref="LevelDesignProject"/>, and creating and opening blockout and art design scenes.
+    /// <see cref="LevelDesignProject"/>, and creating and opening blockout and variant scenes.
     /// </summary>
     [InitializeOnLoad]
     public static class LevelDesignerContext
@@ -34,14 +34,14 @@ namespace Remedy.LevelDesigner.Editor
         /// <summary>The current mode.</summary>
         public static LevelDesignerMode Mode { get; private set; }
 
-        /// <summary>The blockout marker of the active scene (Blockout mode), or of the blockout under the art (Art mode, if loaded).</summary>
+        /// <summary>The blockout marker of the active scene (Blockout mode), or of the blockout under the variant (Variant mode, if loaded).</summary>
         public static BlockoutScene Blockout { get; private set; }
 
-        /// <summary>The art design marker of the active scene (Art mode).</summary>
-        public static ArtDesignScene ArtDesign { get; private set; }
+        /// <summary>The variant marker of the active scene (Variant mode).</summary>
+        public static VariantScene ActiveVariant { get; private set; }
 
-        /// <summary>The blockout scene loaded under the active art design (invalid when it isn't loaded).</summary>
-        public static Scene BlockoutSceneUnderArt { get; private set; }
+        /// <summary>The blockout scene loaded under the active variant (invalid when it isn't loaded).</summary>
+        public static Scene BlockoutSceneUnderVariant { get; private set; }
 
         private static Scene _lastActive;
 
@@ -64,11 +64,11 @@ namespace Remedy.LevelDesigner.Editor
             // Cheap check: only re-evaluate when a marker was added or removed in the active scene.
             var active = SceneManager.GetActiveScene();
             bool hasBlockout = Find<BlockoutScene>(active) != null;
-            bool hasArt = Find<ArtDesignScene>(active) != null;
-            var expected = hasArt ? LevelDesignerMode.ArtDesign : hasBlockout ? LevelDesignerMode.Blockout : LevelDesignerMode.None;
+            bool hasVariant = Find<VariantScene>(active) != null;
+            var expected = hasVariant ? LevelDesignerMode.Variant : hasBlockout ? LevelDesignerMode.Blockout : LevelDesignerMode.None;
             if (EditorApplication.isPlayingOrWillChangePlaymode)
                 expected = LevelDesignerMode.None;
-            if (expected != Mode || (Mode == LevelDesignerMode.ArtDesign && !BlockoutSceneUnderArt.IsValid() && FindLoadedBlockoutFor(ArtDesign).IsValid()))
+            if (expected != Mode || (Mode == LevelDesignerMode.Variant && !BlockoutSceneUnderVariant.IsValid() && FindLoadedBlockoutFor(ActiveVariant).IsValid()))
                 Refresh();
         }
 
@@ -76,26 +76,26 @@ namespace Remedy.LevelDesigner.Editor
         public static void Refresh()
         {
             var previousMode = Mode;
-            var previousBlockout = BlockoutSceneUnderArt;
+            var previousBlockout = BlockoutSceneUnderVariant;
             var previousActive = _lastActive;
             _lastActive = SceneManager.GetActiveScene();
 
             Mode = LevelDesignerMode.None;
             Blockout = null;
-            ArtDesign = null;
-            BlockoutSceneUnderArt = default;
+            ActiveVariant = null;
+            BlockoutSceneUnderVariant = default;
 
             if (!EditorApplication.isPlayingOrWillChangePlaymode)
             {
                 var active = SceneManager.GetActiveScene();
-                ArtDesign = Find<ArtDesignScene>(active);
-                if (ArtDesign != null)
+                ActiveVariant = Find<VariantScene>(active);
+                if (ActiveVariant != null)
                 {
-                    Mode = LevelDesignerMode.ArtDesign;
-                    BlockoutSceneUnderArt = FindLoadedBlockoutFor(ArtDesign);
-                    if (BlockoutSceneUnderArt.IsValid())
-                        Blockout = Find<BlockoutScene>(BlockoutSceneUnderArt);
-                    FixBlockoutPath(ArtDesign);
+                    Mode = LevelDesignerMode.Variant;
+                    BlockoutSceneUnderVariant = FindLoadedBlockoutFor(ActiveVariant);
+                    if (BlockoutSceneUnderVariant.IsValid())
+                        Blockout = Find<BlockoutScene>(BlockoutSceneUnderVariant);
+                    FixBlockoutPath(ActiveVariant);
                 }
                 else
                 {
@@ -105,24 +105,24 @@ namespace Remedy.LevelDesigner.Editor
                 }
             }
 
-            if (previousMode != Mode || previousBlockout != BlockoutSceneUnderArt || previousActive != SceneManager.GetActiveScene())
+            if (previousMode != Mode || previousBlockout != BlockoutSceneUnderVariant || previousActive != SceneManager.GetActiveScene())
                 ModeChanged?.Invoke();
             SceneView.RepaintAll();
         }
 
-        // The art marker keeps the blockout's path for Play Mode loading; when the blockout was moved or renamed, the
-        // GUID still finds it, so the path is brought up to date (builds and Play Mode also fix it on the fly, see
-        // ArtDesignScenePathFixer).
-        private static void FixBlockoutPath(ArtDesignScene art)
+        // The variant marker keeps the blockout's path for Play Mode loading; when the blockout was moved or renamed,
+        // the GUID still finds it, so the path is brought up to date (builds and Play Mode also fix it on the fly, see
+        // VariantScenePathFixer).
+        private static void FixBlockoutPath(VariantScene variant)
         {
-            if (art == null || string.IsNullOrEmpty(art.BlockoutSceneGuid))
+            if (variant == null || string.IsNullOrEmpty(variant.BlockoutSceneGuid))
                 return;
-            string path = AssetDatabase.GUIDToAssetPath(art.BlockoutSceneGuid);
-            if (string.IsNullOrEmpty(path) || path == art.BlockoutScenePath)
+            string path = AssetDatabase.GUIDToAssetPath(variant.BlockoutSceneGuid);
+            if (string.IsNullOrEmpty(path) || path == variant.BlockoutScenePath)
                 return;
-            art.BlockoutScenePath = path;
-            EditorUtility.SetDirty(art);
-            EditorSceneManager.MarkSceneDirty(art.gameObject.scene);
+            variant.BlockoutScenePath = path;
+            EditorUtility.SetDirty(variant);
+            EditorSceneManager.MarkSceneDirty(variant.gameObject.scene);
         }
 
         /// <summary>The first component of a type in a scene's objects (inactive ones too), or null.</summary>
@@ -139,16 +139,16 @@ namespace Remedy.LevelDesigner.Editor
             return null;
         }
 
-        /// <summary>The loaded scene holding the blockout an art design was built on, or an invalid scene.</summary>
-        public static Scene FindLoadedBlockoutFor(ArtDesignScene art)
+        /// <summary>The loaded scene holding the blockout a variant was built on, or an invalid scene.</summary>
+        public static Scene FindLoadedBlockoutFor(VariantScene variant)
         {
-            if (art == null)
+            if (variant == null)
                 return default;
-            string path = ResolvePath(art.BlockoutSceneGuid, art.BlockoutScenePath);
+            string path = ResolvePath(variant.BlockoutSceneGuid, variant.BlockoutScenePath);
             for (int i = 0; i < SceneManager.sceneCount; i++)
             {
                 var scene = SceneManager.GetSceneAt(i);
-                if (scene.isLoaded && scene != art.gameObject.scene && !string.IsNullOrEmpty(path) && scene.path == path)
+                if (scene.isLoaded && scene != variant.gameObject.scene && !string.IsNullOrEmpty(path) && scene.path == path)
                     return scene;
             }
             return default;
@@ -180,6 +180,26 @@ namespace Remedy.LevelDesigner.Editor
             }
         }
 
+        /// <summary>
+        /// The project's level list if one exists, without making one (for queries from other tools, which shouldn't
+        /// create assets as a side effect). Null when the project has no LevelDesignProject yet.
+        /// </summary>
+        public static LevelDesignProject ExistingProject
+        {
+            get
+            {
+                if (_project != null)
+                    return _project;
+                foreach (var guid in AssetDatabase.FindAssets("t:" + nameof(LevelDesignProject)))
+                {
+                    _project = AssetDatabase.LoadAssetAtPath<LevelDesignProject>(AssetDatabase.GUIDToAssetPath(guid));
+                    if (_project != null)
+                        return _project;
+                }
+                return null;
+            }
+        }
+
         /// <summary>Records a change to the project asset (undoable) before making it.</summary>
         public static void RecordProject(string what)
         {
@@ -200,17 +220,17 @@ namespace Remedy.LevelDesigner.Editor
         }
 
         public static string PathOf(BlockoutLevel blockout) => blockout == null ? null : ResolvePath(blockout.SceneGuid, blockout.ScenePath);
-        public static string PathOf(ArtDesign art) => art == null ? null : ResolvePath(art.SceneGuid, art.ScenePath);
+        public static string PathOf(Variant variant) => variant == null ? null : ResolvePath(variant.SceneGuid, variant.ScenePath);
 
-        /// <summary>The blockout entry for the active blockout scene or the blockout under the active art design.</summary>
+        /// <summary>The blockout entry for the active blockout scene or the blockout under the active variant.</summary>
         public static BlockoutLevel CurrentBlockoutEntry
         {
             get
             {
                 if (Mode == LevelDesignerMode.Blockout)
                     return Project.FindBlockout(AssetDatabase.AssetPathToGUID(SceneManager.GetActiveScene().path));
-                if (Mode == LevelDesignerMode.ArtDesign && ArtDesign != null)
-                    return Project.FindBlockout(ArtDesign.BlockoutSceneGuid);
+                if (Mode == LevelDesignerMode.Variant && ActiveVariant != null)
+                    return Project.FindBlockout(ActiveVariant.BlockoutSceneGuid);
                 return null;
             }
         }
@@ -224,12 +244,13 @@ namespace Remedy.LevelDesigner.Editor
         /// Assets/Levels by default). Layout:
         /// <code>
         /// &lt;Root&gt;/&lt;Level&gt;/&lt;Level&gt;_Blockout.unity
-        /// &lt;Root&gt;/&lt;Level&gt;/Art/&lt;Level&gt;_&lt;Art Design&gt;.unity
+        /// &lt;Root&gt;/&lt;Level&gt;/Variants/&lt;Level&gt;_&lt;Variant&gt;.unity
         /// &lt;Root&gt;/Thumbnails~/&lt;scene GUID&gt;.png
         /// </code>
-        /// One folder per level keeps a level's blockout and all its art together; the art designs get their own
+        /// One folder per level keeps a level's blockout and all its variants together; the variants get their own
         /// subfolder so the blockout is easy to spot, and the level name prefix keeps scene names unique in
-        /// searches and the Build Profile.
+        /// searches and the Build Profile. (Variants used to be "art designs" in an "Art" folder; see
+        /// <see cref="ScenesInOldArtFolders"/>.)
         /// </summary>
         public static string LevelsRoot
         {
@@ -282,21 +303,52 @@ namespace Remedy.LevelDesigner.Editor
             return $"{LevelsRoot}/{level}/{level}{BlockoutSuffix}.unity";
         }
 
-        /// <summary>Where an art design's scene belongs in the layout.</summary>
-        public static string LayoutPathOf(BlockoutLevel blockout, ArtDesign art)
+        /// <summary>The name of the folder (next to the blockout scene) that holds a level's variants.</summary>
+        public const string VariantsFolderName = "Variants";
+
+        /// <summary>Where variants were kept before they were renamed from "art designs".</summary>
+        public const string OldArtFolderName = "Art";
+
+        /// <summary>Where a variant's scene belongs in the layout.</summary>
+        public static string LayoutPathOf(BlockoutLevel blockout, Variant variant)
         {
             string level = LevelNameOf(blockout);
-            return $"{LevelsRoot}/{level}/Art/{level}_{SanitizeFileName(string.IsNullOrWhiteSpace(art?.Name) ? "Art" : art.Name.Trim())}.unity";
+            return $"{LevelsRoot}/{level}/{VariantsFolderName}/{level}_{SanitizeFileName(string.IsNullOrWhiteSpace(variant?.Name) ? "Variant" : variant.Name.Trim())}.unity";
         }
 
-        /// <summary>The folder a blockout's art designs go in: "Art" next to the blockout scene.</summary>
-        public static string ArtFolderOf(BlockoutLevel blockout)
+        /// <summary>The folder a blockout's variants go in: "Variants" next to the blockout scene.</summary>
+        public static string VariantsFolderOf(BlockoutLevel blockout)
         {
             string blockoutPath = PathOf(blockout);
             string folder = !string.IsNullOrEmpty(blockoutPath)
                 ? Path.GetDirectoryName(blockoutPath)?.Replace('\\', '/')
                 : LevelsRoot + "/" + LevelNameOf(blockout);
-            return (string.IsNullOrEmpty(folder) ? LevelsRoot : folder) + "/Art";
+            return (string.IsNullOrEmpty(folder) ? LevelsRoot : folder) + "/" + VariantsFolderName;
+        }
+
+        /// <summary>
+        /// The variant scenes still sitting in an old "Art" folder (from when variants were called art designs).
+        /// The window offers to move them into "Variants" with <see cref="MoveScenesIntoLayout"/>; nothing moves
+        /// without asking.
+        /// </summary>
+        public static List<string> ScenesInOldArtFolders()
+        {
+            var paths = new List<string>();
+            foreach (var blockout in Project.Blockouts)
+            {
+                if (blockout == null)
+                    continue;
+                foreach (var variant in blockout.Variants)
+                {
+                    string path = PathOf(variant);
+                    if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                        continue;
+                    string folder = Path.GetDirectoryName(path)?.Replace('\\', '/');
+                    if (folder != null && Path.GetFileName(folder) == OldArtFolderName)
+                        paths.Add(path);
+                }
+            }
+            return paths;
         }
 
         // ---------------------------------------------------------------- creating and opening scenes
@@ -394,43 +446,45 @@ namespace Remedy.LevelDesigner.Editor
             return true;
         }
 
-        /// <summary>Opens an art design with its blockout loaded underneath, the art design being the active scene.</summary>
-        public static bool OpenArtDesign(BlockoutLevel blockout, ArtDesign art)
+        /// <summary>Opens a variant with its blockout loaded underneath, the variant being the active scene.</summary>
+        public static bool OpenVariant(BlockoutLevel blockout, Variant variant)
         {
             string blockoutPath = PathOf(blockout);
-            string artPath = PathOf(art);
-            if (string.IsNullOrEmpty(artPath) || !File.Exists(artPath))
+            string variantPath = PathOf(variant);
+            if (string.IsNullOrEmpty(variantPath) || !File.Exists(variantPath))
             {
-                EditorUtility.DisplayDialog("Level Designer", $"The art design scene for \"{art?.Name}\" can't be found.", "OK");
+                EditorUtility.DisplayDialog("Level Designer", $"The variant scene for \"{variant?.Name}\" can't be found.", "OK");
                 return false;
             }
             if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
                 return false;
 
-            Scene artScene;
+            Scene variantScene;
             if (!string.IsNullOrEmpty(blockoutPath) && File.Exists(blockoutPath))
             {
                 EditorSceneManager.OpenScene(blockoutPath, OpenSceneMode.Single);
-                artScene = EditorSceneManager.OpenScene(artPath, OpenSceneMode.Additive);
+                variantScene = EditorSceneManager.OpenScene(variantPath, OpenSceneMode.Additive);
             }
             else
             {
-                artScene = EditorSceneManager.OpenScene(artPath, OpenSceneMode.Single);
+                variantScene = EditorSceneManager.OpenScene(variantPath, OpenSceneMode.Single);
             }
-            SceneManager.SetActiveScene(artScene);
+            SceneManager.SetActiveScene(variantScene);
+            if (blockout != null)
+                EnsureVariantMarker(variantScene, blockout);
             Refresh();
             return true;
         }
 
-        /// <summary>Loads the active art design's blockout underneath it (when the art scene was opened on its own).</summary>
-        public static void LoadBlockoutUnderActiveArt()
+        /// <summary>Loads the active variant's blockout underneath it (when the variant scene was opened on its own).</summary>
+        public static void LoadBlockoutUnderActiveVariant()
         {
-            if (ArtDesign == null)
+            if (ActiveVariant == null)
                 return;
-            string path = ResolvePath(ArtDesign.BlockoutSceneGuid, ArtDesign.BlockoutScenePath);
+            string path = ResolvePath(ActiveVariant.BlockoutSceneGuid, ActiveVariant.BlockoutScenePath);
             if (string.IsNullOrEmpty(path) || !File.Exists(path))
             {
-                EditorUtility.DisplayDialog("Level Designer", "This art design's blockout scene can't be found.", "OK");
+                EditorUtility.DisplayDialog("Level Designer", "This variant's blockout scene can't be found.", "OK");
                 return;
             }
             var active = SceneManager.GetActiveScene();
@@ -440,94 +494,95 @@ namespace Remedy.LevelDesigner.Editor
         }
 
         /// <summary>
-        /// Makes a new, empty art design scene next to the blockout (with a marker remembering the blockout), adds it
+        /// Makes a new, empty variant scene next to the blockout (with a marker remembering the blockout), adds it
         /// to the project and opens it over the blockout.
         /// </summary>
-        public static ArtDesign CreateArtDesign(BlockoutLevel blockout, string name)
+        public static Variant CreateVariant(BlockoutLevel blockout, string name)
         {
             string blockoutPath = PathOf(blockout);
             if (string.IsNullOrEmpty(blockoutPath) || !File.Exists(blockoutPath))
             {
-                EditorUtility.DisplayDialog("Level Designer", "The blockout scene can't be found, so an art design can't be made for it.", "OK");
+                EditorUtility.DisplayDialog("Level Designer", "The blockout scene can't be found, so a variant can't be made for it.", "OK");
                 return null;
             }
             if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
                 return null;
 
-            name = string.IsNullOrWhiteSpace(name) ? "Art Design " + (blockout.ArtDesigns.Count + 1) : name.Trim();
-            // <blockout folder>/Art/<Level>_<Art Design>.unity
-            string folder = ArtFolderOf(blockout);
+            name = string.IsNullOrWhiteSpace(name) ? "Variant " + (blockout.Variants.Count + 1) : name.Trim();
+            // <blockout folder>/Variants/<Level>_<Variant>.unity
+            string folder = VariantsFolderOf(blockout);
             EnsureFolder(folder);
             string fileName = LevelNameOf(blockout) + "_" + SanitizeFileName(name) + ".unity";
-            string artPath = AssetDatabase.GenerateUniqueAssetPath(folder + "/" + fileName);
+            string variantPath = AssetDatabase.GenerateUniqueAssetPath(folder + "/" + fileName);
 
             // Open the blockout first: a new scene can only be added next to saved scenes.
             EditorSceneManager.OpenScene(blockoutPath, OpenSceneMode.Single);
-            var artScene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive);
-            SceneManager.SetActiveScene(artScene);
-            var marker = new GameObject("[Art Design]");
-            var component = marker.AddComponent<ArtDesignScene>();
+            var variantScene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive);
+            SceneManager.SetActiveScene(variantScene);
+            var marker = new GameObject(VariantMarkerName);
+            var component = marker.AddComponent<VariantScene>();
             component.BlockoutSceneGuid = blockout.SceneGuid;
             component.BlockoutScenePath = blockoutPath;
-            EditorSceneManager.SaveScene(artScene, artPath);
+            EditorSceneManager.SaveScene(variantScene, variantPath);
 
-            var art = new ArtDesign { Name = name, SceneGuid = AssetDatabase.AssetPathToGUID(artPath), ScenePath = artPath };
-            RecordProject("New Art Design");
-            blockout.ArtDesigns.Add(art);
+            var variant = new Variant { Name = name, SceneGuid = AssetDatabase.AssetPathToGUID(variantPath), ScenePath = variantPath };
+            RecordProject("New Variant");
+            blockout.Variants.Add(variant);
             AssetDatabase.SaveAssets();
             Refresh();
-            return art;
+            return variant;
         }
 
-        /// <summary>Copies an art design's scene into a new art design of the same blockout.</summary>
-        public static ArtDesign DuplicateArtDesign(BlockoutLevel blockout, ArtDesign source)
+        /// <summary>Copies a variant's scene into a new variant of the same blockout.</summary>
+        public static Variant DuplicateVariant(BlockoutLevel blockout, Variant source)
         {
             string sourcePath = PathOf(source);
             if (string.IsNullOrEmpty(sourcePath) || !File.Exists(sourcePath))
                 return null;
-            string copyName = (string.IsNullOrWhiteSpace(source.Name) ? "Art" : source.Name.Trim()) + " Copy";
-            string folder = ArtFolderOf(blockout);
+            string copyName = (string.IsNullOrWhiteSpace(source.Name) ? "Variant" : source.Name.Trim()) + " Copy";
+            string folder = VariantsFolderOf(blockout);
             EnsureFolder(folder);
             string copyPath = AssetDatabase.GenerateUniqueAssetPath($"{folder}/{LevelNameOf(blockout)}_{SanitizeFileName(copyName)}.unity");
             if (!AssetDatabase.CopyAsset(sourcePath, copyPath))
                 return null;
 
-            var art = new ArtDesign
+            var variant = new Variant
             {
                 Name = copyName,
                 SceneGuid = AssetDatabase.AssetPathToGUID(copyPath),
                 ScenePath = copyPath,
                 Notes = source.Notes,
+                ComposeIntoBuild = false, // two copies of the same art in one composed scene is rarely wanted
             };
-            RecordProject("Duplicate Art Design");
-            blockout.ArtDesigns.Insert(blockout.ArtDesigns.IndexOf(source) + 1, art);
+            RecordProject("Duplicate Variant");
+            blockout.Variants.Insert(blockout.Variants.IndexOf(source) + 1, variant);
             AssetDatabase.SaveAssets();
-            return art;
+            return variant;
         }
 
-        /// <summary>Removes an art design from the project, optionally moving its scene to the trash.</summary>
-        public static void RemoveArtDesign(BlockoutLevel blockout, ArtDesign art, bool deleteScene)
+        /// <summary>Removes a variant from the project, optionally moving its scene to the trash.</summary>
+        public static void RemoveVariant(BlockoutLevel blockout, Variant variant, bool deleteScene)
         {
-            RecordProject("Remove Art Design");
-            blockout.ArtDesigns.Remove(art);
-            string path = PathOf(art);
+            RecordProject("Remove Variant");
+            blockout.Variants.Remove(variant);
+            string path = PathOf(variant);
             if (deleteScene && !string.IsNullOrEmpty(path) && File.Exists(path) && !IsLoaded(path))
                 AssetDatabase.MoveAssetToTrash(path);
             AssetDatabase.SaveAssets();
         }
 
-        /// <summary>Removes a blockout (and its art design list) from the project, optionally trashing the scenes.</summary>
+        /// <summary>Removes a blockout (and its variant list) from the project, optionally trashing the scenes.</summary>
         public static void RemoveBlockout(BlockoutLevel blockout, bool deleteScenes)
         {
             RecordProject("Remove Blockout");
             Project.Blockouts.Remove(blockout);
             if (deleteScenes)
             {
-                foreach (var art in blockout.ArtDesigns)
+                foreach (var variant in blockout.Variants)
                 {
-                    string artPath = PathOf(art);
-                    if (!string.IsNullOrEmpty(artPath) && File.Exists(artPath) && !IsLoaded(artPath))
-                        AssetDatabase.MoveAssetToTrash(artPath);
+                    string variantPath = PathOf(variant);
+                    if (!string.IsNullOrEmpty(variantPath) && File.Exists(variantPath) && !IsLoaded(variantPath))
+                        AssetDatabase.MoveAssetToTrash(variantPath);
                 }
                 string path = PathOf(blockout);
                 if (!string.IsNullOrEmpty(path) && File.Exists(path) && !IsLoaded(path))
@@ -543,7 +598,7 @@ namespace Remedy.LevelDesigner.Editor
             public string To;
             public BlockoutLevel Blockout;
             /// <summary>Null when the scene is the blockout itself.</summary>
-            public ArtDesign Art;
+            public Variant Variant;
         }
 
         /// <summary>The scenes that aren't where the folder layout would put them (missing scenes are skipped).</summary>
@@ -561,24 +616,25 @@ namespace Remedy.LevelDesigner.Editor
                     if (target != path)
                         moves.Add(new LayoutMove { From = path, To = target, Blockout = blockout });
                 }
-                foreach (var art in blockout.ArtDesigns)
+                foreach (var variant in blockout.Variants)
                 {
-                    string artPath = PathOf(art);
-                    if (art == null || string.IsNullOrEmpty(artPath) || !File.Exists(artPath))
+                    string variantPath = PathOf(variant);
+                    if (variant == null || string.IsNullOrEmpty(variantPath) || !File.Exists(variantPath))
                         continue;
-                    string target = LayoutPathOf(blockout, art);
-                    if (target != artPath)
-                        moves.Add(new LayoutMove { From = artPath, To = target, Blockout = blockout, Art = art });
+                    string target = LayoutPathOf(blockout, variant);
+                    if (target != variantPath)
+                        moves.Add(new LayoutMove { From = variantPath, To = target, Blockout = blockout, Variant = variant });
                 }
             }
             return moves;
         }
 
         /// <summary>
-        /// Moves every listed blockout and art design scene into the folder layout under <see cref="LevelsRoot"/>,
+        /// Moves every listed blockout and variant scene into the folder layout under <see cref="LevelsRoot"/>,
         /// with AssetDatabase.MoveAsset, so GUIDs (and every reference to the scenes) are kept. Asks first, saves
         /// open scenes first, never overwrites: a scene whose target is taken is left where it is and reported.
-        /// Old folders are left in place (they may hold other assets). Returns how many scenes were moved.
+        /// Old folders are left in place (they may hold other assets), except old "Art" folders that end up completely
+        /// empty, which are deleted. Returns how many scenes were moved.
         /// </summary>
         public static int MoveScenesIntoLayout()
         {
@@ -625,8 +681,8 @@ namespace Remedy.LevelDesigner.Editor
                         problems.AppendLine($"{move.From}: {error}");
                         continue;
                     }
-                    if (move.Art != null)
-                        move.Art.ScenePath = move.To;
+                    if (move.Variant != null)
+                        move.Variant.ScenePath = move.To;
                     else
                         move.Blockout.ScenePath = move.To;
                     moved++;
@@ -639,6 +695,7 @@ namespace Remedy.LevelDesigner.Editor
             EditorUtility.SetDirty(Project);
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
+            DeleteEmptyOldArtFolders(moves);
             Refresh();
 
             if (problems.Length > 0)
@@ -654,14 +711,84 @@ namespace Remedy.LevelDesigner.Editor
             return false;
         }
 
+        // Old "Art" folders emptied by a move (nothing left in them but .meta files of nothing) are removed, so the
+        // level folder only shows "Variants". Anything else in them keeps the folder.
+        private static void DeleteEmptyOldArtFolders(List<LayoutMove> moves)
+        {
+            var folders = new HashSet<string>();
+            foreach (var move in moves)
+            {
+                string folder = Path.GetDirectoryName(move.From)?.Replace('\\', '/');
+                if (folder != null && Path.GetFileName(folder) == OldArtFolderName)
+                    folders.Add(folder);
+            }
+            foreach (var folder in folders)
+            {
+                if (!AssetDatabase.IsValidFolder(folder) || !Directory.Exists(folder))
+                    continue;
+                bool empty = true;
+                foreach (var entry in Directory.GetFileSystemEntries(folder))
+                {
+                    if (entry.EndsWith(".meta", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    empty = false;
+                    break;
+                }
+                if (empty)
+                    AssetDatabase.DeleteAsset(folder);
+            }
+        }
+
+        /// <summary>The name of the object holding a blockout's marker.</summary>
+        public const string BlockoutMarkerName = "[Blockout]";
+
+        /// <summary>The name of the object holding a variant's marker.</summary>
+        public const string VariantMarkerName = "[Variant]";
+
+        // The marker objects as they were named before the rename (so a lost marker can be put back on the same object).
+        private const string OldVariantMarkerName = "[Art Design]";
+
         private static void EnsureBlockoutMarker(Scene scene)
         {
             if (Find<BlockoutScene>(scene) != null)
                 return;
-            var marker = new GameObject("[Blockout]");
-            SceneManager.MoveGameObjectToScene(marker, scene);
+            var marker = RepairMarkerObject(scene, BlockoutMarkerName) ?? new GameObject(BlockoutMarkerName);
+            if (marker.scene != scene)
+                SceneManager.MoveGameObjectToScene(marker, scene);
             marker.AddComponent<BlockoutScene>();
             EditorSceneManager.MarkSceneDirty(scene);
+        }
+
+        /// <summary>
+        /// Makes sure a variant scene (opened from the window) carries its marker, remembering its blockout. The
+        /// markers used to live in a script file Unity couldn't save them from, so older variant scenes may have lost
+        /// theirs (a "missing script" left on the "[Art Design]" object); this puts it back.
+        /// </summary>
+        private static void EnsureVariantMarker(Scene scene, BlockoutLevel blockout)
+        {
+            if (!scene.IsValid() || !scene.isLoaded || Find<VariantScene>(scene) != null)
+                return;
+            var marker = RepairMarkerObject(scene, OldVariantMarkerName) ?? RepairMarkerObject(scene, VariantMarkerName) ?? new GameObject(VariantMarkerName);
+            if (marker.scene != scene)
+                SceneManager.MoveGameObjectToScene(marker, scene);
+            var component = marker.AddComponent<VariantScene>();
+            component.BlockoutSceneGuid = blockout.SceneGuid;
+            component.BlockoutScenePath = PathOf(blockout);
+            EditorSceneManager.MarkSceneDirty(scene);
+        }
+
+        // A root object with this name in the scene, with any missing scripts on it removed (the lost marker).
+        private static GameObject RepairMarkerObject(Scene scene, string name)
+        {
+            foreach (var root in scene.GetRootGameObjects())
+            {
+                if (root.name != name)
+                    continue;
+                if (GameObjectUtility.GetMonoBehavioursWithMissingScriptCount(root) > 0)
+                    GameObjectUtility.RemoveMonoBehavioursWithMissingScript(root);
+                return root;
+            }
+            return null;
         }
 
         private static string SanitizeFileName(string name)

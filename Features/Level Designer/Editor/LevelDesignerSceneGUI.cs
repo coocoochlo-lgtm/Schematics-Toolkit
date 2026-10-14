@@ -121,11 +121,15 @@ namespace Remedy.LevelDesigner.Editor
             float horizontal = Vector3.Distance(a, corner);
             float vertical = b.y - a.y;
 
+            // The end discs face along the ruler (their normal is the ruler's direction), like the end caps of a
+            // tape measure, so they read as "ends" from any angle instead of lying flat on the ground.
+            Vector3 along = b - a;
+            Vector3 discNormal = along.sqrMagnitude > 1e-8f ? along.normalized : Vector3.up;
             using (new Handles.DrawingScope(color))
             {
                 Handles.DrawLine(a, b, 3f);
-                Handles.DrawWireDisc(a, Vector3.up, 0.1f);
-                Handles.DrawWireDisc(b, Vector3.up, 0.1f);
+                Handles.DrawWireDisc(a, discNormal, 0.1f);
+                Handles.DrawWireDisc(b, discNormal, 0.1f);
             }
             using (new Handles.DrawingScope(new Color(color.r, color.g, color.b, 0.45f)))
             {
@@ -147,7 +151,10 @@ namespace Remedy.LevelDesigner.Editor
 
         // ---------------------------------------------------------------- rulers
 
-        /// <summary>Makes a ruler object in the active scene (undoable, EditorOnly so builds leave it out).</summary>
+        /// <summary>
+        /// Makes a ruler object in the active scene (undoable, EditorOnly so builds leave it out). It takes the
+        /// blockout toolbar's current colour when one is picked (see <see cref="LevelDesignerSettings.CurrentColor"/>).
+        /// </summary>
         public static BlockoutRuler CreateRuler(BlockoutRulerKind kind, Vector3 position, Quaternion rotation, string name = null)
         {
             var go = new GameObject(name ?? kind + " Ruler");
@@ -159,6 +166,10 @@ namespace Remedy.LevelDesigner.Editor
                 go.transform.SetParent(parent, true);
             var ruler = go.AddComponent<BlockoutRuler>();
             ruler.Kind = kind;
+            if (kind == BlockoutRulerKind.RunDistance)
+                ruler.Color = new Color(0.45f, 0.75f, 1f);
+            if (LevelDesignerSettings.TryGetCurrentColor(out var current))
+                ruler.Color = current;
             Undo.RegisterCreatedObjectUndo(go, "Create Ruler");
             BlockoutRulerDrawer.MarkDirty();
             return ruler;
