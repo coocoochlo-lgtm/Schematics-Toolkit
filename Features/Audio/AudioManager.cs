@@ -51,7 +51,7 @@ namespace Remedy.Audio
                 }
             }
 
-            foreach (var obj in _objectSources)
+            foreach (var obj in new List<KeyValuePair<GameObject, Dictionary<string, AudioSource>>>(_objectSources))
             {
                 if (obj.Key == null || !obj.Key.activeSelf)
                 {
@@ -60,7 +60,11 @@ namespace Remedy.Audio
                         foreach (var def in _activeAudioDefinitions)
                         {
                             if (def.Source == null || def.Source == source)
+                            {
+                                if (def.Source == source && def.Loop && source != null)
+                                    source.Stop();
                                 def.DontDestroyOnComplete = false;
+                            }
                         }
                     }
 
@@ -119,7 +123,10 @@ namespace Remedy.Audio
 
                     definitionInstance.ObjectToFollow = sourceObject;
                     definitionInstance.DontDestroyOnComplete = true;
-                    definitionInstance.Source.PlayOneShot(definitionInstance.Clip);
+                    if (definitionInstance.Loop)
+                        definitionInstance.Source.Play();
+                    else
+                        definitionInstance.Source.PlayOneShot(definitionInstance.Clip);
                 }
                 // Positional
                 else
@@ -129,12 +136,40 @@ namespace Remedy.Audio
                     var source = Instantiate(AudioData.SFXSourcePrefab);
                     source.transform.position = position;
                     definitionInstance.Source = source.GetComponent<AudioSource>();
-                    definitionInstance.Source.PlayOneShot(definitionInstance.Clip);
+                    if (definitionInstance.Loop)
+                        definitionInstance.Source.Play();
+                    else
+                        definitionInstance.Source.PlayOneShot(definitionInstance.Clip);
                 }
             }
 
             definitionInstance.Source.transform.parent = AudioSourceCollection.transform;
             return definitionInstance.Source;
+        }
+
+        public static AudioSource Play(
+            AudioClip clip,
+            AudioType type = AudioType.SoundEffect,
+            GameObject sourceObject = null,
+            Vector3 position = default,
+            float volume = 1f,
+            float pitch = 1f,
+            float spatialBlend = 1f,
+            bool loop = false,
+            Action onComplete = null)
+        {
+            if (clip == null)
+                return null;
+
+            var definition = new AudioDefinition(clip)
+            {
+                Type = type,
+                Volume = volume,
+                Pitch = pitch,
+                SpatialBlend = spatialBlend,
+                Loop = loop
+            };
+            return Play(definition, type, sourceObject, position, onComplete);
         }
 
         /// <summary>
