@@ -51,6 +51,8 @@ internal static class InspectorRowBridge
         ValueType = row.ValueType,
         Signal = row.Signal,
         Direction = row.Direction,
+        // A graph's own Signal: which node it makes depends on the graph it's dropped into.
+        DirectionFromDropTarget = row.Kind == InspectorRows.RowKind.Signal && row.Graph != null,
         Graph = row.Graph,
         VariableId = row.VariableId,
     };

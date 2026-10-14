@@ -79,6 +79,9 @@ public class RemedyInput : SingletonData<RemedyInput>
             if (action == null || _boundHandlers.ContainsKey(action))
                 continue;
 
+            if (inputEventCollection.Output == null)
+                Debug.LogWarning($"Remedy Input: the input \"{inputEventCollection.Name}\" of map \"{map.Name}\" has no Signal, so nothing hears it. Open it in the Schematic window's Global tab (Input System) to create one.");
+
             Action<InputAction.CallbackContext> started = context =>
             {
                 Send(inputEventCollection, context);
@@ -233,9 +236,16 @@ public class RemedyInput : SingletonData<RemedyInput>
         [Tooltip("The Input Action, with it's binds.")]
         public InputAction Input= new();
 
-        [SignalContainerRenderer(typeof(SignalData), "EventName", false)]
+        /// <summary>
+        /// The Signal this input sends. Its name and its parameter (the value read from the input: pick bool for
+        /// buttons, float for triggers and axes, Vector2 for sticks and WASD...) are edited in the Schematic window's
+        /// Global tab. Graphs react to it with On Received.
+        /// </summary>
+        [SignalContainerRenderer(typeof(SignalData), nameof(EventName), parametersEditable: true, paramTypeModifiable: true, paramNameModifiable: true,
+            Outgoing = true, MaxParameters = 1)]
         public SignalData Output;
 
+        [IMGUIContainerRenderer]
         [Tooltip("If true, the Output Event is not called again on update, although it will be called if the value for the Input has been updated (InputActionPhase.Performed).")]
         public bool OneShot = false;
 

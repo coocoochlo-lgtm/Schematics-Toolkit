@@ -1,362 +1,246 @@
 ﻿using Remedy.Framework;
+using Remedy.Schematics;
 using System;
 using System.Collections.Generic;
-//using System.Linq;
-using UnityEngine.UIElements;
-using UnityEngine;
-using UnityEditor;
 using System.Linq;
-using SchematicAssets;
+using UnityEditor;
+using UnityEngine;
+using UnityEngine.UIElements;
 
+/// <summary>
+/// Draws a Signal field (one marked <see cref="SignalContainerRendererAttribute"/>, like each Remedy Input's
+/// Output) in the IO Dock: its icon (drag it into a graph), its name (rename it in place; applies on Enter or when
+/// you click away) and its parameters, each with a name and a type picked from a dropdown, plus "Add Parameter…".
+/// The Signal asset is made the first time the field is drawn, saved inside the asset that owns the field, and
+/// assigned to the field (so the code that sends it, and graphs that react to it, use the same one).
+/// Parameters declared in code with <c>[Parameter]</c> on the field are fixed and kept in step with the code.
+/// </summary>
 [FieldRendererTarget(typeof(SignalContainerRendererAttribute))]
 public class SignalRenderer : FieldRenderer
 {
-    private static List<SignalRenderer> _eventLinkWaitPool = new(); // Events waiting for the rest of the Component to finish displaying before attempting to draw
-    private SignalContainerRendererAttribute _evAttr;
-    private static Texture2D _oIcon;
-    private static Texture2D _outputIcon => _oIcon ??= Resources.Load<Texture2D>("Icons/Output");
-    private static Texture2D _iIcon;
-    private static Texture2D _inputIcon => _iIcon ??= Resources.Load<Texture2D>("Icons/Input");
-
-    // Reflection caches
-    private static readonly Dictionary<Type, Type[]> _genericArgumentsCache = new();
-    private static readonly Dictionary<Type, Type> _baseTypeCache = new();
-    private static readonly Dictionary<Type, Type> _eventTypeForArgumentCache = new();
-    private static readonly Dictionary<Type, bool> _isAssignableFromCache = new();
-    private static readonly Dictionary<(Type, Type), bool> _typeAssignabilityCache = new();
+    private SignalContainerRendererAttribute _signalAttr;
+    private string _fieldPath;
 
     public SignalRenderer(SchematicGraphEditorWindow window, UnityEngine.Object obj, object parent, object target, FieldOrPropertyInfo fieldInfo, CustomFieldRendererAttribute attr, string path, List<Action> onModified) : base(window, obj, parent, target, fieldInfo, attr, path, onModified)
     {
-        _evAttr = (SignalContainerRendererAttribute)attr;
-
-        if (_evAttr == null)
-            _evAttr = new SignalContainerRendererAttribute(typeof(SignalData), _field.Name, false);
-
-        DrawEventContainer();
     }
 
-    /// <summary>
-    /// Cached wrapper for Type.GetGenericArguments()
-    /// </summary>
-    private static Type[] GetGenericArguments(Type type)
+    /// <summary>Kept for older callers; Signal containers now draw straight away.</summary>
+    public static void DrawDelayedEvents() { }
+
+    protected override void Redraw()
     {
-        if (!_genericArgumentsCache.TryGetValue(type, out var args))
+        _signalAttr = _attr as SignalContainerRendererAttribute ?? new SignalContainerRendererAttribute(typeof(SignalData), _field.Name, false);
+        _fieldPath = ManagedPath.Combine(_path, _field.Name);
+        Clear();
+
+        SignalData signal;
+        try { signal = EnsureSignal(); }
+        catch (Exception exception)
         {
-            args = type.GetGenericArguments();
-            _genericArgumentsCache[type] = args;
+            Debug.LogException(exception);
+            signal = null;
         }
-        return args;
-    }
-
-    /// <summary>
-    /// Cached wrapper for Type.BaseType
-    /// </summary>
-    private static Type GetBaseType(Type type)
-    {
-        if (!_baseTypeCache.TryGetValue(type, out var baseType))
+        if (signal == null)
         {
-            baseType = type.BaseType;
-            _baseTypeCache[type] = baseType;
+            var missing = new Label("This Signal can't be created here: the object that owns it isn't saved as an asset.");
+            missing.style.whiteSpace = WhiteSpace.Normal;
+            missing.style.fontSize = 10;
+            Add(missing);
+            return;
         }
-        return baseType;
+
+        SyncCodeParameters(signal);
+        Build(signal);
     }
 
-    /// <summary>
-    /// Cached wrapper for Type.IsAssignableFrom()
-    /// </summary>
-    private static bool IsAssignableFrom(Type targetType, Type sourceType)
+    #region The Signal asset
+
+    // The field's Signal: the one it holds, an old one made for it by earlier versions, or a new one saved inside the
+    // owning asset. Assigned through the shared SerializedObject so Undo and the other dock fields see it.
+    private SignalData EnsureSignal()
     {
-        var key = (targetType, sourceType);
-        if (!_typeAssignabilityCache.TryGetValue(key, out var result))
+        var serializedObject = DockSerializedObjects.Get(_object);
+        if (serializedObject == null)
+            return null;
+        serializedObject.UpdateIfRequiredOrScript();
+        var property = serializedObject.FindProperty(_fieldPath);
+        if (property == null || property.propertyType != SerializedPropertyType.ObjectReference)
+            return null;
+        if (property.objectReferenceValue is SignalData existing)
+            return existing;
+        if (!EditorUtility.IsPersistent(_object))
+            return null;
+
+        var signal = FindLegacySignal() ?? CreateSignal();
+        if (signal == null)
+            return null;
+        property.objectReferenceValue = signal;
+        serializedObject.ApplyModifiedPropertiesWithoutUndo();
+        AssetDatabase.SaveAssetIfDirty(_object);
+        return signal;
+    }
+
+    // Earlier versions made the Signal as its own file under Assets/_Schematics/<object id>/<field path>/ and never
+    // assigned it to the field; graphs may already use it, so it's adopted rather than replaced.
+    private SignalData FindLegacySignal()
+    {
+        string folder = "Assets/_Schematics/" + GlobalObjectId.GetGlobalObjectIdSlow(_object) + "/"
+                      + _fieldPath.Replace(".Array.data[", "[").Replace('.', '/');
+        if (!AssetDatabase.IsValidFolder(folder))
+            return null;
+        foreach (var guid in AssetDatabase.FindAssets("t:" + nameof(SignalData), new[] { folder }))
+            if (AssetDatabase.LoadAssetAtPath<SignalData>(AssetDatabase.GUIDToAssetPath(guid)) is { } signal)
+                return signal;
+        return null;
+    }
+
+    private SignalData CreateSignal()
+    {
+        var signal = ScriptableObject.CreateInstance<SignalData>();
+        string name = DefaultName();
+        signal.name = name;
+        signal.Name = name;
+        AssetDatabase.AddObjectToAsset(signal, _object);
+        EditorUtility.SetDirty(_object);
+        return signal;
+    }
+
+    // The attribute's DefaultName is a member of the field's owner that returns the name (Remedy Input: "Input Jump"),
+    // or the name itself.
+    private string DefaultName()
+    {
+        string name = null;
+        var owner = ManagedPath.Resolve(_object, _path);
+        if (owner != null && !string.IsNullOrEmpty(_signalAttr.DefaultName))
         {
-            result = targetType.IsAssignableFrom(sourceType);
-            _typeAssignabilityCache[key] = result;
+            try { name = owner.GetType().GetFieldOrProperty(_signalAttr.DefaultName)?.GetValue(owner) as string; }
+            catch (ArgumentException) { name = _signalAttr.DefaultName; }
         }
-        return result;
+        if (string.IsNullOrWhiteSpace(name))
+            name = string.IsNullOrEmpty(_signalAttr.DefaultName) ? ObjectNames.NicifyVariableName(_field.Name) : _signalAttr.DefaultName;
+        return name.Trim();
     }
 
-    /// <summary>
-    /// Clears all reflection caches. Call this if types are reloaded or modified at runtime.
-    /// </summary>
-    public static void ClearReflectionCaches()
+    private static void Rename(SignalData signal, string name)
     {
-        _genericArgumentsCache.Clear();
-        _baseTypeCache.Clear();
-        _eventTypeForArgumentCache.Clear();
-        _isAssignableFromCache.Clear();
-        _typeAssignabilityCache.Clear();
-    }
-
-    /// <summary>
-    /// Draws the Events that were waiting for the rest of the Component to render before they themselves rendered.
-    /// </summary>
-    public static void DrawDelayedEvents()
-    {
-        foreach (var eventContainer in _eventLinkWaitPool)
+        if (signal == null || string.IsNullOrWhiteSpace(name) || signal.name == name)
+            return;
+        name = name.Trim();
+        string path = AssetDatabase.GetAssetPath(signal);
+        if (AssetDatabase.IsMainAsset(signal))
         {
-            eventContainer.DrawEventContainer();
-        }
-        _eventLinkWaitPool.Clear();
-    }
-
-    protected void DrawEventContainer()
-    {
-        var handler = new SignalHandler(GlobalObjectId.GetGlobalObjectIdSlow(_object), _path, _field);
-
-        var column = new VisualElement
-        {
-            style =
+            // Its own file: renaming the file renames the asset.
+            string error = AssetDatabase.RenameAsset(path, name);
+            if (!string.IsNullOrEmpty(error))
             {
-                flexDirection = FlexDirection.Column,
-
-                borderBottomColor = Color.gray4,
-                borderTopColor = Color.gray4,
-
-                borderRightColor = Color.black,
-                borderLeftColor = Color.black
+                Debug.LogWarning("Couldn't rename the Signal: " + error);
+                return;
             }
-        };
-
-        var row = new VisualElement
+            Undo.RecordObject(signal, "Rename Signal");
+            signal.Name = name;
+        }
+        else
         {
-            style =
-            {
-                flexDirection = FlexDirection.Row,
-                borderBottomWidth = 0,
-                paddingLeft = 0
-            }
+            Undo.RecordObject(signal, "Rename Signal");
+            signal.name = name;
+            signal.Name = name;
+        }
+        EditorUtility.SetDirty(signal);
+        AssetDatabase.SaveAssetIfDirty(signal);
+        SignalPortSync.RenameNodes(signal, name);
+    }
+
+    #endregion
+
+    #region Parameters
+
+    private List<ParameterAttribute> CodeParameters()
+        => _field.GetCustomAttributes().OfType<ParameterAttribute>().ToList();
+
+    // Parameters declared in code win: the asset is brought in line with them (only when it differs, so drawing
+    // never touches the asset otherwise).
+    private void SyncCodeParameters(SignalData signal)
+    {
+        var declared = CodeParameters();
+        if (declared.Count == 0)
+            return;
+        List<(string name, Type type)> wanted = declared.Select(p => (name: p.Name, type: p.Type)).ToList();
+        var current = SignalPortSync.AssetParameters(signal);
+        if (wanted.Count == current.Count && !wanted.Where((p, i) => p.name != current[i].name || p.type != current[i].type).Any())
+            return;
+        SignalPortSync.SetAssetParameters(signal, wanted);
+    }
+
+    #endregion
+
+    private void Build(SignalData signal)
+    {
+        bool outgoing = _signalAttr.Outgoing || _field.Attributes.Any(a => a.AttributeType == typeof(OutputSignalAttribute));
+        bool incoming = !outgoing && _field.Attributes.Any(a => a.AttributeType == typeof(InputSignalAttribute));
+
+        var card = new VisualElement();
+        card.AddToClassList("event-container");
+        card.AddToClassList(outgoing ? "event-container-output" : "event-container-input");
+        card.style.marginTop = 2;
+        card.style.marginBottom = 2;
+
+        var row = new VisualElement();
+        row.style.flexDirection = FlexDirection.Row;
+        row.style.alignItems = Align.Center;
+
+        // The icon is the handle: drag it into a graph (On Received for a Signal the code sends, Send for one it hears).
+        var item = new DockItem
+        {
+            Kind = DockItem.ItemKind.Signal, Signal = signal, Name = signal.name,
+            Direction = outgoing ? SignalDirection.Output : incoming ? SignalDirection.Input : SignalDirection.Unspecified,
         };
+        var icon = new Image { image = outgoing ? DockRows.OutputIcon : DockRows.InputIcon };
+        icon.style.width = 16;
+        icon.style.height = 16;
+        icon.style.marginRight = 4;
+        icon.style.flexShrink = 0;
+        icon.style.cursor = new StyleCursor(UnityDefaultCursor.DefaultCursor(UnityDefaultCursor.CursorType.Link));
+        icon.tooltip = outgoing ? "Output Signal: sent from code. Drag it into a graph to react to it (On Received); click it to see it in the Inspector."
+                                : "Signal: drag it into a graph to use it; click it to see it in the Inspector.";
+        DockRows.MakeDraggable(icon, item, () =>
+        {
+            _window?.FocusNodes(item);
+            ScopeItemInspector.Show(item);
+        });
+        row.Add(icon);
 
-        // Name field
-        var nameField = new TextField { value = _field.Name, style = { flexGrow = 1, paddingLeft = 0 } };
-
-        nameField.Children().ElementAt(0).AddToClassList("event-name");
-
-        nameField.RegisterCallback<MouseEnterEvent>(_ => nameField.Children().ElementAt(0).AddToClassList("event-name-hover"));
-        nameField.RegisterCallback<MouseLeaveEvent>(_ => nameField.Children().ElementAt(0).RemoveFromClassList("event-name-hover"));
-
-        string oldName = nameField.value;
-        string newName = nameField.value;
-
+        var nameField = new TextField { value = signal.name, isDelayed = true, tooltip = "The Signal's name. Press Enter or click away to apply." };
+        nameField.AddToClassList("event-name");
+        nameField.style.flexGrow = 1;
+        nameField.style.flexShrink = 1;
+        nameField.style.minWidth = 40;
         nameField.RegisterValueChangedCallback(evt =>
         {
-            newName = evt.newValue;
+            string name = evt.newValue?.Trim();
+            if (string.IsNullOrEmpty(name))
+            {
+                nameField.SetValueWithoutNotify(signal.name);
+                return;
+            }
+            Rename(signal, name);
+            nameField.SetValueWithoutNotify(signal.name);
+            item.Name = signal.name;
         });
-
-        nameField.RegisterCallback<FocusInEvent>(evt =>
-        {
-            Undo.RecordObject(_window, "Edit Event Name");
-            oldName = nameField.value;
-            _window.Canvas.Reload();
-        });
-
-        nameField.RegisterCallback<FocusOutEvent>((EventCallback<FocusOutEvent>)(evt =>
-        {
-            Undo.RecordObject(_window, "Edit Event Name");
-            handler.ChangeName(oldName, newName);
-            _window.Canvas.Reload();
-        }));
-
-        // Global toggle
-        var globalToggle = new Toggle { value = handler.SignalAsset.Global };
-
-        globalToggle.RegisterValueChangedCallback(evt =>
-        {
-            Undo.RecordObject(_window, "Toggle Global");
-            handler.SignalAsset.Global = evt.newValue;
-            _window.Canvas.Reload();
-        });
-
-        bool signalType = _field.Attributes.Any(attr => attr.AttributeType == typeof(OutputSignalAttribute));
-
-        // Drag Handle
-        Texture2D myTexture = signalType ? myTexture = _outputIcon : myTexture = _inputIcon;
-
-        Image imageElement = new Image();
-
-        imageElement.style.cursor = new StyleCursor(UnityDefaultCursor.DefaultCursor(UnityDefaultCursor.CursorType.Link));
-        imageElement.RegisterCallback<MouseDownEvent>(evt =>
-        {
-            DragAndDrop.PrepareStartDrag();
-            DragAndDrop.objectReferences = new UnityEngine.Object[] { handler.SignalAsset };
-            DragAndDrop.StartDrag("Drag ScriptableEvent");
-            evt.StopPropagation();
-        });
-
-        imageElement.RegisterCallback<MouseEnterEvent>(evt =>
-        {
-            column.AddToClassList("event-container-hover");
-        });
-
-        imageElement.RegisterCallback<MouseLeaveEvent>(evt =>
-        {
-            column.RemoveFromClassList("event-container-hover");
-        });
-
-        imageElement.image = myTexture;
-        imageElement.style.width = 32;
-        imageElement.style.height = 24;
-        imageElement.style.opacity = 0.75f;
-
-        imageElement.tooltip = signalType ? "Output Signal" : "Input Signal";
-
         row.Add(nameField);
-        row.Add(imageElement);
+        card.Add(row);
 
-        column.AddToClassList("event-container");
-        column.AddToClassList("event-container-" + (signalType ? "output" : "input"));
+        bool fixedByCode = CodeParameters().Count > 0;
+        var parameters = new SignalParameterList(
+            () => SignalPortSync.AssetParameters(signal),
+            (list, from, to) => SignalPortSync.SetAssetParameters(signal, list, from, to),
+            SignalParameterList.UnionTypes,
+            editable: !fixedByCode && _signalAttr.ParametersEditable,
+            namesEditable: !fixedByCode && (_signalAttr.ParamNameModifiable || _signalAttr.ParametersEditable),
+            typesEditable: !fixedByCode && (_signalAttr.ParamTypeModifiable || _signalAttr.ParametersEditable),
+            max: _signalAttr.MaxParameters);
+        card.Add(parameters);
 
-        var signalData = handler.SignalAsset;
-
-        var paramAttrs = _field.GetCustomAttributes().OfType<ParameterAttribute>();
-
-        signalData.Parameters.Contents.Clear();
-
-        foreach(var param in paramAttrs)
-        {
-            if(!signalData.Parameters.Contents.Any(item => item.Name == param.Name))
-            {
-                signalData.Parameters.AddParameter(param.Name, new Union(param.Type));
-                var paramInSignal = signalData.Parameters.Contents.FirstOrDefault(item => item.Name == param.Name);
-                paramInSignal.Value.Type = Union.ReverseTypeLookup[param.Type];
-            }
-        }
-        foreach (var param in paramAttrs)
-        {
-            if (signalData.Parameters.Contents.Any(item => item.Name == param.Name))
-            {
-                var paramInSignal = signalData.Parameters.Contents.FirstOrDefault(item => item.Name == param.Name);
-                paramInSignal.Value.Type = Union.ReverseTypeLookup[param.Type];
-            }
-        }
-
-        var paramList = new LazyListFoldout(collection: signalData.Parameters.Contents,
-                                            className: "event-parameters",
-                                            title: "Parameters",
-                                            onItemAdded: (object item) => 
-                                            { 
-                                                signalData.Parameters.Contents.Add((SignalData.Parameter)item);
-                                                signalData.RuntimeArgs = new Union[signalData.Parameters.Contents.Count];
-                                            },
-                                            onItemRemoved: (object item) => 
-                                            { 
-                                                signalData.Parameters.Contents.Remove((SignalData.Parameter)item);
-                                                signalData.RuntimeArgs = new Union[signalData.Parameters.Contents.Count];
-                                            },
-                                            createItemInstance: (Action<object> onFinished) =>
-                                            {
-                                                var value = new SignalData.Parameter();
-                                                onFinished?.Invoke(value);
-                                            },
-                                            createItemContent: (int index, object value) =>
-                                            {
-                                                var param = signalData.Parameters[index];
-                                                var paramType = param.Type;
-
-                                                var typePopup = new PopupField<Type>(
-                                                    Union.TypeLookup.Values.Where(type => type != null).ToList(),
-                                                    Union.TypeLookup[param.Type],
-                                                    t => t?.Name ?? "???",
-                                                    t => t?.Name ?? "???"
-                                                );
-
-                                                typePopup.SetEnabled(_evAttr.ParamTypeModifiable);
-
-                                                var nameField = new TextField { value = ((SignalData.Parameter)value).Name , style = { flexGrow = 1, paddingLeft = 0 } };
-
-                                                nameField.Children().ElementAt(0).AddToClassList("event-name");
-
-                                                nameField.RegisterCallback<MouseEnterEvent>(_ => nameField.Children().ElementAt(0).AddToClassList("event-name-hover"));
-                                                nameField.RegisterCallback<MouseLeaveEvent>(_ => nameField.Children().ElementAt(0).RemoveFromClassList("event-name-hover"));
-
-                                                string oldName = nameField.value;
-                                                string newName = nameField.value;
-                                                                
-                                                nameField.RegisterValueChangedCallback(evt =>
-                                                {
-                                                    newName = evt.newValue;
-                                                });
-
-                                                nameField.SetEnabled(_evAttr.ParamNameModifiable);
-
-                                                var paramRow = new VisualElement
-                                                {
-                                                    style =
-                                                    {
-                                                        flexDirection = FlexDirection.Row,
-                                                        borderBottomWidth = 0,
-                                                        paddingLeft = 0
-                                                    }
-                                                };
-
-                                                paramRow.AddToClassList("event-parameter-container");
-                                                paramRow.RegisterCallback<MouseEnterEvent>(_ => nameField.Children().ElementAt(0).AddToClassList("event-parameter-container-hover"));
-                                                paramRow.RegisterCallback<MouseLeaveEvent>(_ => nameField.Children().ElementAt(0).RemoveFromClassList("event-parameter-container-hover"));
-
-                                                paramRow.Add(typePopup);
-                                                paramRow.Add(nameField);
-
-                                                var typeDef = SchematicEditorData.EditorTypeSettings.FirstOrDefault(item => Type.GetType(item.Type) == typePopup.value);
-                                                if (typeDef != null)
-                                                    paramRow.style.backgroundColor = typeDef.ColorInEditor;
-                                                else
-                                                {
-                                                    Debug.LogWarning("Type Definition does not exist for: " + typePopup.value);
-                                                }
-
-                                                return paramRow;
-                                            },
-                                            getItemName: (object item) => { return ((SignalData.Parameter)item).Name; },
-                                            contentModifiable: _evAttr.ParametersEditable,
-                                            startExpanded: true
-                                            );
-
-        signalData.RuntimeArgs = new Union[signalData.Parameters.Contents.Count];
-
-        column.Add(row);
-        column.Add(paramList);
-
-        Add(column);
-    }
-
-
-    protected IMGUIContainer DrawGUIContainer()
-    {
-        SerializedObject seriializedObject = new SerializedObject(_object);
-
-        var valPath = _path + "." + _field.Name + "." + nameof(SignalData);
-        var property = seriializedObject.FindProperty(valPath);
-
-        var imguiContainerContainer = new VisualElement();
-
-        var imguiContainer = new IMGUIContainer()
-        {
-            style =
-            {
-                flexGrow = 0,
-                flexShrink = 0
-            }
-        };
-
-        imguiContainer.onGUIHandler = () =>
-        {
-            seriializedObject.Update();
-            EditorGUILayout.PropertyField(property);
-            seriializedObject.ApplyModifiedProperties();
-
-            EditorApplication.QueuePlayerLoopUpdate();
-            imguiContainer.MarkDirtyRepaint();
-        };
-
-        EditorApplication.update += () =>
-        {
-            if (imguiContainer == null) return;
-            imguiContainer.MarkDirtyRepaint();
-        };
-
-        imguiContainer.focusable = true;
-        imguiContainer.tabIndex = 0;
-
-        return imguiContainer;
+        Add(card);
     }
 }

@@ -66,11 +66,15 @@ public static class GraphScopeEditing
         Commit(graph);
     }
 
+    /// <summary>
+    /// Sets a Variable's starting value. The fields that call this are delayed (they commit on Enter or when they
+    /// lose focus), and the docks aren't rebuilt for it, so the field you're in keeps its focus.
+    /// </summary>
     public static void SetVariableDefault(SchematicGraph graph, GraphVariable variable, object value)
     {
         Undo.RecordObject(graph, "Set Graph Variable Default");
         variable.Default = new SchematicValue(value, variable.ValueType);
-        Commit(graph, structural: false);
+        Commit(graph, structural: false, redraw: false);
     }
 
     public static void DuplicateVariable(SchematicGraph graph, GraphVariable variable)
@@ -102,13 +106,15 @@ public static class GraphScopeEditing
 
     #region Signals
 
-    public static GraphSignal AddSignal(SchematicGraph graph, string name = null)
+    public static GraphSignal AddSignal(SchematicGraph graph, string name = null, GraphSignalDirection direction = GraphSignalDirection.Input)
     {
         Undo.RecordObject(graph, "Add Graph Signal");
-        var signal = new GraphSignal { Name = Unique(name ?? "New Signal", graph.Signals.Select(s => s.Name)) };
+        string fallback = direction == GraphSignalDirection.Output ? "New Output Signal" : "New Input Signal";
+        var signal = new GraphSignal { Name = Unique(name ?? fallback, graph.Signals.Select(s => s.Name)) };
         signal.Asset = ScriptableObject.CreateInstance<SignalData>();
         signal.Asset.name = signal.Name;
         signal.Asset.Name = signal.Name;
+        signal.Asset.GraphDirection = direction == GraphSignalDirection.Unspecified ? GraphSignalDirection.Input : direction;
         AssetDatabase.AddObjectToAsset(signal.Asset, graph);
         Undo.RegisterCreatedObjectUndo(signal.Asset, "Add Graph Signal");
         graph.Signals.Add(signal);
@@ -135,11 +141,76 @@ public static class GraphScopeEditing
             if (node is SendSignalNode send && send.Signal == signal.Asset) send.Name = "Send " + name;
             else if (node is OnSignalReceivedNode receive && receive.Signal == signal.Asset) receive.Name = "On " + name;
         }
+        // Other graphs' nodes for it too (open ones; the rest are renamed when the window loads them).
+        SignalPortSync.RenameNodes(signal.Asset, name);
         Commit(graph);
     }
 
-    /// <summary>Replaces a Signal's parameters (names and types); nodes using it get matching pins.</summary>
-    public static void SetSignalParameters(SchematicGraph graph, GraphSignal signal, List<GraphSignalParameter> parameters)
+    /// <summary>
+    /// Makes a Signal an Input (other graphs send it, this graph reacts) or an Output (this graph sends it, other
+    /// graphs react). Nodes that now use it the wrong way round show an error saying so.
+    /// </summary>
+    public static void SetSignalDirection(SchematicGraph graph, GraphSignal signal, GraphSignalDirection direction)
+    {
+        if (signal?.Asset == null || direction == GraphSignalDirection.Unspecified || signal.Direction == direction)
+            return;
+        Undo.RecordObject(graph, "Change Graph Signal Direction");
+        Undo.RecordObject(signal.Asset, "Change Graph Signal Direction");
+        signal.Direction = direction;
+        EditorUtility.SetDirty(signal.Asset);
+        SignalPortSync.Revalidate(signal.Asset);
+        Commit(graph);
+    }
+
+    /// <summary>
+    /// Graph Signals made before Signals had a direction get one, from how their graph uses them: one it only sends
+    /// is an Output, anything else an Input (the graph reacts to it, others send it). Returns true if any changed.
+    /// Not recorded for Undo: it's a one-time upgrade of old data.
+    /// </summary>
+    public static bool MigrateDirections(SchematicGraph graph)
+    {
+        if (graph == null)
+            return false;
+        bool changed = false;
+        foreach (var signal in graph.Signals)
+        {
+            if (signal?.Asset == null || signal.Direction != GraphSignalDirection.Unspecified)
+                continue;
+            bool sends = graph.Nodes.Any(n => n is SendSignalNode send && send.Signal == signal.Asset);
+            bool hears = graph.Nodes.Any(n => n is OnSignalReceivedNode receive && receive.Signal == signal.Asset);
+            signal.Direction = sends && !hears ? GraphSignalDirection.Output : GraphSignalDirection.Input;
+            EditorUtility.SetDirty(signal.Asset);
+            changed = true;
+        }
+        if (changed)
+        {
+            EditorUtility.SetDirty(graph);
+            AssetDatabase.SaveAssetIfDirty(graph);
+            // So nodes now using a Signal the wrong way round show it (their views listen for errors).
+            foreach (var node in graph.Nodes)
+                if (node is SendSignalNode || node is OnSignalReceivedNode)
+                    node.Validate();
+        }
+        return changed;
+    }
+
+    /// <summary>A graph Signal's parameters, as names and types.</summary>
+    public static List<(string name, Type type)> SignalParameterList(GraphSignal signal)
+        => signal == null ? new List<(string, Type)>()
+         : signal.Parameters.Where(p => p != null).Select(p => (p.Name, p.Type.Type ?? typeof(float))).ToList();
+
+    /// <summary>
+    /// Replaces a Signal's parameters from the dock's or Inspector's parameter editor. <paramref name="renamedFrom"/>
+    /// / <paramref name="renamedTo"/> name a parameter that was renamed, so the nodes' pins keep their wires.
+    /// </summary>
+    public static void SetSignalParameters(SchematicGraph graph, GraphSignal signal, List<(string name, Type type)> parameters, string renamedFrom = null, string renamedTo = null)
+        => SetSignalParameters(graph, signal, parameters.Select(p => new GraphSignalParameter { Name = p.name, Type = p.type }).ToList(), renamedFrom, renamedTo);
+
+    /// <summary>
+    /// Replaces a Signal's parameters (names and types); the nodes using it, in this graph and others, get matching
+    /// pins straight away (a renamed parameter keeps its wires).
+    /// </summary>
+    public static void SetSignalParameters(SchematicGraph graph, GraphSignal signal, List<GraphSignalParameter> parameters, string renamedFrom = null, string renamedTo = null)
     {
         Undo.RecordObject(graph, "Edit Graph Signal Parameters");
         signal.Parameters = parameters;
@@ -150,7 +221,9 @@ public static class GraphScopeEditing
             signal.Asset.Parameters.Contents.Clear();
             foreach (var parameter in parameters)
                 signal.Asset.Parameters.AddParameter(parameter.Name, DefaultUnion(parameter.Type.Type));
+            signal.Asset.RuntimeArgs = new Union[parameters.Count];
             EditorUtility.SetDirty(signal.Asset);
+            SignalPortSync.Sync(signal.Asset, SignalParameterList(signal), renamedFrom, renamedTo);
         }
         Commit(graph);
     }
@@ -171,18 +244,7 @@ public static class GraphScopeEditing
     #endregion
 
     // Values a parameter's Union starts as, so its type is known without the graph.
-    private static Union DefaultUnion(Type type)
-    {
-        if (type == null) return Union.Null;
-        foreach (var pair in Union.TypeLookup)
-            if (pair.Value == type)
-            {
-                var union = Union.Null;
-                union.Type = pair.Key;
-                return union;
-            }
-        return Union.Null;
-    }
+    private static Union DefaultUnion(Type type) => SignalPortSync.UnionOf(type);
 
     private static string Unique(string name, IEnumerable<string> taken)
     {
@@ -194,10 +256,13 @@ public static class GraphScopeEditing
     }
 
     /// <summary>Saves the graph and tells the open windows (structural changes re-pin and redraw the canvas).</summary>
-    public static void Commit(SchematicGraph graph, bool structural = true)
+    /// <param name="redraw">False for value-only changes: saved, but the docks aren't rebuilt (the field already shows it).</param>
+    public static void Commit(SchematicGraph graph, bool structural = true, bool redraw = true)
     {
         EditorUtility.SetDirty(graph);
         AssetDatabase.SaveAssetIfDirty(graph);
+        if (!redraw)
+            return;
         foreach (var window in Resources.FindObjectsOfTypeAll<SchematicGraphEditorWindow>())
             if (window != null && window.SchematicGraph != null)
                 window.OnGraphScopeChanged(graph, structural);

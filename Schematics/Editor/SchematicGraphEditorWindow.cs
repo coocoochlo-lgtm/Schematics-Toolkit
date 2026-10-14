@@ -958,7 +958,7 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
         {
             if (obj is SignalData signal)
             {
-                DropSignal(signal, DirectionOf(signal), dropPosition);
+                DropSignal(signal, DirectionFor(SchematicGraph, signal), dropPosition);
                 accepted = true;
             }
         }
@@ -988,6 +988,18 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
     }
 
     /// <summary>The direction a Behavior declared for this Signal asset; Unspecified for Signals that aren't a Behavior's.</summary>
+    /// <summary>
+    /// Like <see cref="DirectionOf"/>, but graph Signals follow their own direction rule: in the graph that owns them,
+    /// Input Signals are reacted to and Output Signals are sent; from any other graph it's the reverse.
+    /// </summary>
+    internal static SignalDirection DirectionFor(SchematicGraph user, SignalData signal)
+    {
+        bool? send = GraphSignalRules.ShouldSend(user, signal);
+        if (send.HasValue)
+            return send.Value ? SignalDirection.Input : SignalDirection.Output;
+        return DirectionOf(signal);
+    }
+
     internal static SignalDirection DirectionOf(SignalData signal)
     {
         if (signal != null && AssetDatabase.LoadMainAssetAtPath(AssetDatabase.GetAssetPath(signal)) is BehaviorMetadata metadata)

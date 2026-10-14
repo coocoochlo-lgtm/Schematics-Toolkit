@@ -370,8 +370,13 @@ public static class SchematicBehaviorsHeaderGUI
                 var parameters = new List<string>();
                 foreach (var parameter in signal.Parameters)
                     parameters.Add($"{InspectorRows.TypeName(parameter.Type.Type)} {parameter.Name}");
-                InspectorRows.Begin(new InspectorRows.Row { Kind = InspectorRows.RowKind.Signal, Graph = graph, Name = signal.Name, Signal = signal.Asset },
-                    signal.Name, string.Join(", ", parameters), signal.Description);
+                // Shown as what it is for the graph: an Input (others send it) or an Output (the graph sends it).
+                bool output = signal.Direction == GraphSignalDirection.Output;
+                InspectorRows.Begin(new InspectorRows.Row
+                {
+                    Kind = InspectorRows.RowKind.Signal, Graph = graph, Name = signal.Name, Signal = signal.Asset,
+                    Direction = output ? SignalDirection.Output : SignalDirection.Input,
+                }, signal.Name, (output ? "Output" : "Input") + (parameters.Count > 0 ? " · " + string.Join(", ", parameters) : ""), signal.Description);
                 InspectorRows.End();
             }
         }

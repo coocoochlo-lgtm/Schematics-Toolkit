@@ -308,22 +308,44 @@ public class ScopeItemInspectorEditor : Editor
         }
 
         EditorGUILayout.Space(6);
+        GraphScopeEditing.MigrateDirections(graph);
+        int direction = signal.Direction == GraphSignalDirection.Output ? 1 : 0;
+        EditorGUI.BeginChangeCheck();
+        direction = EditorGUILayout.Popup(new GUIContent("Direction", "Input: other graphs send it, and this graph reacts to it.\nOutput: this graph sends it, and other graphs react to it."),
+            direction, _directionLabels);
+        if (EditorGUI.EndChangeCheck())
+            GraphScopeEditing.SetSignalDirection(graph, signal, direction == 1 ? GraphSignalDirection.Output : GraphSignalDirection.Input);
+
+        EditorGUILayout.Space(6);
         EditorGUILayout.LabelField("Parameters", EditorStyles.boldLabel);
-        var edited = signal.Parameters.Select(p => new GraphSignalParameter { Name = p.Name, Type = p.Type.Type ?? typeof(float) }).ToList();
+        var current = GraphScopeEditing.SignalParameterList(signal);
+        var edited = new List<(string name, Type type)>(current);
+        string renamedFrom = null, renamedTo = null;
         bool changed = false;
         var types = GraphScopeEditing.VariableTypes;
+        var typeLabels = types.Select(t => t.path).ToArray();
         for (int i = 0; i < edited.Count; i++)
         {
             using (new EditorGUILayout.HorizontalScope())
             {
                 EditorGUI.BeginChangeCheck();
-                string parameterName = EditorGUILayout.DelayedTextField(edited[i].Name);
-                int index = Array.FindIndex(types, t => t.type == edited[i].Type.Type);
-                int picked = EditorGUILayout.Popup(Mathf.Max(0, index), types.Select(t => t.path).ToArray(), GUILayout.Width(110));
-                if (EditorGUI.EndChangeCheck())
+                string parameterName = EditorGUILayout.DelayedTextField(edited[i].name);
+                if (EditorGUI.EndChangeCheck() && !string.IsNullOrWhiteSpace(parameterName) && parameterName.Trim() != edited[i].name)
                 {
-                    edited[i].Name = string.IsNullOrWhiteSpace(parameterName) ? edited[i].Name : parameterName.Trim();
-                    edited[i].Type = types[picked].type;
+                    int index = i;
+                    string unique = SignalParameterList.Unique(parameterName.Trim(), edited.Where((_, n) => n != index).Select(p => p.name));
+                    renamedFrom = edited[i].name;
+                    renamedTo = unique;
+                    edited[i] = (unique, edited[i].type);
+                    changed = true;
+                }
+
+                int typeIndex = Array.FindIndex(types, t => t.type == edited[i].type);
+                EditorGUI.BeginChangeCheck();
+                int picked = EditorGUILayout.Popup(Mathf.Max(0, typeIndex), typeLabels, GUILayout.Width(110));
+                if (EditorGUI.EndChangeCheck() && types[picked].type != edited[i].type)
+                {
+                    edited[i] = (edited[i].name, types[picked].type);
                     changed = true;
                 }
                 if (GUILayout.Button("✕", EditorStyles.miniButton, GUILayout.Width(22)))
@@ -334,23 +356,34 @@ public class ScopeItemInspectorEditor : Editor
                 }
             }
         }
-        if (GUILayout.Button("+ Add Parameter", EditorStyles.miniButton))
-        {
-            string parameterName = "Value";
-            for (int n = 2; edited.Any(p => p.Name == parameterName); n++) parameterName = "Value " + n;
-            edited.Add(new GraphSignalParameter { Name = parameterName, Type = typeof(float) });
-            changed = true;
-        }
+        using (new EditorGUI.DisabledScope(edited.Count >= SignalParameterList.MaxParameters))
+            if (GUILayout.Button("+ Add Parameter", EditorStyles.miniButton))
+            {
+                edited.Add((SignalParameterList.Unique("Value", edited.Select(p => p.name)), typeof(float)));
+                changed = true;
+            }
         if (changed)
-            GraphScopeEditing.SetSignalParameters(graph, signal, edited);
+        {
+            GraphScopeEditing.SetSignalParameters(graph, signal, edited, renamedFrom, renamedTo);
+            GUIUtility.ExitGUI(); // the graph windows were redrawn; start this pass over
+        }
 
         EditorGUILayout.Space(6);
         if (signal.Asset != null)
             DrawSignalNetwork(signal.Asset, () => Undo.RecordObject(graph, "Network Sync"), () => GraphScopeEditing.Commit(graph, structural: false));
 
         EditorGUILayout.Space(6);
-        EditorGUILayout.LabelField("Send it to an object with Send (wire the object into To); react to it with On Received in any graph that object runs.", EditorStyles.wordWrappedMiniLabel);
+        EditorGUILayout.LabelField(signal.Direction == GraphSignalDirection.Output
+            ? "An Output Signal: this graph sends it (Send), and other graphs react to it (On Received) to extend what happens."
+            : "An Input Signal: other graphs send it to an object running this graph (Send, with the object in To), and this graph reacts to it (On Received).",
+            EditorStyles.wordWrappedMiniLabel);
     }
+
+    private static readonly GUIContent[] _directionLabels =
+    {
+        new("Input", "Other graphs send it; this graph reacts to it (On Received)."),
+        new("Output", "This graph sends it; other graphs react to it (On Received)."),
+    };
 
     private static readonly GUIContent[] _senderLabels =
     {

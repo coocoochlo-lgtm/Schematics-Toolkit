@@ -20,7 +20,33 @@ public sealed class DockItem
     public string Name;
     public Type ValueType;
     public SignalData Signal;
-    public SignalDirection Direction;
+
+    private SignalDirection _direction;
+
+    /// <summary>
+    /// What a graph does with the Signal, from the Behavior's point of view: Input = the graph sends it, Output = the
+    /// graph reacts to it, Unspecified = ask. For a graph's own Signal dragged from somewhere that doesn't know which
+    /// graph it'll be dropped into (<see cref="DirectionFromDropTarget"/>), it's worked out from the graph window under
+    /// the mouse, since graph Signals go one way inside their graph and the other way everywhere else.
+    /// </summary>
+    public SignalDirection Direction
+    {
+        get
+        {
+            if (DirectionFromDropTarget && Kind == ItemKind.Signal && Signal != null
+                && UnityEditor.EditorWindow.mouseOverWindow is SchematicGraphEditorWindow window && window.SchematicGraph != null)
+            {
+                bool? send = GraphSignalRules.ShouldSend(window.SchematicGraph, Signal);
+                if (send.HasValue)
+                    return send.Value ? SignalDirection.Input : SignalDirection.Output;
+            }
+            return _direction;
+        }
+        set => _direction = value;
+    }
+
+    /// <summary>Work <see cref="Direction"/> out from the graph it's dropped into (for graph Signals).</summary>
+    public bool DirectionFromDropTarget;
     public GameObject GameObject;
     /// <summary>For graph Variables and Signals: the graph that declares them.</summary>
     public SchematicGraph Graph;

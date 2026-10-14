@@ -48,6 +48,17 @@ namespace Remedy.Schematics
         public string Description;
 
         /// <summary>
+        /// Which way the Signal goes, seen from outside the graph: other graphs send its Input Signals (and this graph
+        /// reacts to them), and react to its Output Signals (which this graph sends). Stored on the <see cref="Asset"/>,
+        /// like <see cref="Networked"/>, so nodes in other graphs can check it without loading this one.
+        /// </summary>
+        public GraphSignalDirection Direction
+        {
+            get => Asset != null ? Asset.GraphDirection : GraphSignalDirection.Unspecified;
+            set { if (Asset != null) Asset.GraphDirection = value; }
+        }
+
+        /// <summary>
         /// Network Sync: sending it fires it for every player. Stored on the Signal's <see cref="Asset"/>, which is what
         /// travels at runtime, so the graph and the asset can never disagree.
         /// </summary>
@@ -62,6 +73,68 @@ namespace Remedy.Schematics
         {
             get => Asset != null ? Asset.Sender : SignalNetworkSender.Authority;
             set { if (Asset != null) Asset.Sender = value; }
+        }
+    }
+
+    /// <summary>
+    /// The direction of a graph's own Signal. Unspecified only for Signals made before graph Signals had a direction
+    /// (the editor fills it in from how the graph uses them) and for Signals that aren't a graph's.
+    /// </summary>
+    public enum GraphSignalDirection
+    {
+        Unspecified = 0,
+        /// <summary>Other graphs send it; the graph that declares it reacts to it.</summary>
+        Input = 1,
+        /// <summary>The graph that declares it sends it; other graphs react to it.</summary>
+        Output = 2,
+    }
+
+    /// <summary>
+    /// The rules that make graph Signals directional. From another graph you may only send a graph's Input Signals
+    /// and react to its Output Signals; inside the graph that declares them it's the other way round (it reacts to its
+    /// own Inputs and sends its own Outputs). Signals without a direction (Behavior Signals, global ones) are free.
+    /// </summary>
+    public static class GraphSignalRules
+    {
+        /// <summary>Why <paramref name="user"/> may not send this Signal, or null if it may.</summary>
+        public static string SendError(SchematicGraph user, SignalData signal)
+        {
+            if (user == null || signal == null)
+                return null;
+            var direction = signal.GraphDirection;
+            if (direction == GraphSignalDirection.Unspecified)
+                return null;
+            bool own = user.FindSignal(signal) != null;
+            if (own && direction == GraphSignalDirection.Input)
+                return $"\"{signal.name}\" is one of this graph's Input Signals: other graphs send it, and this graph reacts to it (On Received). Make it an Output Signal to send it from here.";
+            if (!own && direction == GraphSignalDirection.Output)
+                return $"\"{signal.name}\" is an Output Signal of another graph: only that graph sends it. React to it here with On Received instead.";
+            return null;
+        }
+
+        /// <summary>Why <paramref name="user"/> may not react to this Signal, or null if it may.</summary>
+        public static string ReceiveError(SchematicGraph user, SignalData signal)
+        {
+            if (user == null || signal == null)
+                return null;
+            var direction = signal.GraphDirection;
+            if (direction == GraphSignalDirection.Unspecified)
+                return null;
+            bool own = user.FindSignal(signal) != null;
+            if (own && direction == GraphSignalDirection.Output)
+                return $"\"{signal.name}\" is one of this graph's Output Signals: this graph sends it, and other graphs react to it. Make it an Input Signal to react to it here.";
+            if (!own && direction == GraphSignalDirection.Input)
+                return $"\"{signal.name}\" is an Input Signal of another graph: other graphs send it, only that graph reacts to it. Send it from here instead.";
+            return null;
+        }
+
+        /// <summary>True if <paramref name="user"/> should send (rather than react to) this graph Signal; null if either is fine.</summary>
+        public static bool? ShouldSend(SchematicGraph user, SignalData signal)
+        {
+            if (user == null || signal == null || signal.GraphDirection == GraphSignalDirection.Unspecified)
+                return null;
+            bool own = user.FindSignal(signal) != null;
+            return own ? signal.GraphDirection == GraphSignalDirection.Output : signal.GraphDirection == GraphSignalDirection.Input;
         }
     }
 

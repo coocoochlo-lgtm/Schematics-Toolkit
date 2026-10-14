@@ -46,6 +46,19 @@ public partial class SignalData : ScriptableObject, Remedy.Schematics.ISchematic
     [Tooltip("Who may send it: the object's authority, its owner (checked by the authority), or anyone.")]
     public Remedy.Schematics.SignalNetworkSender Sender = Remedy.Schematics.SignalNetworkSender.Authority;
 
+    [SerializeField, HideInInspector]
+    private Remedy.Schematics.GraphSignalDirection _graphDirection;
+
+    /// <summary>
+    /// For a Signal a Schematic Graph declares: Input (other graphs send it, the graph reacts) or Output (the graph
+    /// sends it, other graphs react). Unspecified for every other Signal. See <see cref="Remedy.Schematics.GraphSignalRules"/>.
+    /// </summary>
+    public Remedy.Schematics.GraphSignalDirection GraphDirection
+    {
+        get => _graphDirection;
+        set => _graphDirection = value;
+    }
+
     /// <summary>Whether this Signal already has its saved id (asking <see cref="Uid"/> would make one).</summary>
     public bool HasUid => !string.IsNullOrEmpty(_uid);
 

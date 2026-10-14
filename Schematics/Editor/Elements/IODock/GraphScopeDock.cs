@@ -43,16 +43,15 @@ public class GraphScopeDock : VisualElement
             if (variable != null)
                 Add(VariableRow(_graph, variable, editable: true));
 
-        Add(Header("Signals", "Add a Signal to this graph: send it to an object, and react to it in any graph that object runs.", () =>
-        {
-            var signal = GraphScopeEditing.AddSignal(_graph);
-            ScopeItemInspector.Show(SignalItem(_graph, signal));
-        }));
-        if (_graph.Signals.Count == 0)
-            Add(Hint("None yet. Press + to add one, then drag it into the graph to Send it or react to it."));
-        foreach (var signal in _graph.Signals.ToList())
-            if (signal != null)
-                Add(SignalRow(_graph, signal, editable: true));
+        // Signals are directional: other graphs send this graph's Inputs (it reacts to them) and react to its Outputs
+        // (it sends them). Old Signals without a direction get one from how the graph uses them.
+        GraphScopeEditing.MigrateDirections(_graph);
+        AddSignalSection(GraphSignalDirection.Input, "Input Signals",
+            "Add an Input Signal: other graphs (and Behaviors) send it to an object running this graph, and this graph reacts to it.",
+            "None yet. Press + to add one: other graphs send it, and this graph reacts to it (drag it in for On Received).");
+        AddSignalSection(GraphSignalDirection.Output, "Output Signals",
+            "Add an Output Signal: this graph sends it, and other graphs react to it to extend what happens.",
+            "None yet. Press + to add one: this graph sends it (drag it in for Send), and other graphs react to it.");
 
         Add(OtherGraphs());
     }
@@ -110,24 +109,83 @@ public class GraphScopeDock : VisualElement
         return row;
     }
 
-    private VisualElement SignalRow(SchematicGraph graph, GraphSignal signal, bool editable)
+    private void AddSignalSection(GraphSignalDirection direction, string title, string tooltip, string hint)
     {
-        var item = SignalItem(graph, signal);
-        string detail = DockRows.Parameters(signal.Parameters.Where(p => p != null).Select(p => (p.Name, p.Type.Type)));
-        var row = DockRows.Build(item, DockRows.InputIcon, signal.Name, detail,
-            "Graph Signal: drag it in to Send it or react to it; click it to find its nodes and edit it in the Inspector."
+        Add(Header(title, tooltip, () =>
+        {
+            var signal = GraphScopeEditing.AddSignal(_graph, direction: direction);
+            ScopeItemInspector.Show(SignalItem(_graph, signal));
+        }));
+        var signals = _graph.Signals.Where(s => s != null && (direction == GraphSignalDirection.Input
+            ? s.Direction != GraphSignalDirection.Output : s.Direction == GraphSignalDirection.Output)).ToList();
+        if (signals.Count == 0)
+            Add(Hint(hint));
+        foreach (var signal in signals)
+            Add(SignalCard(_graph, signal, editable: true));
+    }
+
+    // A Signal's row with, for this graph's own, its parameters (and "Add Parameter…") under it.
+    private VisualElement SignalCard(SchematicGraph graph, GraphSignal signal, bool editable)
+    {
+        var card = new VisualElement();
+        card.AddToClassList("graph-signal-card");
+        var row = SignalRow(graph, signal, editable, out var item);
+        card.Add(row);
+        if (!editable)
+            return card;
+
+        var parameters = new SignalParameterList(
+            () => GraphScopeEditing.SignalParameterList(signal),
+            (list, from, to) => GraphScopeEditing.SetSignalParameters(graph, signal, list, from, to),
+            GraphScopeEditing.VariableTypes);
+        card.Add(parameters);
+
+        row.AddManipulator(new ContextualMenuManipulator(evt =>
+        {
+            evt.menu.AppendAction("Rename", _ => Rename(row, signal.Name, name => GraphScopeEditing.RenameSignal(graph, signal, name)));
+            evt.menu.AppendAction("Direction/Input (other graphs send it, this graph reacts)", _ => GraphScopeEditing.SetSignalDirection(graph, signal, GraphSignalDirection.Input),
+                signal.Direction != GraphSignalDirection.Output ? DropdownMenuAction.Status.Checked : DropdownMenuAction.Status.Normal);
+            evt.menu.AppendAction("Direction/Output (this graph sends it, other graphs react)", _ => GraphScopeEditing.SetSignalDirection(graph, signal, GraphSignalDirection.Output),
+                signal.Direction == GraphSignalDirection.Output ? DropdownMenuAction.Status.Checked : DropdownMenuAction.Status.Normal);
+            // Parameters are edited right under the row; this jumps there (and shows the Signal in the Inspector too).
+            evt.menu.AppendAction("Edit Parameters…", _ =>
+            {
+                ScopeItemInspector.Show(item);
+                parameters.schedule.Execute(parameters.FocusFirst);
+            });
+            evt.menu.AppendAction("Add Parameter…", _ => parameters.schedule.Execute(() =>
+            {
+                var list = GraphScopeEditing.SignalParameterList(signal);
+                if (list.Count >= SignalParameterList.MaxParameters) return;
+                list.Add((SignalParameterList.Unique("Value", list.Select(p => p.name)), typeof(float)));
+                GraphScopeEditing.SetSignalParameters(graph, signal, list);
+            }), GraphScopeEditing.SignalParameterList(signal).Count < SignalParameterList.MaxParameters ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
+            evt.menu.AppendAction("Delete", _ => GraphScopeEditing.DeleteSignal(graph, signal));
+        }));
+        return card;
+    }
+
+    private VisualElement SignalRow(SchematicGraph graph, GraphSignal signal, bool editable, out DockItem item)
+    {
+        item = SignalItem(graph, signal, _graph);
+        var dockItem = item;
+        bool output = signal.Direction == GraphSignalDirection.Output;
+        // This graph's own list their parameters (editable) under the row instead.
+        string detail = editable ? "" : DockRows.Parameters(signal.Parameters.Where(p => p != null).Select(p => (p.Name, p.Type.Type)));
+        bool own = graph == _graph;
+        string use = output
+            ? (own ? "Output Signal: this graph sends it (drag it in for Send); other graphs react to it." : "Output Signal of " + graph.name + ": drag it in to react to it (On Received).")
+            : (own ? "Input Signal: other graphs send it; this graph reacts to it (drag it in for On Received)." : "Input Signal of " + graph.name + ": drag it in to send it (Send, with the object in To).");
+        var row = DockRows.Build(item, output ? DockRows.OutputIcon : DockRows.InputIcon, signal.Name, detail,
+            use + " Click it to find its nodes and edit it in the Inspector."
             + (string.IsNullOrEmpty(signal.Description) ? "" : "\n\n" + signal.Description),
-            () => { _window.FocusNodes(item); ScopeItemInspector.Show(item); });
+            () => { _window.FocusNodes(dockItem); ScopeItemInspector.Show(dockItem); });
+        // Coloured by what the Signal is, whichever node dragging it makes here.
+        row.RemoveFromClassList("event-container-input");
+        row.RemoveFromClassList("event-container-output");
+        row.AddToClassList(output ? "event-container-output" : "event-container-input");
         if (signal.Asset != null)
             _rows[item.Key] = row;
-
-        if (editable)
-            row.AddManipulator(new ContextualMenuManipulator(evt =>
-            {
-                evt.menu.AppendAction("Rename", _ => Rename(row, signal.Name, name => GraphScopeEditing.RenameSignal(graph, signal, name)));
-                evt.menu.AppendAction("Edit Parameters…", _ => ScopeItemInspector.Show(item));
-                evt.menu.AppendAction("Delete", _ => GraphScopeEditing.DeleteSignal(graph, signal));
-            }));
         return row;
     }
 
@@ -136,10 +194,25 @@ public class GraphScopeDock : VisualElement
         Kind = DockItem.ItemKind.GraphVariable, Graph = graph, VariableId = variable.Id, Name = variable.Name, ValueType = variable.ValueType,
     };
 
-    public static DockItem SignalItem(SchematicGraph graph, GraphSignal signal) => new()
+    /// <summary>
+    /// A graph Signal as a dock item. Dragged into <paramref name="viewer"/>, it makes the node that graph may use: in
+    /// the graph that declares it, On Received for an Input and Send for an Output; in any other graph, the reverse.
+    /// (A dock item's Direction is the Behavior's point of view: Input means "the graph sends it".)
+    /// </summary>
+    public static DockItem SignalItem(SchematicGraph graph, GraphSignal signal, SchematicGraph viewer = null) => new()
     {
-        Kind = DockItem.ItemKind.Signal, Graph = graph, Signal = signal.Asset, Name = signal.Name, Direction = SignalDirection.Unspecified,
+        Kind = DockItem.ItemKind.Signal, Graph = graph, Signal = signal.Asset, Name = signal.Name,
+        Direction = DragDirection(graph, signal, viewer ?? graph),
+        DirectionFromDropTarget = true, // dropped into another graph window, it goes the other way
     };
+
+    internal static SignalDirection DragDirection(SchematicGraph owner, GraphSignal signal, SchematicGraph viewer)
+    {
+        if (signal == null || signal.Direction == GraphSignalDirection.Unspecified)
+            return SignalDirection.Unspecified;
+        bool send = viewer == owner ? signal.Direction == GraphSignalDirection.Output : signal.Direction == GraphSignalDirection.Input;
+        return send ? SignalDirection.Input : SignalDirection.Output;
+    }
 
     #endregion
 
@@ -173,6 +246,7 @@ public class GraphScopeDock : VisualElement
         var pinned = Pinned();
         foreach (var other in pinned)
         {
+            GraphScopeEditing.MigrateDirections(other);
             var section = new Foldout { text = other.name, value = true };
             section.AddToClassList("dock-behavior");
             var target = other;
@@ -188,7 +262,7 @@ public class GraphScopeDock : VisualElement
             foreach (var variable in other.Variables.Where(v => v != null))
                 section.Add(VariableRow(other, variable, editable: false));
             foreach (var signal in other.Signals.Where(s => s != null))
-                section.Add(SignalRow(other, signal, editable: false));
+                section.Add(SignalCard(other, signal, editable: false));
             if (other.Variables.Count == 0 && other.Signals.Count == 0)
                 section.Add(Hint("This graph has no Variables or Signals of its own."));
             foldout.Add(section);

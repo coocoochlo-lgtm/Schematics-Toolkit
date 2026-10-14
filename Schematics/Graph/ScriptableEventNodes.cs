@@ -22,6 +22,18 @@ public class SendSignalNode : SchematicActionNode
 
     [NonSerialized] private Union[] _arguments;
 
+    /// <summary>
+    /// Graph Signals are directional: flags a node that sends one this graph may only react to (it still runs, so
+    /// graphs made before directions existed keep working, but the node shows why it's wrong).
+    /// </summary>
+    public override void OnValidate()
+    {
+        base.OnValidate();
+        string error = GraphSignalRules.SendError(Graph as SchematicGraph, Signal);
+        if (Error != error)
+            Error = error;
+    }
+
     protected override void OnTrigger(GameObject instance, bool awaiting = false)
     {
         if (Signal == null)
@@ -78,4 +90,13 @@ public class OnSignalReceivedNode : SchematicEventNode
 {
     [Editable]
     public SignalData Signal;
+
+    /// <summary>Flags a node that reacts to a graph Signal this graph may only send (see <see cref="GraphSignalRules"/>).</summary>
+    public override void OnValidate()
+    {
+        base.OnValidate();
+        string error = GraphSignalRules.ReceiveError(Graph as SchematicGraph, Signal);
+        if (Error != error)
+            Error = error;
+    }
 }
