@@ -19,10 +19,16 @@ namespace Remedy.Schematics.Browsers
         private const string SfxRoot = AudioRoot + "/SFX";
         private const string TagRoot = AudioRoot + "/Tags";
         private const string AudioPrefs = "Remedy.AudioClipBrowser";
+        private const int WaveformWidth = 512;
+        private const int WaveformHeight = 128;
 
         private readonly List<AudioClipTag> _tags = new();
         private readonly List<AudioClip> _clips = new();
         private readonly List<PlayerControls> _players = new();
+        private readonly Dictionary<AudioClip, Texture2D> _waveforms = new();
+        private readonly HashSet<Texture2D> _ownedWaveforms = new();
+        private readonly HashSet<AudioClip> _waveformsPending = new();
+        private static Texture2D _glossTexture;
         private string _selectedFolder = AudioRoot;
         private AudioClipTag _selectedTag;
         private AudioClip _previewClip;
@@ -37,7 +43,7 @@ namespace Remedy.Schematics.Browsers
         protected override string PrefsKey => AudioPrefs;
         protected override string Title => "Audio Clip Browser";
         protected override string IconName => "AudioClip Icon";
-        protected override string Hint => "Click a thumbnail to preview audio; use the player to seek.";
+        protected override string Hint => "Click a waveform to preview; drag a clip into the scene or another window.";
 
         [MenuItem("Window/Remedy/Audio Clip Browser", false, 102)]
         public static void Open() => OpenWindow<AudioClipBrowserWindow>();
@@ -58,6 +64,11 @@ namespace Remedy.Schematics.Browsers
             EditorApplication.projectChanged -= OnProjectChanged;
             rootVisualElement.UnregisterCallback<PointerUpEvent>(OnEditorClick, TrickleDown.TrickleDown);
             StopPreview();
+            foreach (var waveform in _ownedWaveforms)
+                DestroyImmediate(waveform);
+            _ownedWaveforms.Clear();
+            _waveforms.Clear();
+            _waveformsPending.Clear();
             base.OnDisable();
         }
 
@@ -310,86 +321,103 @@ namespace Remedy.Schematics.Browsers
             var card = new VisualElement();
             card.AddToClassList("audio-browser__card");
             card.style.width = size;
+            card.style.backgroundColor = GetTags(clip).FirstOrDefault()?.Color
+                ?? (EditorGUIUtility.isProSkin ? new Color(0.22f, 0.22f, 0.22f) : new Color(0.78f, 0.78f, 0.78f));
+            var gloss = new Image
+            {
+                image = GlossTexture,
+                scaleMode = ScaleMode.StretchToFill,
+                pickingMode = PickingMode.Ignore
+            };
+            gloss.AddToClassList("audio-browser__gloss");
+            card.Add(gloss);
+
+            var name = new Label(clip.name) { tooltip = AssetDatabase.GetAssetPath(clip) };
+            name.AddToClassList("audio-browser__clip-name");
+            name.style.color = TextColorFor(card.style.backgroundColor.value);
+            card.Add(name);
+
+            var tag = GetTags(clip).FirstOrDefault();
+            var tagName = new Label(tag != null ? tag.TagName : "Untagged");
+            tagName.AddToClassList("audio-browser__card-tag");
+            tagName.style.color = TextColorFor(card.style.backgroundColor.value);
+            card.Add(tagName);
+
+            var timeline = BuildTimeline(clip);
+            card.Add(timeline.Container);
 
             var previewSurface = new VisualElement();
             previewSurface.AddToClassList("audio-browser__thumbnail");
             previewSurface.AddToClassList("audio-preview-surface");
-            var texture = AssetPreview.GetAssetPreview(clip) ?? AssetPreview.GetMiniThumbnail(clip);
-            var thumbnail = new Image { image = texture, scaleMode = ScaleMode.ScaleToFit, pickingMode = PickingMode.Ignore };
+            var thumbnail = new Image
+            {
+                image = WaveformFor(clip),
+                scaleMode = ScaleMode.StretchToFill,
+                pickingMode = PickingMode.Ignore
+            };
+            thumbnail.AddToClassList("audio-browser__waveform");
             previewSurface.Add(thumbnail);
-            var pointerDown = Vector2.zero;
-            double downTime = 0;
             previewSurface.RegisterCallback<PointerDownEvent>(evt =>
             {
                 if (evt.button != 0)
                     return;
-                pointerDown = evt.position;
-                downTime = EditorApplication.timeSinceStartup;
+                timeline.PressPosition = evt.position;
+                timeline.PressTime = EditorApplication.timeSinceStartup;
+                timeline.Pressed = true;
+            });
+            previewSurface.RegisterCallback<PointerMoveEvent>(evt =>
+            {
+                if (!timeline.Pressed || (evt.pressedButtons & 1) == 0)
+                    return;
+                if (((Vector2)evt.position - timeline.PressPosition).sqrMagnitude < 36f)
+                    return;
+
+                timeline.Pressed = false;
+                timeline.Dragged = true;
+                DragAndDrop.PrepareStartDrag();
+                DragAndDrop.objectReferences = new UnityEngine.Object[] { clip };
+                DragAndDrop.paths = new[] { AssetDatabase.GetAssetPath(clip) };
+                DragAndDrop.StartDrag(clip.name);
+                evt.StopPropagation();
             });
             previewSurface.RegisterCallback<PointerUpEvent>(evt =>
             {
+                if (!timeline.Pressed)
+                {
+                    timeline.Pressed = false;
+                    timeline.Dragged = false;
+                    return;
+                }
+                timeline.Pressed = false;
                 if (evt.button == 0
-                    && EditorApplication.timeSinceStartup - downTime <= 0.45d
-                    && Vector2.Distance(pointerDown, evt.position) <= 5f)
+                    && !timeline.Dragged
+                    && EditorApplication.timeSinceStartup - timeline.PressTime <= 0.45d)
                     TogglePreview(clip);
+                timeline.Dragged = false;
+            });
+            previewSurface.RegisterCallback<PointerLeaveEvent>(_ =>
+            {
+                if (timeline.Pressed)
+                    timeline.Dragged = true;
             });
             card.Add(previewSurface);
 
-            var name = new Label(clip.name) { tooltip = AssetDatabase.GetAssetPath(clip) };
-            name.AddToClassList("audio-browser__clip-name");
-            card.Add(name);
-
-            var tags = new VisualElement();
-            tags.AddToClassList("audio-browser__card-tags");
-            foreach (var tag in GetTags(clip))
-            {
-                var chip = new Label(tag.TagName);
-                chip.AddToClassList("audio-browser__card-tag");
-                chip.style.backgroundColor = tag.Color;
-                tags.Add(chip);
-            }
-            card.Add(tags);
-
-            var player = BuildPlayer(clip);
-            card.Add(player.Container);
-            _players.Add(player);
+            _players.Add(timeline);
             card.RegisterCallback<ContextClickEvent>(evt => ShowClipMenu(clip));
             return card;
         }
 
-        private PlayerControls BuildPlayer(AudioClip clip)
+        private PlayerControls BuildTimeline(AudioClip clip)
         {
             var container = new VisualElement();
-            container.AddToClassList("audio-browser__player");
+            container.AddToClassList("audio-browser__timeline");
             container.AddToClassList("audio-player-control");
-            var play = new Button { text = "▶" };
-            play.tooltip = "Play or stop preview";
-            play.AddToClassList("audio-browser__play");
-            play.AddToClassList("audio-player-control");
-            var playPointerDown = Vector2.zero;
-            double playDownTime = 0;
-            play.RegisterCallback<PointerDownEvent>(evt =>
-            {
-                if (evt.button != 0)
-                    return;
-                playPointerDown = evt.position;
-                playDownTime = EditorApplication.timeSinceStartup;
-            });
-            play.RegisterCallback<PointerUpEvent>(evt =>
-            {
-                if (evt.button == 0
-                    && EditorApplication.timeSinceStartup - playDownTime <= 0.45d
-                    && Vector2.Distance(playPointerDown, evt.position) <= 5f)
-                    TogglePreview(clip);
-            });
-            container.Add(play);
-
             var seek = new Slider(0f, Mathf.Max(clip.samples - 1, 1))
             {
                 value = 0f,
                 showInputField = false
             };
-            seek.AddToClassList("audio-browser__seek");
+            seek.AddToClassList("audio-browser__timeline-slider");
             seek.AddToClassList("audio-player-control");
             seek.RegisterValueChangedCallback(evt =>
             {
@@ -402,10 +430,10 @@ namespace Remedy.Schematics.Browsers
                     StopPreview();
             });
             container.Add(seek);
-            var time = new Label("0:00");
+            var time = new Label($"0:00 / {FormatTime(clip.length)}");
             time.AddToClassList("audio-browser__time");
             container.Add(time);
-            return new PlayerControls(clip, container, play, seek, time);
+            return new PlayerControls(clip, container, seek, time);
         }
 
         private void TogglePreview(AudioClip clip)
@@ -434,18 +462,17 @@ namespace Remedy.Schematics.Browsers
         {
             foreach (var player in _players)
             {
-                bool playing = player.Clip == _previewClip && AudioPreview.IsPlaying();
-                player.Play.text = playing ? "■" : "▶";
                 if (player.Clip != _previewClip)
                 {
                     player.Seek.SetValueWithoutNotify(0f);
-                    player.Time.text = "0:00";
+                    player.Time.text = $"0:00 / {FormatTime(player.Clip.length)}";
                 }
             }
         }
 
         private void Update()
         {
+            RefreshPendingWaveforms();
             if (_previewClip == null)
                 return;
             if (!AudioPreview.IsPlaying())
@@ -458,15 +485,136 @@ namespace Remedy.Schematics.Browsers
             if (player == null)
                 return;
             float seconds = AudioPreview.Position();
-            player.Seek.SetValueWithoutNotify(Mathf.Clamp(seconds * _previewClip.frequency, 0f, _previewClip.samples));
+            player.Seek.SetValueWithoutNotify(Mathf.Clamp(seconds * _previewClip.frequency, 0f, Mathf.Max(_previewClip.samples - 1, 1)));
             player.Time.text = FormatTime(seconds) + " / " + FormatTime(_previewClip.length);
-            player.Play.text = "■";
         }
 
         private static string FormatTime(float seconds)
         {
             int total = Mathf.Max(0, Mathf.FloorToInt(seconds));
             return $"{total / 60}:{total % 60:00}";
+        }
+
+        private static Color TextColorFor(Color color)
+        {
+            float luminance = 0.2126f * color.r + 0.7152f * color.g + 0.0722f * color.b;
+            return luminance > 0.55f ? Color.black : Color.white;
+        }
+
+        private static Texture2D GlossTexture
+        {
+            get
+            {
+                if (_glossTexture == null)
+                    _glossTexture = Resources.Load<Texture2D>("Textures/button-gradient");
+                return _glossTexture;
+            }
+        }
+
+        private Texture2D WaveformFor(AudioClip clip)
+        {
+            if (_waveforms.TryGetValue(clip, out var waveform) && waveform != null)
+                return waveform;
+
+            waveform = AudioPreview.Waveform(clip);
+            if (waveform != null)
+            {
+                _waveforms[clip] = waveform;
+                return waveform;
+            }
+
+            waveform = new Texture2D(WaveformWidth, WaveformHeight, TextureFormat.RGBA32, false)
+            {
+                name = $"{clip.name} Waveform",
+                hideFlags = HideFlags.HideAndDontSave,
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear
+            };
+            var pixels = new Color[WaveformWidth * WaveformHeight];
+            var amplitudes = ReadWaveformAmplitudes(clip);
+            for (int x = 0; x < WaveformWidth; x++)
+            {
+                float amplitude = amplitudes != null
+                    ? amplitudes[x]
+                    : 0.035f;
+                int halfHeight = Mathf.Clamp(Mathf.CeilToInt(amplitude * (WaveformHeight * 0.46f)), 1, WaveformHeight / 2);
+                for (int y = WaveformHeight / 2 - halfHeight; y <= WaveformHeight / 2 + halfHeight; y++)
+                    pixels[y * WaveformWidth + x] = new Color(1f, 1f, 1f, amplitudes == null ? 0.48f : 0.9f);
+            }
+            waveform.SetPixels(pixels);
+            waveform.Apply(false, false);
+            _waveforms[clip] = waveform;
+            _ownedWaveforms.Add(waveform);
+            if (amplitudes == null && clip.loadState == AudioDataLoadState.Loading)
+                _waveformsPending.Add(clip);
+            return waveform;
+        }
+
+        private float[] ReadWaveformAmplitudes(AudioClip clip)
+        {
+            if (clip == null || clip.samples <= 0 || clip.channels <= 0)
+                return null;
+
+            if (clip.loadState == AudioDataLoadState.Unloaded)
+                clip.LoadAudioData();
+            int framesPerBucket = Mathf.Max(1, Mathf.CeilToInt(clip.samples / (float)WaveformWidth));
+            var amplitudes = new float[WaveformWidth];
+            const int bucketsPerRead = 32;
+            for (int firstBucket = 0; firstBucket < WaveformWidth; firstBucket += bucketsPerRead)
+            {
+                int firstFrame = firstBucket * framesPerBucket;
+                if (firstFrame >= clip.samples)
+                    break;
+                int bucketCount = Mathf.Min(bucketsPerRead, WaveformWidth - firstBucket);
+                int frameCount = Mathf.Min(bucketCount * framesPerBucket, clip.samples - firstFrame);
+                var data = new float[frameCount * clip.channels];
+                if (!clip.GetData(data, firstFrame))
+                    return null;
+
+                for (int bucket = 0; bucket < bucketCount; bucket++)
+                {
+                    int bucketFirstFrame = bucket * framesPerBucket;
+                    if (bucketFirstFrame >= frameCount)
+                        break;
+                    int bucketFrames = Mathf.Min(framesPerBucket, frameCount - bucketFirstFrame);
+                    float peak = 0f;
+                    for (int frame = 0; frame < bucketFrames; frame++)
+                        for (int channel = 0; channel < clip.channels; channel++)
+                            peak = Mathf.Max(peak, Mathf.Abs(data[(bucketFirstFrame + frame) * clip.channels + channel]));
+                    amplitudes[firstBucket + bucket] = peak;
+                }
+            }
+            return amplitudes;
+        }
+
+        private void RefreshPendingWaveforms()
+        {
+            if (_waveformsPending.Count == 0)
+                return;
+            foreach (var clip in _waveformsPending.ToArray())
+            {
+                if (clip == null || clip.loadState == AudioDataLoadState.Failed)
+                {
+                    _waveformsPending.Remove(clip);
+                    continue;
+                }
+                if (clip.loadState != AudioDataLoadState.Loaded)
+                    continue;
+
+                _waveformsPending.Remove(clip);
+                var amplitudes = ReadWaveformAmplitudes(clip);
+                if (amplitudes == null || !_waveforms.TryGetValue(clip, out var waveform) || waveform == null)
+                    continue;
+                var pixels = new Color[WaveformWidth * WaveformHeight];
+                for (int x = 0; x < WaveformWidth; x++)
+                {
+                    int halfHeight = Mathf.Clamp(Mathf.CeilToInt(amplitudes[x] * (WaveformHeight * 0.46f)), 1, WaveformHeight / 2);
+                    for (int y = WaveformHeight / 2 - halfHeight; y <= WaveformHeight / 2 + halfHeight; y++)
+                        pixels[y * WaveformWidth + x] = new Color(1f, 1f, 1f, 0.9f);
+                }
+                waveform.SetPixels(pixels);
+                waveform.Apply(false, false);
+            }
         }
 
         private static bool IsWithin(VisualElement element, string className)
@@ -538,9 +686,11 @@ namespace Remedy.Schematics.Browsers
         {
             var labels = AssetDatabase.GetLabels(clip).ToList();
             string guid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(tag));
-            if (labels.Contains(guid))
-                labels.Remove(guid);
-            else
+            bool removing = labels.Contains(guid);
+            var audioTagGuids = new HashSet<string>(_tags
+                .Select(item => AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(item))));
+            labels.RemoveAll(audioTagGuids.Contains);
+            if (!removing)
                 labels.Add(guid);
             AssetDatabase.SetLabels(clip, labels.ToArray());
             MoveClip(clip, tag.Type == AudioType.Music ? MusicRoot : SfxRoot, true);
@@ -780,15 +930,17 @@ namespace Remedy.Schematics.Browsers
         {
             public readonly AudioClip Clip;
             public readonly VisualElement Container;
-            public readonly Button Play;
             public readonly Slider Seek;
             public readonly Label Time;
+            public Vector2 PressPosition;
+            public double PressTime;
+            public bool Pressed;
+            public bool Dragged;
 
-            public PlayerControls(AudioClip clip, VisualElement container, Button play, Slider seek, Label time)
+            public PlayerControls(AudioClip clip, VisualElement container, Slider seek, Label time)
             {
                 Clip = clip;
                 Container = container;
-                Play = play;
                 Seek = seek;
                 Time = time;
             }
@@ -797,6 +949,35 @@ namespace Remedy.Schematics.Browsers
         private static class AudioPreview
         {
             private static readonly Type UtilityType = typeof(AudioImporter).Assembly.GetType("UnityEditor.AudioUtil");
+
+            public static Texture2D Waveform(AudioClip clip)
+            {
+                if (UtilityType == null)
+                    return null;
+                var method = UtilityType.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+                    .FirstOrDefault(candidate =>
+                    {
+                        if (candidate.Name != "GetWaveForm" || candidate.ReturnType != typeof(Texture2D))
+                            return false;
+                        var parameters = candidate.GetParameters();
+                        return parameters.Length == 4
+                            && parameters[0].ParameterType == typeof(AudioClip)
+                            && parameters[1].ParameterType == typeof(Rect)
+                            && parameters[2].ParameterType == typeof(float)
+                            && parameters[3].ParameterType == typeof(float);
+                    });
+                if (method == null)
+                    return null;
+                try
+                {
+                    return method.Invoke(null, new object[] { clip, new Rect(0f, 0f, WaveformWidth, WaveformHeight), 1f, 0f }) as Texture2D;
+                }
+                catch (TargetInvocationException exception)
+                {
+                    Debug.LogException(exception.InnerException ?? exception);
+                    return null;
+                }
+            }
 
             private static object Call(string name, params object[] arguments)
             {
