@@ -6,7 +6,8 @@ namespace Remedy.ManifoldNetwork
     /// <summary>
     /// Where every weight lives in the one flat parameter array: the master MLP, one small MLP per head, then the
     /// translator (each layer's weights row by row, then its biases); then the WFC rulebooks (Coexist, Follow, Handoff,
-    /// T × T each) and the memory bank's recall sharpness β when those modules are on; and finally the value spaces'
+    /// T × T each), the memory bank's recall sharpness β and the heads' identity projections (H × K × K) when those
+    /// modules are on; and finally the value spaces'
     /// point values when they're trainable. The GPU uses the same offsets.
     /// </summary>
     public sealed class WeightLayout
@@ -37,6 +38,9 @@ namespace Remedy.ManifoldNetwork
 
         /// <summary>The memory bank's β (one value), when the memory is on.</summary>
         public readonly int BetaOffset, BetaCount;
+
+        /// <summary>The heads' identity projections P_h (H × K × K, row = sample value written, column = bit read), when identity masks are on.</summary>
+        public readonly int IdentityOffset, IdentityCount, IdentityWidth;
 
         /// <summary>Where the trainable point values start, and how many there are (0 when fixed).</summary>
         public readonly int ValuesOffset, ValuesCount;
@@ -80,7 +84,10 @@ namespace Remedy.ManifoldNetwork
             RulesCount = s.RuleCount;
             BetaOffset = RulesOffset + RulesCount;
             BetaCount = s.memoryEnabled ? 1 : 0;
-            ValuesOffset = BetaOffset + BetaCount;
+            IdentityOffset = BetaOffset + BetaCount;
+            IdentityCount = s.IdentityCount;
+            IdentityWidth = s.IdentityWidth;
+            ValuesOffset = IdentityOffset + IdentityCount;
             ValuesCount = s.trainableValueSpaces ? s.headCount * s.pointsPerSpace * s.outputCount : 0;
             Count = ValuesOffset + ValuesCount;
             _ruleLrScale = s.wfcRuleLrScale;
@@ -107,7 +114,7 @@ namespace Remedy.ManifoldNetwork
             }
         }
 
-        /// <summary>Fresh weights: Xavier-uniform from the seed, zero biases, neutral rulebooks (all zero), β from the settings.</summary>
+        /// <summary>Fresh weights: Xavier-uniform from the seed, zero biases, neutral rulebooks (all zero), β from the settings, small identity projections.</summary>
         public void Initialize(float[] parameters, uint seed)
         {
             Array.Clear(parameters, 0, parameters.Length);
@@ -115,6 +122,8 @@ namespace Remedy.ManifoldNetwork
                 InitializeLayer(parameters, l, seed, 0);
             if (BetaCount > 0)
                 parameters[BetaOffset] = _beta;
+            for (int i = 0; i < IdentityCount; i++)
+                parameters[IdentityOffset + i] = 0.1f * MnnHash.Signed(MnnHash.Hash(seed, MnnHash.StreamIdentity, 0xFFFFFFFEu, (uint)i, 0));
         }
 
         /// <summary>Re-randomizes one block (a head being revived), from a different stream so it gets new weights.</summary>

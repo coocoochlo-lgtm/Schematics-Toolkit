@@ -27,6 +27,7 @@ namespace Remedy.ManifoldNetwork.Editor
                     $"{layout.Count:N0} trainable values ({layout.MlpCount:N0} MLP weights" +
                     (layout.RulesCount > 0 ? $", {layout.RulesCount} rulebook values" : "") +
                     (layout.BetaCount > 0 ? ", memory β" : "") +
+                    (layout.IdentityCount > 0 ? $", {layout.IdentityCount} identity weights" : "") +
                     (layout.ValuesCount > 0 ? $", {layout.ValuesCount:N0} point values" : "") + ").\n" +
                     $"{s.CopiesPerWindow} copies run per instance while training ({s.perturbMode}, {s.perturbPairs} pairs).\n" +
                     $"Heads move at {s.tickRate:0.#} Hz nominal; base timescales {s.timescaleMin:0.###}–{s.timescaleMax:0.###} s." +

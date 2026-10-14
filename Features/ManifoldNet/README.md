@@ -120,6 +120,50 @@ recalled one. Strength halves every `memoryHalfLife` seconds. Call `Remember(ins
 `Reinforce(instance, amount)` from C#, or let the Brain do it. Slots save with the brain (`MnnBrain.MemorySlots`).
 Clear the bank (`ClearMemory`) when the sensor layout changes.
 
+## Identities, imitation and familiar exploration (optional)
+
+Four small learners that work next to the weight nudges. They use each step's error: the supervised error, or what
+you report with `ReportError`. They're all off by default, and with them off the network behaves exactly as before.
+
+- **Identity masks** (`identityMasks`). Each head of each instance gets an *identity*: one number between 0 and 1 per
+  value it reads (K of them; K = `identityWidth`, or all N). Every step the identity is expressed as on/off bits, with
+  a little random wobble while training. The bits are compared with the signs of what the head just read (XOR), passed
+  through a small matrix the head learns like its other weights, and added to the reading (× `identityAlpha`). So two
+  bots with the same weights still read their heads a little differently.
+
+  The identity learns on its own, not by gradient. When a step goes better than usual, the identity moves toward the
+  bits it just expressed; when it goes worse, it moves away. Each instance starts from a different seeded identity, so
+  a crowd stays diverse. Identities save with the brain (`MnnBrain.IdentityMasks`).
+
+  Why the head's reading: it's what the head hands to the translator, so it's the head's "feature vector" (like the
+  last hidden layer in an ordinary network). It exists whatever the MLP shape, it's signed, so its sign bits mean
+  something, and it only adds H × K × K weights.
+- **Imitation** (`imitationEnabled`). A table of `imitationSlots` situations and the outputs that did better than
+  usual there.
+  - A *situation* is a 64-bit fingerprint (a SimHash) of the inputs, plus the last outputs with
+    `imitationKeyFeedback`. Nearby situations share most bits. Similarity is exp(−differing bits × `imitationFalloff`).
+  - A step only writes when it beat the usual error. Then the remembered output for that situation is pulled toward
+    what was just done (by `imitationRate` × how much better it was). A new situation takes an empty slot or replaces
+    the weakest one.
+  - Every entry fades every step (half-life `imitationHalfLife`), so stale habits wash out.
+  - Each step, each copy recalls a target and a confidence c. Its training score becomes
+    (1 − c) × error + c × `imitationWeight` × (distance to the target)², so copies that do what worked before score
+    better.
+
+  This matters most when all you can give is a score (`ReportError`, Crowd Learning). A score says *how* wrong, not
+  *which way*. The remembered good outputs supply the direction.
+- **Familiar exploration** (`familiarityExploration`). In a situation the imitation memory (or the episodic memory)
+  knows well, the brain explores less: the nudge size, the adaptive sine and the identity wobble are all scaled by
+  lerp(1, `familiarExploreScale`, familiarity). New situations keep the full amount.
+- **Trajectory credit** (`trajectoryCredit`, needs imitation). When a step beats the usual error, the outputs of the
+  `creditSteps` steps before it are written too, fading by `creditDecay` per step back. A late reward then marks the
+  actions that led to it.
+
+The memories are written by the real network between steps, in instance order, as with the episodic memory. In
+Population and Sequential training each instance runs a nudged copy, so it writes from that. The imitation memory is
+shared by every instance and isn't saved with the brain: it fades within minutes anyway. The shared plan doesn't read
+the identities. There was no clean way to turn K × K bits into per-type plan preferences.
+
 ## Making a bot with the Brain behavior
 
 1. **Add a Brain** to the Schematic Object (IO Dock, **+ Add Behavior > AI/Brain**). In its dock section, press
@@ -158,9 +202,9 @@ Clear the bank (`ClearMemory`) when the sensor layout changes.
    definition and the bot ships trained. Changing the slots or network settings makes saved weights stop fitting,
    because weights are tied to the input order. The dock warns you and offers **Reset**.
 
-### Shared plan and episodic memory
+### Shared plan, memory and the learners
 
-The dock's **Network** foldout has two optional modules (both off by default):
+The dock's **Network** foldout has these optional modules (all off by default):
 
 - **Shared Plan**: the heads agree on a short plan together (see "The shared plan grid" below).
 - **Episodic Memory**: a teaching moment the brain got wrong (its own answer was off by more than 0.05, mean
@@ -168,6 +212,9 @@ The dock's **Network** foldout has two optional modules (both off by default):
   away from the usual) remembers what the bot did, signed, so a punished moment is remembered as "avoid". Every
   reward also strengthens or weakens whatever the bot had just recalled. The bot can repeat something it was shown
   once while training slowly makes it permanent. Memories are saved with the learned weights.
+- **Identity Masks**, **Imitation** (with **Credit Earlier Steps**) and **Familiar Exploration**: see "Identities,
+  imitation and familiar exploration". They learn from teaching errors and, with Crowd Learning, from rewards. Each
+  bot's identities are saved with the learned weights.
 
 The brain's **Thinks / Second** is also its nominal tick: heads move in real time against it.
 
@@ -251,6 +298,17 @@ Defaults are starting guesses. Fields marked † change the weight layout, so sa
 | `writeThreshold` / `mergeThreshold` | 0.5 / 0.95 | Reward size that writes / key similarity that merges |
 | `memoryHalfLife` | 600 s | Time for an unused slot's strength to halve |
 | `memoryScope` | Shared | One bank for every instance, or one each |
+| `identityMasks` † | off | A learned identity per head and instance that reshapes the head's reading |
+| `identityWidth` † (K) | 0 | Reading values the identity covers (0 = all N) |
+| `identityAlpha` / `identityNoise` / `identityRate` | 0.5 / 0.2 / 0.01 | How loud the identity is / its wobble while training / how fast it learns |
+| `imitationEnabled` | off | The self-imitation memory |
+| `imitationSlots` | 128 | Remembered situations (max 1,024) |
+| `imitationWeight` / `imitationRate` | 1 / 0.5 | Its share of the training score at full confidence / how far a good attempt pulls its entry |
+| `imitationFalloff` / `imitationMergeBits` | 0.2 / 4 | Similarity exp(−bits × falloff) / keys this close are the same situation |
+| `imitationHalfLife` | 60 s | Time for every entry's quality and familiarity to halve |
+| `imitationKeyFeedback` | on | The situation also includes the last outputs (its context) |
+| `familiarityExploration` / `familiarExploreScale` | off / 0.3 | Explore less where it's familiar / exploration left at full familiarity |
+| `trajectoryCredit` / `creditSteps` / `creditDecay` | off / 8 / 0.7 | A good step also credits the steps before it / how many / fade per step back |
 | `seed` † | 1234 | Everything random comes from this |
 
 ## Debug window
@@ -264,6 +322,8 @@ Defaults are starting guesses. Fields marked † change the weight layout, so sa
   undecided cells fade by how sure they are. Resets are marked. Three small heatmaps show the rulebooks.
 - **Memory** (memory on): a graph of recall confidence, and each slot's strength, age, time since recalled, and how
   much it's being recalled now.
+- **Identities and imitation** (when on): the imitation confidence, the mean familiarity and the exploration scale
+  it gives, and each head's identity bits (filled: set; bright: sure).
 
 ## Tests
 
@@ -291,9 +351,16 @@ The tests are in **Window > General > Test Runner > EditMode > Remedy.ManifoldNe
   - population mode learning a constant;
   - the GPU learning the same;
   - saving, loading and mixing.
-- **ParityTests** (GPU, skipped without compute shaders) check the GPU against the CPU over four configs (the last
-  with the plan grid, memory and spatial grid on, at uneven ticks): outputs over 1,000 steps, weights after 100
-  updates, practice, memory banks, plan grids, state capture and restore, and 1,024 instances.
+- **ImitationTests** (CPU) cover:
+  - the SimHash keeping nearby situations close;
+  - imitation writing only better-than-usual attempts, pulling toward them, and fading every entry each step;
+  - trajectory credit fading per step back;
+  - identities moving toward the bits of good steps and away from bad ones, seeded per instance;
+  - the layout staying the same with the features off, familiarity rising, and no allocations per step.
+- **ParityTests** (GPU, skipped without compute shaders) check the GPU against the CPU over five configs (the fourth
+  with the plan grid, memory and spatial grid on, at uneven ticks; the fifth with identities, imitation, credit and
+  familiar exploration): outputs over 1,000 steps, weights after 100 updates, reward-only training, practice, memory
+  and imitation banks, identities, plan grids, state capture and restore, and 1,024 instances.
 
 ## Notes
 
@@ -310,3 +377,11 @@ The tests are in **Window > General > Test Runner > EditMode > Remedy.ManifoldNe
   sampling modes. A committed head always reads its type's soft average.
 - **GPU kernels are one thread per (instance, copy), or per (instance, copy, head)** for the head kernels. They don't
   use groupshared tiling yet. That would be a speed-up, not a change in results.
+- **"Better than usual" is scale-free.** Identities and imitation use (baseline − error) / (2 × spread), clamped to
+  ±1. The spread is the running mean distance of errors from the baseline, so the rates behave the same whatever the
+  units of the errors or rewards.
+- **The learners haven't paid off on the ablation tasks yet.** On CPU, 30,000 steps, 3 seeds, with the plan grid and
+  every older extra on: adding identities, imitation, credit and familiar exploration was within noise on cue, delay
+  and flip. It lowered the hidden-target error from 0.187 to 0.172, but the heads-cut floor (0.162) was lower still. On
+  a reward-only version (only a score per step, Sequential training), imitation made things worse (0.31 vs 0.24 with
+  the plain network). Treat them as experimental, and measure on your own task.

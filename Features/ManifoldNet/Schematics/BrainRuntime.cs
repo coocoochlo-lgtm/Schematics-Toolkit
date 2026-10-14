@@ -462,6 +462,8 @@ namespace Remedy.ManifoldNetwork.Schematics
             };
             if (parameters != null)
                 Net.SetParameters(parameters);
+            if (parameters != null && old != null && Settings.identityMasks)
+                Net.SetIdentityMasks(old.GetIdentityMasks());   // a bigger network keeps the bots' identities
             else if (Definition.SavedBrainFits)
                 Net.LoadBrain(Definition.SavedBrain);
             else if (Definition.SavedBrain != null && !Definition.SavedBrain.IsEmpty)

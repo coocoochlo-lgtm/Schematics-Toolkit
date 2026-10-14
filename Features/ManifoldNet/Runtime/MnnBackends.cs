@@ -34,6 +34,12 @@ namespace Remedy.ManifoldNetwork
         float[] GetMemoryBank();
         void SetMemoryBank(ReadOnlySpan<float> bank);
 
+        // Identity masks (per instance × head × K, soft).
+        float[] GetIdentityMasks();
+        void SetIdentityMasks(ReadOnlySpan<float> masks);
+        /// <summary>The imitation slots: S × (output (N), quality, familiarity, used).</summary>
+        float[] GetImitationBank();
+
         /// <summary>Head positions on the GPU: instance i's heads (H × D floats) start at i × HeadStride.</summary>
         GraphicsBuffer HeadPositions { get; }
         int HeadStride { get; }
@@ -107,6 +113,9 @@ namespace Remedy.ManifoldNetwork
         public void ClearMemory() => Cpu.ClearMemory();
         public float[] GetMemoryBank() => (float[])Cpu.MemoryBank.Clone();
         public void SetMemoryBank(ReadOnlySpan<float> bank) => Cpu.SetMemoryBank(bank);
+        public float[] GetIdentityMasks() => (float[])Cpu.IdentityMasks.Clone();
+        public void SetIdentityMasks(ReadOnlySpan<float> masks) => Cpu.SetIdentityMasks(masks);
+        public float[] GetImitationBank() => Cpu.ImitationBank.ToArray();
 
         public GraphicsBuffer HeadPositions
         {

@@ -142,6 +142,15 @@ namespace Remedy.ManifoldNetwork.Schematics.Editor
                 n.liquidGates = EditorGUILayout.Toggle(new GUIContent("Liquid Timing", "Each head can speed up when its input says \"pay attention\". Off: fixed timescales."), n.liquidGates);
                 n.wfcEnabled = EditorGUILayout.Toggle(new GUIContent("Shared Plan", "Heads commit to a coordinated multi-step plan (wave-function collapse over point types)."), n.wfcEnabled);
                 n.memoryEnabled = EditorGUILayout.Toggle(new GUIContent("Episodic Memory", "Remembers teaching moments and big rewards at once, so the bot can repeat something it was shown once."), n.memoryEnabled);
+                n.identityMasks = EditorGUILayout.Toggle(new GUIContent("Identity Masks", "Each head gets a learned identity of its own, per bot, that reshapes what it reads. Bots end up with different personalities."), n.identityMasks);
+                n.imitationEnabled = EditorGUILayout.Toggle(new GUIContent("Imitation", "Remembers what worked better than usual in each situation and leans learning toward it there. Turns scores (Crowd Learning) into something close to teaching."), n.imitationEnabled);
+                using (new EditorGUI.DisabledScope(!n.imitationEnabled))
+                {
+                    EditorGUI.indentLevel++;
+                    n.trajectoryCredit = EditorGUILayout.Toggle(new GUIContent("Credit Earlier Steps", "A good moment also marks what the bot did in the few steps before it as good."), n.trajectoryCredit);
+                    EditorGUI.indentLevel--;
+                }
+                n.familiarityExploration = EditorGUILayout.Toggle(new GUIContent("Familiar Exploration", "Explores less in situations it remembers well, and more in new ones."), n.familiarityExploration);
                 n.learningRate = EditorGUILayout.FloatField(new GUIContent("Learning Rate"), n.learningRate);
                 n.seed = (uint)Mathf.Max(0, EditorGUILayout.IntField(new GUIContent("Seed", "Everything random comes from this; brains can only be mixed with the same seed."), (int)n.seed));
                 definition.PreferCpu = EditorGUILayout.Toggle(new GUIContent("Prefer CPU", "Often faster for a single small brain."), definition.PreferCpu);

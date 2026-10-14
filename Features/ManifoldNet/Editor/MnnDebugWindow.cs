@@ -9,7 +9,8 @@ namespace Remedy.ManifoldNetwork.Editor
     /// Watch a running network think: each head's trajectory through its value space (the first two dimensions), with
     /// where the master is steering it (target) and where the nearby points pull it (attractor); its timescale and gate;
     /// how much the translator uses each head; the recent error; and, when those modules are on, the shared plan grid
-    /// with its three rulebooks and the episodic memory's slots with recall confidence.
+    /// with its three rulebooks, the episodic memory's slots with recall confidence, each head's identity bits and the
+    /// imitation memory's confidence.
     /// </summary>
     public class MnnDebugWindow : EditorWindow
     {
@@ -18,7 +19,7 @@ namespace Remedy.ManifoldNetwork.Editor
         private int _network, _instance;
         private bool _paused, _byType, _showPlan = true, _showMemory = true;
         private ManifoldNet _watched;
-        private float[] _points, _values, _rules, _bank;
+        private float[] _points, _values, _rules, _bank, _identities;
         private int[] _types;
         private MnnState _state;
         private readonly List<Vector2>[] _trails = new List<Vector2>[MnnSettings.MaxHeads];
@@ -73,6 +74,7 @@ namespace Remedy.ManifoldNetwork.Editor
                 _nextSlow = EditorApplication.timeSinceStartup + 0.5;
                 if (s.wfcEnabled && _showPlan) _rules = net.GetRulebooks();
                 if (s.memoryEnabled && _showMemory) _bank = net.GetMemoryBank();
+                if (s.identityMasks) _identities = net.GetIdentityMasks();
             }
             Repaint();
         }
@@ -96,6 +98,7 @@ namespace Remedy.ManifoldNetwork.Editor
             _outputs = new float[net.InstanceCount * net.Settings.outputCount];
             _rules = null;
             _bank = null;
+            _identities = null;
             _state = null;
             _resets.Clear();
             for (int i = 0; i < _trails.Length; i++) _trails[i] = new List<Vector2>();
@@ -141,6 +144,7 @@ namespace Remedy.ManifoldNetwork.Editor
             DrawOutputs(net);
             if (s.wfcEnabled) DrawPlan(net);
             if (s.memoryEnabled) DrawMemory(net);
+            if (s.identityMasks || s.UsesFamiliarity) DrawLearners(net);
 
             ExtraGUI?.Invoke(net, _instance);
             EditorGUILayout.EndScrollView();
@@ -350,6 +354,42 @@ namespace Remedy.ManifoldNetwork.Editor
                         EditorGUI.DrawRect(rect, new Color(0, 0, 0, 0.3f));
                         EditorGUI.DrawRect(rect, color);
                     }
+            }
+        }
+
+        #endregion
+
+        #region Identity and imitation
+
+        // Each head's identity as bits (filled: set, brightness: how sure), and the imitation memory's confidence.
+        private void DrawLearners(ManifoldNet net)
+        {
+            var s = net.Settings;
+            var stats = net.Stats;
+            EditorGUILayout.Space();
+            if (s.UsesFamiliarity)
+                EditorGUILayout.LabelField(
+                    (s.imitationEnabled ? $"Imitation confidence (instance 0) {stats.ImitationConfidence:0.00}   " : "") +
+                    $"Familiarity (mean) {stats.Familiarity:0.00}" +
+                    (s.familiarityExploration ? $"   Exploration × {1f + (s.familiarExploreScale - 1f) * stats.Familiarity:0.00}" : ""),
+                    EditorStyles.miniBoldLabel);
+            int k = s.IdentityWidth;
+            if (!s.identityMasks || _identities == null || _identities.Length < (_instance + 1) * s.headCount * k)
+                return;
+            EditorGUILayout.LabelField($"Identity bits (instance {_instance}): filled = set, bright = sure", EditorStyles.miniBoldLabel);
+            const float box = 10f;
+            for (int h = 0; h < s.headCount; h++)
+            {
+                var row = GUILayoutUtility.GetRect(position.width - 20f, box + 2f);
+                GUI.Label(new Rect(row.x, row.y - 2f, 50f, box + 4f), $"Head {h}", EditorStyles.miniLabel);
+                for (int j = 0; j < k; j++)
+                {
+                    float soft = _identities[(_instance * s.headCount + h) * k + j];
+                    float sure = Mathf.Abs(soft - 0.5f) * 2f;
+                    var color = soft > 0.5f ? Color.Lerp(new Color(0.4f, 0.4f, 0.4f), new Color(1f, 0.85f, 0.3f), sure)
+                                            : Color.Lerp(new Color(0.3f, 0.3f, 0.3f), new Color(0.12f, 0.12f, 0.12f), sure);
+                    EditorGUI.DrawRect(new Rect(row.x + 54f + j * (box + 2f), row.y, box, box), color);
+                }
             }
         }
 

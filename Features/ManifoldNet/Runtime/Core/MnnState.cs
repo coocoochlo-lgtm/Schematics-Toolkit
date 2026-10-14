@@ -106,5 +106,11 @@ namespace Remedy.ManifoldNetwork
         public int MemoryWrites;
         /// <summary>Instance 0's last recall confidence c (memory on).</summary>
         public float MemoryConfidence;
+        /// <summary>Instance 0's last imitation confidence c (imitation on).</summary>
+        public float ImitationConfidence;
+        /// <summary>The instances' mean familiarity last step (imitation or familiarity exploration on).</summary>
+        public float Familiarity;
+        /// <summary>Imitation writes so far (CPU only; the GPU makes them on the device and doesn't count them).</summary>
+        public int ImitationWrites;
     }
 }

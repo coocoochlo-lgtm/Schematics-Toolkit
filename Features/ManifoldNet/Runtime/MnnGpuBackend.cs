@@ -18,13 +18,13 @@ namespace Remedy.ManifoldNetwork
         private readonly WeightLayout _layout;
         private readonly ComputeShader _shader;
         private readonly int _instances, _rows, _practiceRow, _copies, _stateFloats, _statsStride, _banks;
-        private readonly bool _wfc, _memory;
-        private readonly int _t, _f;
+        private readonly bool _wfc, _memory, _identity, _imitation;
+        private readonly int _t, _f, _k, _creditSteps;
 
         private readonly int _kMemoryQueue, _kMemoryFade, _kMemoryRecall, _kMasterForward, _kMemoryRead, _kSlaveMove, _kSampleSpace,
             _kWfcPlan, _kTranslatorForward, _kAccumulateError, _kForkState, _kReduceSupervised, _kReduceReported, _kClearCopyErrors,
             _kApplyUpdate, _kCopyParameters, _kReinitializeLayer, _kReviveHead, _kResetRows, _kSurpriseReset, _kPlanReset,
-            _kPackState, _kUnpackState;
+            _kPackState, _kUnpackState, _kImitationRead, _kImitationBlend, _kIdentityUpdate, _kImitationWrite, _kClearRows;
         private readonly int[] _kernels;
 
         private GraphicsBuffer _params, _moment, _variance, _best;
@@ -33,15 +33,16 @@ namespace Remedy.ManifoldNetwork
         private GraphicsBuffer _planSpread, _planType, _planAge, _typePartials, _memKey, _memAttn, _memSlots, _memQueue;
         private GraphicsBuffer _inputs, _targets, _targetWeights, _outputs, _scratch;
         private GraphicsBuffer _slotError, _rowPenalty, _stepStats, _copyError, _copyCount, _rowReports, _staging;
+        private GraphicsBuffer _idSoft, _idHard, _imitProj, _imitSlots, _imitKeys, _imitStateKey, _imitRing, _imitRingKey, _signal, _rowImit, _rowBlend;
 
         // Upload scratch, preallocated so a step allocates nothing.
-        private readonly float[] _inputUpload, _targetUpload, _weightUpload, _reportUpload, _queueUpload;
+        private readonly float[] _inputUpload, _targetUpload, _weightUpload, _reportUpload, _queueUpload, _signalUpload;
         private readonly float[] _latestOutputs, _statsScratch;
         private bool _haveOutputs, _anyQueued;
 
         // Bookkeeping, as in MnnCpu.
-        private readonly double[] _rowError;
-        private readonly bool[] _rowReported;
+        private readonly double[] _rowError, _sigError;
+        private readonly bool[] _rowReported, _sigHas;
         private int _windowStep, _windowSteps, _sequentialCopy, _adamStep;
         private uint _window, _practiceCount, _noiseWindow;
         private float _sigma;
@@ -58,7 +59,7 @@ namespace Remedy.ManifoldNetwork
         private bool _rolledBack, _surprised, _planSurprised;
         private uint _steps;
         private int _updates, _revivals, _rollbacks, _planResets, _memoryWrites;
-        private float _memoryConfidence;
+        private float _memoryConfidence, _spread, _familiarity, _imitationConfidence;
 
         /// <summary>Read stats and outputs back right away instead of a frame later (tests, editor tools).</summary>
         public bool Synchronous;
@@ -72,6 +73,7 @@ namespace Remedy.ManifoldNetwork
             ErrorTrace = _trace, ErrorBaseline = _baseline, Alpha = _alpha,
             Updates = _updates, Revivals = _revivals, Rollbacks = _rollbacks, Steps = _steps,
             PlanResets = _planResets, MemoryWrites = _memoryWrites, MemoryConfidence = _memoryConfidence,
+            ImitationConfidence = _imitationConfidence, Familiarity = _familiarity,
         };
 
         public static bool Supported => SystemInfo.supportsComputeShaders && LoadShader() != null;
@@ -93,8 +95,12 @@ namespace Remedy.ManifoldNetwork
             _t = _wfc ? _s.typeCount : 0;
             _f = _s.PlanColumns;
             _banks = _memory ? _s.MemoryBanks(_instances) : 0;
+            _identity = _s.identityMasks;
+            _imitation = _s.imitationEnabled;
+            _k = _s.IdentityWidth;
+            _creditSteps = _s.CreditSteps;
             _stateFloats = new MnnState(_s).FlatLength;
-            _statsStride = _s.headCount + 2;
+            _statsStride = _s.headCount + 4;
 
             _kMemoryQueue = _shader.FindKernel("MemoryQueue");
             _kMemoryFade = _shader.FindKernel("MemoryFade");
@@ -119,10 +125,15 @@ namespace Remedy.ManifoldNetwork
             _kPlanReset = _shader.FindKernel("PlanReset");
             _kPackState = _shader.FindKernel("PackState");
             _kUnpackState = _shader.FindKernel("UnpackState");
+            _kImitationRead = _shader.FindKernel("ImitationRead");
+            _kImitationBlend = _shader.FindKernel("ImitationBlend");
+            _kIdentityUpdate = _shader.FindKernel("IdentityUpdate");
+            _kImitationWrite = _shader.FindKernel("ImitationWrite");
+            _kClearRows = _shader.FindKernel("ClearRows");
             _kernels = new[] { _kMemoryQueue, _kMemoryFade, _kMemoryRecall, _kMasterForward, _kMemoryRead, _kSlaveMove, _kSampleSpace,
                 _kWfcPlan, _kTranslatorForward, _kAccumulateError, _kForkState, _kReduceSupervised, _kReduceReported, _kClearCopyErrors,
                 _kApplyUpdate, _kCopyParameters, _kReinitializeLayer, _kReviveHead, _kResetRows, _kSurpriseReset, _kPlanReset,
-                _kPackState, _kUnpackState };
+                _kPackState, _kUnpackState, _kImitationRead, _kImitationBlend, _kIdentityUpdate, _kImitationWrite, _kClearRows };
 
             _inputUpload = new float[_rows * _s.inputCount];
             _targetUpload = new float[_rows * _s.outputCount];
@@ -133,6 +144,9 @@ namespace Remedy.ManifoldNetwork
             _statsScratch = new float[_rows * _statsStride];
             _rowError = new double[_rows];
             _rowReported = new bool[_rows];
+            _sigError = new double[_rows];
+            _sigHas = new bool[_rows];
+            _signalUpload = new float[_rows * 2];
             _usage = new float[_s.headCount];
             _lowSteps = new int[_s.headCount];
 
@@ -231,11 +245,28 @@ namespace Remedy.ManifoldNetwork
             _copyCount = Buffer(_copies); _copyCount.SetData(new float[_copies]);
             _rowReports = Buffer(_rows * 2);
             _staging = Buffer(_stateFloats);
+
+            // Identity masks (seeded per instance, as MnnCpu) and the imitation memory.
+            int masks = _instances * h * _k;
+            _idSoft = Buffer(masks);
+            _idHard = Buffer(masks); _idHard.SetData(new float[Math.Max(1, masks)]);
+            ResetIdentityMasks();
+            var projection = _imitation ? MnnCpu.BuildImitationProjection(_s) : new float[1];
+            _imitProj = Buffer(projection.Length); _imitProj.SetData(projection);
+            int slots = _imitation ? _s.imitationSlots : 0;
+            _imitSlots = Buffer(slots * _s.ImitationStride); _imitSlots.SetData(new float[_imitSlots.count]);
+            _imitKeys = Buffer(slots * 2, sizeof(uint)); _imitKeys.SetData(new uint[_imitKeys.count]);
+            _imitStateKey = Buffer(_imitation ? states * 2 : 1, sizeof(uint));
+            _imitRing = Buffer(_instances * _creditSteps * (n + 1)); _imitRing.SetData(new float[_imitRing.count]);
+            _imitRingKey = Buffer(_instances * _creditSteps * 2, sizeof(uint)); _imitRingKey.SetData(new uint[_imitRingKey.count]);
+            _signal = Buffer(_rows * 2); _signal.SetData(new float[_rows * 2]);
+            _rowImit = Buffer(_rows * 2); _rowImit.SetData(new float[_rows * 2]);
+            _rowBlend = Buffer(_rows); _rowBlend.SetData(new float[_rows]);
         }
 
         // Matches the compute shader's scratch layout (see its comment above MasterAt).
         private int ScratchFixed => _s.MasterInputs + _s.MasterOutputs + _s.TranslatorInputs + 2 * _s.hiddenWidth + _s.outputCount
-            + 3 * _t * _t + _t;
+            + 3 * _t * _t + _t + _s.outputCount + 2 + _s.ImitationKeyInputs;
         private int HeadScratch => 2 * _s.hiddenWidth + _s.SlaveOutputs;
         private int ScratchStride => ScratchFixed + _s.headCount * HeadScratch;
 
@@ -260,6 +291,9 @@ namespace Remedy.ManifoldNetwork
                 ("_Inputs", _inputs), ("_Targets", _targets), ("_TargetWeights", _targetWeights), ("_Outputs", _outputs), ("_Scratch", _scratch),
                 ("_SlotError", _slotError), ("_RowPenalty", _rowPenalty), ("_StepStats", _stepStats), ("_CopyError", _copyError),
                 ("_CopyCount", _copyCount), ("_RowReports", _rowReports), ("_Staging", _staging),
+                ("_IdSoft", _idSoft), ("_IdHard", _idHard), ("_ImitProj", _imitProj), ("_ImitSlots", _imitSlots), ("_ImitKeys", _imitKeys),
+                ("_ImitStateKey", _imitStateKey), ("_ImitRing", _imitRing), ("_ImitRingKey", _imitRingKey), ("_Signal", _signal),
+                ("_RowImit", _rowImit), ("_RowBlend", _rowBlend),
             };
             foreach (int k in _kernels)
                 foreach (var (name, buffer) in bindings)
@@ -310,6 +344,21 @@ namespace Remedy.ManifoldNetwork
             _shader.SetFloat("_MergeThreshold", s.mergeThreshold);
             _shader.SetFloat("_HalfLife", s.memoryHalfLife);
 
+            SetInt("_Identity", _identity ? 1 : 0); SetInt("_K", _k); SetInt("_IdentityOffset", _layout.IdentityOffset);
+            _shader.SetFloat("_IdentityAlpha", s.identityAlpha);
+            _shader.SetFloat("_IdentityNoise", s.identityNoise);
+            _shader.SetFloat("_IdentityRate", s.identityRate);
+            SetInt("_Imitation", _imitation ? 1 : 0); SetInt("_ImitSlotCount", _imitation ? s.imitationSlots : 0);
+            SetInt("_ImitStride", s.ImitationStride); SetInt("_KeyInputs", s.ImitationKeyInputs); SetInt("_KeyFeedback", s.imitationKeyFeedback ? 1 : 0);
+            SetInt("_CreditSteps", _creditSteps); SetInt("_MergeBits", s.imitationMergeBits);
+            _shader.SetFloat("_ImitWeight", s.imitationWeight);
+            _shader.SetFloat("_ImitRate", s.imitationRate);
+            _shader.SetFloat("_ImitFalloff", s.imitationFalloff);
+            _shader.SetFloat("_CreditDecay", s.creditDecay);
+            SetInt("_FamExplore", s.familiarityExploration ? 1 : 0);
+            _shader.SetFloat("_FamScale", s.familiarExploreScale);
+            SetInt("_GpuSignal", s.trainingMode == TrainingMode.Supervised ? 1 : 0);
+
             bool grid = s.UsesSpatialGrid;
             SetInt("_Grid", grid ? 1 : 0);
             if (grid)
@@ -346,6 +395,7 @@ namespace Remedy.ManifoldNetwork
                 throw new ArgumentException($"Expected {_instances * i} inputs.");
 
             float dt = deltaTime > 0f ? deltaTime : _s.TickDt;
+            ProcessSignals(dt);
             FlushErrors();
             ProcessMemory(dt);
             bool supervised = Training && _s.trainingMode == TrainingMode.Supervised;
@@ -378,6 +428,7 @@ namespace Remedy.ManifoldNetwork
             SetFrame(dt);
             SetInt("_HaveTargets", haveTargets ? 1 : 0);
             SetInt("_WeightPractice", 0);
+            SetInt("_Training", Training ? 1 : 0);
             Forward(_instances * (supervised ? _copies : 1));
 
             if (haveTargets)
@@ -403,6 +454,8 @@ namespace Remedy.ManifoldNetwork
             Dispatch(_kMasterForward, states);
             if (_memory)
                 Dispatch(_kMemoryRead, states);
+            if (_s.UsesFamiliarity)
+                Dispatch(_kImitationRead, states);
             Dispatch(_kSlaveMove, states * _s.headCount);
             Dispatch(_kSampleSpace, states * _s.headCount);
             if (_wfc)
@@ -426,7 +479,14 @@ namespace Remedy.ManifoldNetwork
         {
             if (instance < 0 || instance >= _instances || float.IsNaN(error))
                 return;
-            _rowError[instance] += error;
+            // MnnCpu.ReportError: with imitation, the step's report is blended on the GPU at the start of the next step.
+            if (!_imitation || _s.trainingMode == TrainingMode.Supervised)
+                _rowError[instance] += error;
+            if (_s.UsesSignals && _s.trainingMode != TrainingMode.Supervised)
+            {
+                _sigError[instance] += error;
+                _sigHas[instance] = true;
+            }
             _rowReported[instance] = true;
             _pendingError += error;
             _pendingCount++;
@@ -475,6 +535,13 @@ namespace Remedy.ManifoldNetwork
             }
             _memoryConfidence = stats[1 + h];
             _confidenceRing[(int)((_steps + 255) % 256)] = _memoryConfidence;
+            if (_s.UsesFamiliarity)
+            {
+                _imitationConfidence = stats[2 + h];
+                float sum = 0f;
+                for (int row = 0; row < _instances; row++) sum += stats[row * _statsStride + 3 + h];
+                _familiarity = sum / _instances;
+            }
         }
 
         public bool TryGetOutputs(float[] destination)
@@ -569,6 +636,84 @@ namespace Remedy.ManifoldNetwork
 
         #endregion
 
+        #region Identity masks and imitation
+
+        // MnnCpu.ProcessSignals: last step's signal (computed on the GPU when supervised, reported otherwise).
+        private void ProcessSignals(float dt)
+        {
+            if (!_s.UsesSignals)
+                return;
+            bool reward = _s.trainingMode != TrainingMode.Supervised;
+            if (reward)
+            {
+                for (int row = 0; row < _rows; row++)
+                {
+                    _signalUpload[row * 2] = (float)_sigError[row];
+                    _signalUpload[row * 2 + 1] = _sigHas[row] ? 1f : 0f;
+                }
+                _signal.SetData(_signalUpload);
+            }
+            if (Training)
+            {
+                if (_imitation && reward)
+                    Dispatch(_kImitationBlend, _instances);
+                if (!(_baseline == 0f && _trace == 0f))
+                {
+                    _shader.SetFloat("_Baseline", _baseline);
+                    _shader.SetFloat("_Spread", _spread);
+                    if (_identity)
+                        Dispatch(_kIdentityUpdate, _instances * _s.headCount);
+                    if (_imitation)
+                    {
+                        _shader.SetFloat("_ImitFade", MathF.Exp(-dt / _s.imitationHalfLife * 0.6931472f));
+                        _shader.Dispatch(_kImitationWrite, 1, 1, 1);
+                    }
+                }
+            }
+            Array.Clear(_sigHas, 0, _sigHas.Length);
+            Array.Clear(_sigError, 0, _sigError.Length);
+        }
+
+        private void ResetIdentityMasks()
+        {
+            int per = _s.headCount * _k;
+            var masks = new float[Math.Max(1, _instances * per)];
+            for (int row = 0; row < _instances; row++)
+                for (int j = 0; j < per; j++)
+                    masks[row * per + j] = MnnCpu.InitialIdentity(_s.seed, row, j);
+            _idSoft.SetData(masks);
+        }
+
+        public float[] GetIdentityMasks()
+        {
+            if (!_identity) return Array.Empty<float>();
+            var data = new float[_idSoft.count];
+            _idSoft.GetData(data);
+            return data;
+        }
+
+        public float[] GetImitationBank()
+        {
+            if (!_imitation) return Array.Empty<float>();
+            var data = new float[_imitSlots.count];
+            _imitSlots.GetData(data);
+            return data;
+        }
+
+        public void SetIdentityMasks(ReadOnlySpan<float> masks)
+        {
+            int per = _s.headCount * _k;
+            if (per == 0 || masks.Length < per || masks.Length % per != 0)
+                return;
+            var data = new float[_instances * per];
+            int saved = masks.Length / per;
+            for (int row = 0; row < _instances; row++)
+                masks.Slice((row % saved) * per, per).CopyTo(new Span<float>(data, row * per, per));
+            _idSoft.SetData(data);
+        }
+
+        #endregion
+
         #region Training
 
         private void OpenWindow()
@@ -583,8 +728,10 @@ namespace Remedy.ManifoldNetwork
             if (_s.trainingMode != TrainingMode.Sequential || _sequentialCopy == 0)
             {
                 _noiseWindow = _window;
-                _sigma = _s.perturbSigma * (_s.alphaScalesSigma ? 1f + _alpha : 1f);
+                _sigma = _s.perturbSigma * (_s.alphaScalesSigma ? 1f + _alpha : 1f) * ExploreFactor(_familiarity);
             }
+            if (_s.trainingMode != TrainingMode.Supervised)
+                Dispatch(_kClearRows, _rows);
             if (_s.trainingMode == TrainingMode.Sequential && _sequentialCopy == 0)
                 Dispatch(_kClearCopyErrors, _copies);
 
@@ -762,9 +909,11 @@ namespace Remedy.ManifoldNetwork
                 {
                     _trace = error;
                     _baseline = error;
+                    _spread = MathF.Abs(error);
                 }
                 else
                 {
+                    _spread += (MathF.Abs(error - _baseline) - _spread) * (1f - _s.baselineFalloff);
                     _trace += (error - _trace) * (1f - _s.errorFalloff);
                     _baseline += (error - _baseline) * (1f - _s.baselineFalloff);
                 }
@@ -773,8 +922,11 @@ namespace Remedy.ManifoldNetwork
                 _pendingError = 0;
                 _pendingCount = 0;
             }
-            _alpha = _baseline > 1e-8f ? Mathf.Clamp(_s.sineGain * (_trace / _baseline - 1f), 0f, _s.sineAlphaMax) : 0f;
+            _alpha = _baseline > 1e-8f ? Mathf.Clamp(_s.sineGain * (_trace / _baseline - 1f), 0f, _s.sineAlphaMax) * ExploreFactor(_familiarity) : 0f;
         }
+
+        private float ExploreFactor(float familiarity)
+            => _s.familiarityExploration ? 1f + (_s.familiarExploreScale - 1f) * familiarity : 1f;
 
         private void SurpriseReset()
         {
@@ -824,7 +976,7 @@ namespace Remedy.ManifoldNetwork
 
             FlushErrors();
             uint noise = 0x80000000u | _practiceCount++;
-            float sigma = _s.perturbSigma * (_s.alphaScalesSigma ? 1f + _alpha : 1f);
+            float sigma = _s.perturbSigma * (_s.alphaScalesSigma ? 1f + _alpha : 1f) * ExploreFactor(_familiarity);
 
             RestoreRow(_practiceRow, start);
             SetInt("_RowStart", _practiceRow);
@@ -839,6 +991,7 @@ namespace Remedy.ManifoldNetwork
             _shader.SetFloat("_Move", 1f);
             SetInt("_HaveTargets", 1);
             SetInt("_WeightPractice", 1);
+            SetInt("_Training", 1);
             for (int t = 0; t < steps; t++)
             {
                 inputs.Slice(t * i, i).CopyTo(new Span<float>(_inputUpload, _practiceRow * i, i));
@@ -949,7 +1102,8 @@ namespace Remedy.ManifoldNetwork
             foreach (var buffer in new[] { _params, _moment, _variance, _best, _points, _values, _timescale, _rest, _clocks, _pointTypes,
                 _gridStart, _gridOrder, _neighbors, _layerTable, _pos, _vel, _attr, _target, _gate, _sample, _trail, _feedback, _prevInput,
                 _stepCount, _planSpread, _planType, _planAge, _typePartials, _memKey, _memAttn, _memSlots, _memQueue, _inputs, _targets,
-                _targetWeights, _outputs, _scratch, _slotError, _rowPenalty, _stepStats, _copyError, _copyCount, _rowReports, _staging })
+                _targetWeights, _outputs, _scratch, _slotError, _rowPenalty, _stepStats, _copyError, _copyCount, _rowReports, _staging,
+                _idSoft, _idHard, _imitProj, _imitSlots, _imitKeys, _imitStateKey, _imitRing, _imitRingKey, _signal, _rowImit, _rowBlend })
                 buffer?.Release();
             if (_shader != null)
                 UnityEngine.Object.DestroyImmediate(_shader);

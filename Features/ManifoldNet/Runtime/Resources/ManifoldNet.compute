@@ -6,6 +6,7 @@
 //   MemoryQueue, MemoryFade, MemoryRecall   (memory bank on: last step's writes, fading, recall marks)
 //   MasterForward     one thread per state: master MLP → masks (+ plan biases), memory key
 //   MemoryRead        one thread per state: Hopfield recall → r, c for the translator
+//   ImitationRead     one thread per state: SimHash key, remembered good output + confidence, familiarity
 //   SlaveMove         one thread per (state, head): slave MLP → target + gate → liquid move with attractor pull → wrap
 //   SampleSpace       one thread per (state, head): soft or nearest sample, attractor, per-type partial sums, trail
 //   WfcPlan           one thread per state: seed, propagate, collapse, execute the now column, roll, trails
@@ -14,6 +15,8 @@
 // Training: ForkState at window start; ReduceSupervised / ReduceReported and ApplyUpdate at window end;
 // CopyParameters (best weights / rollback), ReinitializeLayer + ReviveHead, ResetRows, SurpriseReset, PlanReset,
 // PackState / UnpackState for capture and restore. Error trace, baseline, α and usage live on the CPU (MnnGpuBackend).
+// Signals (identity masks, imitation; MnnCpu.Imitation.cs), at the start of a step for the last one: ImitationBlend
+// (reward modes), IdentityUpdate, ImitationWrite; ClearRows when a reward-mode window opens.
 // TODO (speed, not correctness): groupshared tiles for MasterForward and SampleSpace.
 
 #pragma kernel MemoryQueue
@@ -39,6 +42,11 @@
 #pragma kernel PlanReset
 #pragma kernel PackState
 #pragma kernel UnpackState
+#pragma kernel ImitationRead
+#pragma kernel ImitationBlend
+#pragma kernel IdentityUpdate
+#pragma kernel ImitationWrite
+#pragma kernel ClearRows
 
 #define THREADS 64
 #define RADIUS 1.0
@@ -53,6 +61,8 @@
 #define STREAM_NOISE 4u
 #define STREAM_REVIVE 6u
 #define STREAM_WFC 10u
+#define STREAM_IDENTITY 11u
+#define KEY_BITS 64u
 
 // ---------------------------------------------------------------------------------------------------------------
 // Shape and per-dispatch settings.
@@ -81,6 +91,12 @@ uint _Wfc, _T, _F, _PlanBias, _Coexist, _Follow, _Handoff, _Passes, _Budget, _Pl
 // Memory bank.
 uint _Memory, _Slots, _MemStride, _MemShared, _MemInputAt;
 float _Fade, _MemDt, _MergeThreshold, _HalfLife;
+
+// Identity masks, imitation memory, familiarity exploration, trajectory credit.
+uint _Identity, _K, _IdentityOffset, _Imitation, _ImitSlotCount, _ImitStride, _KeyInputs, _KeyFeedback, _CreditSteps, _MergeBits;
+uint _FamExplore, _GpuSignal, _Training;
+float _IdentityAlpha, _IdentityNoise, _IdentityRate, _ImitWeight, _ImitRate, _ImitFalloff, _CreditDecay, _FamScale;
+float _Baseline, _Spread, _ImitFade;
 
 // Spatial grid.
 uint _Grid, _GridSize, _GridCells, _GridAround;
@@ -116,6 +132,15 @@ RWStructuredBuffer<float> _SlotError, _RowPenalty, _StepStats;
 RWStructuredBuffer<float> _CopyError, _CopyCount;
 StructuredBuffer<float> _RowReports;     // per row: error sum, reported flag
 RWStructuredBuffer<float> _Staging;
+RWStructuredBuffer<float> _IdSoft, _IdHard;            // per instance × head × K: identity (0-1), last expressed bits
+StructuredBuffer<float> _ImitProj;                      // 64 × (key inputs + 1): SimHash weights, then offset
+RWStructuredBuffer<float> _ImitSlots;                   // per slot: output (N), quality, familiarity, used
+RWStructuredBuffer<uint> _ImitKeys, _ImitStateKey;      // 2 words per slot / per state
+RWStructuredBuffer<float> _ImitRing;                    // per instance × credit step: output (N), valid
+RWStructuredBuffer<uint> _ImitRingKey;                  // per instance × credit step: 2 words
+RWStructuredBuffer<float> _Signal;                      // per row: last step's error, has-error flag
+RWStructuredBuffer<float> _RowImit;                     // per row (reward modes): imitation confidence, imitation error
+RWStructuredBuffer<float> _RowBlend;                    // per row (reward modes, imitation): blended error over the window
 
 // ---------------------------------------------------------------------------------------------------------------
 // Randomness (MnnHash.cs).
@@ -224,7 +249,8 @@ uint CopyFor(uint row, uint slot)
 }
 
 // Scratch layout per state: master input | master output | translator input | hidden A | hidden B | out (N) |
-// rule tables (3T²) | message (T) | then per head: hidden A | hidden B | slave output (SO).
+// rule tables (3T²) | message (T) | imitation target (N), confidence, familiarity, key inputs | then per head:
+// hidden A | hidden B | slave output (SO).
 uint MasterAt() { return 0u; }
 uint MaskAt() { return _MasterInputs; }
 uint TranslatorAt() { return _MasterInputs + _MasterOutputs; }
@@ -233,6 +259,7 @@ uint HiddenBAt() { return HiddenAAt() + _HiddenWidth; }
 uint OutAt() { return HiddenBAt() + _HiddenWidth; }
 uint RulesAt() { return OutAt() + _N; }
 uint MsgAt() { return RulesAt() + 3u * _T * _T; }
+uint ImitAt() { return MsgAt() + _T; }
 uint HeadScratchAt(uint h) { return _ScratchFixed + h * _HeadScratch; }
 
 uint BankOf(uint row) { return (_MemShared != 0u || row >= _Instances) ? 0u : row; }
@@ -552,9 +579,48 @@ uint GridAxis(float x)
     return (uint)clamp((int)floor((x + RADIUS) / _GridCellSize), 0, (int)_GridSize - 1);
 }
 
-// Each head's sample and trail, written into the translator's head block (MnnCpu.SampleSpace + the trail loop).
-void FinishHead(uint state, uint h, uint sampleAt)
+// The head's identity reshapes its sample (MnnCpu.ApplyIdentity): hard bits from the soft identity (+ noise while
+// training), XOR the sample's sign bits, through P_h, × α. The real network of a live instance keeps its expression.
+void ApplyIdentity(uint row, uint slot, uint copy, uint state, uint h, uint sampleAt)
 {
+    uint idRow = row < _Instances ? row : 0u;
+    uint idAt = (idRow * _H + h) * _K;
+    float familiarity = _Scratch[state * _ScratchStride + ImitAt() + _N + 1u];
+    float explore = _FamExplore != 0u ? 1.0 + (_FamScale - 1.0) * familiarity : 1.0;
+    float noiseScale = _Training != 0u ? _IdentityNoise * explore : 0.0;
+    uint stepCount = _StepCount[state];
+    bool record = slot == 0u && row < _Instances;
+    uint bitsLo = 0u, bitsHi = 0u;
+    for (uint k = 0u; k < _K; k++)
+    {
+        float noise = Signed(Hash(_Seed, STREAM_IDENTITY, stepCount, row, h * _K + k)) * noiseScale;
+        float hard = _IdSoft[idAt + k] + noise > 0.5 ? 1.0 : 0.0;
+        if (record) _IdHard[idAt + k] = hard;
+        float bit = _Scratch[sampleAt + k] > 0.0 ? 1.0 : 0.0;
+        if (hard != bit)
+        {
+            if (k < 32u) bitsLo |= 1u << k;
+            else bitsHi |= 1u << (k - 32u);
+        }
+    }
+    uint p = _IdentityOffset + h * _K * _K;
+    for (uint k2 = 0u; k2 < _K; k2++)
+    {
+        float sum = 0.0;
+        for (uint j = 0u; j < _K; j++)
+        {
+            uint set = j < 32u ? (bitsLo >> j) & 1u : (bitsHi >> (j - 32u)) & 1u;
+            sum += Weight(p + k2 * _K + j, copy) * (set != 0u ? 1.0 : 0.0);
+        }
+        _Scratch[sampleAt + k2] += _IdentityAlpha * sum;
+    }
+}
+
+// Each head's sample and trail, written into the translator's head block (MnnCpu.SampleSpace + the trail loop).
+void FinishHead(uint row, uint slot, uint copy, uint state, uint h, uint sampleAt)
+{
+    if (_Identity != 0u)
+        ApplyIdentity(row, slot, copy, state, h, sampleAt);
     float rate = 1.0 - exp(-_Dt / _TrailTimescale * (1.0 + (_Gates != 0u ? Softplus(_Gate[state * _H + h]) : 0.0)));
     uint trailAt = (state * _H + h) * _N;
     for (uint n = 0u; n < _N; n++)
@@ -633,7 +699,7 @@ void SampleSpace(uint3 id : SV_DispatchThreadID)
         _Attr[posAt + d3] = Wrap(_Pos[posAt + d3] + _Attr[posAt + d3] * norm);
 
     if (_Wfc == 0u)
-        FinishHead(state, h, sampleAt);
+        FinishHead(row, slot, copy, state, h, sampleAt);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -828,7 +894,7 @@ void WfcPlan(uint3 id : SV_DispatchThreadID)
                 for (uint n = 0u; n < _N; n++) _Scratch[sampleAt + n] = _TypePartials[at + 1u + n] * inv;
             }
         }
-        FinishHead(state, h, sampleAt);
+        FinishHead(row, slot, copy, state, h, sampleAt);
     }
 
     for (uint c2 = 0u; c2 < cells; c2++)
@@ -918,14 +984,55 @@ void AccumulateError(uint3 id : SV_DispatchThreadID)
         error = weightSum > 1e-8 ? esum / weightSum : 0.0;
     }
 
+    // Imitation: how far the outputs are from the remembered good output; the training error leans toward it.
+    uint imitAt = scratchBase + ImitAt();
+    float confidence = 0.0, imitError = 0.0;
+    if (_Imitation != 0u)
+    {
+        confidence = _Scratch[imitAt + _N];
+        float isum = 0.0;
+        if (confidence > 0.0)
+            for (uint n2 = 0u; n2 < _N; n2++)
+            {
+                float d = _Scratch[outAt + n2] - _Scratch[imitAt + n2];
+                isum += d * d;
+            }
+        imitError = isum / (float)_N;
+    }
+    float scored = (_Imitation != 0u && _HaveTargets != 0u) ? (1.0 - confidence) * error + confidence * _ImitWeight * imitError : error;
+
     if (_CopyMode == 0u)
-        _SlotError[state] += (_WeightPractice != 0u ? error * weightSum : error) + penalty;
+        _SlotError[state] += (_WeightPractice != 0u ? error * weightSum : scored) + penalty;
     else
         _RowPenalty[row] += penalty;
     if (slot == 0u)
     {
         _StepStats[statsAt] = _HaveTargets != 0u ? error : -1.0;
         _StepStats[statsAt + 1u + _H] = _Memory != 0u ? _Scratch[translatorAt + _MemInputAt + _N] : 0.0;
+        _StepStats[statsAt + 2u + _H] = confidence;
+        _StepStats[statsAt + 3u + _H] = _Scratch[imitAt + _N + 1u];
+    }
+    if (slot == 0u && row < _Instances)
+    {
+        // The step's signal for next step's identity update and imitation write (supervised: computed here).
+        if (_GpuSignal != 0u)
+        {
+            _Signal[row * 2u] = error;
+            _Signal[row * 2u + 1u] = _HaveTargets != 0u ? 1.0 : 0.0;
+        }
+        if (_CopyMode != 0u)
+        {
+            _RowImit[row * 2u] = confidence;
+            _RowImit[row * 2u + 1u] = imitError;
+        }
+        if (_CreditSteps > 0u)
+        {
+            uint at = row * _CreditSteps + (_StepCount[state] - 1u) % _CreditSteps;
+            _ImitRingKey[at * 2u] = _ImitStateKey[state * 2u];
+            _ImitRingKey[at * 2u + 1u] = _ImitStateKey[state * 2u + 1u];
+            for (uint n3 = 0u; n3 < _N; n3++) _ImitRing[at * (_N + 1u) + n3] = _Scratch[outAt + n3];
+            _ImitRing[at * (_N + 1u) + _N] = 1.0;
+        }
     }
 }
 
@@ -1003,11 +1110,13 @@ void ReduceReported(uint3 id : SV_DispatchThreadID)
             continue;
         if (_RowReports[r * 2u + 1u] > 0.5)
         {
-            _CopyError[copy] += (_RowReports[r * 2u] + _RowPenalty[r]) / (float)_WindowSteps;
+            float reported = _Imitation != 0u ? _RowBlend[r] : _RowReports[r * 2u];
+            _CopyError[copy] += (reported + _RowPenalty[r]) / (float)_WindowSteps;
             _CopyCount[copy] += 1.0;
         }
         // Each row belongs to exactly one copy, so only this thread touches it.
         _RowPenalty[r] = 0.0;
+        _RowBlend[r] = 0.0;
     }
 }
 
@@ -1132,6 +1241,15 @@ void ReviveHead(uint3 id : SV_DispatchThreadID)
     for (uint n = 0u; n < _N; n++) _Trail[(state * _H + _Head) * _N + n] = 0.0;
 }
 
+// A live instance's trajectory-credit ring forgets its steps.
+void ClearRing(uint row)
+{
+    if (_CreditSteps == 0u || row >= _Instances)
+        return;
+    for (uint a = 0u; a < _CreditSteps * (_N + 1u); a++) _ImitRing[row * _CreditSteps * (_N + 1u) + a] = 0.0;
+    for (uint b = 0u; b < _CreditSteps * 2u; b++) _ImitRingKey[row * _CreditSteps * 2u + b] = 0u;
+}
+
 // Heads back at rest, memory and plan cleared, for rows _RowStart.._RowStart+_RowCount (every slot).
 [numthreads(THREADS, 1, 1)]
 void ResetRows(uint3 id : SV_DispatchThreadID)
@@ -1165,6 +1283,9 @@ void ResetRows(uint3 id : SV_DispatchThreadID)
         for (uint s = 0u; s < _Slots; s++) _MemAttn[state * _Slots + s] = 0.0;
     }
     _StepCount[state] = 0u;
+    uint resetRow = _RowStart + thread / _Copies;
+    if (thread % _Copies == 0u)
+        ClearRing(resetRow);
 }
 
 // A sudden spike in error pulls the instances' heads partway back toward rest.
@@ -1255,4 +1376,187 @@ void UnpackState(uint3 id : SV_DispatchThreadID)
         for (uint s = 0u; s < _Slots; s++) _MemAttn[state * _Slots + s] = _Staging[k++];
     }
     _StepCount[state] = asuint(_Staging[k]);
+    if (slot == 0u)
+        ClearRing(_RowStart);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Identity masks and the self-imitation memory (MnnCpu.Imitation.cs).
+
+int Distance(uint lo, uint hi, uint slot)
+{
+    return (int)(countbits(lo ^ _ImitKeys[slot * 2u]) + countbits(hi ^ _ImitKeys[slot * 2u + 1u]));
+}
+
+bool ImitUsed(uint slot) { return _ImitSlots[slot * _ImitStride + _N + 2u] >= 0.5; }
+
+// One thread per state, after MemoryRead: the situation's SimHash key, the remembered output and confidence, and
+// the familiarity (the larger of that confidence and the episodic memory's).
+[numthreads(THREADS, 1, 1)]
+void ImitationRead(uint3 id : SV_DispatchThreadID)
+{
+    uint row, slot, copy, state;
+    if (!StateOf(Flat(id), row, slot, copy, state))
+        return;
+    uint scratchBase = state * _ScratchStride;
+    uint at = scratchBase + ImitAt();
+    float familiarity = 0.0, confidence = 0.0;
+    for (uint n = 0u; n < _N; n++) _Scratch[at + n] = 0.0;
+    if (_Imitation != 0u)
+    {
+        uint keyAt = at + _N + 2u;
+        for (uint i = 0u; i < _I; i++) _Scratch[keyAt + i] = _Inputs[row * _I + i];
+        if (_KeyFeedback != 0u)
+            for (uint f = 0u; f < _N; f++) _Scratch[keyAt + _I + f] = tanh(_Feedback[state * _N + f]);
+        uint stride = _KeyInputs + 1u;
+        uint lo = 0u, hi = 0u;
+        for (uint b = 0u; b < KEY_BITS; b++)
+        {
+            float p = _ImitProj[b * stride + _KeyInputs];
+            for (uint i2 = 0u; i2 < _KeyInputs; i2++) p += _ImitProj[b * stride + i2] * _Scratch[keyAt + i2];
+            if (p > 0.0)
+            {
+                if (b < 32u) lo |= 1u << b;
+                else hi |= 1u << (b - 32u);
+            }
+        }
+        _ImitStateKey[state * 2u] = lo;
+        _ImitStateKey[state * 2u + 1u] = hi;
+
+        float total = 0.0, top = 0.0;
+        for (uint s = 0u; s < _ImitSlotCount; s++)
+        {
+            if (!ImitUsed(s)) continue;
+            uint slotAt = s * _ImitStride;
+            float w = exp(-(float)Distance(lo, hi, s) * _ImitFalloff) * _ImitSlots[slotAt + _N + 1u] * max(_ImitSlots[slotAt + _N], 0.0);
+            if (w <= 0.0) continue;
+            for (uint n2 = 0u; n2 < _N; n2++) _Scratch[at + n2] += w * _ImitSlots[slotAt + n2];
+            total += w;
+            if (w > top) top = w;
+        }
+        if (total > 1e-6)
+        {
+            float inv = 1.0 / total;
+            for (uint n3 = 0u; n3 < _N; n3++) _Scratch[at + n3] *= inv;
+            confidence = min(top, 1.0);
+        }
+        familiarity = confidence;
+    }
+    if (_Memory != 0u)
+        familiarity = max(familiarity, _Scratch[scratchBase + TranslatorAt() + _MemInputAt + _N]);
+    _Scratch[at + _N] = confidence;
+    _Scratch[at + _N + 1u] = familiarity;
+}
+
+float Advantage(float error)
+{
+    return clamp((_Baseline - error) / (2.0 * _Spread + 1e-8), -1.0, 1.0);
+}
+
+// Reward modes with imitation: last step's reported error, blended with its imitation term, joins the window's score.
+[numthreads(THREADS, 1, 1)]
+void ImitationBlend(uint3 id : SV_DispatchThreadID)
+{
+    uint row = Flat(id);
+    if (row >= _Instances || _Signal[row * 2u + 1u] < 0.5)
+        return;
+    float c = _RowImit[row * 2u];
+    _RowBlend[row] += (1.0 - c) * _Signal[row * 2u] + c * _ImitWeight * _RowImit[row * 2u + 1u];
+}
+
+// One thread per (instance, head): the identity follows the bits it expressed when the step beat the baseline.
+[numthreads(THREADS, 1, 1)]
+void IdentityUpdate(uint3 id : SV_DispatchThreadID)
+{
+    uint thread = Flat(id);
+    if (thread >= _Instances * _H)
+        return;
+    uint row = thread / _H, h = thread % _H;
+    if (_Signal[row * 2u + 1u] < 0.5)
+        return;
+    float step = _IdentityRate * Advantage(_Signal[row * 2u]);
+    for (uint k = 0u; k < _K; k++)
+    {
+        uint j = (row * _H + h) * _K + k;
+        _IdSoft[j] = clamp(_IdSoft[j] + step * (_IdHard[j] - _IdSoft[j]), 0.0, 1.0);
+    }
+}
+
+// One good attempt (MnnCpu.Imitate): merge into its situation's entry, or an empty slot, or replace the weakest.
+void Imitate(uint lo, uint hi, uint valueAt, float strength)
+{
+    int best = -1;
+    int bestDistance = (int)_MergeBits + 1;
+    for (uint s = 0u; s < _ImitSlotCount; s++)
+    {
+        if (!ImitUsed(s)) continue;
+        int distance = Distance(lo, hi, s);
+        if (distance < bestDistance) { bestDistance = distance; best = (int)s; }
+    }
+    if (best >= 0)
+    {
+        uint at = (uint)best * _ImitStride;
+        float rate = min(1.0, _ImitRate * strength);
+        for (uint n = 0u; n < _N; n++) _ImitSlots[at + n] += (_ImitRing[valueAt + n] - _ImitSlots[at + n]) * rate;
+        _ImitSlots[at + _N] += (strength - _ImitSlots[at + _N]) * 0.25;
+        _ImitSlots[at + _N + 1u] = min(1.0, _ImitSlots[at + _N + 1u] + 0.25 * strength);
+        return;
+    }
+    int target = -1;
+    float lowest = 3.402823e38;
+    for (uint s2 = 0u; s2 < _ImitSlotCount; s2++)
+    {
+        uint at2 = s2 * _ImitStride;
+        if (!ImitUsed(s2)) { target = (int)s2; break; }
+        float score = _ImitSlots[at2 + _N] * _ImitSlots[at2 + _N + 1u];
+        if (score < lowest) { lowest = score; target = (int)s2; }
+    }
+    uint to = (uint)target * _ImitStride;
+    for (uint n2 = 0u; n2 < _N; n2++) _ImitSlots[to + n2] = _ImitRing[valueAt + n2];
+    _ImitSlots[to + _N] = strength;
+    _ImitSlots[to + _N + 1u] = 0.5;
+    _ImitSlots[to + _N + 2u] = 1.0;
+    _ImitKeys[(uint)target * 2u] = lo;
+    _ImitKeys[(uint)target * 2u + 1u] = hi;
+}
+
+// One thread (so CPU and GPU tables stay identical): every entry fades, then each instance's good step (and the steps
+// before it, with trajectory credit) is written, in instance order.
+[numthreads(1, 1, 1)]
+void ImitationWrite(uint3 id : SV_DispatchThreadID)
+{
+    for (uint s = 0u; s < _ImitSlotCount; s++)
+    {
+        if (!ImitUsed(s)) continue;
+        _ImitSlots[s * _ImitStride + _N] *= _ImitFade;
+        _ImitSlots[s * _ImitStride + _N + 1u] *= _ImitFade;
+    }
+    for (uint row = 0u; row < _Instances; row++)
+    {
+        if (_Signal[row * 2u + 1u] < 0.5) continue;
+        float advantage = Advantage(_Signal[row * 2u]);
+        if (advantage <= 0.0) continue;
+        int step = (int)_StepCount[row * _Copies];
+        float strength = advantage;
+        for (uint k = 0u; k < _CreditSteps; k++)
+        {
+            int index = step - 1 - (int)k;
+            if (index < 0) break;
+            uint at = row * _CreditSteps + (uint)index % _CreditSteps;
+            if (_ImitRing[at * (_N + 1u) + _N] > 0.5)
+                Imitate(_ImitRingKey[at * 2u], _ImitRingKey[at * 2u + 1u], at * (_N + 1u), strength);
+            strength *= _CreditDecay;
+        }
+    }
+}
+
+// A reward-mode window opens: every row's blended error and balance penalty start from zero (MnnCpu.OpenWindow).
+[numthreads(THREADS, 1, 1)]
+void ClearRows(uint3 id : SV_DispatchThreadID)
+{
+    uint row = Flat(id);
+    if (row >= _Rows)
+        return;
+    _RowBlend[row] = 0.0;
+    _RowPenalty[row] = 0.0;
 }

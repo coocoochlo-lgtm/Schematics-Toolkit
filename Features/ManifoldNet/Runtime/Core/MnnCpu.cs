@@ -110,6 +110,7 @@ namespace Remedy.ManifoldNetwork
             ErrorTrace = _trace, ErrorBaseline = _baseline, Alpha = _alpha,
             Updates = _updates, Revivals = _revivals, Rollbacks = _rollbacks, Steps = _steps,
             PlanResets = _planResets, MemoryWrites = _memoryWrites, MemoryConfidence = _memoryConfidence,
+            ImitationConfidence = _imitationConfidence, Familiarity = _familiarity, ImitationWrites = _imitationWrites,
         };
 
         public MnnCpu(MnnSettings settings, int instanceCount = 1)
@@ -176,6 +177,7 @@ namespace Remedy.ManifoldNetwork
 
             InitializeWfc();
             InitializeMemory();
+            InitializeSignals();
             ResetState();
         }
 
@@ -223,6 +225,7 @@ namespace Remedy.ManifoldNetwork
                     continue;
                 for (int slot = 0; slot < _copies; slot++)
                     ResetOne(State(row, slot));
+                ClearRing(row);
             }
         }
 
@@ -258,6 +261,7 @@ namespace Remedy.ManifoldNetwork
         {
             for (int slot = 0; slot < _copies; slot++)
                 State(instance, slot).CopyFrom(state);
+            ClearRing(instance);
         }
 
         /// <summary>The real (unperturbed) state of one instance, for drawing. Don't modify it.</summary>
@@ -296,6 +300,7 @@ namespace Remedy.ManifoldNetwork
 
             var s = Settings;
             float dt = deltaTime > 0f ? deltaTime : s.TickDt;
+            ProcessSignals(dt);
             FlushErrors();
             ProcessMemory(dt);
             bool supervised = Training && s.trainingMode == TrainingMode.Supervised;
@@ -311,6 +316,8 @@ namespace Remedy.ManifoldNetwork
             PlanSurpriseReset();
             float ratio = ErrorRatio();
             bool haveTargets = supervised && targets.Length >= _instances * _n;
+            bool imitation = s.imitationEnabled;
+            _familiaritySum = 0f;
 
             for (int row = 0; row < _instances; row++)
             {
@@ -320,26 +327,33 @@ namespace Remedy.ManifoldNetwork
                     // Every copy runs from the same state, each with its own nudge.
                     for (int slot = 0; slot < _copies; slot++)
                     {
-                        float penalty = Forward(State(row, slot), _copyParams[slot], rowInputs, ratio, row, dt);
+                        float penalty = Forward(State(row, slot), _copyParams[slot], rowInputs, ratio, row, dt, slot == 0);
                         float error = haveTargets ? SquaredError(targets.Slice(row * _n, _n), Weights(targetWeights, row), out _) : 0f;
-                        _slotError[slot] += error + penalty;
+                        _slotError[slot] += (imitation && haveTargets ? BlendError(error) : error) + penalty;
                         if (slot == 0)
                         {
                             CopyOutputs(row);
                             TrackUsage(row);
+                            RecordStep(row, State(row, 0));
                             if (haveTargets) { _pendingError += error; _pendingCount++; }
+                            if (haveTargets && s.UsesSignals) { _sigError[row] = error; _sigHas[row] = true; }
                         }
                     }
                 }
                 else
                 {
                     int copy = exploring ? CopyFor(row) : 0;
-                    float penalty = Forward(State(row, 0), _copyParams[copy], rowInputs, ratio, row, dt);
+                    float penalty = Forward(State(row, 0), _copyParams[copy], rowInputs, ratio, row, dt, true);
                     _rowPenalty[row] += penalty;
+                    _rowImitConf[row] = _imitConf;
+                    _rowImitErr[row] = _imitErr;
                     CopyOutputs(row);
                     TrackUsage(row);
+                    RecordStep(row, State(row, 0));
                 }
             }
+            if (s.UsesFamiliarity)
+                _familiarity = _familiaritySum / _instances;
 
             if (haveTargets)
                 _windowHasError = true;
@@ -357,7 +371,14 @@ namespace Remedy.ManifoldNetwork
         {
             if (instance < 0 || instance >= _instances || float.IsNaN(error))
                 return;
-            _rowError[instance] += error;
+            // With imitation, the step's report is blended with its imitation term at the start of the next step.
+            if (!Settings.imitationEnabled || Settings.trainingMode == TrainingMode.Supervised)
+                _rowError[instance] += error;
+            if (Settings.UsesSignals && Settings.trainingMode != TrainingMode.Supervised)
+            {
+                _sigError[instance] += error;
+                _sigHas[instance] = true;
+            }
             _rowReported[instance] = true;
             _pendingError += error;
             _pendingCount++;
@@ -403,9 +424,10 @@ namespace Remedy.ManifoldNetwork
         /// <summary>
         /// One step of one copy from one state (row is the instance, for the memory bank and the plan's dice). Leaves
         /// the outputs in _out; returns its balance penalty. The order of the blocks is the GPU's kernel order:
-        /// MasterForward, MemoryRead, SlaveMove, SampleSpace, WfcPlan, TranslatorForward, AccumulateError.
+        /// MasterForward, MemoryRead, ImitationRead, SlaveMove, SampleSpace, WfcPlan, TranslatorForward, AccumulateError.
+        /// <paramref name="record"/>: this is the real network of a live instance (it keeps its identity expression).
         /// </summary>
-        private float Forward(MnnState state, float[] parameters, ReadOnlySpan<float> inputs, float ratio, int row, float dt)
+        private float Forward(MnnState state, float[] parameters, ReadOnlySpan<float> inputs, float ratio, int row, float dt, bool record)
         {
             var s = Settings;
 
@@ -428,6 +450,10 @@ namespace Remedy.ManifoldNetwork
             if (s.memoryEnabled)
                 MemoryRead(state, parameters, row, _translatorIn, MemoryInputAt);
 
+            // 2b. Imitation: the situation's key, the remembered good output and how familiar this is.
+            if (s.UsesFamiliarity)
+                Familiarize(state, inputs);
+
             // 3. Heads move: toward the master's target, settling into nearby clusters, at their own liquid pace.
             float move = dt / s.TickDt;
             for (int h = 0; h < _h; h++)
@@ -442,6 +468,10 @@ namespace Remedy.ManifoldNetwork
             // 5. The shared plan: commit heads to point types, and committed heads read only their type's points.
             if (s.wfcEnabled)
                 WfcPlan(state, parameters, row);
+
+            // Each head's identity reshapes what it read.
+            if (s.identityMasks)
+                ApplyIdentity(state, parameters, row, record);
 
             // Trails (liquid: they fade faster when the gate says things are changing) and velocity readout.
             for (int h = 0; h < _h; h++)
@@ -465,6 +495,8 @@ namespace Remedy.ManifoldNetwork
             int skip = _h * block;
             for (int i = 0; i < _i; i++) _translatorIn[skip + i] = inputs[i];
             Mlp(Layout.Translator, parameters, _translatorIn, _out);
+            if (s.imitationEnabled)
+                ImitationError();
 
             for (int n = 0; n < _n; n++) state.Feedback[n] = _out[n];
             for (int i = 0; i < _i; i++) state.PreviousInputs[i] = inputs[i];
@@ -729,7 +761,7 @@ namespace Remedy.ManifoldNetwork
             return (int)((row + _window) % (uint)_copies);
         }
 
-        private float Sigma => Settings.perturbSigma * (Settings.alphaScalesSigma ? 1f + _alpha : 1f);
+        private float Sigma => Settings.perturbSigma * (Settings.alphaScalesSigma ? 1f + _alpha : 1f) * ExploreFactor(_familiarity);
 
         // A window starts: every copy gets its nudge, and supervised copies start from the real state.
         private void OpenWindow()
@@ -1052,9 +1084,11 @@ namespace Remedy.ManifoldNetwork
                 {
                     _trace = error;
                     _baseline = error;
+                    _spread = MathF.Abs(error);
                 }
                 else
                 {
+                    _spread += (MathF.Abs(error - _baseline) - _spread) * (1f - s.baselineFalloff);
                     _trace += (error - _trace) * (1f - s.errorFalloff);
                     _baseline += (error - _baseline) * (1f - s.baselineFalloff);
                 }
@@ -1063,7 +1097,7 @@ namespace Remedy.ManifoldNetwork
                 _pendingError = 0;
                 _pendingCount = 0;
             }
-            _alpha = _baseline > 1e-8f ? Math.Clamp(s.sineGain * (_trace / _baseline - 1f), 0f, s.sineAlphaMax) : 0f;
+            _alpha = _baseline > 1e-8f ? Math.Clamp(s.sineGain * (_trace / _baseline - 1f), 0f, s.sineAlphaMax) * ExploreFactor(_familiarity) : 0f;
         }
 
         // A sudden spike in error pulls the heads partway back toward rest, dropping a context that just went wrong.
@@ -1130,7 +1164,7 @@ namespace Remedy.ManifoldNetwork
                 var stepWeights = weights.Length >= (t + 1) * _n ? weights.Slice(t * _n, _n) : default;
                 for (int slot = 0; slot < _copies; slot++)
                 {
-                    float penalty = Forward(State(_practiceRow, slot), _copyParams[slot], stepInputs, ratio, _practiceRow, dt);
+                    float penalty = Forward(State(_practiceRow, slot), _copyParams[slot], stepInputs, ratio, _practiceRow, dt, false);
                     float error = SquaredError(stepTargets, stepWeights, out float weightSum);
                     // Steps with stronger lessons count for more.
                     _slotError[slot] += error * weightSum + penalty;

@@ -138,6 +138,46 @@ namespace Remedy.ManifoldNetwork
         public float memoryHalfLife = 600f;
         public MemoryScope memoryScope = MemoryScope.Shared;
 
+        // Per-head identity masks.
+        /// <summary>Each head has a persistent soft identity (a probability per sample value), expressed as hard bits that reshape what it reads.</summary>
+        public bool identityMasks = false;
+        /// <summary>K: how many of a head's sample values the identity covers (0 = all N).</summary>
+        public int identityWidth = 0;
+        /// <summary>How loudly the identity speaks: sample += α · P_h · (identity XOR sign bits).</summary>
+        public float identityAlpha = 0.5f;
+        /// <summary>Exploration noise on the identity's expression while training (0: always the most likely bits).</summary>
+        public float identityNoise = 0.2f;
+        /// <summary>How fast identities follow the bits that beat the error baseline (REINFORCE-style, not a gradient).</summary>
+        public float identityRate = 0.01f;
+
+        // Self-imitation memory.
+        /// <summary>Remembers outputs that beat the error baseline in a situation, and pulls training toward them there.</summary>
+        public bool imitationEnabled = false;
+        public int imitationSlots = 128;
+        /// <summary>How much the remembered output counts in the training error, at full confidence.</summary>
+        public float imitationWeight = 1f;
+        /// <summary>How far a good attempt pulls its remembered output (× advantage).</summary>
+        public float imitationRate = 0.5f;
+        /// <summary>Similarity exp(-hamming · falloff) between two situations' 64-bit SimHash keys.</summary>
+        public float imitationFalloff = 0.2f;
+        /// <summary>Keys this many bits apart (or fewer) are the same situation, so they merge.</summary>
+        public int imitationMergeBits = 4;
+        /// <summary>Seconds for every remembered entry's quality and familiarity to halve.</summary>
+        public float imitationHalfLife = 60f;
+        /// <summary>The situation key also includes the network's last outputs (its context), not just the inputs.</summary>
+        public bool imitationKeyFeedback = true;
+
+        // Familiarity-scaled exploration.
+        /// <summary>Explore less in familiar, well-remembered situations: nudges, the adaptive sine and identity noise × lerp(1, familiarExploreScale, familiarity).</summary>
+        public bool familiarityExploration = false;
+        public float familiarExploreScale = 0.3f;
+
+        // Trajectory credit (into the imitation memory).
+        /// <summary>A step that beat the baseline also marks the last creditSteps steps' outputs as good, fading by creditDecay per step back.</summary>
+        public bool trajectoryCredit = false;
+        public int creditSteps = 8;
+        public float creditDecay = 0.7f;
+
         public uint seed = 1234;
 
         public const int MaxDimensions = 8;
@@ -149,6 +189,10 @@ namespace Remedy.ManifoldNetwork
         public const int MaxWfcHeads = 32;
         public const int MaxPlanValues = 4096;
         public const int MaxMemorySlots = 256;
+        public const int MaxImitationSlots = 1024;
+        public const int MaxCreditSteps = 64;
+        /// <summary>Bits in an imitation key (a SimHash of the situation).</summary>
+        public const int ImitationKeyBits = 64;
 
         /// <summary>Points are spread over a torus from -SpaceRadius to +SpaceRadius on every axis.</summary>
         public const float SpaceRadius = 1f;
@@ -187,6 +231,27 @@ namespace Remedy.ManifoldNetwork
 
         /// <summary>Floats per memory slot: key (hiddenWidth), value (N), strength, age, time since recalled, used.</summary>
         public int MemoryStride => hiddenWidth + outputCount + 4;
+
+        /// <summary>K: sample values each head's identity covers (0 with identity masks off).</summary>
+        public int IdentityWidth => identityMasks ? (identityWidth > 0 ? Math.Min(identityWidth, outputCount) : outputCount) : 0;
+
+        /// <summary>The identity projections P_h (H × K × K), trainable like the weights.</summary>
+        public int IdentityCount => headCount * IdentityWidth * IdentityWidth;
+
+        /// <summary>Values hashed into an imitation key: the base inputs, and the last outputs when keyed on feedback.</summary>
+        public int ImitationKeyInputs => inputCount + (imitationKeyFeedback ? outputCount : 0);
+
+        /// <summary>Floats per imitation slot: value (N), quality, familiarity, used.</summary>
+        public int ImitationStride => outputCount + 3;
+
+        /// <summary>Steps of history each instance keeps for imitation writes (1 without trajectory credit, 0 with imitation off).</summary>
+        public int CreditSteps => !imitationEnabled ? 0 : trajectoryCredit ? creditSteps : 1;
+
+        /// <summary>True when anything learns from the per-step error signal (identity masks or imitation).</summary>
+        public bool UsesSignals => identityMasks || imitationEnabled;
+
+        /// <summary>True when each step's familiarity is measured (it scales exploration, and imitation recalls with it anyway).</summary>
+        public bool UsesFamiliarity => imitationEnabled || familiarityExploration;
 
         public int MemoryBanks(int instances) => memoryScope == MemoryScope.Shared ? 1 : Math.Max(1, instances);
 
@@ -233,6 +298,14 @@ namespace Remedy.ManifoldNetwork
                 Check(hiddenLayers >= 1, "the memory bank's keys are the master's hidden activations, so it needs hiddenLayers >= 1");
                 Check(memoryHalfLife > 0f, "memoryHalfLife must be positive");
             }
+            if (identityMasks)
+                Check(identityWidth >= 0 && identityRate >= 0f && identityNoise >= 0f, "identityWidth, identityRate and identityNoise must be >= 0");
+            if (imitationEnabled)
+            {
+                Check(imitationSlots >= 1 && imitationSlots <= MaxImitationSlots, $"imitationSlots must be 1-{MaxImitationSlots}");
+                Check(imitationHalfLife > 0f && imitationFalloff >= 0f && imitationRate >= 0f, "imitationHalfLife must be positive, falloff and rate >= 0");
+                Check(!trajectoryCredit || (creditSteps >= 1 && creditSteps <= MaxCreditSteps), $"creditSteps must be 1-{MaxCreditSteps}");
+            }
         }
 
         /// <summary>Clamps values into range (for OnValidate).</summary>
@@ -269,6 +342,17 @@ namespace Remedy.ManifoldNetwork
             memorySlots = Math.Clamp(memorySlots, 1, MaxMemorySlots);
             memoryHalfLife = Math.Max(1e-3f, memoryHalfLife);
             if (memoryEnabled) hiddenLayers = Math.Max(1, hiddenLayers);
+            identityWidth = Math.Clamp(identityWidth, 0, MaxOutputs);
+            identityRate = Math.Max(0f, identityRate);
+            identityNoise = Math.Max(0f, identityNoise);
+            imitationSlots = Math.Clamp(imitationSlots, 1, MaxImitationSlots);
+            imitationHalfLife = Math.Max(1e-3f, imitationHalfLife);
+            imitationFalloff = Math.Max(0f, imitationFalloff);
+            imitationRate = Math.Max(0f, imitationRate);
+            imitationMergeBits = Math.Clamp(imitationMergeBits, 0, ImitationKeyBits);
+            creditSteps = Math.Clamp(creditSteps, 1, MaxCreditSteps);
+            creditDecay = Math.Clamp(creditDecay, 0f, 1f);
+            familiarExploreScale = Math.Max(0f, familiarExploreScale);
         }
 
         private static void Check(bool ok, string message)
@@ -292,6 +376,7 @@ namespace Remedy.ManifoldNetwork
             $"C{ClockCount}X{(changeInputs ? 1 : 0)}V{(velocityReadout ? 1 : 0)}T{(trainableValueSpaces ? 1 : 0)}S{seed}" +
             (liquidGates ? "G" : "") +
             (wfcEnabled ? $"Wt{typeCount}f{PlanColumns}b{PlanBiasCount}" : "") +
-            (memoryEnabled ? "Mem" : "");
+            (memoryEnabled ? "Mem" : "") +
+            (identityMasks ? $"Id{IdentityWidth}" : "");
     }
 }

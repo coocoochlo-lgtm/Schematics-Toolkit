@@ -225,6 +225,18 @@ namespace Remedy.ManifoldNetwork
         /// <summary>The memory slots, bank by bank: S × (key, value, strength, age, seconds since recalled, used).</summary>
         public float[] GetMemoryBank() => _backend.GetMemoryBank();
 
+        /// <summary>
+        /// Each instance's head identities (identity masks on): InstanceCount × headCount × K soft values in 0-1; a value
+        /// above 0.5 is a set bit. Stalls the GPU: for saving, the debug window and tools.
+        /// </summary>
+        public float[] GetIdentityMasks() => _backend.GetIdentityMasks();
+
+        /// <summary>The imitation memory (imitation on): S × (remembered output (N), quality, familiarity, used). Stalls the GPU.</summary>
+        public float[] GetImitationBank() => _backend.GetImitationBank();
+
+        /// <summary>Replaces the identities (a saved set with fewer instances repeats them in order).</summary>
+        public void SetIdentityMasks(ReadOnlySpan<float> masks) => _backend.SetIdentityMasks(masks);
+
         #endregion
 
         /// <summary>
@@ -240,8 +252,8 @@ namespace Remedy.ManifoldNetwork
         /// <summary>Replaces the weights (same layout only).</summary>
         public void SetParameters(ReadOnlySpan<float> parameters) => _backend.SetParameters(parameters);
 
-        /// <summary>What it has learned (weights, rulebooks, memory slots), as a new brain asset.</summary>
-        public MnnBrain SaveBrain() => MnnBrain.Create(Settings, _backend.GetParameters(), _backend.Updates, _backend.GetMemoryBank());
+        /// <summary>What it has learned (weights, rulebooks, memory slots, head identities), as a new brain asset.</summary>
+        public MnnBrain SaveBrain() => MnnBrain.Create(Settings, _backend.GetParameters(), _backend.Updates, _backend.GetMemoryBank(), _backend.GetIdentityMasks());
 
         /// <summary>Saves into an existing brain asset.</summary>
         public void SaveBrain(MnnBrain into)
@@ -249,6 +261,7 @@ namespace Remedy.ManifoldNetwork
             into.Settings = Settings.Clone();
             into.Parameters = _backend.GetParameters();
             into.MemorySlots = _backend.GetMemoryBank();
+            into.IdentityMasks = _backend.GetIdentityMasks();
             into.LayoutSignature = Settings.LayoutSignature;
             into.Updates += _backend.Updates;
         }
@@ -260,6 +273,8 @@ namespace Remedy.ManifoldNetwork
             _backend.SetParameters(brain.Parameters);
             if (brain.MemorySlots != null && brain.MemorySlots.Length > 0)
                 _backend.SetMemoryBank(brain.MemorySlots);
+            if (brain.IdentityMasks != null && brain.IdentityMasks.Length > 0)
+                _backend.SetIdentityMasks(brain.IdentityMasks);
         }
 
         public bool Disposed { get; private set; }
