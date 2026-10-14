@@ -35,12 +35,56 @@ namespace Remedy.ManifoldNetwork.Tests
         }
 
         [Test]
-        public void SinePredictionLearnsOnCpu()
+        public void SinePredictionLearnsOnCpu([Values(PerturbMode.Antithetic, PerturbMode.OneSided)] PerturbMode mode)
         {
-            var settings = new MnnSettings { inputCount = 1, outputCount = 1 };
+            // M1: under 20% of the untrained error within 20,000 steps.
+            var settings = new MnnSettings { inputCount = 1, outputCount = 1, perturbMode = mode };
             using var net = new ManifoldNet(settings, preferCpu: true);
-            double end = SinePrediction(net, 10000);
+            double end = SinePrediction(net, 20000);
             Assert.Less(end, 0.2 * Untrained(settings), $"Error at the end: {end}");
+
+            // M4: no head is left idle.
+            var usage = net.HeadUsage;
+            float total = 0f;
+            for (int h = 0; h < usage.Length; h++) total += usage[h];
+            for (int h = 0; h < usage.Length; h++)
+                Assert.GreaterOrEqual(usage[h] / total, 0.05f, $"Head {h} is barely used");
+        }
+
+        [Test]
+        public void SinePredictionLearnsWithModulesOn()
+        {
+            var settings = new MnnSettings { inputCount = 1, outputCount = 1, wfcEnabled = true, memoryEnabled = true };
+            using var net = new ManifoldNet(settings, preferCpu: true);
+            double end = SinePrediction(net, 20000);
+            Assert.Less(end, 0.2 * Untrained(settings), $"Error at the end: {end}");
+        }
+
+        [Test]
+        public void PopulationLearnsAConstant()
+        {
+            var settings = new MnnSettings { inputCount = 1, outputCount = 1, trainingMode = TrainingMode.Population };
+            const int instances = 34;
+            using var net = new ManifoldNet(settings, instances, preferCpu: true);
+            var x = new float[instances];
+            var y = new float[instances];
+            double first = 0, last = 0;
+            for (int t = 0; t < 4000; t++)
+            {
+                for (int i = 0; i < instances; i++) x[i] = Mathf.Sin(t * 0.1f + i);
+                net.Step(x);
+                net.GetOutputsImmediate(y);
+                double e = 0;
+                for (int i = 0; i < instances; i++)
+                {
+                    float error = (y[i] - 0.5f) * (y[i] - 0.5f);
+                    net.ReportError(i, error);
+                    e += error / instances;
+                }
+                if (t < 500) first += e;
+                if (t >= 3500) last += e;
+            }
+            Assert.Less(last, first * 0.5, $"first {first / 500}, last {last / 500}");
         }
 
         [Test]
@@ -50,7 +94,7 @@ namespace Remedy.ManifoldNetwork.Tests
                 Assert.Ignore("Compute shaders aren't available on this machine.");
             var settings = new MnnSettings { inputCount = 1, outputCount = 1 };
             using var net = new ManifoldNet(settings) { Synchronous = true };
-            double end = SinePrediction(net, 10000);
+            double end = SinePrediction(net, 20000);
             Assert.Less(end, 0.2 * Untrained(settings), $"Error at the end: {end}");
         }
 

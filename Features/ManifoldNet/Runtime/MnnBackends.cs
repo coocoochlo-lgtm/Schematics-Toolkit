@@ -10,7 +10,8 @@ namespace Remedy.ManifoldNetwork
         int Updates { get; }
         MnnStats Stats { get; }
 
-        void Step(ReadOnlySpan<float> inputs, ReadOnlySpan<float> targets, ReadOnlySpan<float> weights);
+        /// <summary>One step; <paramref name="deltaTime"/> is the real time since the last step (0 or less: one nominal tick).</summary>
+        void Step(ReadOnlySpan<float> inputs, ReadOnlySpan<float> targets, ReadOnlySpan<float> weights, float deltaTime);
         void ReportError(int instance, float error);
         bool TryGetOutputs(float[] destination);
         void GetOutputsImmediate(float[] destination);
@@ -19,10 +20,19 @@ namespace Remedy.ManifoldNetwork
         void ResetState(int instance);
         void CaptureState(int instance, Action<MnnState> done);
         void RestoreState(int instance, MnnState state);
+        /// <summary>The real state of one instance, read now (stalls the GPU: debug views and tests only).</summary>
+        MnnState PeekStateImmediate(int instance);
         bool Practice(MnnState start, ReadOnlySpan<float> inputs, ReadOnlySpan<float> targets, ReadOnlySpan<float> weights, int steps);
 
         float[] GetParameters();
         void SetParameters(ReadOnlySpan<float> parameters);
+
+        // Episodic memory bank.
+        void Remember(int instance, ReadOnlySpan<float> value, float strength);
+        void Reinforce(int instance, float amount);
+        void ClearMemory();
+        float[] GetMemoryBank();
+        void SetMemoryBank(ReadOnlySpan<float> bank);
 
         /// <summary>Head positions on the GPU: instance i's heads (H × D floats) start at i × HeadStride.</summary>
         GraphicsBuffer HeadPositions { get; }
@@ -31,6 +41,9 @@ namespace Remedy.ManifoldNetwork
         ReadOnlySpan<float> HeadUsage { get; }
         ReadOnlySpan<float> ErrorRing { get; }
         int ErrorRingIndex { get; }
+        /// <summary>The last 256 recall confidences of instance 0 (memory on), a ring like the error's.</summary>
+        ReadOnlySpan<float> ConfidenceRing { get; }
+        uint LastPlanReset { get; }
     }
 
     /// <summary>The CPU reference behind the same interface; GPU buffers are filled only when something asks.</summary>
@@ -40,6 +53,7 @@ namespace Remedy.ManifoldNetwork
         private readonly int _instances;
         private GraphicsBuffer _outputBuffer, _headBuffer;
         private readonly float[] _headScratch;
+        private readonly float[] _confidence = new float[256];
 
         public MnnCpuBackend(MnnSettings settings, int instances)
         {
@@ -52,7 +66,12 @@ namespace Remedy.ManifoldNetwork
         public int Updates => Cpu.Stats.Updates;
         public MnnStats Stats => Cpu.Stats;
 
-        public void Step(ReadOnlySpan<float> inputs, ReadOnlySpan<float> targets, ReadOnlySpan<float> weights) => Cpu.Step(inputs, targets, weights);
+        public void Step(ReadOnlySpan<float> inputs, ReadOnlySpan<float> targets, ReadOnlySpan<float> weights, float deltaTime)
+        {
+            Cpu.Step(inputs, targets, weights, deltaTime);
+            _confidence[(int)((Cpu.Stats.Steps - 1) % 256)] = Cpu.Stats.MemoryConfidence;
+        }
+
         public void ReportError(int instance, float error) => Cpu.ReportError(instance, error);
 
         public bool TryGetOutputs(float[] destination)
@@ -76,11 +95,18 @@ namespace Remedy.ManifoldNetwork
         public void ResetState(int instance) => Cpu.ResetState(instance);
         public void CaptureState(int instance, Action<MnnState> done) => done(Cpu.CaptureState(instance));
         public void RestoreState(int instance, MnnState state) => Cpu.RestoreState(instance, state);
+        public MnnState PeekStateImmediate(int instance) => Cpu.CaptureState(instance);
         public bool Practice(MnnState start, ReadOnlySpan<float> inputs, ReadOnlySpan<float> targets, ReadOnlySpan<float> weights, int steps)
             => Cpu.Practice(start, inputs, targets, weights, steps);
 
         public float[] GetParameters() => (float[])Cpu.Parameters.Clone();
         public void SetParameters(ReadOnlySpan<float> parameters) => Cpu.SetParameters(parameters);
+
+        public void Remember(int instance, ReadOnlySpan<float> value, float strength) => Cpu.Remember(instance, value, strength);
+        public void Reinforce(int instance, float amount) => Cpu.Reinforce(instance, amount);
+        public void ClearMemory() => Cpu.ClearMemory();
+        public float[] GetMemoryBank() => (float[])Cpu.MemoryBank.Clone();
+        public void SetMemoryBank(ReadOnlySpan<float> bank) => Cpu.SetMemoryBank(bank);
 
         public GraphicsBuffer HeadPositions
         {
@@ -99,6 +125,8 @@ namespace Remedy.ManifoldNetwork
         public ReadOnlySpan<float> HeadUsage => Cpu.HeadUsage;
         public ReadOnlySpan<float> ErrorRing => Cpu.ErrorRing;
         public int ErrorRingIndex => Cpu.ErrorRingIndex;
+        public ReadOnlySpan<float> ConfidenceRing => _confidence;
+        public uint LastPlanReset => Cpu.LastPlanReset;
 
         public void Dispose()
         {

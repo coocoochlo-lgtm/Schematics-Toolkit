@@ -13,6 +13,9 @@ namespace Remedy.ManifoldNetwork
         public const uint StreamNoise = 4;
         public const uint StreamHeads = 5;
         public const uint StreamRevive = 6;
+        // 7 and 8: breeding (MnnBreeding).
+        public const uint StreamTypes = 9;
+        public const uint StreamWfc = 10;
 
         public static uint Pcg(uint v)
         {

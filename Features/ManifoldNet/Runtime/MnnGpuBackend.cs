@@ -1,14 +1,14 @@
 using System;
-using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Rendering;
 
 namespace Remedy.ManifoldNetwork
 {
     /// <summary>
-    /// The network on the GPU: every instance and every nudged copy steps in one dispatch, and training updates every
-    /// weight in parallel. It mirrors <see cref="MnnCpu"/> step for step; the slow-moving bookkeeping (error trace,
-    /// head usage, revival, rollback) stays on the CPU, fed by a small asynchronous readback each step.
+    /// The network on the GPU: every instance and every nudged copy steps in one set of dispatches (one thread per
+    /// state, or per state and head), and training updates every weight in parallel. It mirrors <see cref="MnnCpu"/>
+    /// step for step; the slow-moving bookkeeping (error trace, baseline, α, head usage, revival, rollback, surprise
+    /// resets) stays on the CPU, fed by a small asynchronous readback each step, exactly as MnnCpu computes it.
     /// </summary>
     internal sealed class MnnGpuBackend : IMnnBackend
     {
@@ -17,21 +17,27 @@ namespace Remedy.ManifoldNetwork
         private readonly MnnSettings _s;
         private readonly WeightLayout _layout;
         private readonly ComputeShader _shader;
-        private readonly int _instances, _rows, _practiceRow, _copies, _stateFloats;
+        private readonly int _instances, _rows, _practiceRow, _copies, _stateFloats, _statsStride, _banks;
+        private readonly bool _wfc, _memory;
+        private readonly int _t, _f;
 
-        private readonly int _kStep, _kFork, _kReduceSupervised, _kReduceReported, _kClearCopyErrors, _kUpdate,
-            _kCopyParameters, _kReinitializeLayer, _kReviveHead, _kResetRows, _kSurpriseReset, _kPackState, _kUnpackState;
+        private readonly int _kMemoryQueue, _kMemoryFade, _kMemoryRecall, _kMasterForward, _kMemoryRead, _kSlaveMove, _kSampleSpace,
+            _kWfcPlan, _kTranslatorForward, _kAccumulateError, _kForkState, _kReduceSupervised, _kReduceReported, _kClearCopyErrors,
+            _kApplyUpdate, _kCopyParameters, _kReinitializeLayer, _kReviveHead, _kResetRows, _kSurpriseReset, _kPlanReset,
+            _kPackState, _kUnpackState;
+        private readonly int[] _kernels;
 
         private GraphicsBuffer _params, _moment, _variance, _best;
-        private GraphicsBuffer _points, _values, _inertia, _speed, _rest, _clocks, _layerTable;
-        private GraphicsBuffer _pos, _vel, _trail, _feedback, _prevInput, _stepCount;
+        private GraphicsBuffer _points, _values, _timescale, _rest, _clocks, _pointTypes, _gridStart, _gridOrder, _neighbors, _layerTable;
+        private GraphicsBuffer _pos, _vel, _attr, _target, _gate, _sample, _trail, _feedback, _prevInput, _stepCount;
+        private GraphicsBuffer _planSpread, _planType, _planAge, _typePartials, _memKey, _memAttn, _memSlots, _memQueue;
         private GraphicsBuffer _inputs, _targets, _targetWeights, _outputs, _scratch;
         private GraphicsBuffer _slotError, _rowPenalty, _stepStats, _copyError, _copyCount, _rowReports, _staging;
 
         // Upload scratch, preallocated so a step allocates nothing.
-        private readonly float[] _inputUpload, _targetUpload, _weightUpload, _reportUpload;
+        private readonly float[] _inputUpload, _targetUpload, _weightUpload, _reportUpload, _queueUpload;
         private readonly float[] _latestOutputs, _statsScratch;
-        private bool _haveOutputs;
+        private bool _haveOutputs, _anyQueued;
 
         // Bookkeeping, as in MnnCpu.
         private readonly double[] _rowError;
@@ -43,26 +49,29 @@ namespace Remedy.ManifoldNetwork
         private float _trace, _baseline, _alpha;
         private double _pendingError;
         private int _pendingCount;
-        private readonly float[] _usage, _errorRing = new float[256];
+        private readonly float[] _usage, _errorRing = new float[256], _confidenceRing = new float[256];
         private readonly int[] _lowSteps;
         private int _ringIndex;
         private uint _reviveGeneration;
         private float _bestBaseline = float.MaxValue;
         private int _rollbackSteps;
-        private bool _surprised;
+        private bool _rolledBack, _surprised, _planSurprised;
         private uint _steps;
-        private int _updates, _revivals, _rollbacks;
+        private int _updates, _revivals, _rollbacks, _planResets, _memoryWrites;
+        private float _memoryConfidence;
 
         /// <summary>Read stats and outputs back right away instead of a frame later (tests, editor tools).</summary>
         public bool Synchronous;
 
         public bool Training { get; set; } = true;
         public int Updates => _updates;
+        public uint LastPlanReset { get; private set; }
 
         public MnnStats Stats => new()
         {
             ErrorTrace = _trace, ErrorBaseline = _baseline, Alpha = _alpha,
             Updates = _updates, Revivals = _revivals, Rollbacks = _rollbacks, Steps = _steps,
+            PlanResets = _planResets, MemoryWrites = _memoryWrites, MemoryConfidence = _memoryConfidence,
         };
 
         public static bool Supported => SystemInfo.supportsComputeShaders && LoadShader() != null;
@@ -79,28 +88,49 @@ namespace Remedy.ManifoldNetwork
             _rows = _instances + 1;
             _practiceRow = _instances;
             _copies = _s.CopiesPerWindow;
-            _stateFloats = 2 * _s.headCount * _s.spaceDimensions + _s.headCount * _s.outputCount + _s.outputCount + _s.inputCount + 1;
+            _wfc = _s.wfcEnabled;
+            _memory = _s.memoryEnabled;
+            _t = _wfc ? _s.typeCount : 0;
+            _f = _s.PlanColumns;
+            _banks = _memory ? _s.MemoryBanks(_instances) : 0;
+            _stateFloats = new MnnState(_s).FlatLength;
+            _statsStride = _s.headCount + 2;
 
-            _kStep = _shader.FindKernel("Step");
-            _kFork = _shader.FindKernel("Fork");
+            _kMemoryQueue = _shader.FindKernel("MemoryQueue");
+            _kMemoryFade = _shader.FindKernel("MemoryFade");
+            _kMemoryRecall = _shader.FindKernel("MemoryRecall");
+            _kMasterForward = _shader.FindKernel("MasterForward");
+            _kMemoryRead = _shader.FindKernel("MemoryRead");
+            _kSlaveMove = _shader.FindKernel("SlaveMove");
+            _kSampleSpace = _shader.FindKernel("SampleSpace");
+            _kWfcPlan = _shader.FindKernel("WfcPlan");
+            _kTranslatorForward = _shader.FindKernel("TranslatorForward");
+            _kAccumulateError = _shader.FindKernel("AccumulateError");
+            _kForkState = _shader.FindKernel("ForkState");
             _kReduceSupervised = _shader.FindKernel("ReduceSupervised");
             _kReduceReported = _shader.FindKernel("ReduceReported");
             _kClearCopyErrors = _shader.FindKernel("ClearCopyErrors");
-            _kUpdate = _shader.FindKernel("Update");
+            _kApplyUpdate = _shader.FindKernel("ApplyUpdate");
             _kCopyParameters = _shader.FindKernel("CopyParameters");
             _kReinitializeLayer = _shader.FindKernel("ReinitializeLayer");
             _kReviveHead = _shader.FindKernel("ReviveHead");
             _kResetRows = _shader.FindKernel("ResetRows");
             _kSurpriseReset = _shader.FindKernel("SurpriseReset");
+            _kPlanReset = _shader.FindKernel("PlanReset");
             _kPackState = _shader.FindKernel("PackState");
             _kUnpackState = _shader.FindKernel("UnpackState");
+            _kernels = new[] { _kMemoryQueue, _kMemoryFade, _kMemoryRecall, _kMasterForward, _kMemoryRead, _kSlaveMove, _kSampleSpace,
+                _kWfcPlan, _kTranslatorForward, _kAccumulateError, _kForkState, _kReduceSupervised, _kReduceReported, _kClearCopyErrors,
+                _kApplyUpdate, _kCopyParameters, _kReinitializeLayer, _kReviveHead, _kResetRows, _kSurpriseReset, _kPlanReset,
+                _kPackState, _kUnpackState };
 
             _inputUpload = new float[_rows * _s.inputCount];
             _targetUpload = new float[_rows * _s.outputCount];
             _weightUpload = new float[_rows * _s.outputCount];
             _reportUpload = new float[_rows * 2];
+            _queueUpload = new float[_instances * (_s.outputCount + 3)];
             _latestOutputs = new float[_instances * _s.outputCount];
-            _statsScratch = new float[_rows * (1 + _s.headCount)];
+            _statsScratch = new float[_rows * _statsStride];
             _rowError = new double[_rows];
             _rowReported = new bool[_rows];
             _usage = new float[_s.headCount];
@@ -120,8 +150,9 @@ namespace Remedy.ManifoldNetwork
         {
             int h = _s.headCount, d = _s.spaceDimensions, n = _s.outputCount, i = _s.inputCount, p = _s.pointsPerSpace;
             int states = _rows * _copies;
+            int cells = _wfc ? h * _f : 0;
 
-            // Weights and the value spaces come from the CPU reference, so both start identical.
+            // Weights, value spaces, point types and the grid tables come from the CPU reference, so both start identical.
             var reference = new MnnCpu(_s, 1);
             _params = Buffer(_layout.Count); _params.SetData(reference.Parameters);
             _moment = Buffer(_layout.Count); _moment.SetData(new float[_layout.Count]);
@@ -130,11 +161,33 @@ namespace Remedy.ManifoldNetwork
 
             _points = Buffer(h * p * d); _points.SetData(reference.Points.ToArray());
             _values = Buffer(h * p * n); _values.SetData(reference.FixedValues.ToArray());
-            _inertia = Buffer(h); _inertia.SetData(reference.HeadInertia.ToArray());
-            _speed = Buffer(h); _speed.SetData(reference.HeadSpeed.ToArray());
+            _timescale = Buffer(h); _timescale.SetData(reference.HeadTimescales.ToArray());
             _rest = Buffer(h * d); _rest.SetData(reference.HeadRest.ToArray());
             var clocks = _s.ClockCount > 0 ? _s.clockFrequencies : new[] { 0f };
             _clocks = Buffer(clocks.Length); _clocks.SetData(clocks);
+
+            var types = reference.PointTypes.ToArray();
+            var typesU = new uint[types.Length];
+            for (int k = 0; k < types.Length; k++) typesU[k] = (uint)types[k];
+            _pointTypes = Buffer(typesU.Length, sizeof(uint)); _pointTypes.SetData(typesU);
+
+            var grid = reference.Grid;
+            if (grid != null)
+            {
+                _gridStart = Buffer(grid.Start.Length, sizeof(uint)); _gridStart.SetData(grid.Start);
+                _gridOrder = Buffer(grid.Order.Length, sizeof(uint)); _gridOrder.SetData(grid.Order);
+            }
+            else
+            {
+                _gridStart = Buffer(1, sizeof(uint)); _gridStart.SetData(new uint[1]);
+                _gridOrder = Buffer(1, sizeof(uint)); _gridOrder.SetData(new uint[1]);
+            }
+
+            MnnCpu.BuildNeighbors(_s, out var start, out var list);
+            var neighbors = new int[start.Length + list.Length];
+            Array.Copy(start, neighbors, start.Length);
+            Array.Copy(list, 0, neighbors, start.Length, list.Length);
+            _neighbors = Buffer(neighbors.Length, sizeof(int)); _neighbors.SetData(neighbors);
 
             var table = new Vector4Int[_layout.Layers.Length];
             for (int l = 0; l < table.Length; l++)
@@ -146,10 +199,24 @@ namespace Remedy.ManifoldNetwork
 
             _pos = Buffer(states * h * d);
             _vel = Buffer(states * h * d);
+            _attr = Buffer(states * h * d);
+            _target = Buffer(states * h * d);
+            _gate = Buffer(states * h);
+            _sample = Buffer(states * h * n);
             _trail = Buffer(states * h * n);
             _feedback = Buffer(states * n);
             _prevInput = Buffer(states * i);
             _stepCount = Buffer(states, sizeof(uint));
+
+            _planSpread = Buffer(states * cells * _t);
+            _planType = Buffer(states * cells, sizeof(int));
+            _planAge = Buffer(states * cells, sizeof(int));
+            _typePartials = Buffer(_wfc ? states * h * _t * (n + 1) : 1);
+            _memKey = Buffer(_memory ? states * _s.hiddenWidth : 1);
+            _memAttn = Buffer(_memory ? states * _s.memorySlots : 1);
+            _memSlots = Buffer(_memory ? _banks * _s.memorySlots * _s.MemoryStride : 1);
+            _memSlots.SetData(new float[_memSlots.count]);
+            _memQueue = Buffer(_queueUpload.Length);
 
             _inputs = Buffer(_rows * i);
             _targets = Buffer(_rows * n);
@@ -159,15 +226,18 @@ namespace Remedy.ManifoldNetwork
 
             _slotError = Buffer(states); _slotError.SetData(new float[states]);
             _rowPenalty = Buffer(_rows); _rowPenalty.SetData(new float[_rows]);
-            _stepStats = Buffer(_rows * (1 + h));
+            _stepStats = Buffer(_rows * _statsStride);
             _copyError = Buffer(_copies); _copyError.SetData(new float[_copies]);
             _copyCount = Buffer(_copies); _copyCount.SetData(new float[_copies]);
             _rowReports = Buffer(_rows * 2);
             _staging = Buffer(_stateFloats);
         }
 
-        private int ScratchStride => _s.MasterInputs + _s.headCount * _s.maskWidth + _s.TranslatorInputs + 2 * _s.hiddenWidth
-            + Math.Max(_s.spaceDimensions, _s.outputCount);
+        // Matches the compute shader's scratch layout (see its comment above MasterAt).
+        private int ScratchFixed => _s.MasterInputs + _s.MasterOutputs + _s.TranslatorInputs + 2 * _s.hiddenWidth + _s.outputCount
+            + 3 * _t * _t + _t;
+        private int HeadScratch => 2 * _s.hiddenWidth + _s.SlaveOutputs;
+        private int ScratchStride => ScratchFixed + _s.headCount * HeadScratch;
 
         private struct Vector4Int
         {
@@ -177,87 +247,107 @@ namespace Remedy.ManifoldNetwork
 
         private void BindAll()
         {
-            int[] kernels = { _kStep, _kFork, _kReduceSupervised, _kReduceReported, _kClearCopyErrors, _kUpdate, _kCopyParameters,
-                _kReinitializeLayer, _kReviveHead, _kResetRows, _kSurpriseReset, _kPackState, _kUnpackState };
-            foreach (int k in kernels)
+            var bindings = new (string, GraphicsBuffer)[]
             {
-                _shader.SetBuffer(k, "_Params", _params);
-                _shader.SetBuffer(k, "_Moment", _moment);
-                _shader.SetBuffer(k, "_Variance", _variance);
-                _shader.SetBuffer(k, "_Best", _best);
-                _shader.SetBuffer(k, "_Points", _points);
-                _shader.SetBuffer(k, "_Values", _values);
-                _shader.SetBuffer(k, "_Inertia", _inertia);
-                _shader.SetBuffer(k, "_Speed", _speed);
-                _shader.SetBuffer(k, "_Rest", _rest);
-                _shader.SetBuffer(k, "_ClockFrequencies", _clocks);
-                _shader.SetBuffer(k, "_LayerTable", _layerTable);
-                _shader.SetBuffer(k, "_Pos", _pos);
-                _shader.SetBuffer(k, "_Vel", _vel);
-                _shader.SetBuffer(k, "_Trail", _trail);
-                _shader.SetBuffer(k, "_Feedback", _feedback);
-                _shader.SetBuffer(k, "_PrevInput", _prevInput);
-                _shader.SetBuffer(k, "_StepCount", _stepCount);
-                _shader.SetBuffer(k, "_Inputs", _inputs);
-                _shader.SetBuffer(k, "_Targets", _targets);
-                _shader.SetBuffer(k, "_TargetWeights", _targetWeights);
-                _shader.SetBuffer(k, "_Outputs", _outputs);
-                _shader.SetBuffer(k, "_Scratch", _scratch);
-                _shader.SetBuffer(k, "_SlotError", _slotError);
-                _shader.SetBuffer(k, "_RowPenalty", _rowPenalty);
-                _shader.SetBuffer(k, "_StepStats", _stepStats);
-                _shader.SetBuffer(k, "_CopyError", _copyError);
-                _shader.SetBuffer(k, "_CopyCount", _copyCount);
-                _shader.SetBuffer(k, "_RowReports", _rowReports);
-                _shader.SetBuffer(k, "_Staging", _staging);
-            }
+                ("_Params", _params), ("_Moment", _moment), ("_Variance", _variance), ("_Best", _best),
+                ("_Points", _points), ("_Values", _values), ("_Timescale", _timescale), ("_Rest", _rest), ("_ClockFrequencies", _clocks),
+                ("_PointTypes", _pointTypes), ("_GridStart", _gridStart), ("_GridOrder", _gridOrder), ("_Neighbors", _neighbors),
+                ("_LayerTable", _layerTable),
+                ("_Pos", _pos), ("_Vel", _vel), ("_Attr", _attr), ("_Target", _target), ("_Gate", _gate), ("_Sample", _sample),
+                ("_Trail", _trail), ("_Feedback", _feedback), ("_PrevInput", _prevInput), ("_StepCount", _stepCount),
+                ("_PlanSpread", _planSpread), ("_PlanType", _planType), ("_PlanAge", _planAge), ("_TypePartials", _typePartials),
+                ("_MemKey", _memKey), ("_MemAttn", _memAttn), ("_MemSlots", _memSlots), ("_MemQueue", _memQueue),
+                ("_Inputs", _inputs), ("_Targets", _targets), ("_TargetWeights", _targetWeights), ("_Outputs", _outputs), ("_Scratch", _scratch),
+                ("_SlotError", _slotError), ("_RowPenalty", _rowPenalty), ("_StepStats", _stepStats), ("_CopyError", _copyError),
+                ("_CopyCount", _copyCount), ("_RowReports", _rowReports), ("_Staging", _staging),
+            };
+            foreach (int k in _kernels)
+                foreach (var (name, buffer) in bindings)
+                    _shader.SetBuffer(k, name, buffer);
 
             var s = _s;
             SetInt("_I", s.inputCount); SetInt("_N", s.outputCount); SetInt("_H", s.headCount); SetInt("_M", s.maskWidth);
-            SetInt("_D", s.spaceDimensions); SetInt("_P", s.pointsPerSpace);
+            SetInt("_D", s.spaceDimensions); SetInt("_P", s.pointsPerSpace); SetInt("_SO", s.SlaveOutputs);
             SetInt("_HiddenWidth", s.hiddenWidth); SetInt("_HiddenLayers", s.hiddenLayers);
-            SetInt("_MasterInputs", s.MasterInputs); SetInt("_TranslatorInputs", s.TranslatorInputs); SetInt("_HeadBlock", s.TranslatorHeadBlock);
+            SetInt("_MasterInputs", s.MasterInputs); SetInt("_MasterOutputs", s.MasterOutputs);
+            SetInt("_TranslatorInputs", s.TranslatorInputs); SetInt("_HeadBlock", s.TranslatorHeadBlock);
             SetInt("_Copies", _copies); SetInt("_Rows", _rows); SetInt("_Instances", _instances);
             SetInt("_Seed", unchecked((int)s.seed));
-            SetInt("_MlpCount", _layout.MlpCount); SetInt("_ValuesOffset", _layout.ValuesOffset); SetInt("_ParameterCount", _layout.Count);
+            SetInt("_MlpCount", _layout.MlpCount); SetInt("_RulesOffset", _layout.RulesOffset); SetInt("_RulesCount", _layout.RulesCount);
+            SetInt("_BetaOffset", _layout.BetaOffset); SetInt("_ValuesOffset", _layout.ValuesOffset); SetInt("_ParameterCount", _layout.Count);
             SetInt("_TrainableValues", s.trainableValueSpaces ? 1 : 0); SetInt("_Antithetic", s.perturbMode == PerturbMode.Antithetic ? 1 : 0);
             SetInt("_Pairs", s.perturbPairs);
             _shader.SetFloat("_ValueSigmaScale", s.valueSpaceRate);
             _shader.SetFloat("_Omega", s.sineOmega);
+            _shader.SetFloat("_AlphaMax", s.sineAlphaMax);
             _shader.SetFloat("_Pull", s.pull);
-            _shader.SetFloat("_TrailRate", s.trailRate);
+            _shader.SetFloat("_Settle", s.settle);
+            _shader.SetFloat("_TrajectorySpeed", s.trajectorySpeed);
+            _shader.SetFloat("_TrailTimescale", s.trailTimescale);
             _shader.SetFloat("_Dispersion", s.dispersion);
+            SetInt("_Gates", s.liquidGates ? 1 : 0);
             SetInt("_Nearest", s.samplingMode == SamplingMode.Nearest ? 1 : 0);
             SetInt("_ClockCount", s.ClockCount); SetInt("_ChangeInputs", s.changeInputs ? 1 : 0); SetInt("_VelocityReadout", s.velocityReadout ? 1 : 0);
             _shader.SetFloat("_BalanceLambda", s.balanceLambda);
-            SetInt("_ScratchStride", ScratchStride);
+            SetInt("_ScratchStride", ScratchStride); SetInt("_ScratchFixed", ScratchFixed); SetInt("_HeadScratch", HeadScratch);
+            SetInt("_StatsStride", _statsStride);
             _shader.SetFloat("_LearningRate", s.learningRate);
             _shader.SetFloat("_Beta1", s.momentum);
             _shader.SetFloat("_Beta2", 0.999f);
+            SetInt("_UpdateRule", s.updateRule == UpdateRule.Adam ? 1 : 0);
             _shader.SetFloat("_ValueRate", s.valueSpaceRate);
+            _shader.SetFloat("_RuleRate", s.wfcRuleLrScale);
             _shader.SetFloat("_ResetAmount", s.resetAmount);
+
+            SetInt("_Wfc", _wfc ? 1 : 0); SetInt("_T", _t); SetInt("_F", _f); SetInt("_PlanBias", s.PlanBiasCount > 0 ? 1 : 0);
+            SetInt("_Coexist", s.wfcAxis != WfcAxis.Time ? 1 : 0); SetInt("_Follow", s.wfcAxis != WfcAxis.Heads ? 1 : 0);
+            SetInt("_Handoff", s.wfcAxis == WfcAxis.Grid ? 1 : 0);
+            SetInt("_Passes", s.wfcPasses); SetInt("_Budget", s.wfcCollapseBudget); SetInt("_PlanTickSteps", Math.Max(1, s.planTickSteps));
+
+            SetInt("_Memory", _memory ? 1 : 0); SetInt("_Slots", _memory ? s.memorySlots : 0); SetInt("_MemStride", s.MemoryStride);
+            SetInt("_MemShared", s.memoryScope == MemoryScope.Shared ? 1 : 0);
+            SetInt("_MemInputAt", s.headCount * s.TranslatorHeadBlock + s.inputCount);
+            _shader.SetFloat("_MergeThreshold", s.mergeThreshold);
+            _shader.SetFloat("_HalfLife", s.memoryHalfLife);
+
+            bool grid = s.UsesSpatialGrid;
+            SetInt("_Grid", grid ? 1 : 0);
+            if (grid)
+            {
+                var g = new SpatialGrid(s, new float[s.headCount * s.pointsPerSpace * s.spaceDimensions]);
+                SetInt("_GridSize", g.Size); SetInt("_GridCells", g.CellCount); SetInt("_GridAround", g.CellList.Length);
+                _shader.SetFloat("_GridCellSize", g.CellSize);
+            }
         }
 
         private void SetInt(string name, int value) => _shader.SetInt(name, value);
         private void SetUInt(string name, uint value) => _shader.SetInt(name, unchecked((int)value));
 
+        // Big dispatches spill into a second row of groups (the kernels flatten id.x + id.y × _DispatchWidth).
         private void Dispatch(int kernel, int threads)
         {
-            if (threads > 0)
-                _shader.Dispatch(kernel, (threads + Threads - 1) / Threads, 1, 1);
+            if (threads <= 0)
+                return;
+            int groups = (threads + Threads - 1) / Threads;
+            int rows = (groups + 65534) / 65535;
+            int columns = (groups + rows - 1) / rows;
+            SetInt("_DispatchWidth", columns * Threads);
+            _shader.Dispatch(kernel, columns, rows, 1);
         }
 
         #endregion
 
         #region Stepping
 
-        public void Step(ReadOnlySpan<float> inputs, ReadOnlySpan<float> targets, ReadOnlySpan<float> weights)
+        public void Step(ReadOnlySpan<float> inputs, ReadOnlySpan<float> targets, ReadOnlySpan<float> weights, float deltaTime)
         {
             int i = _s.inputCount, n = _s.outputCount;
             if (inputs.Length < _instances * i)
                 throw new ArgumentException($"Expected {_instances * i} inputs.");
 
+            float dt = deltaTime > 0f ? deltaTime : _s.TickDt;
             FlushErrors();
+            ProcessMemory(dt);
             bool supervised = Training && _s.trainingMode == TrainingMode.Supervised;
             bool exploring = Training && _s.trainingMode != TrainingMode.Supervised;
 
@@ -266,6 +356,7 @@ namespace Remedy.ManifoldNetwork
             if (Training && !_windowOpen)
                 OpenWindow();
             SurpriseReset();
+            PlanSurpriseReset();
 
             inputs.Slice(0, _instances * i).CopyTo(_inputUpload);
             _inputs.SetData(_inputUpload, 0, 0, _instances * i);
@@ -284,12 +375,10 @@ namespace Remedy.ManifoldNetwork
             SetInt("_FixedCopy", exploring ? _sequentialCopy : 0);
             SetUInt("_Window", _noiseWindow);
             SetUInt("_AssignWindow", _window);
-            _shader.SetFloat("_Sigma", _sigma);
-            _shader.SetFloat("_Alpha", _alpha);
-            _shader.SetFloat("_Ratio", ErrorRatio());
+            SetFrame(dt);
             SetInt("_HaveTargets", haveTargets ? 1 : 0);
             SetInt("_WeightPractice", 0);
-            Dispatch(_kStep, _instances * (supervised ? _copies : 1));
+            Forward(_instances * (supervised ? _copies : 1));
 
             if (haveTargets)
                 _windowHasError = true;
@@ -297,6 +386,29 @@ namespace Remedy.ManifoldNetwork
                 _windowStep++;
             _steps++;
             ReadBack();
+        }
+
+        private void SetFrame(float dt)
+        {
+            _shader.SetFloat("_Sigma", _sigma);
+            _shader.SetFloat("_Alpha", _alpha);
+            _shader.SetFloat("_Ratio", ErrorRatio());
+            _shader.SetFloat("_Dt", dt);
+            _shader.SetFloat("_Move", dt / _s.TickDt);
+        }
+
+        // The step's kernels, in the blueprint's order, for _RowCount rows × _SlotCount slots.
+        private void Forward(int states)
+        {
+            Dispatch(_kMasterForward, states);
+            if (_memory)
+                Dispatch(_kMemoryRead, states);
+            Dispatch(_kSlaveMove, states * _s.headCount);
+            Dispatch(_kSampleSpace, states * _s.headCount);
+            if (_wfc)
+                Dispatch(_kWfcPlan, states);
+            Dispatch(_kTranslatorForward, states);
+            Dispatch(_kAccumulateError, states);
         }
 
         private void UploadWeights(ReadOnlySpan<float> weights, int row, int rows)
@@ -339,30 +451,30 @@ namespace Remedy.ManifoldNetwork
             AsyncGPUReadback.Request(_stepStats, request =>
             {
                 if (request.hasError || _disposed) return;
-                var data = request.GetData<float>();
-                data.CopyTo(_statsScratch);
+                request.GetData<float>().CopyTo(_statsScratch);
                 AbsorbStats(_statsScratch);
             });
         }
 
-        // The real network's error and head contributions for the step (what MnnCpu tracks inline).
+        // The real network's error, head contributions and recall confidence for the step (what MnnCpu tracks inline).
         private void AbsorbStats(float[] stats)
         {
             int h = _s.headCount;
-            double usage = 0;
             for (int row = 0; row < _instances; row++)
             {
-                float error = stats[row * (1 + h)];
+                float error = stats[row * _statsStride];
                 if (error >= 0f) { _pendingError += error; _pendingCount++; }
             }
             const float rate = 0.01f;
             for (int head = 0; head < h; head++)
             {
-                usage = 0;
+                float usage = 0f;
                 for (int row = 0; row < _instances; row++)
-                    usage += stats[row * (1 + h) + 1 + head];
-                _usage[head] += ((float)(usage / _instances) - _usage[head]) * rate;
+                    usage += stats[row * _statsStride + 1 + head];
+                _usage[head] += (usage / _instances - _usage[head]) * rate;
             }
+            _memoryConfidence = stats[1 + h];
+            _confidenceRing[(int)((_steps + 255) % 256)] = _memoryConfidence;
         }
 
         public bool TryGetOutputs(float[] destination)
@@ -386,8 +498,74 @@ namespace Remedy.ManifoldNetwork
         public ReadOnlySpan<float> HeadUsage => _usage;
         public ReadOnlySpan<float> ErrorRing => _errorRing;
         public int ErrorRingIndex => _ringIndex;
+        public ReadOnlySpan<float> ConfidenceRing => _confidenceRing;
 
         private float ErrorRatio() => _baseline <= 1e-8f ? 0f : Mathf.Clamp(_trace / _baseline, 0f, 4f) - 1f;
+
+        #endregion
+
+        #region Memory
+
+        public void Remember(int instance, ReadOnlySpan<float> value, float strength)
+        {
+            int n = _s.outputCount;
+            if (!_memory || instance < 0 || instance >= _instances || value.Length < n || float.IsNaN(strength))
+                return;
+            int at = instance * (n + 3);
+            value.Slice(0, n).CopyTo(new Span<float>(_queueUpload, at, n));
+            _queueUpload[at + n] = Mathf.Clamp(strength, -MnnCpu.MemoryMaxStrength, MnnCpu.MemoryMaxStrength);
+            _queueUpload[at + n + 1] = 1f;
+            _anyQueued = true;
+        }
+
+        public void Reinforce(int instance, float amount)
+        {
+            int n = _s.outputCount;
+            if (!_memory || instance < 0 || instance >= _instances || float.IsNaN(amount))
+                return;
+            _queueUpload[instance * (n + 3) + n + 2] += amount;
+            _anyQueued = true;
+        }
+
+        // MnnCpu.ProcessMemory: queued writes in instance order, fading, recall marks.
+        private void ProcessMemory(float dt)
+        {
+            if (!_memory)
+                return;
+            int n = _s.outputCount;
+            if (_anyQueued)
+            {
+                for (int row = 0; row < _instances; row++)
+                    if (_queueUpload[row * (n + 3) + n + 1] > 0.5f) _memoryWrites++;
+                _memQueue.SetData(_queueUpload);
+                _shader.Dispatch(_kMemoryQueue, 1, 1, 1);
+                Array.Clear(_queueUpload, 0, _queueUpload.Length);
+                _anyQueued = false;
+            }
+            _shader.SetFloat("_Fade", MathF.Exp(-dt / _s.memoryHalfLife * 0.6931472f));
+            _shader.SetFloat("_MemDt", dt);
+            Dispatch(_kMemoryFade, _banks * _s.memorySlots);
+            Dispatch(_kMemoryRecall, _instances);
+        }
+
+        public void ClearMemory()
+        {
+            if (_memory) _memSlots.SetData(new float[_memSlots.count]);
+        }
+
+        public float[] GetMemoryBank()
+        {
+            if (!_memory) return Array.Empty<float>();
+            var data = new float[_memSlots.count];
+            _memSlots.GetData(data);
+            return data;
+        }
+
+        public void SetMemoryBank(ReadOnlySpan<float> bank)
+        {
+            if (_memory && bank.Length == _memSlots.count)
+                _memSlots.SetData(bank.ToArray());
+        }
 
         #endregion
 
@@ -418,7 +596,7 @@ namespace Remedy.ManifoldNetwork
                 _shader.SetFloat("_ErrorScale", 0f);
                 Dispatch(_kReduceSupervised, _copies);
                 if (_copies > 1)
-                    Dispatch(_kFork, _instances * (_copies - 1));
+                    Dispatch(_kForkState, _instances * (_copies - 1));
             }
         }
 
@@ -485,10 +663,11 @@ namespace Remedy.ManifoldNetwork
             _adamStep++;
             _shader.SetFloat("_Correction1", 1f - Mathf.Pow(_s.momentum, _adamStep));
             _shader.SetFloat("_Correction2", 1f - Mathf.Pow(0.999f, _adamStep));
-            Dispatch(_kUpdate, _layout.Count);
+            Dispatch(_kApplyUpdate, _layout.Count);
             _updates++;
         }
 
+        // Keep the best, roll back from a cliff (once per cliff), revive neglected heads: MnnCpu.AfterUpdate.
         private void AfterUpdate()
         {
             int warmup = (int)Math.Min(2000f, 1f / Math.Max(1e-4f, 1f - _s.baselineFalloff));
@@ -499,16 +678,29 @@ namespace Remedy.ManifoldNetwork
                     _bestBaseline = _baseline;
                     CopyParameters(0);
                     _rollbackSteps = 0;
+                    _rolledBack = false;
                 }
                 else if (_baseline > _bestBaseline * (1f + _s.rollbackMargin))
                 {
                     _rollbackSteps += _windowSteps;
                     if (_rollbackSteps >= _s.rollbackSteps)
                     {
-                        CopyParameters(1);
-                        _adamStep = 0;
                         _rollbackSteps = 0;
-                        _rollbacks++;
+                        if (_rolledBack)
+                        {
+                            _bestBaseline = _baseline;
+                            CopyParameters(0);
+                            _rolledBack = false;
+                        }
+                        else
+                        {
+                            CopyParameters(1);
+                            _adamStep = 0;
+                            _rollbacks++;
+                            _rolledBack = true;
+                            _baseline = _bestBaseline;
+                            _trace = Math.Min(_trace, _bestBaseline);
+                        }
                     }
                 }
                 else
@@ -600,6 +792,24 @@ namespace Remedy.ManifoldNetwork
             Dispatch(_kSurpriseReset, _instances * _copies);
         }
 
+        private void PlanSurpriseReset()
+        {
+            if (!_wfc || _baseline <= 1e-8f || _f < 2)
+                return;
+            float ratio = _trace / _baseline;
+            if (ratio < 1f)
+            {
+                _planSurprised = false;
+                return;
+            }
+            if (_planSurprised || ratio <= _s.wfcResetThreshold)
+                return;
+            _planSurprised = true;
+            _planResets++;
+            LastPlanReset = _steps;
+            Dispatch(_kPlanReset, _instances * _copies);
+        }
+
         public bool Practice(MnnState start, ReadOnlySpan<float> inputs, ReadOnlySpan<float> targets, ReadOnlySpan<float> weights, int steps)
         {
             int i = _s.inputCount, n = _s.outputCount;
@@ -625,6 +835,8 @@ namespace Remedy.ManifoldNetwork
             _shader.SetFloat("_Sigma", sigma);
             _shader.SetFloat("_Alpha", _alpha);
             _shader.SetFloat("_Ratio", ErrorRatio());
+            _shader.SetFloat("_Dt", _s.TickDt);
+            _shader.SetFloat("_Move", 1f);
             SetInt("_HaveTargets", 1);
             SetInt("_WeightPractice", 1);
             for (int t = 0; t < steps; t++)
@@ -637,7 +849,7 @@ namespace Remedy.ManifoldNetwork
                 if (stepWeights.Length == n) stepWeights.CopyTo(new Span<float>(_weightUpload, _practiceRow * n, n));
                 else Array.Fill(_weightUpload, 1f, _practiceRow * n, n);
                 _targetWeights.SetData(_weightUpload, _practiceRow * n, _practiceRow * n, n);
-                Dispatch(_kStep, _copies);
+                Forward(_copies);
             }
 
             _shader.SetFloat("_ErrorScale", 1f / steps);
@@ -666,28 +878,31 @@ namespace Remedy.ManifoldNetwork
             _shader.Dispatch(_kPackState, 1, 1, 1);
             if (Synchronous)
             {
-                var data = new float[_stateFloats];
-                _staging.GetData(data);
-                done(Unpack(data));
+                done(PeekStaging());
                 return;
             }
             AsyncGPUReadback.Request(_staging, request =>
             {
                 if (request.hasError || _disposed) return;
-                done(Unpack(request.GetData<float>().ToArray()));
+                var state = new MnnState(_s);
+                state.Unpack(request.GetData<float>().ToArray());
+                done(state);
             });
         }
 
-        private MnnState Unpack(float[] data)
+        public MnnState PeekStateImmediate(int instance)
         {
+            SetInt("_RowStart", instance);
+            _shader.Dispatch(_kPackState, 1, 1, 1);
+            return PeekStaging();
+        }
+
+        private MnnState PeekStaging()
+        {
+            var data = new float[_stateFloats];
+            _staging.GetData(data);
             var state = new MnnState(_s);
-            int k = 0;
-            Array.Copy(data, k, state.Positions, 0, state.Positions.Length); k += state.Positions.Length;
-            Array.Copy(data, k, state.Velocities, 0, state.Velocities.Length); k += state.Velocities.Length;
-            Array.Copy(data, k, state.Trails, 0, state.Trails.Length); k += state.Trails.Length;
-            Array.Copy(data, k, state.Feedback, 0, state.Feedback.Length); k += state.Feedback.Length;
-            Array.Copy(data, k, state.PreviousInputs, 0, state.PreviousInputs.Length); k += state.PreviousInputs.Length;
-            state.Step = BitConverter.ToUInt32(BitConverter.GetBytes(data[k]), 0);
+            state.Unpack(data);
             return state;
         }
 
@@ -696,13 +911,7 @@ namespace Remedy.ManifoldNetwork
         private void RestoreRow(int row, MnnState state)
         {
             var data = new float[_stateFloats];
-            int k = 0;
-            Array.Copy(state.Positions, 0, data, k, state.Positions.Length); k += state.Positions.Length;
-            Array.Copy(state.Velocities, 0, data, k, state.Velocities.Length); k += state.Velocities.Length;
-            Array.Copy(state.Trails, 0, data, k, state.Trails.Length); k += state.Trails.Length;
-            Array.Copy(state.Feedback, 0, data, k, state.Feedback.Length); k += state.Feedback.Length;
-            Array.Copy(state.PreviousInputs, 0, data, k, state.PreviousInputs.Length); k += state.PreviousInputs.Length;
-            data[k] = BitConverter.ToSingle(BitConverter.GetBytes(state.Step), 0);
+            state.Pack(data);
             _staging.SetData(data);
             SetInt("_RowStart", row);
             Dispatch(_kUnpackState, _copies);
@@ -724,6 +933,7 @@ namespace Remedy.ManifoldNetwork
             CopyParameters(0);
             _adamStep = 0;
             _bestBaseline = float.MaxValue;
+            _rolledBack = false;
             _windowOpen = false;
         }
 
@@ -736,9 +946,10 @@ namespace Remedy.ManifoldNetwork
             if (_disposed)
                 return;
             _disposed = true;
-            foreach (var buffer in new[] { _params, _moment, _variance, _best, _points, _values, _inertia, _speed, _rest, _clocks, _layerTable,
-                _pos, _vel, _trail, _feedback, _prevInput, _stepCount, _inputs, _targets, _targetWeights, _outputs, _scratch,
-                _slotError, _rowPenalty, _stepStats, _copyError, _copyCount, _rowReports, _staging })
+            foreach (var buffer in new[] { _params, _moment, _variance, _best, _points, _values, _timescale, _rest, _clocks, _pointTypes,
+                _gridStart, _gridOrder, _neighbors, _layerTable, _pos, _vel, _attr, _target, _gate, _sample, _trail, _feedback, _prevInput,
+                _stepCount, _planSpread, _planType, _planAge, _typePartials, _memKey, _memAttn, _memSlots, _memQueue, _inputs, _targets,
+                _targetWeights, _outputs, _scratch, _slotError, _rowPenalty, _stepStats, _copyError, _copyCount, _rowReports, _staging })
                 buffer?.Release();
             if (_shader != null)
                 UnityEngine.Object.DestroyImmediate(_shader);

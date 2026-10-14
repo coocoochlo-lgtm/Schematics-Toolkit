@@ -1,52 +1,94 @@
-// Manifold Neuron Network: the GPU side. Every kernel mirrors MnnCpu.cs (the source of truth) operation for
-// operation, so the parity tests can hold them to 1e-4. Nudged weights are never stored: each read computes
+// Manifold Neuron Network: the GPU side. Every kernel mirrors MnnCpu (the source of truth) operation for operation,
+// in float32, so the parity tests can hold them to 1e-4. Nudged weights are never stored: each read computes
 // θ + sign·σ·noise(seed, window, pair, index) from the same PCG hash the CPU uses.
+//
+// One step, per (instance, copy) "state" (dispatch order):
+//   MemoryQueue, MemoryFade, MemoryRecall   (memory bank on: last step's writes, fading, recall marks)
+//   MasterForward     one thread per state: master MLP → masks (+ plan biases), memory key
+//   MemoryRead        one thread per state: Hopfield recall → r, c for the translator
+//   SlaveMove         one thread per (state, head): slave MLP → target + gate → liquid move with attractor pull → wrap
+//   SampleSpace       one thread per (state, head): soft or nearest sample, attractor, per-type partial sums, trail
+//   WfcPlan           one thread per state: seed, propagate, collapse, execute the now column, roll, trails
+//   TranslatorForward one thread per state: outputs and feedback
+//   AccumulateError   one thread per state: supervised MSE + balance penalty per copy, stats for the real network
+// Training: ForkState at window start; ReduceSupervised / ReduceReported and ApplyUpdate at window end;
+// CopyParameters (best weights / rollback), ReinitializeLayer + ReviveHead, ResetRows, SurpriseReset, PlanReset,
+// PackState / UnpackState for capture and restore. Error trace, baseline, α and usage live on the CPU (MnnGpuBackend).
+// TODO (speed, not correctness): groupshared tiles for MasterForward and SampleSpace.
 
-#pragma kernel Step
-#pragma kernel Fork
+#pragma kernel MemoryQueue
+#pragma kernel MemoryFade
+#pragma kernel MemoryRecall
+#pragma kernel MasterForward
+#pragma kernel MemoryRead
+#pragma kernel SlaveMove
+#pragma kernel SampleSpace
+#pragma kernel WfcPlan
+#pragma kernel TranslatorForward
+#pragma kernel AccumulateError
+#pragma kernel ForkState
 #pragma kernel ReduceSupervised
 #pragma kernel ReduceReported
 #pragma kernel ClearCopyErrors
-#pragma kernel Update
+#pragma kernel ApplyUpdate
 #pragma kernel CopyParameters
 #pragma kernel ReinitializeLayer
 #pragma kernel ReviveHead
 #pragma kernel ResetRows
 #pragma kernel SurpriseReset
+#pragma kernel PlanReset
 #pragma kernel PackState
 #pragma kernel UnpackState
 
 #define THREADS 64
 #define RADIUS 1.0
 #define TWO_PI 6.28318530718
+#define LN2 0.6931472
+#define WFC_EPSILON 1e-4
+#define WFC_EMPTY 1e-6
+#define MEMORY_MAX 4.0
 
 // Hash streams (MnnHash.cs).
 #define STREAM_WEIGHTS 1u
 #define STREAM_NOISE 4u
 #define STREAM_REVIVE 6u
+#define STREAM_WFC 10u
 
 // ---------------------------------------------------------------------------------------------------------------
 // Shape and per-dispatch settings.
 
-uint _I, _N, _H, _M, _D, _P;
+uint _I, _N, _H, _M, _D, _P, _SO;
 uint _HiddenWidth, _HiddenLayers;
-uint _MasterInputs, _TranslatorInputs, _HeadBlock;
+uint _MasterInputs, _MasterOutputs, _TranslatorInputs, _HeadBlock;
 uint _Copies, _Rows, _Instances;
 uint _RowStart, _RowCount, _SlotCount;
 uint _CopyMode;          // 0: slot = copy (supervised, practice); 1: copy by row and window (population); 2: _FixedCopy
 uint _FixedCopy;
 uint _Window, _AssignWindow, _Seed;
 float _Sigma, _ValueSigmaScale;
-uint _MlpCount, _ValuesOffset, _ParameterCount, _TrainableValues, _Antithetic, _Pairs;
-float _Alpha, _Omega, _Ratio, _Pull, _TrailRate, _Dispersion;
-uint _Nearest, _ClockCount, _ChangeInputs, _VelocityReadout;
+uint _MlpCount, _RulesOffset, _RulesCount, _BetaOffset, _ValuesOffset, _ParameterCount, _TrainableValues, _Antithetic, _Pairs;
+float _Alpha, _AlphaMax, _Omega, _Ratio, _Pull, _Settle, _TrajectorySpeed, _Dispersion;
+float _Dt, _Move, _TrailTimescale;
+uint _Gates, _Nearest, _ClockCount, _ChangeInputs, _VelocityReadout;
 uint _HaveTargets, _WeightPractice;
 float _BalanceLambda;
-uint _ScratchStride;
+uint _ScratchStride, _ScratchFixed, _HeadScratch, _StatsStride;
+uint _DispatchWidth;     // threads per row of groups, for dispatches too big for one row (MnnGpuBackend.Dispatch)
+
+// WFC grid.
+uint _Wfc, _T, _F, _PlanBias, _Coexist, _Follow, _Handoff, _Passes, _Budget, _PlanTickSteps;
+
+// Memory bank.
+uint _Memory, _Slots, _MemStride, _MemShared, _MemInputAt;
+float _Fade, _MemDt, _MergeThreshold, _HalfLife;
+
+// Spatial grid.
+uint _Grid, _GridSize, _GridCells, _GridAround;
+float _GridCellSize;
 
 // Update.
-float _LearningRate, _Beta1, _Beta2, _Correction1, _Correction2, _ValueRate, _ErrorScale;
-uint _WindowSteps;
+float _LearningRate, _Beta1, _Beta2, _Correction1, _Correction2, _ValueRate, _RuleRate, _ErrorScale;
+uint _UpdateRule, _WindowSteps;
 
 // Maintenance.
 uint _Layer, _Generation, _Head, _CopySource;
@@ -56,11 +98,17 @@ float _ResetAmount;
 // Buffers.
 
 RWStructuredBuffer<float> _Params, _Moment, _Variance, _Best;
-StructuredBuffer<float> _Points, _Values, _Inertia, _Speed, _Rest, _ClockFrequencies;
+StructuredBuffer<float> _Points, _Values, _Timescale, _Rest, _ClockFrequencies;
+StructuredBuffer<uint> _PointTypes, _GridStart, _GridOrder;
+StructuredBuffer<int> _Neighbors;        // H + 1 start offsets, then the neighbour list
 StructuredBuffer<int4> _LayerTable;      // in, out, weights offset, biases offset
 
-RWStructuredBuffer<float> _Pos, _Vel, _Trail, _Feedback, _PrevInput;
+RWStructuredBuffer<float> _Pos, _Vel, _Attr, _Target, _Gate, _Sample, _Trail, _Feedback, _PrevInput;
 RWStructuredBuffer<uint> _StepCount;
+RWStructuredBuffer<float> _PlanSpread, _TypePartials, _MemKey, _MemAttn;
+RWStructuredBuffer<int> _PlanType, _PlanAge;
+RWStructuredBuffer<float> _MemSlots;
+StructuredBuffer<float> _MemQueue;       // per instance: value (N), strength, write flag, reinforce amount
 
 StructuredBuffer<float> _Inputs, _Targets, _TargetWeights;
 RWStructuredBuffer<float> _Outputs, _Scratch;
@@ -112,7 +160,7 @@ float Weight(uint index, uint copy)
         return w;
     uint pair; float sign;
     NudgeOf(copy, pair, sign);
-    float scale = index < _MlpCount ? _Sigma : _Sigma * _ValueSigmaScale;
+    float scale = _Sigma * (index < _ValuesOffset ? 1.0 : _ValueSigmaScale);
     return w + sign * scale * Noise(Hash(_Seed, STREAM_NOISE, _Window, pair, index));
 }
 
@@ -124,6 +172,11 @@ float Wrap(float x)
     return x - 2.0 * RADIUS * floor((x + RADIUS) / (2.0 * RADIUS));
 }
 
+float Softplus(float x)
+{
+    return max(x, 0.0) + log(1.0 + exp(-abs(x)));
+}
+
 float Activate(float x)
 {
     float calm = tanh(x);
@@ -131,8 +184,8 @@ float Activate(float x)
 }
 
 // One MLP block, reading its input from scratch[inAt] and writing its output to scratch[outAt]. Hidden layers
-// ping-pong through two scratch areas.
-void Mlp(uint firstLayer, uint copy, uint scratchBase, uint inAt, uint outAt, uint hiddenA, uint hiddenB)
+// ping-pong through two scratch areas. With keyAt != 0xffffffff, the last hidden layer is also copied to _MemKey.
+void Mlp(uint firstLayer, uint copy, uint scratchBase, uint inAt, uint outAt, uint hiddenA, uint hiddenB, uint keyAt)
 {
     uint layers = _HiddenLayers + 1u;
     uint from = inAt;
@@ -152,11 +205,16 @@ void Mlp(uint firstLayer, uint copy, uint scratchBase, uint inAt, uint outAt, ui
         }
         if (!last)
         {
+            if (keyAt != 0xffffffffu && l == layers - 2u)
+                for (uint k = 0u; k < (uint)layer.y && k < _HiddenWidth; k++)
+                    _MemKey[keyAt + k] = _Scratch[scratchBase + to + k];
             from = to;
             to = to == hiddenA ? hiddenB : hiddenA;
         }
     }
 }
+
+uint Flat(uint3 id) { return id.x + id.y * _DispatchWidth; }
 
 uint CopyFor(uint row, uint slot)
 {
@@ -165,34 +223,176 @@ uint CopyFor(uint row, uint slot)
     return _FixedCopy;
 }
 
+// Scratch layout per state: master input | master output | translator input | hidden A | hidden B | out (N) |
+// rule tables (3T²) | message (T) | then per head: hidden A | hidden B | slave output (SO).
+uint MasterAt() { return 0u; }
+uint MaskAt() { return _MasterInputs; }
+uint TranslatorAt() { return _MasterInputs + _MasterOutputs; }
+uint HiddenAAt() { return TranslatorAt() + _TranslatorInputs; }
+uint HiddenBAt() { return HiddenAAt() + _HiddenWidth; }
+uint OutAt() { return HiddenBAt() + _HiddenWidth; }
+uint RulesAt() { return OutAt() + _N; }
+uint MsgAt() { return RulesAt() + 3u * _T * _T; }
+uint HeadScratchAt(uint h) { return _ScratchFixed + h * _HeadScratch; }
+
+uint BankOf(uint row) { return (_MemShared != 0u || row >= _Instances) ? 0u : row; }
+uint SlotAt(uint bank, uint slot) { return (bank * _Slots + slot) * _MemStride; }
+uint StrengthAt(uint at) { return at + _HiddenWidth + _N; }
+bool SlotUsed(uint at) { return _MemSlots[at + _MemStride - 1u] >= 0.5; }
+
 // ---------------------------------------------------------------------------------------------------------------
-// One step of one (row, slot).
+// Memory bank (MnnCpu.Memory.cs, ProcessMemory). Runs at the start of a step for the last step's writes.
+
+float SlotNorm(uint at)
+{
+    float sum = 0.0;
+    for (uint k = 0u; k < _HiddenWidth; k++) sum += _MemSlots[at + k] * _MemSlots[at + k];
+    return sqrt(sum);
+}
+
+float KeyNorm(uint keyAt)
+{
+    float sum = 0.0;
+    for (uint k = 0u; k < _HiddenWidth; k++) sum += _MemKey[keyAt + k] * _MemKey[keyAt + k];
+    return sqrt(sum);
+}
+
+float Cosine(uint keyAt, float keyNorm, uint slotAt)
+{
+    float dot = 0.0;
+    for (uint k = 0u; k < _HiddenWidth; k++) dot += _MemKey[keyAt + k] * _MemSlots[slotAt + k];
+    return dot / (keyNorm * SlotNorm(slotAt) + 1e-6);
+}
+
+// Queued writes and reinforcements, in instance order (one thread, so CPU and GPU banks stay identical).
+[numthreads(1, 1, 1)]
+void MemoryQueue(uint3 id : SV_DispatchThreadID)
+{
+    uint queueStride = _N + 3u;
+    for (uint row = 0u; row < _Instances; row++)
+    {
+        uint q = row * queueStride;
+        uint bank = BankOf(row);
+        uint keyAt = row * _Copies * _HiddenWidth;
+        if (_MemQueue[q + _N + 1u] > 0.5)
+        {
+            float strength = _MemQueue[q + _N];
+            float keyNorm = KeyNorm(keyAt);
+            int merge = -1;
+            float bestSimilarity = _MergeThreshold;
+            for (uint slot = 0u; slot < _Slots; slot++)
+            {
+                uint at = SlotAt(bank, slot);
+                if (!SlotUsed(at)) continue;
+                float similarity = Cosine(keyAt, keyNorm, at);
+                if (similarity > bestSimilarity) { bestSimilarity = similarity; merge = (int)slot; }
+            }
+            if (merge >= 0)
+            {
+                uint at = SlotAt(bank, (uint)merge);
+                uint st = StrengthAt(at);
+                float old = _MemSlots[st];
+                float w = abs(strength) / (abs(old) + abs(strength) + 1e-6);
+                for (uint k = 0u; k < _HiddenWidth; k++) _MemSlots[at + k] += (_MemKey[keyAt + k] - _MemSlots[at + k]) * w;
+                for (uint n = 0u; n < _N; n++) _MemSlots[at + _HiddenWidth + n] += (_MemQueue[q + n] - _MemSlots[at + _HiddenWidth + n]) * w;
+                _MemSlots[st] = clamp(old + strength, -MEMORY_MAX, MEMORY_MAX);
+                _MemSlots[st + 1u] = 0.0;
+            }
+            else
+            {
+                int target = -1;
+                float lowest = 3.402823e38;
+                for (uint slot2 = 0u; slot2 < _Slots; slot2++)
+                {
+                    uint at = SlotAt(bank, slot2);
+                    if (!SlotUsed(at)) { target = (int)slot2; break; }
+                    uint st = StrengthAt(at);
+                    float score = abs(_MemSlots[st]) * exp(-_MemSlots[st + 2u] / _HalfLife * LN2);
+                    if (score < lowest) { lowest = score; target = (int)slot2; }
+                }
+                uint to = SlotAt(bank, (uint)target);
+                for (uint k2 = 0u; k2 < _HiddenWidth; k2++) _MemSlots[to + k2] = _MemKey[keyAt + k2];
+                for (uint n2 = 0u; n2 < _N; n2++) _MemSlots[to + _HiddenWidth + n2] = _MemQueue[q + n2];
+                uint strengthAt = StrengthAt(to);
+                _MemSlots[strengthAt] = strength;
+                _MemSlots[strengthAt + 1u] = 0.0;
+                _MemSlots[strengthAt + 2u] = 0.0;
+                _MemSlots[strengthAt + 3u] = 1.0;
+            }
+        }
+        float amount = _MemQueue[q + _N + 2u];
+        if (amount != 0.0)
+        {
+            uint attnAt = row * _Copies * _Slots;
+            for (uint slot3 = 0u; slot3 < _Slots; slot3++)
+            {
+                uint at = SlotAt(bank, slot3);
+                if (!SlotUsed(at)) continue;
+                uint st = StrengthAt(at);
+                _MemSlots[st] = clamp(_MemSlots[st] + amount * _MemAttn[attnAt + slot3], -MEMORY_MAX, MEMORY_MAX);
+            }
+        }
+    }
+}
+
+// Every used slot fades (strength halves every half-life) and ages. One thread per slot.
+[numthreads(THREADS, 1, 1)]
+void MemoryFade(uint3 id : SV_DispatchThreadID)
+{
+    uint banks = _MemShared != 0u ? 1u : _Instances;
+    if (Flat(id) >= banks * _Slots)
+        return;
+    uint at = Flat(id) * _MemStride;
+    if (!SlotUsed(at))
+        return;
+    uint st = StrengthAt(at);
+    _MemSlots[st] *= _Fade;
+    _MemSlots[st + 1u] += _MemDt;
+    _MemSlots[st + 2u] += _MemDt;
+}
+
+// The slot each instance leaned on most (more than half its attention) was just recalled. One thread per instance.
+[numthreads(THREADS, 1, 1)]
+void MemoryRecall(uint3 id : SV_DispatchThreadID)
+{
+    uint row = Flat(id);
+    if (row >= _Instances)
+        return;
+    uint attnAt = row * _Copies * _Slots;
+    int best = -1;
+    float top = 0.5;
+    for (uint slot = 0u; slot < _Slots; slot++)
+        if (_MemAttn[attnAt + slot] > top) { top = _MemAttn[attnAt + slot]; best = (int)slot; }
+    if (best >= 0)
+        _MemSlots[StrengthAt(SlotAt(BankOf(row), (uint)best)) + 2u] = 0.0;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The step.
+
+bool StateOf(uint thread, out uint row, out uint slot, out uint copy, out uint state)
+{
+    row = 0u; slot = 0u; copy = 0u; state = 0u;
+    if (thread >= _RowCount * _SlotCount)
+        return false;
+    row = _RowStart + thread / _SlotCount;
+    slot = thread % _SlotCount;
+    copy = CopyFor(row, slot);
+    state = row * _Copies + slot;
+    return true;
+}
 
 [numthreads(THREADS, 1, 1)]
-void Step(uint3 id : SV_DispatchThreadID)
+void MasterForward(uint3 id : SV_DispatchThreadID)
 {
-    uint thread = id.x;
-    if (thread >= _RowCount * _SlotCount)
+    uint row, slot, copy, state;
+    if (!StateOf(Flat(id), row, slot, copy, state))
         return;
-    uint row = _RowStart + thread / _SlotCount;
-    uint slot = thread % _SlotCount;
-    uint copy = CopyFor(row, slot);
-    uint state = row * _Copies + slot;
-
-    // Scratch layout: master input | mask | translator input | hidden A | hidden B | block output (max(D, N)).
     uint scratchBase = state * _ScratchStride;
-    uint masterAt = 0u;
-    uint maskAt = masterAt + _MasterInputs;
-    uint translatorAt = maskAt + _H * _M;
-    uint hiddenA = translatorAt + _TranslatorInputs;
-    uint hiddenB = hiddenA + _HiddenWidth;
-    uint slaveAt = hiddenB + _HiddenWidth;
-
     uint inputAt = row * _I;
     uint stepCount = _StepCount[state];
 
-    // 1. Master.
-    uint k = masterAt;
+    uint k = MasterAt();
     for (uint i = 0u; i < _I; i++) _Scratch[scratchBase + k++] = _Inputs[inputAt + i];
     for (uint n = 0u; n < _N; n++) _Scratch[scratchBase + k++] = tanh(_Feedback[state * _N + n]);
     _Scratch[scratchBase + k++] = _Ratio;
@@ -204,144 +404,514 @@ void Step(uint3 id : SV_DispatchThreadID)
     }
     if (_ChangeInputs != 0u)
         for (uint j = 0u; j < _I; j++) _Scratch[scratchBase + k++] = _Inputs[inputAt + j] - _PrevInput[state * _I + j];
-    Mlp(0u, copy, scratchBase, masterAt, maskAt, hiddenA, hiddenB);
+    Mlp(0u, copy, scratchBase, MasterAt(), MaskAt(), HiddenAAt(), HiddenBAt(), _Memory != 0u ? state * _HiddenWidth : 0xffffffffu);
+}
 
-    // 2. Heads.
+[numthreads(THREADS, 1, 1)]
+void MemoryRead(uint3 id : SV_DispatchThreadID)
+{
+    uint row, slot, copy, state;
+    if (!StateOf(Flat(id), row, slot, copy, state))
+        return;
+    uint scratchBase = state * _ScratchStride;
+    uint at = scratchBase + TranslatorAt() + _MemInputAt;
+    uint bank = BankOf(row);
+    float beta = Weight(_BetaOffset, copy);
+    uint keyAt = state * _HiddenWidth;
+    uint attnAt = state * _Slots;
+    float keyNorm = KeyNorm(keyAt);
+    for (uint n = 0u; n <= _N; n++) _Scratch[at + n] = 0.0;
+
+    float top = -3.402823e38;
+    bool any = false;
+    for (uint s = 0u; s < _Slots; s++)
+    {
+        uint slotAt = SlotAt(bank, s);
+        if (!SlotUsed(slotAt)) { _MemAttn[attnAt + s] = 0.0; continue; }
+        float logit = beta * Cosine(keyAt, keyNorm, slotAt);
+        _MemAttn[attnAt + s] = logit;
+        if (logit > top) top = logit;
+        any = true;
+    }
+    if (!any)
+        return;
+
+    float sum = 0.0;
+    for (uint s2 = 0u; s2 < _Slots; s2++)
+    {
+        uint slotAt = SlotAt(bank, s2);
+        if (!SlotUsed(slotAt)) continue;
+        float e = exp(_MemAttn[attnAt + s2] - top);
+        _MemAttn[attnAt + s2] = e;
+        sum += e;
+    }
+    float inv = 1.0 / sum;
+    float confidence = 0.0;
+    for (uint s3 = 0u; s3 < _Slots; s3++)
+    {
+        uint slotAt = SlotAt(bank, s3);
+        if (!SlotUsed(slotAt)) continue;
+        float a = _MemAttn[attnAt + s3] * inv;
+        _MemAttn[attnAt + s3] = a;
+        if (a > confidence) confidence = a;
+        float weight = a * _MemSlots[StrengthAt(slotAt)];
+        for (uint n2 = 0u; n2 < _N; n2++)
+            _Scratch[at + n2] += weight * _MemSlots[slotAt + _HiddenWidth + n2];
+    }
+    _Scratch[at + _N] = confidence;
+}
+
+// One head's move (MnnCpu.MoveHead).
+[numthreads(THREADS, 1, 1)]
+void SlaveMove(uint3 id : SV_DispatchThreadID)
+{
+    uint row, slot, copy, state;
+    if (!StateOf(Flat(id) / _H, row, slot, copy, state))
+        return;
+    uint h = Flat(id) % _H;
+    uint scratchBase = state * _ScratchStride;
+    uint headAt = HeadScratchAt(h);
+    uint outAt = headAt + 2u * _HiddenWidth;
+    uint layersPerBlock = _HiddenLayers + 1u;
+    Mlp(layersPerBlock * (1u + h), copy, scratchBase, MaskAt() + h * _M, outAt, headAt, headAt + _HiddenWidth, 0xffffffffu);
+
+    float g = _Gates != 0u ? _Scratch[scratchBase + outAt + _D] : 0.0;
+    float rate = 1.0 - exp(-_Dt * (1.0 / _Timescale[h] + (_Gates != 0u ? Softplus(g) : 0.0)));
+    _Gate[state * _H + h] = g;
+
+    uint posAt = (state * _H + h) * _D;
+    float speed2 = 0.0;
+    for (uint d = 0u; d < _D; d++)
+    {
+        float p = _Pos[posAt + d];
+        float target = tanh(_Scratch[scratchBase + outAt + d]) * RADIUS;
+        _Target[posAt + d] = target;
+        float steering = _Pull * Wrap(target - p) + _Settle * Wrap(_Attr[posAt + d] - p);
+        float v = _Vel[posAt + d];
+        v += (steering - v) * rate;
+        _Vel[posAt + d] = v;
+        speed2 += v * v;
+    }
+    float speed = sqrt(speed2);
+    if (speed > _TrajectorySpeed)
+    {
+        float scale = _TrajectorySpeed / speed;
+        for (uint d2 = 0u; d2 < _D; d2++) _Vel[posAt + d2] *= scale;
+    }
+    for (uint d3 = 0u; d3 < _D; d3++)
+        _Pos[posAt + d3] = Wrap(_Pos[posAt + d3] + _Vel[posAt + d3] * _Move);
+}
+
+float Distance2(uint posAt, uint pointIndex)
+{
+    float d2 = 0.0;
+    for (uint d = 0u; d < _D; d++)
+    {
+        float delta = Wrap(_Points[pointIndex * _D + d] - _Pos[posAt + d]);
+        d2 += delta * delta;
+    }
+    return d2;
+}
+
+float PointValue(uint valueIndex, uint copy)
+{
+    return _TrainableValues != 0u ? Weight(_ValuesOffset + valueIndex, copy) : _Values[valueIndex];
+}
+
+// One point's part in a head's sample, attractor and per-type sums (MnnCpu.Visit).
+void Visit(uint state, uint h, uint j, uint copy, uint sampleAt, uint partialAt, inout float total, inout float best, inout uint nearest)
+{
     float sigma = _Dispersion * RADIUS;
     float cutoff = 9.0 * sigma * sigma;
     float inv = 1.0 / (2.0 * sigma * sigma);
-    uint layersPerBlock = _HiddenLayers + 1u;
-    for (uint h = 0u; h < _H; h++)
+    uint posAt = (state * _H + h) * _D;
+    uint pointIndex = h * _P + j;
+    float d2 = Distance2(posAt, pointIndex);
+    if (_Nearest != 0u && d2 < best) { best = d2; nearest = j; }
+    if (d2 > cutoff)
+        return;
+    float w = exp(-min(d2 * inv, 80.0));
+    total += w;
+    for (uint d = 0u; d < _D; d++)
+        _Attr[posAt + d] += w * Wrap(_Points[pointIndex * _D + d] - _Pos[posAt + d]);
+    uint valueAt = pointIndex * _N;
+    if (_Nearest == 0u)
+        for (uint n = 0u; n < _N; n++)
+            _Scratch[sampleAt + n] += w * PointValue(valueAt + n, copy);
+    if (_Wfc != 0u)
     {
-        // The slave reads its mask slice in place.
-        Mlp(layersPerBlock * (1u + h), copy, scratchBase, maskAt + h * _M, slaveAt, hiddenA, hiddenB);
-        float inertia = _Inertia[h];
-        float speed2 = 0.0;
-        uint posAt = (state * _H + h) * _D;
+        uint at = (partialAt + _PointTypes[pointIndex]) * (_N + 1u);
+        _TypePartials[at] += w;
+        for (uint n2 = 0u; n2 < _N; n2++)
+            _TypePartials[at + 1u + n2] += w * PointValue(valueAt + n2, copy);
+    }
+}
+
+uint GridAxis(float x)
+{
+    return (uint)clamp((int)floor((x + RADIUS) / _GridCellSize), 0, (int)_GridSize - 1);
+}
+
+// Each head's sample and trail, written into the translator's head block (MnnCpu.SampleSpace + the trail loop).
+void FinishHead(uint state, uint h, uint sampleAt)
+{
+    float rate = 1.0 - exp(-_Dt / _TrailTimescale * (1.0 + (_Gates != 0u ? Softplus(_Gate[state * _H + h]) : 0.0)));
+    uint trailAt = (state * _H + h) * _N;
+    for (uint n = 0u; n < _N; n++)
+    {
+        _Sample[trailAt + n] = _Scratch[sampleAt + n];
+        float trail = _Trail[trailAt + n];
+        trail += (_Scratch[sampleAt + n] - trail) * rate;
+        _Trail[trailAt + n] = trail;
+        _Scratch[sampleAt + _N + n] = trail;
+    }
+    if (_VelocityReadout != 0u)
         for (uint d = 0u; d < _D; d++)
-        {
-            float target = tanh(_Scratch[scratchBase + slaveAt + d]) * RADIUS;
-            float toward = Wrap(target - _Pos[posAt + d]) * _Pull;
-            float v = _Vel[posAt + d];
-            v += (toward - v) * (1.0 - inertia);
-            _Vel[posAt + d] = v;
-            speed2 += v * v;
-        }
-        float speed = sqrt(speed2);
-        if (speed > _Speed[h])
-        {
-            float scale = _Speed[h] / speed;
-            for (uint d2 = 0u; d2 < _D; d2++) _Vel[posAt + d2] *= scale;
-        }
-        for (uint d3 = 0u; d3 < _D; d3++)
-            _Pos[posAt + d3] = Wrap(_Pos[posAt + d3] + _Vel[posAt + d3]);
+            _Scratch[sampleAt + 2u * _N + d] = _Vel[(state * _H + h) * _D + d];
+}
 
-        // Sample the value space around the head, straight into the translator's input block.
-        uint at = translatorAt + h * _HeadBlock;
-        uint pointBase = h * _P;
-        if (_Nearest != 0u)
-        {
-            uint nearest = 0u;
-            float best = 3.402823e38;
-            for (uint p = 0u; p < _P; p++)
-            {
-                float d2sum = 0.0;
-                for (uint d4 = 0u; d4 < _D; d4++)
-                {
-                    float delta = Wrap(_Points[(pointBase + p) * _D + d4] - _Pos[posAt + d4]);
-                    d2sum += delta * delta;
-                }
-                if (d2sum < best) { best = d2sum; nearest = p; }
-            }
-            for (uint n2 = 0u; n2 < _N; n2++)
-                _Scratch[scratchBase + at + n2] = _TrainableValues != 0u
-                    ? Weight(_ValuesOffset + (pointBase + nearest) * _N + n2, copy)
-                    : _Values[(pointBase + nearest) * _N + n2];
-        }
-        else
-        {
-            for (uint n3 = 0u; n3 < _N; n3++) _Scratch[scratchBase + at + n3] = 0.0;
-            float total = 0.0;
-            for (uint p2 = 0u; p2 < _P; p2++)
-            {
-                float d2sum = 0.0;
-                for (uint d5 = 0u; d5 < _D; d5++)
-                {
-                    float delta = Wrap(_Points[(pointBase + p2) * _D + d5] - _Pos[posAt + d5]);
-                    d2sum += delta * delta;
-                }
-                if (d2sum > cutoff)
-                    continue;
-                float w = exp(-min(d2sum * inv, 80.0));
-                total += w;
-                uint valueAt = (pointBase + p2) * _N;
-                for (uint n4 = 0u; n4 < _N; n4++)
-                {
-                    float value = _TrainableValues != 0u ? Weight(_ValuesOffset + valueAt + n4, copy) : _Values[valueAt + n4];
-                    _Scratch[scratchBase + at + n4] += w * value;
-                }
-            }
-            float norm = 1.0 / (total + 1e-6);
-            for (uint n5 = 0u; n5 < _N; n5++) _Scratch[scratchBase + at + n5] *= norm;
-        }
+[numthreads(THREADS, 1, 1)]
+void SampleSpace(uint3 id : SV_DispatchThreadID)
+{
+    uint row, slot, copy, state;
+    if (!StateOf(Flat(id) / _H, row, slot, copy, state))
+        return;
+    uint h = Flat(id) % _H;
+    uint scratchBase = state * _ScratchStride;
+    uint sampleAt = scratchBase + TranslatorAt() + h * _HeadBlock;
+    uint posAt = (state * _H + h) * _D;
+    uint partialAt = (state * _H + h) * _T;
+    uint pointBase = h * _P;
 
-        uint trailAt = (state * _H + h) * _N;
-        for (uint n6 = 0u; n6 < _N; n6++)
+    for (uint n = 0u; n < _N; n++) _Scratch[sampleAt + n] = 0.0;
+    for (uint d = 0u; d < _D; d++) _Attr[posAt + d] = 0.0;
+    if (_Wfc != 0u)
+        for (uint t = 0u; t < _T * (_N + 1u); t++) _TypePartials[partialAt * (_N + 1u) + t] = 0.0;
+    float total = 0.0, best = 3.402823e38;
+    uint nearest = 0u;
+
+    if (_Grid != 0u)
+    {
+        // Only the 3^D cells around the head (SpatialGrid.Candidates, same order).
+        for (uint c = 0u; c < _GridAround; c++)
         {
-            float trail = _Trail[trailAt + n6];
-            trail += (_Scratch[scratchBase + at + n6] - trail) * _TrailRate;
-            _Trail[trailAt + n6] = trail;
-            _Scratch[scratchBase + at + _N + n6] = trail;
+            uint cell = 0u, scale = 1u, digits = c;
+            for (uint d2 = 0u; d2 < _D; d2++)
+            {
+                int offset = (int)(digits % 3u) - 1;
+                digits /= 3u;
+                uint axis = (uint)(((int)GridAxis(_Pos[posAt + d2]) + offset + (int)_GridSize) % (int)_GridSize);
+                cell += axis * scale;
+                scale *= _GridSize;
+            }
+            uint startAt = h * (_GridCells + 1u) + cell;
+            for (uint k = _GridStart[startAt]; k < _GridStart[startAt + 1u]; k++)
+                Visit(state, h, _GridOrder[pointBase + k], copy, sampleAt, partialAt, total, best, nearest);
         }
-        if (_VelocityReadout != 0u)
-            for (uint d6 = 0u; d6 < _D; d6++)
-                _Scratch[scratchBase + at + 2u * _N + d6] = _Vel[posAt + d6];
+        if (_Nearest != 0u && best > _GridCellSize * _GridCellSize)
+        {
+            best = 3.402823e38;
+            for (uint j = 0u; j < _P; j++)
+            {
+                float d2b = Distance2(posAt, pointBase + j);
+                if (d2b < best) { best = d2b; nearest = j; }
+            }
+        }
+    }
+    else
+    {
+        for (uint j2 = 0u; j2 < _P; j2++)
+            Visit(state, h, j2, copy, sampleAt, partialAt, total, best, nearest);
     }
 
-    // 3. Translator.
-    uint skip = translatorAt + _H * _HeadBlock;
-    for (uint i2 = 0u; i2 < _I; i2++) _Scratch[scratchBase + skip + i2] = _Inputs[inputAt + i2];
-    uint outAt = slaveAt;
-    uint translatorLayer = layersPerBlock * (1u + _H);
-    Mlp(translatorLayer, copy, scratchBase, translatorAt, outAt, hiddenA, hiddenB);
+    float norm = 1.0 / (total + 1e-6);
+    if (_Nearest != 0u)
+        for (uint n2 = 0u; n2 < _N; n2++) _Scratch[sampleAt + n2] = PointValue((pointBase + nearest) * _N + n2, copy);
+    else
+        for (uint n3 = 0u; n3 < _N; n3++) _Scratch[sampleAt + n3] *= norm;
+    for (uint d3 = 0u; d3 < _D; d3++)
+        _Attr[posAt + d3] = Wrap(_Pos[posAt + d3] + _Attr[posAt + d3] * norm);
 
-    for (uint n7 = 0u; n7 < _N; n7++) _Feedback[state * _N + n7] = _Scratch[scratchBase + outAt + n7];
-    for (uint i3 = 0u; i3 < _I; i3++) _PrevInput[state * _I + i3] = _Inputs[inputAt + i3];
-    _StepCount[state] = stepCount + 1u;
+    if (_Wfc == 0u)
+        FinishHead(state, h, sampleAt);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The shared WFC plan grid (MnnCpu.Wfc.cs). One thread per state; the grid lives in _PlanSpread/_PlanType/_PlanAge.
+
+float PartialW(uint state, uint h, uint t) { return _TypePartials[((state * _H + h) * _T + t) * (_N + 1u)]; }
+
+void NormalizeCell(uint cellAt)
+{
+    float sum = 0.0;
+    for (uint t = 0u; t < _T; t++) sum += _PlanSpread[cellAt + t];
+    if (sum > 1e-30)
+    {
+        float inv = 1.0 / sum;
+        for (uint t2 = 0u; t2 < _T; t2++) _PlanSpread[cellAt + t2] *= inv;
+    }
+    else
+    {
+        float even = 1.0 / (float)_T;
+        for (uint t3 = 0u; t3 < _T; t3++) _PlanSpread[cellAt + t3] = even;
+    }
+}
+
+void SeedCell(uint state, uint scratchBase, uint c)
+{
+    uint h = c / _F, col = c % _F;
+    uint cellAt = (state * _H * _F + c) * _T;
+    if (col == 0u)
+    {
+        float total = 0.0;
+        for (uint t = 0u; t < _T; t++) total += PartialW(state, h, t);
+        if (total > 1e-12)
+        {
+            float inv = 1.0 / total;
+            for (uint t2 = 0u; t2 < _T; t2++) _PlanSpread[cellAt + t2] = PartialW(state, h, t2) * inv;
+            return;
+        }
+    }
+    else if (_PlanBias != 0u)
+    {
+        uint at = scratchBase + MaskAt() + _H * _M + (col - 1u) * _T;
+        for (uint t3 = 0u; t3 < _T; t3++) _PlanSpread[cellAt + t3] = exp(clamp(_Scratch[at + t3], -6.0, 6.0));
+        NormalizeCell(cellAt);
+        return;
+    }
+    float even = 1.0 / (float)_T;
+    for (uint t4 = 0u; t4 < _T; t4++) _PlanSpread[cellAt + t4] = even;
+}
+
+void Message(uint state, uint scratchBase, uint from, uint to, uint table, bool backward)
+{
+    uint fromAt = (state * _H * _F + from) * _T;
+    uint toAt = (state * _H * _F + to) * _T;
+    uint rules = scratchBase + RulesAt() + table;
+    uint msg = scratchBase + MsgAt();
+    float sum = 0.0;
+    for (uint tau = 0u; tau < _T; tau++)
+    {
+        float m = WFC_EPSILON;
+        for (uint sigma = 0u; sigma < _T; sigma++)
+        {
+            float rule = backward ? _Scratch[rules + tau * _T + sigma] : _Scratch[rules + sigma * _T + tau];
+            m += _PlanSpread[fromAt + sigma] * rule;
+        }
+        _Scratch[msg + tau] = m;
+        sum += m;
+    }
+    float scale = (float)_T / sum;
+    for (uint tau2 = 0u; tau2 < _T; tau2++)
+        _PlanSpread[toAt + tau2] *= _Scratch[msg + tau2] * scale;
+}
+
+void Propagate(uint state, uint scratchBase)
+{
+    uint cells = _H * _F;
+    uint cellBase = state * cells;
+    for (uint c = 0u; c < cells; c++)
+        if (_PlanType[cellBase + c] < 0) SeedCell(state, scratchBase, c);
+    uint tt = _T * _T;
+    for (uint pass = 0u; pass < _Passes; pass++)
+    {
+        for (uint h = 0u; h < _H; h++)
+        {
+            for (uint col = 0u; col < _F; col++)
+            {
+                uint c2 = h * _F + col;
+                if (_PlanType[cellBase + c2] >= 0) continue;
+                SeedCell(state, scratchBase, c2);
+                if (_Coexist != 0u)
+                    for (int k = _Neighbors[h]; k < _Neighbors[h + 1u]; k++)
+                        Message(state, scratchBase, (uint)_Neighbors[_H + 1u + (uint)k] * _F + col, c2, 0u, false);
+                if (_Follow != 0u)
+                {
+                    if (col > 0u) Message(state, scratchBase, c2 - 1u, c2, tt, false);
+                    if (col < _F - 1u) Message(state, scratchBase, c2 + 1u, c2, tt, true);
+                }
+                if (_Handoff != 0u)
+                    for (int k2 = _Neighbors[h]; k2 < _Neighbors[h + 1u]; k2++)
+                    {
+                        uint other = (uint)_Neighbors[_H + 1u + (uint)k2] * _F + col;
+                        if (col > 0u) Message(state, scratchBase, other - 1u, c2, 2u * tt, false);
+                        if (col < _F - 1u) Message(state, scratchBase, other + 1u, c2, 2u * tt, true);
+                    }
+                NormalizeCell((cellBase + c2) * _T);
+            }
+        }
+    }
+}
+
+uint ChooseType(uint state, uint c, uint row, uint collapse, uint stepCount)
+{
+    uint cellAt = (state * _H * _F + c) * _T;
+    uint best = 0u;
+    for (uint t = 1u; t < _T; t++)
+        if (_PlanSpread[cellAt + t] > _PlanSpread[cellAt + best]) best = t;
+    if (_Alpha <= 0.0)
+        return best;
+    float temperature = clamp(_Alpha / max(_AlphaMax, 1e-6), 1e-3, 1.0);
+    float exponent = 1.0 / temperature;
+    float total = 0.0;
+    for (uint t2 = 0u; t2 < _T; t2++) total += pow(_PlanSpread[cellAt + t2], exponent);
+    float u = Unit(Hash(_Seed, STREAM_WFC, stepCount, row, collapse)) * total;
+    float acc = 0.0;
+    for (uint t3 = 0u; t3 < _T; t3++)
+    {
+        acc += pow(_PlanSpread[cellAt + t3], exponent);
+        if (acc > u) return t3;
+    }
+    return best;
+}
+
+[numthreads(THREADS, 1, 1)]
+void WfcPlan(uint3 id : SV_DispatchThreadID)
+{
+    uint row, slot, copy, state;
+    if (!StateOf(Flat(id), row, slot, copy, state))
+        return;
+    uint scratchBase = state * _ScratchStride;
+    uint stepCount = _StepCount[state];
+    uint cells = _H * _F;
+    uint cellBase = state * cells;
+    uint tt = _T * _T;
+
+    // The rulebooks this copy sees, through softplus (Coexist symmetric).
+    uint rulesAt = scratchBase + RulesAt();
+    for (uint a = 0u; a < _T; a++)
+        for (uint b = 0u; b < _T; b++)
+        {
+            _Scratch[rulesAt + a * _T + b] = Softplus(0.5 * (Weight(_RulesOffset + a * _T + b, copy) + Weight(_RulesOffset + b * _T + a, copy)));
+            _Scratch[rulesAt + tt + a * _T + b] = Softplus(Weight(_RulesOffset + tt + a * _T + b, copy));
+            _Scratch[rulesAt + 2u * tt + a * _T + b] = Softplus(Weight(_RulesOffset + 2u * tt + a * _T + b, copy));
+        }
+
+    Propagate(state, scratchBase);
+
+    for (uint collapse = 0u; collapse < _Budget; collapse++)
+    {
+        int best = -1;
+        float bestEntropy = 3.402823e38;
+        for (uint c = 0u; c < cells; c++)
+        {
+            if (_PlanType[cellBase + c] >= 0) continue;
+            float entropy = 0.0;
+            for (uint t = 0u; t < _T; t++)
+            {
+                float q = _PlanSpread[(cellBase + c) * _T + t];
+                if (q > 1e-12) entropy -= q * log(q);
+            }
+            if (entropy < bestEntropy) { bestEntropy = entropy; best = (int)c; }
+        }
+        if (best < 0)
+            break;
+        uint type = ChooseType(state, (uint)best, row, collapse, stepCount);
+        _PlanType[cellBase + (uint)best] = (int)type;
+        _PlanAge[cellBase + (uint)best] = 0;
+        for (uint t2 = 0u; t2 < _T; t2++) _PlanSpread[(cellBase + (uint)best) * _T + t2] = t2 == type ? 1.0 : 0.0;
+        Propagate(state, scratchBase);
+    }
+
+    // Execute the now column, then trails.
+    for (uint h = 0u; h < _H; h++)
+    {
+        uint sampleAt = scratchBase + TranslatorAt() + h * _HeadBlock;
+        int committed = _PlanType[cellBase + h * _F];
+        if (committed >= 0)
+        {
+            uint at = ((state * _H + h) * _T + (uint)committed) * (_N + 1u);
+            float w = _TypePartials[at];
+            if (w > WFC_EMPTY)
+            {
+                float inv = 1.0 / w;
+                for (uint n = 0u; n < _N; n++) _Scratch[sampleAt + n] = _TypePartials[at + 1u + n] * inv;
+            }
+        }
+        FinishHead(state, h, sampleAt);
+    }
+
+    for (uint c2 = 0u; c2 < cells; c2++)
+        if (_PlanType[cellBase + c2] >= 0) _PlanAge[cellBase + c2] += 1;
+    if ((stepCount + 1u) % _PlanTickSteps == 0u)
+    {
+        float even = 1.0 / (float)_T;
+        for (uint h2 = 0u; h2 < _H; h2++)
+        {
+            for (uint col = 0u; col + 1u < _F; col++)
+            {
+                uint to = cellBase + h2 * _F + col, from = to + 1u;
+                _PlanType[to] = _PlanType[from];
+                _PlanAge[to] = _PlanAge[from];
+                for (uint t3 = 0u; t3 < _T; t3++) _PlanSpread[to * _T + t3] = _PlanSpread[from * _T + t3];
+            }
+            uint last = cellBase + h2 * _F + _F - 1u;
+            _PlanType[last] = -1;
+            _PlanAge[last] = 0;
+            for (uint t4 = 0u; t4 < _T; t4++) _PlanSpread[last * _T + t4] = even;
+        }
+    }
+}
+
+[numthreads(THREADS, 1, 1)]
+void TranslatorForward(uint3 id : SV_DispatchThreadID)
+{
+    uint row, slot, copy, state;
+    if (!StateOf(Flat(id), row, slot, copy, state))
+        return;
+    uint scratchBase = state * _ScratchStride;
+    uint inputAt = row * _I;
+    uint skip = TranslatorAt() + _H * _HeadBlock;
+    for (uint i = 0u; i < _I; i++) _Scratch[scratchBase + skip + i] = _Inputs[inputAt + i];
+    uint layersPerBlock = _HiddenLayers + 1u;
+    Mlp(layersPerBlock * (1u + _H), copy, scratchBase, TranslatorAt(), OutAt(), HiddenAAt(), HiddenBAt(), 0xffffffffu);
+
+    for (uint n = 0u; n < _N; n++) _Feedback[state * _N + n] = _Scratch[scratchBase + OutAt() + n];
+    for (uint i2 = 0u; i2 < _I; i2++) _PrevInput[state * _I + i2] = _Inputs[inputAt + i2];
+    _StepCount[state] = _StepCount[state] + 1u;
+    if (slot == 0u && row < _Instances)
+        for (uint n2 = 0u; n2 < _N; n2++) _Outputs[row * _N + n2] = _Scratch[scratchBase + OutAt() + n2];
+}
+
+[numthreads(THREADS, 1, 1)]
+void AccumulateError(uint3 id : SV_DispatchThreadID)
+{
+    uint row, slot, copy, state;
+    if (!StateOf(Flat(id), row, slot, copy, state))
+        return;
+    uint scratchBase = state * _ScratchStride;
+    uint translatorAt = scratchBase + TranslatorAt();
+    uint outAt = scratchBase + OutAt();
 
     // Balance: how much the translator leans on each head.
-    int4 first = _LayerTable[translatorLayer];
+    int4 first = _LayerTable[(_HiddenLayers + 1u) * (1u + _H)];
     float sum = 0.0, sum2 = 0.0;
-    uint statsAt = row * (1u + _H);
-    for (uint h2 = 0u; h2 < _H; h2++)
+    uint statsAt = row * _StatsStride;
+    for (uint h = 0u; h < _H; h++)
     {
         float contribution = 0.0;
-        for (uint i4 = h2 * _HeadBlock; i4 < (h2 + 1u) * _HeadBlock; i4++)
+        for (uint i = h * _HeadBlock; i < (h + 1u) * _HeadBlock; i++)
         {
             float column = 0.0;
             for (uint o = 0u; o < (uint)first.y; o++)
-                column += abs(Weight((uint)first.z + o * (uint)first.x + i4, copy));
-            contribution += abs(_Scratch[scratchBase + translatorAt + i4]) * column;
+                column += abs(Weight((uint)first.z + o * (uint)first.x + i, copy));
+            contribution += abs(_Scratch[translatorAt + i]) * column;
         }
         sum += contribution;
         sum2 += contribution * contribution;
         if (slot == 0u)
-            _StepStats[statsAt + 1u + h2] = contribution;
+            _StepStats[statsAt + 1u + h] = contribution;
     }
     float penalty = (_BalanceLambda <= 0.0 || sum <= 1e-8) ? 0.0 : _BalanceLambda * ((float)_H * sum2 / (sum * sum) - 1.0);
-
-    // Outputs, error.
-    if (slot == 0u && row < _Instances)
-        for (uint n8 = 0u; n8 < _N; n8++) _Outputs[row * _N + n8] = _Scratch[scratchBase + outAt + n8];
 
     float error = 0.0, weightSum = 0.0;
     if (_HaveTargets != 0u)
     {
         float esum = 0.0;
-        for (uint n9 = 0u; n9 < _N; n9++)
+        for (uint n = 0u; n < _N; n++)
         {
-            float w = _TargetWeights[row * _N + n9];
-            float e = _Scratch[scratchBase + outAt + n9] - _Targets[row * _N + n9];
+            float w = _TargetWeights[row * _N + n];
+            float e = _Scratch[outAt + n] - _Targets[row * _N + n];
             esum += w * e * e;
             weightSum += w;
         }
@@ -353,35 +923,61 @@ void Step(uint3 id : SV_DispatchThreadID)
     else
         _RowPenalty[row] += penalty;
     if (slot == 0u)
+    {
         _StepStats[statsAt] = _HaveTargets != 0u ? error : -1.0;
+        _StepStats[statsAt + 1u + _H] = _Memory != 0u ? _Scratch[translatorAt + _MemInputAt + _N] : 0.0;
+    }
 }
 
 // ---------------------------------------------------------------------------------------------------------------
 // Training windows.
 
-// Every copy of a row starts the window from the real (slot 0) state.
-[numthreads(THREADS, 1, 1)]
-void Fork(uint3 id : SV_DispatchThreadID)
+void CopyState(uint from, uint to)
 {
-    uint thread = id.x;
+    uint hd = _H * _D, hn = _H * _N;
+    for (uint a = 0u; a < hd; a++)
+    {
+        _Pos[to * hd + a] = _Pos[from * hd + a];
+        _Vel[to * hd + a] = _Vel[from * hd + a];
+        _Attr[to * hd + a] = _Attr[from * hd + a];
+        _Target[to * hd + a] = _Target[from * hd + a];
+    }
+    for (uint g = 0u; g < _H; g++) _Gate[to * _H + g] = _Gate[from * _H + g];
+    for (uint b = 0u; b < hn; b++) { _Sample[to * hn + b] = _Sample[from * hn + b]; _Trail[to * hn + b] = _Trail[from * hn + b]; }
+    for (uint c = 0u; c < _N; c++) _Feedback[to * _N + c] = _Feedback[from * _N + c];
+    for (uint d = 0u; d < _I; d++) _PrevInput[to * _I + d] = _PrevInput[from * _I + d];
+    if (_Wfc != 0u)
+    {
+        uint cells = _H * _F;
+        for (uint e = 0u; e < cells * _T; e++) _PlanSpread[to * cells * _T + e] = _PlanSpread[from * cells * _T + e];
+        for (uint f = 0u; f < cells; f++) { _PlanType[to * cells + f] = _PlanType[from * cells + f]; _PlanAge[to * cells + f] = _PlanAge[from * cells + f]; }
+    }
+    if (_Memory != 0u)
+    {
+        for (uint k = 0u; k < _HiddenWidth; k++) _MemKey[to * _HiddenWidth + k] = _MemKey[from * _HiddenWidth + k];
+        for (uint s = 0u; s < _Slots; s++) _MemAttn[to * _Slots + s] = _MemAttn[from * _Slots + s];
+    }
+    _StepCount[to] = _StepCount[from];
+}
+
+// ForkState: every copy of a row starts the window from the real (slot 0) state.
+[numthreads(THREADS, 1, 1)]
+void ForkState(uint3 id : SV_DispatchThreadID)
+{
+    uint thread = Flat(id);
     uint slots = _Copies - 1u;
     if (thread >= _RowCount * slots)
         return;
     uint row = _RowStart + thread / slots;
     uint slot = 1u + thread % slots;
-    uint from = row * _Copies, to = row * _Copies + slot;
-    for (uint a = 0u; a < _H * _D; a++) { _Pos[to * _H * _D + a] = _Pos[from * _H * _D + a]; _Vel[to * _H * _D + a] = _Vel[from * _H * _D + a]; }
-    for (uint b = 0u; b < _H * _N; b++) _Trail[to * _H * _N + b] = _Trail[from * _H * _N + b];
-    for (uint c = 0u; c < _N; c++) _Feedback[to * _N + c] = _Feedback[from * _N + c];
-    for (uint d = 0u; d < _I; d++) _PrevInput[to * _I + d] = _PrevInput[from * _I + d];
-    _StepCount[to] = _StepCount[from];
+    CopyState(row * _Copies, row * _Copies + slot);
 }
 
 // Supervised and practice: each copy's error over the rows, then the per-row sums are cleared.
 [numthreads(THREADS, 1, 1)]
 void ReduceSupervised(uint3 id : SV_DispatchThreadID)
 {
-    uint copy = id.x;
+    uint copy = Flat(id);
     if (copy >= _Copies)
         return;
     float sum = 0.0;
@@ -398,7 +994,7 @@ void ReduceSupervised(uint3 id : SV_DispatchThreadID)
 [numthreads(THREADS, 1, 1)]
 void ReduceReported(uint3 id : SV_DispatchThreadID)
 {
-    uint copy = id.x;
+    uint copy = Flat(id);
     if (copy >= _Copies)
         return;
     for (uint r = 0u; r < _Instances; r++)
@@ -418,18 +1014,19 @@ void ReduceReported(uint3 id : SV_DispatchThreadID)
 [numthreads(THREADS, 1, 1)]
 void ClearCopyErrors(uint3 id : SV_DispatchThreadID)
 {
-    if (id.x < _Copies)
+    if (Flat(id) < _Copies)
     {
-        _CopyError[id.x] = 0.0;
-        _CopyCount[id.x] = 0.0;
+        _CopyError[Flat(id)] = 0.0;
+        _CopyCount[Flat(id)] = 0.0;
     }
 }
 
-// Adam toward the nudges that did better (MnnCpu.ApplyUpdate). One thread per weight.
+// Toward the nudges that did better (MnnCpu.ApplyUpdate): momentum or Adam. One thread per weight; each regenerates
+// its own noise from the hash.
 [numthreads(THREADS, 1, 1)]
-void Update(uint3 id : SV_DispatchThreadID)
+void ApplyUpdate(uint3 id : SV_DispatchThreadID)
 {
-    uint i = id.x;
+    uint i = Flat(id);
     if (i >= _ParameterCount)
         return;
 
@@ -451,29 +1048,40 @@ void Update(uint3 id : SV_DispatchThreadID)
             if (_CopyCount[0] < 0.5 || _CopyCount[copy] < 0.5) continue;
             delta = _CopyError[0] / _CopyCount[0] - _CopyError[copy] / _CopyCount[copy];
         }
+        if (!isfinite(delta)) continue;
         g += (delta / denominator) * Noise(Hash(_Seed, STREAM_NOISE, _Window, k, i));
         used++;
     }
     if (used == 0u)
         return;
-    g /= (float)used;
+    g *= 1.0 / (float)used;
 
-    float m = _Beta1 * _Moment[i] + (1.0 - _Beta1) * g;
-    float v = _Beta2 * _Variance[i] + (1.0 - _Beta2) * g * g;
-    _Moment[i] = m;
-    _Variance[i] = v;
-    float step = (m / _Correction1) / (sqrt(v / _Correction2) + 1e-8);
-    _Params[i] += _LearningRate * (i < _MlpCount ? 1.0 : _ValueRate) * step;
+    float rateScale = i >= _ValuesOffset ? _ValueRate : (i >= _RulesOffset && i < _RulesOffset + _RulesCount ? _RuleRate : 1.0);
+    if (_UpdateRule != 0u)
+    {
+        float m = _Beta1 * _Moment[i] + (1.0 - _Beta1) * g;
+        float v = _Beta2 * _Variance[i] + (1.0 - _Beta2) * g * g;
+        _Moment[i] = m;
+        _Variance[i] = v;
+        float step = (m / _Correction1) / (sqrt(v / _Correction2) + 1e-8);
+        _Params[i] += _LearningRate * rateScale * step;
+    }
+    else
+    {
+        float m2 = _Beta1 * _Moment[i] + g;
+        _Moment[i] = m2;
+        _Params[i] += _LearningRate * rateScale * m2;
+    }
 }
 
 // ---------------------------------------------------------------------------------------------------------------
 // Maintenance.
 
-// _CopySource 0: best ← params (keep the best); 1: params ← best (roll back, clearing Adam); 2: clear Adam only.
+// _CopySource 0: best ← params (keep the best); 1: params ← best (roll back, clearing the optimizer); 2: clear only.
 [numthreads(THREADS, 1, 1)]
 void CopyParameters(uint3 id : SV_DispatchThreadID)
 {
-    uint i = id.x;
+    uint i = Flat(id);
     if (i >= _ParameterCount)
         return;
     if (_CopySource == 0u) _Best[i] = _Params[i];
@@ -491,7 +1099,7 @@ void ReinitializeLayer(uint3 id : SV_DispatchThreadID)
 {
     int4 layer = _LayerTable[_Layer];
     uint count = (uint)(layer.x * layer.y + layer.y);
-    uint i = id.x;
+    uint i = Flat(id);
     if (i >= count)
         return;
     uint index = (uint)layer.z + i;
@@ -510,30 +1118,52 @@ void ReinitializeLayer(uint3 id : SV_DispatchThreadID)
 [numthreads(THREADS, 1, 1)]
 void ReviveHead(uint3 id : SV_DispatchThreadID)
 {
-    uint state = id.x;
+    uint state = Flat(id);
     if (state >= _Rows * _Copies)
         return;
     for (uint d = 0u; d < _D; d++)
     {
         uint at = (state * _H + _Head) * _D + d;
-        _Pos[at] = Signed(Hash(_Seed, STREAM_REVIVE, _Generation, _Head, d)) * RADIUS;
+        float p = Signed(Hash(_Seed, STREAM_REVIVE, _Generation, _Head, d)) * RADIUS;
+        _Pos[at] = p;
+        _Attr[at] = p;
         _Vel[at] = 0.0;
     }
     for (uint n = 0u; n < _N; n++) _Trail[(state * _H + _Head) * _N + n] = 0.0;
 }
 
-// Heads back at rest, memory cleared, for rows _RowStart.._RowStart+_RowCount (every slot).
+// Heads back at rest, memory and plan cleared, for rows _RowStart.._RowStart+_RowCount (every slot).
 [numthreads(THREADS, 1, 1)]
 void ResetRows(uint3 id : SV_DispatchThreadID)
 {
-    uint thread = id.x;
+    uint thread = Flat(id);
     if (thread >= _RowCount * _Copies)
         return;
     uint state = (_RowStart + thread / _Copies) * _Copies + thread % _Copies;
-    for (uint a = 0u; a < _H * _D; a++) { _Pos[state * _H * _D + a] = _Rest[a]; _Vel[state * _H * _D + a] = 0.0; }
-    for (uint b = 0u; b < _H * _N; b++) _Trail[state * _H * _N + b] = 0.0;
+    uint hd = _H * _D, hn = _H * _N;
+    for (uint a = 0u; a < hd; a++)
+    {
+        _Pos[state * hd + a] = _Rest[a];
+        _Vel[state * hd + a] = 0.0;
+        _Attr[state * hd + a] = _Rest[a];
+        _Target[state * hd + a] = _Rest[a];
+    }
+    for (uint g = 0u; g < _H; g++) _Gate[state * _H + g] = 0.0;
+    for (uint b = 0u; b < hn; b++) { _Sample[state * hn + b] = 0.0; _Trail[state * hn + b] = 0.0; }
     for (uint c = 0u; c < _N; c++) _Feedback[state * _N + c] = 0.0;
     for (uint d = 0u; d < _I; d++) _PrevInput[state * _I + d] = 0.0;
+    if (_Wfc != 0u)
+    {
+        uint cells = _H * _F;
+        float even = 1.0 / (float)_T;
+        for (uint e = 0u; e < cells * _T; e++) _PlanSpread[state * cells * _T + e] = even;
+        for (uint f = 0u; f < cells; f++) { _PlanType[state * cells + f] = -1; _PlanAge[state * cells + f] = 0; }
+    }
+    if (_Memory != 0u)
+    {
+        for (uint k = 0u; k < _HiddenWidth; k++) _MemKey[state * _HiddenWidth + k] = 0.0;
+        for (uint s = 0u; s < _Slots; s++) _MemAttn[state * _Slots + s] = 0.0;
+    }
     _StepCount[state] = 0u;
 }
 
@@ -541,44 +1171,88 @@ void ResetRows(uint3 id : SV_DispatchThreadID)
 [numthreads(THREADS, 1, 1)]
 void SurpriseReset(uint3 id : SV_DispatchThreadID)
 {
-    uint state = id.x;
+    uint state = Flat(id);
     if (state >= _Instances * _Copies)
         return;
     for (uint a = 0u; a < _H * _D; a++)
     {
         uint at = state * _H * _D + a;
-        _Pos[at] = Wrap(_Pos[at] + Wrap(_Rest[a] - _Pos[at]) * _ResetAmount);
+        float p = Wrap(_Pos[at] + Wrap(_Rest[a] - _Pos[at]) * _ResetAmount);
+        _Pos[at] = p;
+        _Attr[at] = p;
         _Vel[at] *= 1.0 - _ResetAmount;
     }
 }
 
-// One row's real state to and from a flat staging buffer (positions, velocities, trails, feedback, previous
-// inputs, step), for capturing and restoring memory. UnpackState writes every slot of the row.
+// A surprise wipes every plan's future (the now column stays).
+[numthreads(THREADS, 1, 1)]
+void PlanReset(uint3 id : SV_DispatchThreadID)
+{
+    uint state = Flat(id);
+    if (state >= _Instances * _Copies)
+        return;
+    for (uint h = 0u; h < _H; h++)
+        for (uint col = 1u; col < _F; col++)
+        {
+            uint c = state * _H * _F + h * _F + col;
+            _PlanType[c] = -1;
+            _PlanAge[c] = 0;
+        }
+}
+
+// One row's real state to and from a flat staging buffer in MnnState.Pack's order, for capturing and restoring
+// memory. UnpackState writes every slot of the row.
 [numthreads(1, 1, 1)]
 void PackState(uint3 id : SV_DispatchThreadID)
 {
     uint state = _RowStart * _Copies;
+    uint hd = _H * _D, hn = _H * _N, cells = _Wfc != 0u ? _H * _F : 0u;
     uint k = 0u;
-    for (uint a = 0u; a < _H * _D; a++) _Staging[k++] = _Pos[state * _H * _D + a];
-    for (uint b = 0u; b < _H * _D; b++) _Staging[k++] = _Vel[state * _H * _D + b];
-    for (uint c = 0u; c < _H * _N; c++) _Staging[k++] = _Trail[state * _H * _N + c];
-    for (uint d = 0u; d < _N; d++) _Staging[k++] = _Feedback[state * _N + d];
+    for (uint a = 0u; a < hd; a++) _Staging[k++] = _Pos[state * hd + a];
+    for (uint a2 = 0u; a2 < hd; a2++) _Staging[k++] = _Vel[state * hd + a2];
+    for (uint a3 = 0u; a3 < hd; a3++) _Staging[k++] = _Attr[state * hd + a3];
+    for (uint a4 = 0u; a4 < hd; a4++) _Staging[k++] = _Target[state * hd + a4];
+    for (uint g = 0u; g < _H; g++) _Staging[k++] = _Gate[state * _H + g];
+    for (uint b = 0u; b < hn; b++) _Staging[k++] = _Sample[state * hn + b];
+    for (uint b2 = 0u; b2 < hn; b2++) _Staging[k++] = _Trail[state * hn + b2];
+    for (uint c = 0u; c < _N; c++) _Staging[k++] = _Feedback[state * _N + c];
     for (uint e = 0u; e < _I; e++) _Staging[k++] = _PrevInput[state * _I + e];
+    for (uint f = 0u; f < cells * _T; f++) _Staging[k++] = _PlanSpread[state * cells * _T + f];
+    for (uint f2 = 0u; f2 < cells; f2++) _Staging[k++] = asfloat(_PlanType[state * cells + f2]);
+    for (uint f3 = 0u; f3 < cells; f3++) _Staging[k++] = asfloat(_PlanAge[state * cells + f3]);
+    if (_Memory != 0u)
+    {
+        for (uint m = 0u; m < _HiddenWidth; m++) _Staging[k++] = _MemKey[state * _HiddenWidth + m];
+        for (uint s = 0u; s < _Slots; s++) _Staging[k++] = _MemAttn[state * _Slots + s];
+    }
     _Staging[k] = asfloat(_StepCount[state]);
 }
 
 [numthreads(THREADS, 1, 1)]
 void UnpackState(uint3 id : SV_DispatchThreadID)
 {
-    uint slot = id.x;
+    uint slot = Flat(id);
     if (slot >= _Copies)
         return;
     uint state = _RowStart * _Copies + slot;
+    uint hd = _H * _D, hn = _H * _N, cells = _Wfc != 0u ? _H * _F : 0u;
     uint k = 0u;
-    for (uint a = 0u; a < _H * _D; a++) _Pos[state * _H * _D + a] = _Staging[k++];
-    for (uint b = 0u; b < _H * _D; b++) _Vel[state * _H * _D + b] = _Staging[k++];
-    for (uint c = 0u; c < _H * _N; c++) _Trail[state * _H * _N + c] = _Staging[k++];
-    for (uint d = 0u; d < _N; d++) _Feedback[state * _N + d] = _Staging[k++];
+    for (uint a = 0u; a < hd; a++) _Pos[state * hd + a] = _Staging[k++];
+    for (uint a2 = 0u; a2 < hd; a2++) _Vel[state * hd + a2] = _Staging[k++];
+    for (uint a3 = 0u; a3 < hd; a3++) _Attr[state * hd + a3] = _Staging[k++];
+    for (uint a4 = 0u; a4 < hd; a4++) _Target[state * hd + a4] = _Staging[k++];
+    for (uint g = 0u; g < _H; g++) _Gate[state * _H + g] = _Staging[k++];
+    for (uint b = 0u; b < hn; b++) _Sample[state * hn + b] = _Staging[k++];
+    for (uint b2 = 0u; b2 < hn; b2++) _Trail[state * hn + b2] = _Staging[k++];
+    for (uint c = 0u; c < _N; c++) _Feedback[state * _N + c] = _Staging[k++];
     for (uint e = 0u; e < _I; e++) _PrevInput[state * _I + e] = _Staging[k++];
+    for (uint f = 0u; f < cells * _T; f++) _PlanSpread[state * cells * _T + f] = _Staging[k++];
+    for (uint f2 = 0u; f2 < cells; f2++) _PlanType[state * cells + f2] = asint(_Staging[k++]);
+    for (uint f3 = 0u; f3 < cells; f3++) _PlanAge[state * cells + f3] = asint(_Staging[k++]);
+    if (_Memory != 0u)
+    {
+        for (uint m = 0u; m < _HiddenWidth; m++) _MemKey[state * _HiddenWidth + m] = _Staging[k++];
+        for (uint s = 0u; s < _Slots; s++) _MemAttn[state * _Slots + s] = _Staging[k++];
+    }
     _StepCount[state] = asuint(_Staging[k]);
 }

@@ -18,6 +18,7 @@ namespace Remedy.ManifoldNetwork
     /// </code>
     /// Runs on the GPU when compute shaders are available (else, or with preferCpu, on the CPU). On the GPU, outputs
     /// arrive one step late through <see cref="TryGetOutputs"/>, or can stay on the GPU via <see cref="OutputBuffer"/>.
+    /// Heads move in real time: set <see cref="DeltaTime"/> to the seconds since the last step when ticks are uneven.
     /// </summary>
     public sealed class ManifoldNet : IDisposable
     {
@@ -131,18 +132,25 @@ namespace Remedy.ManifoldNetwork
             set { if (_backend is MnnGpuBackend gpu) gpu.Synchronous = value; }
         }
 
+        /// <summary>
+        /// The real time in seconds the next steps cover (the time since the last tick). Heads move by
+        /// v · DeltaTime / (1 / tickRate) and their liquid timing uses it, so the brain behaves the same at uneven tick
+        /// rates. 0 (the default): one nominal tick (1 / tickRate).
+        /// </summary>
+        public float DeltaTime { get; set; }
+
         /// <summary>One step for every instance. inputs.Length = InstanceCount × InputCount.</summary>
-        public void Step(float[] inputs) => _backend.Step(inputs, default, default);
+        public void Step(float[] inputs) => _backend.Step(inputs, default, default, DeltaTime);
 
         /// <summary>
         /// Supervised: also trains toward targets (InstanceCount × OutputCount), each weighted by targetWeights (same
         /// size; 0 = no answer for that output; null = all 1).
         /// </summary>
         public void Step(float[] inputs, float[] targets, float[] targetWeights = null)
-            => _backend.Step(inputs, targets, targetWeights);
+            => _backend.Step(inputs, targets, targetWeights, DeltaTime);
 
         public void Step(ReadOnlySpan<float> inputs, ReadOnlySpan<float> targets = default, ReadOnlySpan<float> targetWeights = default)
-            => _backend.Step(inputs, targets, targetWeights);
+            => _backend.Step(inputs, targets, targetWeights, DeltaTime);
 
         /// <summary>Population and sequential training: how wrong the last step of one instance was (add up freely).</summary>
         public void ReportError(int instance, float error) => _backend.ReportError(instance, error);
@@ -161,6 +169,12 @@ namespace Remedy.ManifoldNetwork
         public ReadOnlySpan<float> ErrorRing => _backend.ErrorRing;
         public int ErrorRingIndex => _backend.ErrorRingIndex;
 
+        /// <summary>Instance 0's recall confidence c for the last 256 steps (memory on); step t is at t % 256.</summary>
+        public ReadOnlySpan<float> ConfidenceRing => _backend.ConfidenceRing;
+
+        /// <summary>The step of the last surprise that wiped the plans' future (WFC on; 0 = never).</summary>
+        public uint LastPlanReset => _backend.LastPlanReset;
+
         /// <summary>Head positions on the GPU (for drawing): instance i's H × D floats start at i × HeadStride.</summary>
         public GraphicsBuffer HeadPositions => _backend.HeadPositions;
         public int HeadStride => _backend.HeadStride;
@@ -172,6 +186,46 @@ namespace Remedy.ManifoldNetwork
         public void CaptureState(int instance, Action<MnnState> done) => _backend.CaptureState(instance, done);
 
         public void RestoreState(int instance, MnnState state) => _backend.RestoreState(instance, state);
+
+        /// <summary>
+        /// One instance's whole state read now: positions, velocities, attractors, targets, gates, samples, trails, the
+        /// plan grid and memory recall. Stalls the GPU: for the debug window, tools and tests only.
+        /// </summary>
+        public MnnState PeekStateImmediate(int instance) => _backend.PeekStateImmediate(instance);
+
+        /// <summary>Each point's type (H × P), for the WFC grid and the debug view.</summary>
+        public int[] GetPointTypes() => new MnnCpu(Settings, 1).PointTypes.ToArray();
+
+        /// <summary>The three rulebooks (Coexist, Follow, Handoff; T × T each, row = from-type), or empty with the WFC grid off.</summary>
+        public float[] GetRulebooks()
+        {
+            var layout = new WeightLayout(Settings);
+            var rules = new float[layout.RulesCount];
+            if (rules.Length > 0)
+                Array.Copy(GetParameters(), layout.RulesOffset, rules, 0, rules.Length);
+            return rules;
+        }
+
+        #region Episodic memory
+
+        /// <summary>
+        /// Remember this moment for one instance: its latest key (the step just taken) with a value (OutputCount
+        /// floats) and a signed strength (positive: "do this"; negative: "avoid this"). Use it for a player's teaching
+        /// sample (value = the player's input, positive) or a big reward (|reward| above writeThreshold: value = what
+        /// the bot did, strength = the reward). Written before the next step; perturbed copies never write.
+        /// </summary>
+        public void Remember(int instance, ReadOnlySpan<float> value, float strength) => _backend.Remember(instance, value, strength);
+
+        /// <summary>An outcome for what one instance just recalled: good (positive) reinforces those slots, bad weakens them.</summary>
+        public void Reinforce(int instance, float amount) => _backend.Reinforce(instance, amount);
+
+        /// <summary>Forgets every memory (do this when the sensor layout changes: old keys mean nothing).</summary>
+        public void ClearMemory() => _backend.ClearMemory();
+
+        /// <summary>The memory slots, bank by bank: S × (key, value, strength, age, seconds since recalled, used).</summary>
+        public float[] GetMemoryBank() => _backend.GetMemoryBank();
+
+        #endregion
 
         /// <summary>
         /// Trains on a recorded stretch (inputs and targets per step, weighted per output) starting from a captured
@@ -186,14 +240,15 @@ namespace Remedy.ManifoldNetwork
         /// <summary>Replaces the weights (same layout only).</summary>
         public void SetParameters(ReadOnlySpan<float> parameters) => _backend.SetParameters(parameters);
 
-        /// <summary>What it has learned, as a new brain asset.</summary>
-        public MnnBrain SaveBrain() => MnnBrain.Create(Settings, _backend.GetParameters(), _backend.Updates);
+        /// <summary>What it has learned (weights, rulebooks, memory slots), as a new brain asset.</summary>
+        public MnnBrain SaveBrain() => MnnBrain.Create(Settings, _backend.GetParameters(), _backend.Updates, _backend.GetMemoryBank());
 
         /// <summary>Saves into an existing brain asset.</summary>
         public void SaveBrain(MnnBrain into)
         {
             into.Settings = Settings.Clone();
             into.Parameters = _backend.GetParameters();
+            into.MemorySlots = _backend.GetMemoryBank();
             into.LayoutSignature = Settings.LayoutSignature;
             into.Updates += _backend.Updates;
         }
@@ -203,6 +258,8 @@ namespace Remedy.ManifoldNetwork
             if (!brain.Fits(Settings))
                 throw new ArgumentException($"The brain \"{brain.name}\" doesn't fit this network ({brain.LayoutSignature} vs {Settings.LayoutSignature}).");
             _backend.SetParameters(brain.Parameters);
+            if (brain.MemorySlots != null && brain.MemorySlots.Length > 0)
+                _backend.SetMemoryBank(brain.MemorySlots);
         }
 
         public bool Disposed { get; private set; }
@@ -264,6 +321,8 @@ namespace Remedy.ManifoldNetwork
                     foreach (var slave in layout.Slaves)
                         Take(slave.Start, slave.End);
                     Take(layout.Translator.Start, layout.Translator.End);
+                    if (layout.RulesCount + layout.BetaCount > 0)
+                        Take(layout.RulesOffset, layout.ValuesOffset);
                     if (layout.ValuesCount > 0)
                         Take(layout.ValuesOffset, layout.Count);
                     break;

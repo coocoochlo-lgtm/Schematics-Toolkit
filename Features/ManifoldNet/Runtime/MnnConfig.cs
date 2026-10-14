@@ -11,7 +11,9 @@ namespace Remedy.ManifoldNetwork
     {
         public MnnSettings Settings = new();
 
-        private void OnValidate() => Settings.Clamp();
+        // Clamp what can be clamped; anything still out of range is reported by the inspector (MnnConfigEditor) and
+        // by the ManifoldNet constructor.
+        private void OnValidate() => (Settings ??= new MnnSettings()).Clamp();
 
         public static MnnConfig Create(MnnSettings settings)
         {

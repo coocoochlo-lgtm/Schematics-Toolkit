@@ -177,6 +177,19 @@ namespace Remedy.ManifoldNetwork.Schematics
 
         #region Deciding and remembering
 
+        /// <summary>How far the brain's own raw answer was from what it was taught this tick (weighted mean squared).</summary>
+        internal float TeachingSurprise()
+        {
+            float sum = 0f, weight = 0f;
+            for (int k = 0; k < TeachTargets.Length && k < Raw.Length; k++)
+            {
+                float e = Raw[k] - TeachTargets[k];
+                sum += TeachWeights[k] * e * e;
+                weight += TeachWeights[k];
+            }
+            return weight > 1e-6f ? sum / weight : 0f;
+        }
+
         // Turns the network's raw outputs into decisions, with a little exploration while learning.
         internal void Decide(ReadOnlySpan<float> raw, float exploration, ref uint noise)
         {
@@ -398,6 +411,9 @@ namespace Remedy.ManifoldNetwork.Schematics
     /// </summary>
     public sealed class BrainNetwork : IDisposable
     {
+        /// <summary>A teaching sample is "notable" (worth a memory) when the brain's own answer was this far off (mean squared).</summary>
+        public const float TeachingMemoryThreshold = 0.05f;
+
         public readonly BrainDefinition Definition;
         public readonly int ObjectId, NetworkId;
         public ManifoldNet Net { get; private set; }
@@ -539,8 +555,16 @@ namespace Remedy.ManifoldNetwork.Schematics
                 agent.RecordInputs(tick);
             }
             Net.Training = learning && (population || taught);
+            Net.DeltaTime = 1f / Mathf.Max(1f, Definition.TickRate);
             if (taught && !population) Net.Step(_inputs, _targets, _weights);
             else Net.Step(_inputs);
+
+            // Episodic memory: a teaching moment the brain didn't already know is remembered at once, so the bot can
+            // repeat it next time while training slowly makes it permanent.
+            if (learning && Settings.memoryEnabled)
+                foreach (var agent in _agents)
+                    if (agent.Taught && agent.TeachingSurprise() > TeachingMemoryThreshold)
+                        Net.Remember(agent.Row, agent.TeachTargets, Definition.TeachingWeight);
 
             // 3. Decide. On the GPU the outputs are a tick behind (from the previous inputs).
             int latency = Net.UsingGpu ? 1 : 0;
@@ -598,6 +622,14 @@ namespace Remedy.ManifoldNetwork.Schematics
                     float advantage = Mathf.Clamp((agent.Reward - _rewardMean) * scale, -5f, 5f);
                     if (Mathf.Abs(advantage) > 1e-3f)
                         agent.Credit(advantage, halfLifeTicks);
+                    if (Settings.memoryEnabled && agent.Rewarded)
+                    {
+                        // A big reward (in typical-reward units) remembers what the bot did, signed: bad moments are
+                        // remembered as "avoid". Whatever it just recalled is reinforced or weakened by the outcome.
+                        if (Mathf.Abs(advantage) > Settings.writeThreshold)
+                            Net.Remember(agent.Row, agent.Acted, advantage);
+                        Net.Reinforce(agent.Row, 0.1f * advantage);
+                    }
                     if (Settings.trainingMode == TrainingMode.Population)
                         Net.ReportError(agent.Row, -advantage);
                 }

@@ -5,8 +5,9 @@ namespace Remedy.ManifoldNetwork
 {
     /// <summary>
     /// Where every weight lives in the one flat parameter array: the master MLP, one small MLP per head, then the
-    /// translator (each layer's weights row by row, then its biases), and finally the value spaces' point values when
-    /// they're trainable. The GPU uses the same offsets.
+    /// translator (each layer's weights row by row, then its biases); then the WFC rulebooks (Coexist, Follow, Handoff,
+    /// T × T each) and the memory bank's recall sharpness β when those modules are on; and finally the value spaces'
+    /// point values when they're trainable. The GPU uses the same offsets.
     /// </summary>
     public sealed class WeightLayout
     {
@@ -31,8 +32,16 @@ namespace Remedy.ManifoldNetwork
         /// <summary>MLP parameters (everything before the value spaces).</summary>
         public readonly int MlpCount;
 
-        /// <summary>Where the trainable point values start (equals MlpCount), and how many there are (0 when fixed).</summary>
+        /// <summary>The three rulebooks (T × T each, row = from-type, column = to-type), when the WFC grid is on.</summary>
+        public readonly int RulesOffset, RulesCount;
+
+        /// <summary>The memory bank's β (one value), when the memory is on.</summary>
+        public readonly int BetaOffset, BetaCount;
+
+        /// <summary>Where the trainable point values start, and how many there are (0 when fixed).</summary>
         public readonly int ValuesOffset, ValuesCount;
+
+        private readonly float _ruleLrScale, _valueRate, _beta;
 
         /// <summary>Every trainable parameter.</summary>
         public readonly int Count;
@@ -59,18 +68,32 @@ namespace Remedy.ManifoldNetwork
                 return new Block(first, layers.Count - first, start, offset);
             }
 
-            Master = Add(s.MasterInputs, s.headCount * s.maskWidth);
+            Master = Add(s.MasterInputs, s.MasterOutputs);
             Slaves = new Block[s.headCount];
             for (int h = 0; h < s.headCount; h++)
-                Slaves[h] = Add(s.maskWidth, s.spaceDimensions);
+                Slaves[h] = Add(s.maskWidth, s.SlaveOutputs);
             Translator = Add(s.TranslatorInputs, s.outputCount);
 
             Layers = layers.ToArray();
             MlpCount = offset;
-            ValuesOffset = offset;
+            RulesOffset = offset;
+            RulesCount = s.RuleCount;
+            BetaOffset = RulesOffset + RulesCount;
+            BetaCount = s.memoryEnabled ? 1 : 0;
+            ValuesOffset = BetaOffset + BetaCount;
             ValuesCount = s.trainableValueSpaces ? s.headCount * s.pointsPerSpace * s.outputCount : 0;
-            Count = MlpCount + ValuesCount;
+            Count = ValuesOffset + ValuesCount;
+            _ruleLrScale = s.wfcRuleLrScale;
+            _valueRate = s.valueSpaceRate;
+            _beta = s.memoryBeta;
         }
+
+        /// <summary>How big a nudge this parameter gets, relative to σ (point values move much less).</summary>
+        public float SigmaScale(int index) => index < ValuesOffset ? 1f : _valueRate;
+
+        /// <summary>How big a step this parameter takes, relative to the learning rate.</summary>
+        public float RateScale(int index)
+            => index >= ValuesOffset ? _valueRate : index >= RulesOffset && index < RulesOffset + RulesCount ? _ruleLrScale : 1f;
 
         /// <summary>The largest layer width, for scratch buffers.</summary>
         public int MaxWidth
@@ -84,12 +107,14 @@ namespace Remedy.ManifoldNetwork
             }
         }
 
-        /// <summary>Fresh weights: Xavier-uniform from the seed, zero biases.</summary>
+        /// <summary>Fresh weights: Xavier-uniform from the seed, zero biases, neutral rulebooks (all zero), β from the settings.</summary>
         public void Initialize(float[] parameters, uint seed)
         {
             Array.Clear(parameters, 0, parameters.Length);
             for (int l = 0; l < Layers.Length; l++)
                 InitializeLayer(parameters, l, seed, 0);
+            if (BetaCount > 0)
+                parameters[BetaOffset] = _beta;
         }
 
         /// <summary>Re-randomizes one block (a head being revived), from a different stream so it gets new weights.</summary>

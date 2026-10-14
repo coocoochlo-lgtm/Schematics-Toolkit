@@ -114,6 +114,8 @@ namespace Remedy.ManifoldNetwork.Schematics
             settings.inputCount = InputWidth;
             settings.outputCount = Mathf.Min(MnnSettings.MaxOutputs, OutputWidth);
             settings.trainingMode = Sharing == BrainSharing.Shared && PopulationRewards ? TrainingMode.Population : TrainingMode.Supervised;
+            // Heads move in real time against the brain's own tick (blueprint: "Fixed brain tick").
+            settings.tickRate = TickRate;
             settings.Clamp();
             return settings;
         }

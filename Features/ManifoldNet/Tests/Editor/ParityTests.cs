@@ -13,9 +13,14 @@ namespace Remedy.ManifoldNetwork.Tests
         private static MnnSettings[] Configs => new[]
         {
             new MnnSettings { inputCount = 3, outputCount = 2 },
-            new MnnSettings { inputCount = 2, outputCount = 3, headCount = 4, spaceDimensions = 2, hiddenLayers = 2, hiddenWidth = 12, samplingMode = SamplingMode.Nearest },
-            new MnnSettings { inputCount = 4, outputCount = 2, headCount = 6, pointsPerSpace = 64, clockInputs = true, changeInputs = true, velocityReadout = true, trainableValueSpaces = true, perturbMode = PerturbMode.OneSided },
+            new MnnSettings { inputCount = 2, outputCount = 3, headCount = 4, spaceDimensions = 2, hiddenLayers = 2, hiddenWidth = 12, samplingMode = SamplingMode.Nearest, liquidGates = false },
+            new MnnSettings { inputCount = 4, outputCount = 2, headCount = 6, pointsPerSpace = 64, clockInputs = true, changeInputs = true, velocityReadout = true, trainableValueSpaces = true, perturbMode = PerturbMode.OneSided, updateRule = UpdateRule.Momentum },
+            // The optional modules: the shared plan grid (all three rulebooks), the memory bank and the spatial grid.
+            new MnnSettings { inputCount = 2, outputCount = 2, headCount = 5, pointsPerSpace = 512, dispersion = 0.12f, spatialGrid = true, wfcEnabled = true, wfcAxis = WfcAxis.Grid, typeCount = 4, planColumns = 4, memoryEnabled = true, memorySlots = 16 },
         };
+
+        // Uneven ticks, so real-time stepping is covered too.
+        private static float DeltaTime(int step) => 0.05f * (0.6f + 0.8f * ((step * 7) % 5) / 4f);
 
         private const float Tolerance = 1e-4f;
 
@@ -34,7 +39,7 @@ namespace Remedy.ManifoldNetwork.Tests
         }
 
         [Test]
-        public void ForwardMatchesCpu([Values(0, 1, 2)] int config)
+        public void ForwardMatchesCpu([Values(0, 1, 2, 3)] int config)
         {
             RequireGpu();
             var settings = Configs[config];
@@ -45,17 +50,37 @@ namespace Remedy.ManifoldNetwork.Tests
             for (int step = 0; step < 1000; step++)
             {
                 var inputs = Inputs(step, 3, settings.inputCount);
+                gpu.DeltaTime = DeltaTime(step);
                 gpu.Step(inputs);
-                cpu.Step(inputs);
+                cpu.Step(inputs, default, default, DeltaTime(step));
+                if (settings.memoryEnabled && step % 97 == 5)
+                {
+                    var value = Inputs(step + 11, 1, settings.outputCount);
+                    gpu.Remember(step % 3, value, 1.5f);
+                    cpu.Remember(step % 3, value, 1.5f);
+                }
                 gpu.GetOutputsImmediate(outputs);
                 for (int i = 0; i < outputs.Length; i++)
                     worst = Mathf.Max(worst, Mathf.Abs(outputs[i] - cpu.Outputs[i]));
             }
             Assert.Less(worst, Tolerance, $"Largest output difference over 1000 steps: {worst}");
+
+            if (settings.memoryEnabled)
+            {
+                var bank = gpu.GetMemoryBank();
+                float worstSlot = 0f;
+                for (int i = 0; i < bank.Length; i++) worstSlot = Mathf.Max(worstSlot, Mathf.Abs(bank[i] - cpu.MemoryBank[i]));
+                Assert.Less(worstSlot, Tolerance, $"Memory banks differ by {worstSlot}");
+            }
+            var gpuState = gpu.PeekStateImmediate(1);
+            var cpuState = cpu.PeekState(1);
+            CollectionAssert.AreEqual(cpuState.PlanType, gpuState.PlanType, "plan grids differ");
+            for (int i = 0; i < cpuState.Attractors.Length; i++)
+                Assert.AreEqual(cpuState.Attractors[i], gpuState.Attractors[i], Tolerance, "attractors differ");
         }
 
         [Test]
-        public void TrainingMatchesCpu([Values(0, 1, 2)] int config)
+        public void TrainingMatchesCpu([Values(0, 1, 2, 3)] int config)
         {
             RequireGpu();
             var settings = Configs[config];
@@ -104,7 +129,7 @@ namespace Remedy.ManifoldNetwork.Tests
         public void StateRoundTrips()
         {
             RequireGpu();
-            var settings = Configs[0];
+            var settings = Configs[3];
             using var gpu = new ManifoldNet(settings) { Synchronous = true, Training = false };
             for (int step = 0; step < 20; step++) gpu.Step(Inputs(step, 1, settings.inputCount));
             MnnState captured = null;
@@ -115,6 +140,10 @@ namespace Remedy.ManifoldNetwork.Tests
             MnnState again = null;
             gpu.CaptureState(0, s => again = s);
             CollectionAssert.AreEqual(captured.Positions, again.Positions);
+            CollectionAssert.AreEqual(captured.Attractors, again.Attractors);
+            CollectionAssert.AreEqual(captured.PlanType, again.PlanType);
+            CollectionAssert.AreEqual(captured.PlanSpread, again.PlanSpread);
+            CollectionAssert.AreEqual(captured.MemoryKey, again.MemoryKey);
             Assert.AreEqual(captured.Step, again.Step);
         }
 
@@ -122,7 +151,7 @@ namespace Remedy.ManifoldNetwork.Tests
         public void ThousandInstancesStepInOneDispatch()
         {
             RequireGpu();
-            using var gpu = new ManifoldNet(new MnnSettings(), 1024) { Synchronous = true };
+            using var gpu = new ManifoldNet(new MnnSettings { wfcEnabled = true, memoryEnabled = true }, 1024) { Synchronous = true };
             var inputs = new float[1024 * 8];
             var targets = new float[1024 * 4];
             Assert.DoesNotThrow(() => { for (int i = 0; i < 5; i++) gpu.Step(inputs, targets); });

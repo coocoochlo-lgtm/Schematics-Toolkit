@@ -2,78 +2,49 @@ using System;
 
 namespace Remedy.ManifoldNetwork
 {
-    /// <summary>One instance's recurrent memory: where its heads are and how they're moving, and what it last said.</summary>
-    [Serializable]
-    public sealed class MnnState
-    {
-        public float[] Positions, Velocities, Trails, Feedback, PreviousInputs;
-        public uint Step;
-
-        public MnnState(MnnSettings s)
-        {
-            Positions = new float[s.headCount * s.spaceDimensions];
-            Velocities = new float[s.headCount * s.spaceDimensions];
-            Trails = new float[s.headCount * s.outputCount];
-            Feedback = new float[s.outputCount];
-            PreviousInputs = new float[s.inputCount];
-        }
-
-        public void CopyFrom(MnnState other)
-        {
-            Array.Copy(other.Positions, Positions, Positions.Length);
-            Array.Copy(other.Velocities, Velocities, Velocities.Length);
-            Array.Copy(other.Trails, Trails, Trails.Length);
-            Array.Copy(other.Feedback, Feedback, Feedback.Length);
-            Array.Copy(other.PreviousInputs, PreviousInputs, PreviousInputs.Length);
-            Step = other.Step;
-        }
-    }
-
-    /// <summary>Read-only training statistics.</summary>
-    public struct MnnStats
-    {
-        public float ErrorTrace, ErrorBaseline, Alpha;
-        public int Updates, Revivals, Rollbacks;
-        public uint Steps;
-    }
-
     /// <summary>
     /// The reference implementation: the whole network and its training in plain C#. It's the source of truth the GPU
     /// kernels are tested against, the fallback where compute shaders aren't available, and often the faster choice
     /// for a single small network.
     /// <para>
     /// One step: the master MLP reads the inputs (plus last step's outputs and how training's going) and writes a
-    /// steering mask per head; each head's tiny MLP turns its slice into a target in its own value space and moves
-    /// toward it; each head samples the values around where it is; the translator reads every head's sample and trail
-    /// (plus the inputs) and writes the outputs, which feed back into the master next step.
+    /// steering mask per head; each head's tiny MLP turns its slice into a target in its own value space (and a liquid
+    /// gate), and the head moves: pulled toward the target and, gently, toward the nearest cluster of points (a
+    /// Hopfield-style attractor), at a speed set by its own timescale. Each head then samples the values around where
+    /// it is and keeps a trail; the translator reads every head's sample and trail (plus the inputs) and writes the
+    /// outputs, which feed back into the master next step. Optional: a shared wave-function-collapse plan the heads
+    /// commit to (MnnCpu.Wfc.cs), and an episodic memory bank the translator can recall from (MnnCpu.Memory.cs).
     /// </para>
     /// <para>
     /// Training is weight perturbation: run nudged copies of the weights alongside the real ones, then move the
     /// weights toward the nudges that did better. Nothing is differentiated, so every part of it is forward-only.
     /// </para>
+    /// <para>The GPU kernels (Resources/ManifoldNet.compute) mirror these methods operation for operation, in float32.</para>
     /// </summary>
-    public sealed class MnnCpu
+    public sealed partial class MnnCpu
     {
         public readonly MnnSettings Settings;
         public readonly WeightLayout Layout;
 
-        private readonly int _i, _n, _h, _m, _d, _p;
+        private readonly int _i, _n, _h, _m, _d, _p, _so;
         private readonly int _instances, _rows, _practiceRow, _copies;
 
-        // Parameters: the weights in use, momentum, best-so-far, and one materialized copy per nudge.
+        // Parameters: the weights in use, momentum (and Adam's second moment), best-so-far, one materialized copy per nudge.
         private readonly float[] _theta, _momentum, _best;
         private readonly float[][] _copyParams;
         private readonly float[] _gradient;
 
-        // Value spaces.
+        // Value spaces and the heads' fixed traits.
         private readonly float[] _points, _values;
-        private readonly float[] _inertia, _speed, _rest;
+        private readonly int[] _types;
+        private readonly float[] _timescale, _rest;
+        private readonly SpatialGrid _grid;
 
         // State per (row, slot): rows are the instances plus one for practice; slots are the copies being compared.
         private readonly MnnState[] _state;
 
         // Scratch.
-        private readonly float[] _layerA, _layerB, _masterIn, _mask, _slaveOut, _translatorIn, _out, _colAbs, _contribution;
+        private readonly float[] _layerA, _layerB, _masterIn, _masterOut, _slaveOut, _translatorIn, _out, _contribution, _offset;
         private readonly float[] _outputs;
 
         // Training bookkeeping.
@@ -101,11 +72,12 @@ namespace Remedy.ManifoldNetwork
         private uint _reviveGeneration;
         private float _bestBaseline = float.MaxValue;
         private int _rollbackSteps;
-        private bool _surprised;
+        private bool _rolledBack, _surprised;
         private uint _steps;
         private int _updates, _revivals, _rollbacks;
         private readonly float[] _errorRing = new float[256];
         private int _ringIndex;
+        private float _memoryConfidence;
 
         public bool Training = true;
 
@@ -117,11 +89,16 @@ namespace Remedy.ManifoldNetwork
         public int ErrorRingIndex => _ringIndex;
         public ReadOnlySpan<float> HeadUsage => _usage;
 
-        /// <summary>Each head's inertia, top speed and rest point (fixed by the seed); shared with the GPU.</summary>
-        public ReadOnlySpan<float> HeadInertia => _inertia;
-        public ReadOnlySpan<float> HeadSpeed => _speed;
+        /// <summary>Each head's base timescale τh in seconds and rest point (fixed by the seed); shared with the GPU.</summary>
+        public ReadOnlySpan<float> HeadTimescales => _timescale;
         public ReadOnlySpan<float> HeadRest => _rest;
         public ReadOnlySpan<float> FixedValues => _values;
+
+        /// <summary>Each point's type (H × P, 0..T-1), assigned from the seed. Used by the WFC grid.</summary>
+        public ReadOnlySpan<int> PointTypes => _types;
+
+        /// <summary>The spatial grid's tables (empty when off): cell start offsets per head and point order.</summary>
+        internal SpatialGrid Grid => _grid;
 
         /// <summary>The point values in use (the trainable ones when value spaces train).</summary>
         public ReadOnlySpan<float> Values => Settings.trainableValueSpaces
@@ -132,6 +109,7 @@ namespace Remedy.ManifoldNetwork
         {
             ErrorTrace = _trace, ErrorBaseline = _baseline, Alpha = _alpha,
             Updates = _updates, Revivals = _revivals, Rollbacks = _rollbacks, Steps = _steps,
+            PlanResets = _planResets, MemoryWrites = _memoryWrites, MemoryConfidence = _memoryConfidence,
         };
 
         public MnnCpu(MnnSettings settings, int instanceCount = 1)
@@ -141,6 +119,7 @@ namespace Remedy.ManifoldNetwork
             Layout = new WeightLayout(Settings);
             var s = Settings;
             _i = s.inputCount; _n = s.outputCount; _h = s.headCount; _m = s.maskWidth; _d = s.spaceDimensions; _p = s.pointsPerSpace;
+            _so = s.SlaveOutputs;
             _instances = Math.Max(1, instanceCount);
             _rows = _instances + 1;
             _practiceRow = _instances;
@@ -158,8 +137,8 @@ namespace Remedy.ManifoldNetwork
 
             _points = new float[_h * _p * _d];
             _values = new float[_h * _p * _n];
-            _inertia = new float[_h];
-            _speed = new float[_h];
+            _types = new int[_h * _p];
+            _timescale = new float[_h];
             _rest = new float[_h * _d];
 
             _state = new MnnState[_rows * _copies];
@@ -170,12 +149,12 @@ namespace Remedy.ManifoldNetwork
             _layerA = new float[width];
             _layerB = new float[width];
             _masterIn = new float[s.MasterInputs];
-            _mask = new float[_h * _m];
-            _slaveOut = new float[_d];
+            _masterOut = new float[s.MasterOutputs];
+            _slaveOut = new float[_so];
             _translatorIn = new float[s.TranslatorInputs];
             _out = new float[_n];
-            _colAbs = new float[s.TranslatorInputs];
             _contribution = new float[_h];
+            _offset = new float[_d];
             _outputs = new float[_instances * _n];
 
             _slotError = new double[_copies];
@@ -189,10 +168,14 @@ namespace Remedy.ManifoldNetwork
             _lowSteps = new int[_h];
 
             Generate();
+            _grid = s.UsesSpatialGrid ? new SpatialGrid(s, _points) : null;
             Layout.Initialize(_theta, s.seed);
             if (s.trainableValueSpaces)
                 Array.Copy(_values, 0, _theta, Layout.ValuesOffset, Layout.ValuesCount);
             Array.Copy(_theta, _best, _theta.Length);
+
+            InitializeWfc();
+            InitializeMemory();
             ResetState();
         }
 
@@ -204,6 +187,7 @@ namespace Remedy.ManifoldNetwork
             var s = Settings;
             uint seed = s.seed;
             const float r = MnnSettings.SpaceRadius;
+            int types = Math.Max(1, s.typeCount);
             for (int h = 0; h < _h; h++)
             {
                 for (int j = 0; j < _p; j++)
@@ -212,23 +196,22 @@ namespace Remedy.ManifoldNetwork
                         _points[(h * _p + j) * _d + d] = MnnHash.Signed(MnnHash.Hash(seed, MnnHash.StreamPoints, (uint)h, (uint)j, (uint)d)) * r;
                     for (int n = 0; n < _n; n++)
                         _values[(h * _p + j) * _n + n] = MnnHash.Signed(MnnHash.Hash(seed, MnnHash.StreamValues, (uint)h, (uint)j, (uint)n));
+                    _types[h * _p + j] = (int)(MnnHash.Hash(seed, MnnHash.StreamTypes, (uint)h, (uint)j, 0) % (uint)types);
                 }
                 for (int d = 0; d < _d; d++)
                     _rest[h * _d + d] = MnnHash.Signed(MnnHash.Hash(seed, MnnHash.StreamHeads, (uint)h, (uint)d, 0)) * r;
-
-                // Multi-timescale heads: fast, twitchy heads through slow, steady ones.
-                float t = _h > 1 ? (float)h / (_h - 1) : 0.5f;
-                if (s.multiTimescaleHeads)
-                {
-                    _inertia[h] = s.inertiaMin + (s.inertiaMax - s.inertiaMin) * t;
-                    _speed[h] = s.trajectorySpeed * (1.5f - t);
-                }
-                else
-                {
-                    _inertia[h] = 0.5f * (s.inertiaMin + s.inertiaMax);
-                    _speed[h] = s.trajectorySpeed;
-                }
+                _timescale[h] = HeadTimescale(s, h);
             }
+        }
+
+        /// <summary>
+        /// Head h's base timescale τh: spread evenly on a log scale from timescaleMin (head 0, fast and twitchy) to
+        /// timescaleMax (the last head, slow and steady), so the heads remember over different spans.
+        /// </summary>
+        public static float HeadTimescale(MnnSettings s, int head)
+        {
+            float t = s.headCount > 1 ? (float)head / (s.headCount - 1) : 0.5f;
+            return s.timescaleMin * MathF.Pow(s.timescaleMax / s.timescaleMin, t);
         }
 
         /// <summary>Puts heads back at their rest points and forgets the past (one instance, or all with -1).</summary>
@@ -239,16 +222,25 @@ namespace Remedy.ManifoldNetwork
                 if (instance >= 0 && row != instance)
                     continue;
                 for (int slot = 0; slot < _copies; slot++)
-                {
-                    var state = State(row, slot);
-                    Array.Copy(_rest, state.Positions, _rest.Length);
-                    Array.Clear(state.Velocities, 0, state.Velocities.Length);
-                    Array.Clear(state.Trails, 0, state.Trails.Length);
-                    Array.Clear(state.Feedback, 0, state.Feedback.Length);
-                    Array.Clear(state.PreviousInputs, 0, state.PreviousInputs.Length);
-                    state.Step = 0;
-                }
+                    ResetOne(State(row, slot));
             }
+        }
+
+        private void ResetOne(MnnState state)
+        {
+            Array.Copy(_rest, state.Positions, _rest.Length);
+            Array.Clear(state.Velocities, 0, state.Velocities.Length);
+            Array.Copy(_rest, state.Attractors, _rest.Length);
+            Array.Copy(_rest, state.Targets, _rest.Length);
+            Array.Clear(state.Gates, 0, state.Gates.Length);
+            Array.Clear(state.Samples, 0, state.Samples.Length);
+            Array.Clear(state.Trails, 0, state.Trails.Length);
+            Array.Clear(state.Feedback, 0, state.Feedback.Length);
+            Array.Clear(state.PreviousInputs, 0, state.PreviousInputs.Length);
+            ResetPlan(state);
+            Array.Clear(state.MemoryKey, 0, state.MemoryKey.Length);
+            Array.Clear(state.MemoryAttention, 0, state.MemoryAttention.Length);
+            state.Step = 0;
         }
 
         private MnnState State(int row, int slot) => _state[row * _copies + slot];
@@ -268,6 +260,9 @@ namespace Remedy.ManifoldNetwork
                 State(instance, slot).CopyFrom(state);
         }
 
+        /// <summary>The real (unperturbed) state of one instance, for drawing. Don't modify it.</summary>
+        public MnnState PeekState(int instance) => State(instance, 0);
+
         /// <summary>The heads' positions for one instance (H × D), for drawing.</summary>
         public ReadOnlySpan<float> HeadPositions(int instance) => State(instance, 0).Positions;
 
@@ -280,6 +275,7 @@ namespace Remedy.ManifoldNetwork
             ResetOptimizer();
             Array.Copy(_theta, _best, _theta.Length);
             _bestBaseline = float.MaxValue;
+            _rolledBack = false;
             _windowOpen = false;
         }
 
@@ -291,14 +287,17 @@ namespace Remedy.ManifoldNetwork
         /// One step of every instance. <paramref name="inputs"/> is instances × inputCount. In supervised training,
         /// <paramref name="targets"/> (instances × outputCount) are the right answers, weighted per output by
         /// <paramref name="targetWeights"/> (empty for all 1; 0 means "no answer for this one").
+        /// <paramref name="deltaTime"/> is the real time since the last step in seconds (0 or less: one nominal tick).
         /// </summary>
-        public void Step(ReadOnlySpan<float> inputs, ReadOnlySpan<float> targets = default, ReadOnlySpan<float> targetWeights = default)
+        public void Step(ReadOnlySpan<float> inputs, ReadOnlySpan<float> targets = default, ReadOnlySpan<float> targetWeights = default, float deltaTime = 0f)
         {
             if (inputs.Length < _instances * _i)
                 throw new ArgumentException($"Expected {_instances * _i} inputs.");
 
-            FlushErrors();
             var s = Settings;
+            float dt = deltaTime > 0f ? deltaTime : s.TickDt;
+            FlushErrors();
+            ProcessMemory(dt);
             bool supervised = Training && s.trainingMode == TrainingMode.Supervised;
             bool exploring = Training && s.trainingMode != TrainingMode.Supervised;
 
@@ -309,6 +308,7 @@ namespace Remedy.ManifoldNetwork
                 OpenWindow();
 
             SurpriseReset();
+            PlanSurpriseReset();
             float ratio = ErrorRatio();
             bool haveTargets = supervised && targets.Length >= _instances * _n;
 
@@ -320,7 +320,7 @@ namespace Remedy.ManifoldNetwork
                     // Every copy runs from the same state, each with its own nudge.
                     for (int slot = 0; slot < _copies; slot++)
                     {
-                        float penalty = Forward(State(row, slot), _copyParams[slot], rowInputs, ratio);
+                        float penalty = Forward(State(row, slot), _copyParams[slot], rowInputs, ratio, row, dt);
                         float error = haveTargets ? SquaredError(targets.Slice(row * _n, _n), Weights(targetWeights, row), out _) : 0f;
                         _slotError[slot] += error + penalty;
                         if (slot == 0)
@@ -334,7 +334,7 @@ namespace Remedy.ManifoldNetwork
                 else
                 {
                     int copy = exploring ? CopyFor(row) : 0;
-                    float penalty = Forward(State(row, 0), _copyParams[copy], rowInputs, ratio);
+                    float penalty = Forward(State(row, 0), _copyParams[copy], rowInputs, ratio, row, dt);
                     _rowPenalty[row] += penalty;
                     CopyOutputs(row);
                     TrackUsage(row);
@@ -366,7 +366,12 @@ namespace Remedy.ManifoldNetwork
         private ReadOnlySpan<float> Weights(ReadOnlySpan<float> weights, int row)
             => weights.Length >= (row + 1) * _n ? weights.Slice(row * _n, _n) : default;
 
-        private void CopyOutputs(int row) => Array.Copy(_out, 0, _outputs, row * _n, _n);
+        private void CopyOutputs(int row)
+        {
+            Array.Copy(_out, 0, _outputs, row * _n, _n);
+            if (row == 0 && Settings.memoryEnabled)
+                _memoryConfidence = _translatorIn[MemoryInputAt + _n];
+        }
 
         private float SquaredError(ReadOnlySpan<float> target, ReadOnlySpan<float> weights, out float weightSum)
         {
@@ -393,12 +398,18 @@ namespace Remedy.ManifoldNetwork
             return Math.Clamp(_trace / _baseline, 0f, 4f) - 1f;
         }
 
-        /// <summary>One step of one copy from one state. Leaves the outputs in _out; returns its balance penalty.</summary>
-        private float Forward(MnnState state, float[] parameters, ReadOnlySpan<float> inputs, float ratio)
+        private int MemoryInputAt => _h * Settings.TranslatorHeadBlock + _i;
+
+        /// <summary>
+        /// One step of one copy from one state (row is the instance, for the memory bank and the plan's dice). Leaves
+        /// the outputs in _out; returns its balance penalty. The order of the blocks is the GPU's kernel order:
+        /// MasterForward, MemoryRead, SlaveMove, SampleSpace, WfcPlan, TranslatorForward, AccumulateError.
+        /// </summary>
+        private float Forward(MnnState state, float[] parameters, ReadOnlySpan<float> inputs, float ratio, int row, float dt)
         {
             var s = Settings;
 
-            // 1. Master: inputs, last outputs, how training's going, clocks, changes → one mask slice per head.
+            // 1. Master: inputs, last outputs, how training's going, clocks, changes → one mask slice per head (and plan biases).
             int k = 0;
             for (int i = 0; i < _i; i++) _masterIn[k++] = inputs[i];
             for (int n = 0; n < _n; n++) _masterIn[k++] = MathF.Tanh(state.Feedback[n]);
@@ -411,46 +422,37 @@ namespace Remedy.ManifoldNetwork
             }
             if (s.changeInputs)
                 for (int i = 0; i < _i; i++) _masterIn[k++] = inputs[i] - state.PreviousInputs[i];
-            Mlp(Layout.Master, parameters, _masterIn, _mask);
+            Mlp(Layout.Master, parameters, _masterIn, _masterOut, s.memoryEnabled ? state.MemoryKey : null);
 
-            // 2. Heads: steer toward a target, move, sample, keep a trail.
-            const float r = MnnSettings.SpaceRadius;
+            // 2. Memory: recall what the bank holds for a moment like this (into the translator's memory inputs).
+            if (s.memoryEnabled)
+                MemoryRead(state, parameters, row, _translatorIn, MemoryInputAt);
+
+            // 3. Heads move: toward the master's target, settling into nearby clusters, at their own liquid pace.
+            float move = dt / s.TickDt;
+            for (int h = 0; h < _h; h++)
+                MoveHead(state, parameters, h, dt, move);
+
+            // 4. Each head samples its value space (and finds its attractor for next step).
             int block = s.TranslatorHeadBlock;
             ReadOnlySpan<float> values = s.trainableValueSpaces ? new ReadOnlySpan<float>(parameters, Layout.ValuesOffset, Layout.ValuesCount) : _values;
             for (int h = 0; h < _h; h++)
-            {
-                Mlp(Layout.Slaves[h], parameters, new ReadOnlySpan<float>(_mask, h * _m, _m), _slaveOut);
-                float inertia = _inertia[h];
-                double speed2 = 0;
-                for (int d = 0; d < _d; d++)
-                {
-                    int index = h * _d + d;
-                    float target = MathF.Tanh(_slaveOut[d]) * r;
-                    float toward = WrapDelta(target - state.Positions[index]) * s.pull;
-                    float v = state.Velocities[index];
-                    v += (toward - v) * (1f - inertia);
-                    state.Velocities[index] = v;
-                    speed2 += v * v;
-                }
-                float speed = (float)Math.Sqrt(speed2);
-                if (speed > _speed[h])
-                {
-                    float scale = _speed[h] / speed;
-                    for (int d = 0; d < _d; d++) state.Velocities[h * _d + d] *= scale;
-                }
-                for (int d = 0; d < _d; d++)
-                {
-                    int index = h * _d + d;
-                    state.Positions[index] = Wrap(state.Positions[index] + state.Velocities[index]);
-                }
+                SampleSpace(state, h, values, h * block);
 
-                // The sample goes straight into the translator's input block for this head.
+            // 5. The shared plan: commit heads to point types, and committed heads read only their type's points.
+            if (s.wfcEnabled)
+                WfcPlan(state, parameters, row);
+
+            // Trails (liquid: they fade faster when the gate says things are changing) and velocity readout.
+            for (int h = 0; h < _h; h++)
+            {
                 int at = h * block;
-                Sample(h, state.Positions, h * _d, values, _translatorIn, at);
+                float rate = TrailRate(dt, s.trailTimescale, state.Gates[h], s.liquidGates);
                 for (int n = 0; n < _n; n++)
                 {
+                    state.Samples[h * _n + n] = _translatorIn[at + n];
                     float trail = state.Trails[h * _n + n];
-                    trail += (_translatorIn[at + n] - trail) * s.trailRate;
+                    trail += (_translatorIn[at + n] - trail) * rate;
                     state.Trails[h * _n + n] = trail;
                     _translatorIn[at + _n + n] = trail;
                 }
@@ -459,7 +461,7 @@ namespace Remedy.ManifoldNetwork
                         _translatorIn[at + 2 * _n + d] = state.Velocities[h * _d + d];
             }
 
-            // 3. Translator: every head (and the inputs, so it never depends on one head alone) → outputs.
+            // 6. Translator: every head (and the inputs, so it never depends on one head alone) → outputs.
             int skip = _h * block;
             for (int i = 0; i < _i; i++) _translatorIn[skip + i] = inputs[i];
             Mlp(Layout.Translator, parameters, _translatorIn, _out);
@@ -471,8 +473,63 @@ namespace Remedy.ManifoldNetwork
             return BalancePenalty(parameters);
         }
 
+        /// <summary>
+        /// One head's move (SlaveMove): its MLP turns the mask slice into a target (and gate g); steering is
+        /// pull·(target - p) + settle·(attractor - p) the short way round the torus; the liquid rate
+        /// 1 - exp(-dt·(1/τh + softplus(g))) blends the velocity toward it; the speed is capped; p wraps.
+        /// </summary>
+        private void MoveHead(MnnState state, float[] parameters, int h, float dt, float move)
+        {
+            var s = Settings;
+            const float r = MnnSettings.SpaceRadius;
+            Mlp(Layout.Slaves[h], parameters, new ReadOnlySpan<float>(_masterOut, h * _m, _m), _slaveOut);
+            float g = s.liquidGates ? _slaveOut[_d] : 0f;
+            float rate = LiquidRate(dt, _timescale[h], g, s.liquidGates);
+            state.Gates[h] = g;
+
+            float speed2 = 0f;
+            for (int d = 0; d < _d; d++)
+            {
+                int index = h * _d + d;
+                float p = state.Positions[index];
+                float target = MathF.Tanh(_slaveOut[d]) * r;
+                state.Targets[index] = target;
+                float steering = s.pull * WrapDelta(target - p) + s.settle * WrapDelta(state.Attractors[index] - p);
+                float v = state.Velocities[index];
+                v += (steering - v) * rate;
+                state.Velocities[index] = v;
+                speed2 += v * v;
+            }
+            float speed = MathF.Sqrt(speed2);
+            if (speed > s.trajectorySpeed)
+            {
+                float scale = s.trajectorySpeed / speed;
+                for (int d = 0; d < _d; d++) state.Velocities[h * _d + d] *= scale;
+            }
+            for (int d = 0; d < _d; d++)
+            {
+                int index = h * _d + d;
+                state.Positions[index] = Wrap(state.Positions[index] + state.Velocities[index] * move);
+            }
+        }
+
+        /// <summary>
+        /// The liquid time constant in closed form: how far a head's velocity moves toward its steering in dt seconds,
+        /// 1 - exp(-dt·(1/τ + softplus(g))). The gate g speeds it up when the input says "pay attention". Exact for any
+        /// dt, so two half-steps blend exactly like one full step.
+        /// </summary>
+        public static float LiquidRate(float dt, float timescale, float gate, bool liquidGates)
+            => 1f - MathF.Exp(-dt * (1f / timescale + (liquidGates ? Softplus(gate) : 0f)));
+
+        /// <summary>The trail's liquid rate: 1 - exp(-dt/τtrail·(1 + softplus(g))), so trails fade faster when things change suddenly.</summary>
+        public static float TrailRate(float dt, float trailTimescale, float gate, bool liquidGates)
+            => 1f - MathF.Exp(-dt / trailTimescale * (1f + (liquidGates ? Softplus(gate) : 0f)));
+
+        /// <summary>log(1 + e^x), written so it never overflows (same form on the GPU).</summary>
+        public static float Softplus(float x) => MathF.Max(x, 0f) + MathF.Log(1f + MathF.Exp(-MathF.Abs(x)));
+
         /// <summary>One small dense network: hidden layers use the adaptive sine activation; the last is linear.</summary>
-        private void Mlp(WeightLayout.Block block, float[] parameters, ReadOnlySpan<float> input, Span<float> output)
+        private void Mlp(WeightLayout.Block block, float[] parameters, ReadOnlySpan<float> input, Span<float> output, float[] lastHidden = null)
         {
             ReadOnlySpan<float> x = input;
             float[] buffer = _layerA;
@@ -491,6 +548,8 @@ namespace Remedy.ManifoldNetwork
                 }
                 if (!last)
                 {
+                    if (lastHidden != null && l == block.LayerCount - 2)
+                        Array.Copy(buffer, lastHidden, Math.Min(lastHidden.Length, layer.Out));
                     x = new ReadOnlySpan<float>(buffer, 0, layer.Out);
                     buffer = buffer == _layerA ? _layerB : _layerA;
                 }
@@ -503,55 +562,101 @@ namespace Remedy.ManifoldNetwork
             return _alpha <= 0f ? calm : (1f - _alpha) * calm + _alpha * MathF.Sin(Settings.sineOmega * x);
         }
 
-        /// <summary>The values where a head is: a distance-weighted blend of nearby points (or the nearest one).</summary>
-        private void Sample(int h, float[] positions, int positionAt, ReadOnlySpan<float> values, float[] destination, int at)
+        /// <summary>
+        /// SampleSpace for one head: the values where it is (a Gaussian-weighted blend of points within 3σ, or the
+        /// nearest point's values), the attractor for next step's move (the same weights' centre, measured the short
+        /// way round the torus), and, with the WFC grid on, the weights and values summed per point type.
+        /// </summary>
+        private void SampleSpace(MnnState state, int h, ReadOnlySpan<float> values, int at)
+        {
+            var s = Settings;
+            int pointBase = h * _p;
+            int positionAt = h * _d;
+            bool nearestMode = s.samplingMode == SamplingMode.Nearest;
+            var dest = _translatorIn;
+
+            for (int n = 0; n < _n; n++) dest[at + n] = 0f;
+            for (int d = 0; d < _d; d++) _offset[d] = 0f;
+            if (s.wfcEnabled) ClearPartials(h);
+            _visitTotal = 0f;
+            _visitBest = float.MaxValue;
+            _visitNearest = 0;
+
+            if (_grid != null)
+            {
+                // Only the cells around the head (cell size ≥ 3σ), so the same points pass the cutoff.
+                int cellCount = _grid.Candidates(state.Positions, positionAt);
+                for (int c = 0; c < cellCount; c++)
+                {
+                    int startAt = h * _grid.StartStride + _grid.CellList[c];
+                    for (int k = _grid.Start[startAt]; k < _grid.Start[startAt + 1]; k++)
+                        Visit(state, values, h, _grid.Order[pointBase + k], at);
+                }
+                // Nearest mode needs the true nearest: if nothing was within one cell, fall back to every point.
+                if (nearestMode && _visitBest > _grid.CellSize * _grid.CellSize)
+                {
+                    _visitBest = float.MaxValue;
+                    for (int j = 0; j < _p; j++)
+                    {
+                        float d2 = Distance2(state, h, j);
+                        if (d2 < _visitBest) { _visitBest = d2; _visitNearest = j; }
+                    }
+                }
+            }
+            else
+            {
+                for (int j = 0; j < _p; j++)
+                    Visit(state, values, h, j, at);
+            }
+
+            float norm = 1f / (_visitTotal + 1e-6f);
+            if (nearestMode)
+                for (int n = 0; n < _n; n++)
+                    dest[at + n] = values[(pointBase + _visitNearest) * _n + n];
+            else
+                for (int n = 0; n < _n; n++) dest[at + n] *= norm;
+            for (int d = 0; d < _d; d++)
+                state.Attractors[positionAt + d] = Wrap(state.Positions[positionAt + d] + _offset[d] * norm);
+        }
+
+        private float _visitTotal, _visitBest;
+        private int _visitNearest;
+
+        private float Distance2(MnnState state, int h, int j)
+        {
+            int point = h * _p + j;
+            float d2 = 0f;
+            for (int d = 0; d < _d; d++)
+            {
+                float delta = WrapDelta(_points[point * _d + d] - state.Positions[h * _d + d]);
+                d2 += delta * delta;
+            }
+            return d2;
+        }
+
+        // One point's part in a head's sample, attractor and per-type sums.
+        private void Visit(MnnState state, ReadOnlySpan<float> values, int h, int j, int at)
         {
             var s = Settings;
             float sigma = s.dispersion * MnnSettings.SpaceRadius;
             float cutoff = 9f * sigma * sigma;
             float inv = 1f / (2f * sigma * sigma);
-            int pointBase = h * _p;
-
-            if (s.samplingMode == SamplingMode.Nearest)
-            {
-                int nearest = 0;
-                float best = float.MaxValue;
-                for (int j = 0; j < _p; j++)
-                {
-                    float d2 = Distance2(pointBase + j, positions, positionAt);
-                    if (d2 < best) { best = d2; nearest = j; }
-                }
-                for (int n = 0; n < _n; n++)
-                    destination[at + n] = values[(pointBase + nearest) * _n + n];
+            bool nearestMode = s.samplingMode == SamplingMode.Nearest;
+            int point = h * _p + j;
+            float d2 = Distance2(state, h, j);
+            if (nearestMode && d2 < _visitBest) { _visitBest = d2; _visitNearest = j; }
+            if (d2 > cutoff)
                 return;
-            }
-
-            for (int n = 0; n < _n; n++) destination[at + n] = 0f;
-            float total = 0f;
-            for (int j = 0; j < _p; j++)
-            {
-                float d2 = Distance2(pointBase + j, positions, positionAt);
-                if (d2 > cutoff)
-                    continue;
-                float w = MathF.Exp(-Math.Min(d2 * inv, 80f));
-                total += w;
-                int valueAt = (pointBase + j) * _n;
-                for (int n = 0; n < _n; n++)
-                    destination[at + n] += w * values[valueAt + n];
-            }
-            float norm = 1f / (total + 1e-6f);
-            for (int n = 0; n < _n; n++) destination[at + n] *= norm;
-        }
-
-        private float Distance2(int point, float[] positions, int positionAt)
-        {
-            float sum = 0f;
+            float w = MathF.Exp(-MathF.Min(d2 * inv, 80f));
+            _visitTotal += w;
             for (int d = 0; d < _d; d++)
-            {
-                float delta = WrapDelta(_points[point * _d + d] - positions[positionAt + d]);
-                sum += delta * delta;
-            }
-            return sum;
+                _offset[d] += w * WrapDelta(_points[point * _d + d] - state.Positions[h * _d + d]);
+            int valueAt = point * _n;
+            if (!nearestMode)
+                for (int n = 0; n < _n; n++)
+                    _translatorIn[at + n] += w * values[valueAt + n];
+            if (s.wfcEnabled)
+                AddPartial(h, _types[point], w, values, valueAt);
         }
 
         /// <summary>Into [-R, R): the space is a torus, so heads never escape.</summary>
@@ -570,7 +675,7 @@ namespace Remedy.ManifoldNetwork
             var s = Settings;
             var first = Layout.Layers[Layout.Translator.FirstLayer];
             int block = s.TranslatorHeadBlock;
-            double sum = 0, sum2 = 0;
+            float sum = 0f, sum2 = 0f;
             for (int h = 0; h < _h; h++)
             {
                 float c = 0f;
@@ -585,9 +690,9 @@ namespace Remedy.ManifoldNetwork
                 sum += c;
                 sum2 += c * c;
             }
-            if (s.balanceLambda <= 0f || sum <= 1e-8)
+            if (s.balanceLambda <= 0f || sum <= 1e-8f)
                 return 0f;
-            return (float)(s.balanceLambda * (_h * sum2 / (sum * sum) - 1.0));
+            return s.balanceLambda * (_h * sum2 / (sum * sum) - 1f);
         }
 
         // The real network's contributions (copy 0) feed the usage averages.
@@ -652,6 +757,7 @@ namespace Remedy.ManifoldNetwork
                     Fork(row);
         }
 
+        // ForkState: every copy of a row starts the window from the real state (slot 0).
         private void Fork(int row)
         {
             var real = State(row, 0);
@@ -662,18 +768,13 @@ namespace Remedy.ManifoldNetwork
         /// <summary>Copy c's weights: θ + sign·σ·ε, where ε comes from the hash of (seed, window, pair, index).</summary>
         private void Materialize(uint window)
         {
-            var s = Settings;
             float sigma = Sigma;
-            float valueSigma = sigma * s.valueSpaceRate;
             for (int c = 1; c < _copies; c++)
             {
                 NudgeOf(c, out uint pair, out float sign);
                 var copy = _copyParams[c];
                 for (int i = 0; i < _theta.Length; i++)
-                {
-                    float scale = i < Layout.MlpCount ? sigma : valueSigma;
-                    copy[i] = _theta[i] + sign * scale * Noise(window, pair, i);
-                }
+                    copy[i] = _theta[i] + sign * (sigma * Layout.SigmaScale(i)) * Noise(window, pair, i);
             }
             _materializedWindow = window;
             _materializedSigma = sigma;
@@ -682,8 +783,14 @@ namespace Remedy.ManifoldNetwork
         private uint _materializedWindow;
         private float _materializedSigma;
 
-        private float Noise(uint window, uint pair, int index)
-            => MnnHash.Noise(MnnHash.Hash(Settings.seed, MnnHash.StreamNoise, window, pair, (uint)index));
+        private float Noise(uint window, uint pair, int index) => NoiseAt(Settings.seed, window, pair, index);
+
+        /// <summary>
+        /// The k-th noise vector's value for one weight in one window: a PCG hash of (seed, window, k, index), unit
+        /// variance. Never stored or uploaded: the GPU computes the same number wherever it needs it.
+        /// </summary>
+        public static float NoiseAt(uint seed, uint window, uint pair, int index)
+            => MnnHash.Noise(MnnHash.Hash(seed, MnnHash.StreamNoise, window, pair, (uint)index));
 
         private void NudgeOf(int copy, out uint pair, out float sign)
         {
@@ -715,6 +822,7 @@ namespace Remedy.ManifoldNetwork
                         for (int c = 0; c < _copies; c++) { _copyError[c] = _slotError[c] * scale; _copyCount[c] = 1; }
                         update = true;
                     }
+                    // RestoreState: the real state (slot 0) simply carries on; copies are re-forked next window.
                     break;
 
                 case TrainingMode.Population:
@@ -753,9 +861,8 @@ namespace Remedy.ManifoldNetwork
         }
 
         /// <summary>
-        /// Moves θ toward the nudges that did better, with Adam, so the step size doesn't depend on how big the errors
-        /// (or rewards) are: one wild window can't fling the weights, and "+1" or "+500" rewards train the same. False
-        /// if there wasn't enough to compare.
+        /// Moves θ toward the nudges that did better: θ += η · (1/K) Σ (E⁻ − E⁺)/(2σ) · ε_k (antithetic), or
+        /// (E₀ − E_k)/σ (one-sided), through momentum or Adam. False if there wasn't enough to compare.
         /// </summary>
         private bool ApplyUpdate()
         {
@@ -787,30 +894,42 @@ namespace Remedy.ManifoldNetwork
             double denominator = s.perturbMode == PerturbMode.Antithetic ? 2.0 * _materializedSigma : _materializedSigma;
             for (int k = 0; k < s.perturbPairs; k++)
             {
-                if (double.IsNaN(_pairDelta[k])) continue;
+                if (!double.IsFinite(_pairDelta[k])) continue;   // a blown-up copy says nothing useful
                 Accumulate((uint)k, (float)(_pairDelta[k] / denominator));
                 used++;
             }
             if (used == 0)
                 return false;
 
-            // Adam: every weight's step is scaled by its own recent gradient size, so steps stay a steady size
-            // whatever the scale of the errors (or rewards), and shrink where the signal is mostly noise.
-            _adamStep++;
-            float beta1 = s.momentum, beta2 = 0.999f;
-            float correction1 = 1f - MathF.Pow(beta1, _adamStep);
-            float correction2 = 1f - MathF.Pow(beta2, _adamStep);
             float inv = 1f / used;
-            float valueRate = s.valueSpaceRate;
-            for (int i = 0; i < _theta.Length; i++)
+            if (s.updateRule == UpdateRule.Adam)
             {
-                float g = _gradient[i] * inv;
-                float m = beta1 * _momentum[i] + (1f - beta1) * g;
-                float v = beta2 * _variance[i] + (1f - beta2) * g * g;
-                _momentum[i] = m;
-                _variance[i] = v;
-                float step = (m / correction1) / (MathF.Sqrt(v / correction2) + 1e-8f);
-                _theta[i] += s.learningRate * (i < Layout.MlpCount ? 1f : valueRate) * step;
+                // Every weight's step is scaled by its own recent gradient size, so steps stay a steady size whatever
+                // the scale of the errors (or rewards), and shrink where the signal is mostly noise.
+                _adamStep++;
+                float beta1 = s.momentum, beta2 = 0.999f;
+                float correction1 = 1f - MathF.Pow(beta1, _adamStep);
+                float correction2 = 1f - MathF.Pow(beta2, _adamStep);
+                for (int i = 0; i < _theta.Length; i++)
+                {
+                    float g = _gradient[i] * inv;
+                    float m = beta1 * _momentum[i] + (1f - beta1) * g;
+                    float v = beta2 * _variance[i] + (1f - beta2) * g * g;
+                    _momentum[i] = m;
+                    _variance[i] = v;
+                    float step = (m / correction1) / (MathF.Sqrt(v / correction2) + 1e-8f);
+                    _theta[i] += s.learningRate * Layout.RateScale(i) * step;
+                }
+            }
+            else
+            {
+                // The blueprint's rule: a plain step along the estimate, with momentum.
+                for (int i = 0; i < _theta.Length; i++)
+                {
+                    float m = s.momentum * _momentum[i] + _gradient[i] * inv;
+                    _momentum[i] = m;
+                    _theta[i] += s.learningRate * Layout.RateScale(i) * m;
+                }
             }
             return true;
         }
@@ -840,16 +959,33 @@ namespace Remedy.ManifoldNetwork
                     _bestBaseline = _baseline;
                     Array.Copy(_theta, _best, _theta.Length);
                     _rollbackSteps = 0;
+                    _rolledBack = false;
                 }
                 else if (_baseline > _bestBaseline * (1f + s.rollbackMargin))
                 {
                     _rollbackSteps += _windowSteps;
                     if (_rollbackSteps >= s.rollbackSteps)
                     {
-                        Array.Copy(_best, _theta, _theta.Length);
-                        ResetOptimizer();
                         _rollbackSteps = 0;
-                        _rollbacks++;
+                        if (_rolledBack)
+                        {
+                            // The restored weights couldn't hold the best either: it was a lucky stretch, not a
+                            // level to return to. Accept where training is now as the new reference.
+                            _bestBaseline = _baseline;
+                            Array.Copy(_theta, _best, _theta.Length);
+                            _rolledBack = false;
+                        }
+                        else
+                        {
+                            Array.Copy(_best, _theta, _theta.Length);
+                            ResetOptimizer();
+                            _rollbacks++;
+                            _rolledBack = true;
+                            // The restored weights earned the best baseline: judge them from there, or the stale
+                            // average of the bad stretch would roll back to the same weights again at once.
+                            _baseline = _bestBaseline;
+                            _trace = Math.Min(_trace, _bestBaseline);
+                        }
                     }
                 }
                 else
@@ -892,7 +1028,9 @@ namespace Remedy.ManifoldNetwork
                         var state = State(row, slot);
                         for (int d = 0; d < _d; d++)
                         {
-                            state.Positions[h * _d + d] = MnnHash.Signed(MnnHash.Hash(s.seed, MnnHash.StreamRevive, _reviveGeneration, (uint)h, (uint)d)) * MnnSettings.SpaceRadius;
+                            float p = MnnHash.Signed(MnnHash.Hash(s.seed, MnnHash.StreamRevive, _reviveGeneration, (uint)h, (uint)d)) * MnnSettings.SpaceRadius;
+                            state.Positions[h * _d + d] = p;
+                            state.Attractors[h * _d + d] = p;
                             state.Velocities[h * _d + d] = 0f;
                         }
                         for (int n = 0; n < _n; n++) state.Trails[h * _n + n] = 0f;
@@ -949,7 +1087,9 @@ namespace Remedy.ManifoldNetwork
                     var state = State(row, slot);
                     for (int i = 0; i < _rest.Length; i++)
                     {
-                        state.Positions[i] = Wrap(state.Positions[i] + WrapDelta(_rest[i] - state.Positions[i]) * s.resetAmount);
+                        float p = Wrap(state.Positions[i] + WrapDelta(_rest[i] - state.Positions[i]) * s.resetAmount);
+                        state.Positions[i] = p;
+                        state.Attractors[i] = p;
                         state.Velocities[i] *= 1f - s.resetAmount;
                     }
                 }
@@ -963,7 +1103,8 @@ namespace Remedy.ManifoldNetwork
         /// Trains on a recorded stretch: starting from <paramref name="start"/>, runs <paramref name="steps"/> steps of
         /// recorded inputs with every nudged copy, scores them against <paramref name="targets"/> (weighted per output
         /// by <paramref name="weights"/>), and moves the weights. The live instances aren't touched, but their current
-        /// training window restarts. Used for replaying lessons, e.g. decisions credited by a reward.
+        /// training window restarts. Used for replaying lessons, e.g. decisions credited by a reward. Runs at the
+        /// nominal tick; reads the memory bank (bank 0 when it's per instance) but never writes it.
         /// </summary>
         public bool Practice(MnnState start, ReadOnlySpan<float> inputs, ReadOnlySpan<float> targets, ReadOnlySpan<float> weights, int steps)
         {
@@ -981,6 +1122,7 @@ namespace Remedy.ManifoldNetwork
             Array.Clear(_slotError, 0, _slotError.Length);
             double weightTotal = 0;
             float ratio = ErrorRatio();
+            float dt = s.TickDt;
             for (int t = 0; t < steps; t++)
             {
                 var stepInputs = inputs.Slice(t * _i, _i);
@@ -988,7 +1130,7 @@ namespace Remedy.ManifoldNetwork
                 var stepWeights = weights.Length >= (t + 1) * _n ? weights.Slice(t * _n, _n) : default;
                 for (int slot = 0; slot < _copies; slot++)
                 {
-                    float penalty = Forward(State(_practiceRow, slot), _copyParams[slot], stepInputs, ratio);
+                    float penalty = Forward(State(_practiceRow, slot), _copyParams[slot], stepInputs, ratio, _practiceRow, dt);
                     float error = SquaredError(stepTargets, stepWeights, out float weightSum);
                     // Steps with stronger lessons count for more.
                     _slotError[slot] += error * weightSum + penalty;
