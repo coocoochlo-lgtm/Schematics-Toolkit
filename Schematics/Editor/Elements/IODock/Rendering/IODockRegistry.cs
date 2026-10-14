@@ -108,8 +108,18 @@ public static class IODockRegistry
 
                 var attr = field.GetCustomAttributes().FirstOrDefault(t => typeof(CustomFieldRendererAttribute).IsAssignableFrom(t.GetType()));
 
-                // Only members marked with a renderer attribute are drawn (e.g. the Signal containers of global data).
-                if (attr != null)
+                if (attr == null)
+                {
+                    if (IsSignalType(field.MemberType))
+                    {
+                        (fieldDrawn, element) = RenderElementForField(window, obj, parent, field.GetValue(parent), field, propertyPath, onModified, attr, typeof(SignalRenderer));
+
+                        container.Add(element);
+                        draw = true;
+                        fieldDrawn = true;
+                    }
+                }
+                else
                 {
                     (fieldDrawn, element) = RenderElementForField(window, obj, parent, field.GetValue(parent), field, propertyPath, onModified, attr);
 
@@ -126,6 +136,19 @@ public static class IODockRegistry
         }
 
         return (draw, container);
+    }
+
+    /// <summary>
+    /// Whether a member holds a Signal and is drawn with the <see cref="SignalRenderer"/> without needing an attribute:
+    /// a <see cref="SignalData"/> field, or a Schematic Behavior's <c>SignalHandle</c> field (this replaces the old SignalBase check).
+    /// </summary>
+    public static bool IsSignalType(Type type)
+    {
+        if (type == null)
+            return false;
+        if (typeof(SignalData).IsAssignableFrom(type) || type == typeof(SignalHandle))
+            return true;
+        return type.IsGenericType && type.Assembly == typeof(SignalHandle).Assembly && type.GetGenericTypeDefinition().Name.StartsWith(nameof(SignalHandle) + "`");
     }
 
     /// <summary>

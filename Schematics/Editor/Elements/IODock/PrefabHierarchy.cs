@@ -1,557 +1,478 @@
+using Remedy.Framework;
 using Remedy.Schematics;
+using SchematicAssets;
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
 using UnityEditor;
-using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.UIElements;
 
 /// <summary>
-/// The IO Dock's Prefab tab: the prefab's GameObjects, each with the Schematic Behaviors attached to it, and under each
-/// Behavior its Variables (above) and Signals. Every row can be dragged into the graph to make a node, and clicked to
-/// jump between the graph nodes that use it. GameObjects can be dragged in too, as Prefab Object nodes.
-/// <para>
-/// Laid out like Unity's Hierarchy: each GameObject's block is shaded a little lighter or darker than the one before
-/// it, its header lights up under the mouse, and the selected object's header is highlighted (selecting it also selects
-/// it in Unity, so the Inspector shows it too).
-/// </para>
-/// <para>
-/// While the prefab is open in Prefab Mode, the dock shows and edits that open copy, the same objects the Inspector
-/// shows, through the Inspector's own code (with Undo); Prefab Mode saves it. Otherwise it edits the prefab asset with
-/// a load-edit-save of the file. Either way it redraws itself when the prefab changes elsewhere (the Inspector, Undo,
-/// a Prefab Mode save).
-/// </para>
+/// A custom Unity UI Toolkit element that displays a prefab's GameObjects and their Schematic Behaviors in a foldout hierarchy 
+/// with interactive input/output docking for visual programming.
 /// </summary>
+/// <remarks>
+/// Designed for use in editor extensions like <see cref="SchematicGraphEditorWindow"/>. 
+/// Provides prefab visualization with Behavior tabs, docking interfaces, and undo/redo support.<br/>
+/// The Behaviors of each GameObject come from the prefab root's <see cref="SchematicObject"/> (its Behaviors list).<br/>
+/// <br/>
+/// Features:<br/>
+/// - Foldout hierarchy with persistent state<br/>
+/// - Behavior tabs with add/remove support<br/>
+/// - I/O docking via <see cref="IODockRegistry"/><br/>
+/// - Selection synchronization with Unity's inspector<br/>
+/// - Lazy loading for performance optimization<br/>
+/// - Cached Behavior and type data<br/>
+/// </remarks>
 public class PrefabHierarchy : VisualElement
 {
-    private readonly GameObject _prefab;
-    private readonly SchematicObject _root;
-    private readonly string _assetPath;
-    private readonly SchematicGraphEditorWindow _window;
+    private GameObject _prefab;
+    private string _assetPath;
+    SerializableDictionary<Transform, SerializableDictionary<SerializableType, VisualElement>> evMap = new();
 
-    // What's shown and edited: the open Prefab Mode copy's root when the prefab is open there (live), else the asset.
-    private readonly GameObject _shown;
-    private readonly bool _live;
+    // Caching structures
+    private static List<Type> _availableBehaviorTypes;
+    private static bool _behaviorTypesInitialized = false;
 
-    // The GameObject blocks in hierarchy order (for the alternating shading), and the selected one's path.
-    private readonly List<Foldout> _objectFoldouts = new();
-    private readonly Dictionary<string, Toggle> _headers = new();
-    private string _selectedPath;
+    // One instance of each Behavior type, for the IO Dock's reflection (Behaviors aren't Unity Objects).
+    private static readonly Dictionary<Type, SchematicBehavior> _behaviorInstances = new();
 
-    // Redraws when the prefab changes from elsewhere (see Watch).
-    private int _signature;
-    private IVisualElementScheduledItem _watch;
+    // The window's "Show Component Names" toggle is gone; tabs show their icon only, as by default, or the name when the
+    // Behavior has no icon of its own.
+    private const bool HideTabLabels = true;
 
-    // Every row by its DockItem key, so the graph can reveal the row a node uses.
-    private readonly Dictionary<string, VisualElement> _rows = new();
+    // Lazy loading tracking
+    private SchematicGraphEditorWindow _schematicWindow;
+    private EditorWindow _editorWindow;
+    private bool _includeSelf;
+    private List<LazyListFoldout> _foldouts = new();
 
-    private static Texture2D InputIcon => DockRows.InputIcon;
-    private static Texture2D OutputIcon => DockRows.OutputIcon;
-    internal static Texture2D VariableIcon => DockRows.VariableIcon;
-
-    public PrefabHierarchy(GameObject prefab, SchematicGraphEditorWindow window)
+    /// <summary>
+    /// Creates a new prefab hierarchy view.
+    /// </summary>
+    /// <param name="prefab">Prefab root GameObject to display.</param>
+    /// <param name="editorWindow">Editor window hosting the view, used for state and selection handling.</param>
+    /// <exception cref="ArgumentNullException">Thrown if <paramref name="prefab"/> or <paramref name="editorWindow"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">Thrown if <paramref name="prefab"/> is not a valid prefab instance.</exception>
+    public PrefabHierarchy(GameObject prefab, EditorWindow editorWindow)
     {
         _prefab = prefab;
-        _window = window;
         _assetPath = AssetDatabase.GetAssetPath(prefab);
-        var live = LiveRoot(_assetPath);
-        _live = live != null;
-        _shown = _live ? live : prefab;
-        _root = _shown != null ? _shown.GetComponent<SchematicObject>() : null;
-        PrefabSaveTrace.Step(0, _live ? "dock built (on the open Prefab Mode copy)" : "dock built", _assetPath, dockObject: prefab);
 
-        AddToClassList("behavior-dock");
-        AddToClassList("prefab-hierarchy");
-        var styleSheet = Resources.Load<StyleSheet>("PrefabHierarchy");
-        if (styleSheet != null)
-            styleSheets.Add(styleSheet);
-        RegisterCallback<MouseLeaveEvent>(_ => FlushPendingEdits());
-        RegisterCallback<DetachFromPanelEvent>(_ =>
+        // Initialize caching structures
+        var container = new VisualElement();
+
+        if (editorWindow is SchematicGraphEditorWindow asSchematicWindow)
         {
-            FlushPendingEdits();
-            Selection.selectionChanged -= OnUnitySelectionChanged;
-            _watch?.Pause();
-        });
-        RegisterCallback<AttachToPanelEvent>(_ =>
-        {
-            Selection.selectionChanged -= OnUnitySelectionChanged;
-            Selection.selectionChanged += OnUnitySelectionChanged;
-            _signature = Signature();
-            _watch ??= schedule.Execute(Watch).Every(WatchMs);
-            _watch.Resume();
-            OnUnitySelectionChanged();
-        });
-        // IMGUI fields can ask for a lot of width; never let the dock grow over the graph.
-        style.overflow = Overflow.Hidden;
-        style.minWidth = 0;
-        style.flexShrink = 1;
-        Rebuild();
+            _schematicWindow = asSchematicWindow;
+        }
+
+        RebuildHierarchy(_prefab.transform);
+
+        PrefabRefreshUtility.ReimportAndResetPrefab(prefab);
+
+        Add(container);
     }
 
-    public void Rebuild()
+
+    public void RebuildHierarchy(Transform transform)
     {
         Clear();
-        _rows.Clear();
-        _objectFoldouts.Clear();
-        _headers.Clear();
-
-        if (_root == null)
-        {
-            Add(new HelpBox("This prefab has no Schematic Object component, so it has no Schematic Behaviors.", HelpBoxMessageType.Warning));
-            if (_live && _shown != null)
-                Add(new Button(() =>
-                {
-                    var added = Undo.AddComponent<SchematicObject>(_shown);
-                    if (added != null)
-                        added.AssignObjectID(SchematicObjectIDs.For(_assetPath));
-                    MarkLiveDirty();
-                    _window.RedrawIODock();
-                }) { text = "Add Schematic Object" });
-            else if (_prefab != null)
-                Add(new Button(() =>
-                {
-                    var contents = PrefabUtility.LoadPrefabContents(_assetPath);
-                    contents.AddComponent<SchematicObject>().AssignObjectID(SchematicObjectIDs.For(_assetPath));
-                    Save(contents);
-                }) { text = "Add Schematic Object" });
-            return;
-        }
-
-        if (_live)
-        {
-            var note = new Label("Editing the copy open in Prefab Mode");
-            note.AddToClassList("prefab-hierarchy-note");
-            note.tooltip = "Changes here go into the open Prefab Mode copy (with Undo), and Prefab Mode saves them into the prefab.";
-            Add(note);
-        }
-
-        Add(CreateObjectFoldout(_shown.transform));
-        Restripe();
-        ShowSelected();
-    }
-
-    #region Live (Prefab Mode) and watching for changes
-
-    private const long WatchMs = 500;
-
-    // The root of the prefab's copy open in Prefab Mode, if it's open there.
-    private static GameObject LiveRoot(string assetPath)
-    {
-        if (string.IsNullOrEmpty(assetPath))
-            return null;
-        var stage = PrefabStageUtility.GetCurrentPrefabStage();
-        return stage != null && stage.assetPath == assetPath ? stage.prefabContentsRoot : null;
-    }
-
-    // Prefab Mode saves (by itself or with Save) what's changed in its scene.
-    private void MarkLiveDirty()
-    {
-        if (!_live || _shown == null)
-            return;
-        if (_root != null)
-            EditorUtility.SetDirty(_root);
-        if (_shown.scene.IsValid())
-            EditorSceneManager.MarkSceneDirty(_shown.scene);
+        var goFoldout = CreateGameObjectFoldout(transform, _schematicWindow, _editorWindow, _includeSelf);
+        Add(goFoldout);
     }
 
     /// <summary>
-    /// Twice a second: redraws when the prefab's objects or Behaviors changed from elsewhere (the Inspector, Undo, a
-    /// Prefab Mode save reimporting the asset), and starts over on the right copy when Prefab Mode opens or closes.
-    /// Values aren't watched: their fields draw the current value anyway.
+    /// Creates a GameObjectFoldout with buttons for a given Transform.
     /// </summary>
-    private void Watch()
+    private VisualElement CreateGameObjectFoldout(Transform tf, SchematicGraphEditorWindow schematicWindow, EditorWindow editorWindow, bool includeSelf)
     {
-        if (_editing || EditorApplication.isCompiling || EditorApplication.isUpdating || panel == null)
-            return;
+        if (tf == null) return null;
 
-        bool liveNow = LiveRoot(_assetPath) != null;
-        if (liveNow != _live || (_live && _shown == null) || (_shown != null && _shown.GetComponent<SchematicObject>() != _root))
-        {
-            // Not with value edits still waiting to be written into the file: they go first.
-            if (_pendingEdits.Count > 0 || _queuedEdits.Count > 0)
-                return;
-            _watch?.Pause();
-            _window.RedrawIODock();
-            return;
-        }
+        var childListContainer = new VisualElement();
 
-        int signature = Signature();
-        if (signature == _signature)
-            return;
-        _signature = signature;
-        Rebuild();
+        var childListFoldout = new LazyListFoldout(collection: tf.GetComponentsInImmediateChildren<Transform>(),
+                                                    className: "game-object",
+                                                    title: tf.name,
+
+                                                    onItemAdded: (object item) =>
+                                                    {
+                                                    },
+
+                                                    onItemRemoved: (object item) =>
+                                                    {
+                                                        var tfPath = _prefab.transform.GetRelativePath((Transform)item);
+                                                        var copy = PrefabUtility.LoadPrefabContents(_assetPath);
+
+                                                        var tfCopy = copy.transform.Find(tfPath);
+                                                        if (tfCopy != null)
+                                                        {
+                                                            // Its Behaviors (and its children's) go with it.
+                                                            var rootCopy = copy.GetComponent<SchematicObject>();
+                                                            if (rootCopy != null)
+                                                                foreach (var t in tfCopy.GetComponentsInChildren<Transform>(true))
+                                                                    rootCopy.Behaviors.Remove(t.gameObject);
+
+                                                            GameObject.DestroyImmediate(tfCopy.gameObject);
+                                                            ApplyChangesToPrefabAsset(copy);
+                                                        }
+                                                    },
+
+                                                    // Setup Item/VisualElements
+                                                    createItemInstance: (Action<object> onCreationFinished) =>
+                                                    {
+                                                        var childObject = new GameObject().transform;
+
+                                                        Add(new InlineIdentifierEditor(popupRect: childListContainer.Q<Toggle>().WorldBoundToScreen(),
+                                                                                        identifierType: ListIdentifierType.Name,
+                                                                                        getOriginalValue: () => childObject.name,
+                                                                                        onFinishedEditting: (bool success, object value) =>
+                                                                                        {
+                                                                                            childObject.name = value.ToString();
+
+                                                                                            var tfPath = _prefab.transform.GetRelativePath(tf);
+                                                                                            var copy = PrefabUtility.LoadPrefabContents(_assetPath);
+
+                                                                                            var tfCopy = copy.transform.Find(tfPath);
+                                                                                            if (tfCopy != null)
+                                                                                            {
+                                                                                                childObject.SetParent(tfCopy, false);
+                                                                                                ApplyChangesToPrefabAsset(copy);
+                                                                                            }
+
+                                                                                            onCreationFinished?.Invoke(tfCopy);
+                                                                                        }));
+                                                    },
+
+                                                    createItemContent: (int index, object item) =>
+                                                    {
+                                                        var objectContainer = CreateGameObjectFoldout(((Transform)item), schematicWindow, editorWindow, includeSelf);
+
+                                                        var toggle = objectContainer.Q<Toggle>();
+                                                        //var toggleParent = toggle.parent;
+
+                                                        var headerContainer = new VisualElement()
+                                                        {
+                                                            style =
+                                                            {
+                                                                flexDirection = FlexDirection.Column,
+                                                                width =  Length.Percent(100)
+                                                            }
+                                                        };
+                                                        headerContainer.AddToClassList("child-header");
+
+                                                        var newToggle = new VisualElement()
+                                                        {
+                                                            style =
+                                                            {
+                                                                flexDirection = FlexDirection.Row
+                                                            }
+                                                        };
+                                                        var componentRow = new VisualElement()
+                                                        {
+                                                            style =
+                                                            {
+                                                                flexDirection = FlexDirection.Row
+                                                            }
+                                                        };
+
+                                                        componentRow.Add(CreateFoldoutContent(((Transform)item), schematicWindow));
+
+                                                        componentRow.Children().ElementAt(0).style.width = Length.Percent(100);
+
+                                                        foreach(var child in toggle.Children().ToList())
+                                                        {
+                                                            newToggle.Add(child);
+                                                        }
+
+                                                        headerContainer.Add(newToggle);
+                                                        headerContainer.Add(componentRow);
+
+                                                        toggle.Add(headerContainer);
+
+                                                        //toggleParent.Insert(0, headerContainer);
+
+                                                        return objectContainer;
+                                                    },
+
+                                                    getItemName: (object item) =>
+                                                    {
+                                                        return ((Transform)item) == null ? "" : ((Transform)item).name;
+                                                    },
+
+                                                    itemLabelClicked: (MouseDownEvent evt, object item, Action onItemEditted) =>
+                                                    {
+                                                        if (evt.clickCount == 2 && evt.button == 0)
+                                                        {
+                                                            var identifierEditor = new InlineIdentifierEditor(popupRect: childListContainer.Q<Toggle>().WorldBoundToScreen(),
+                                                                                                                identifierType: ListIdentifierType.Name,
+                                                                                                                getOriginalValue: () => { return ((Transform)item).name; },
+                                                                                                                onFinishedEditting: (bool change, object newValue) =>
+                                                                                                                {
+                                                                                                                    var childObject = ((Transform)item);
+
+                                                                                                                    var tfPath = _prefab.transform.GetRelativePath(childObject);
+                                                                                                                    var copy = PrefabUtility.LoadPrefabContents(_assetPath);
+
+                                                                                                                    var tfCopy = copy.transform.Find(tfPath);
+                                                                                                                    if (tfCopy != null)
+                                                                                                                    {
+                                                                                                                        tfCopy.name = newValue.ToString();
+                                                                                                                        ApplyChangesToPrefabAsset(copy);
+                                                                                                                    }
+
+                                                                                                                    onItemEditted?.Invoke();
+                                                                                                                });
+                                                        }
+                                                    },
+                                                    getListIcon: () => { return EditorGUIUtility.IconContent("GameObject Icon").image as Texture2D; } );
+
+
+        _foldouts.Add(childListFoldout);
+
+        childListContainer.Add(childListFoldout);
+
+        return childListContainer;
     }
 
-    // A cheap fingerprint of the hierarchy (names, order) and of which Behaviors are attached where.
-    private int Signature()
+    private VisualElement CreateFoldoutContent(Transform tf, SchematicGraphEditorWindow schematicWindow)
     {
-        if (_shown == null)
-            return 0;
-        unchecked
+        var behaviorsOnObject = GetBehaviors(tf.gameObject);
+
+        var foldout = new LazyFoldout(() =>
         {
-            int hash = 17;
-            foreach (var transform in _shown.GetComponentsInChildren<Transform>(true))
+            var container = new VisualElement();
+            var ioGroup = new VisualElement();
+
+            TabView tabView = new("", "components", true, HideTabLabels);
+
+            int compCount = 0;
+            foreach (var attachment in behaviorsOnObject)
             {
-                hash = hash * 31 + (transform.name?.GetHashCode() ?? 0);
-                hash = hash * 31 + transform.GetSiblingIndex();
-                hash = hash * 31 + transform.childCount;
+                var type = attachment.Metadata != null ? attachment.Metadata.BehaviorType.Type : null;
+                var typeName = type != null ? ObjectNames.NicifyVariableName(type.Name)
+                             : attachment.Metadata != null ? $"{attachment.Metadata.name} (Missing Script)" : "(Missing Behavior)";
+                var icon = type != null ? GetBehaviorIcon(type) : null;
+
+                // Tab ids must be unique.
+                while (TabExists(tabView, typeName))
+                    typeName += " ";
+
+                var tab = tabView.AddTab(typeName, icon);
+                tab.UseFactory(() => CreateTabContent(attachment, type, tf, schematicWindow));
+
+                // Right-click the tab to remove the Behavior from this GameObject.
+                var behaviorType = type;
+                var behaviorAttachment = attachment;
+                tab.Button.AddManipulator(new ContextualMenuManipulator(evt =>
+                {
+                    evt.menu.AppendAction("Remove Behavior", _ => RemoveBehavior(behaviorType, behaviorAttachment, tf));
+                }));
+
+                compCount++;
             }
-            var root = _shown.GetComponent<SchematicObject>();
-            if (root != null)
-                foreach (var entry in root.Behaviors)
-                {
-                    hash = hash * 31 + (entry.Key != null ? entry.Key.GetHashCode() : 7);
-                    if (entry.Value?.Items == null)
-                        continue;
-                    foreach (var attachment in entry.Value.Items)
-                        hash = hash * 31 + (attachment?.Metadata != null ? attachment.Metadata.GetHashCode() : 3);
-                }
-            return hash;
-        }
-    }
 
-    #endregion
+            // Add "+" tab for adding Behaviors
+            CreateAddBehaviorButton(tabView, tf);
 
-    #region Rows: shading and selection
+            container.Add(tabView);
 
-    // Each GameObject's block takes the next shade, top to bottom, counting only the ones that can be seen (like
-    // Unity's Hierarchy rows), so the shading stays alternating as objects are folded and unfolded.
-    private void Restripe()
-    {
-        int index = 0;
-        foreach (var foldout in _objectFoldouts)
+            return container;
+        })
         {
-            bool visible = true;
-            for (var parent = foldout.parent; parent != null && parent != this; parent = parent.parent)
-                if (parent is Foldout outer && _objectFoldouts.Contains(outer) && !outer.value)
-                {
-                    visible = false;
-                    break;
-                }
-            if (!visible)
-                continue;
-            foldout.EnableInClassList("dock-object--odd", index % 2 == 1);
-            index++;
-        }
-    }
-
-    private void Select(string path, bool selectInUnity)
-    {
-        _selectedPath = path;
-        ShowSelected();
-        if (!selectInUnity || _shown == null)
-            return;
-        var target = Find(_shown, path);
-        if (target != null && Selection.activeGameObject != target.gameObject)
-            Selection.activeGameObject = target.gameObject;
-    }
-
-    private void ShowSelected()
-    {
-        foreach (var pair in _headers)
-            pair.Value.EnableInClassList("dock-object-header--selected", pair.Key == _selectedPath);
-    }
-
-    // Selecting one of the prefab's objects anywhere (Hierarchy, Scene view, Project) highlights it here too.
-    private void OnUnitySelectionChanged()
-    {
-        var selected = Selection.activeGameObject;
-        if (selected == null || _shown == null)
-            return;
-        var transform = selected.transform;
-        if (transform != _shown.transform && !transform.IsChildOf(_shown.transform))
-            return;
-        string path = PathOf(transform);
-        if (path == _selectedPath)
-            return;
-        _selectedPath = path;
-        ShowSelected();
-    }
-
-    #endregion
-
-    #region GameObjects
-
-    private VisualElement CreateObjectFoldout(Transform transform)
-    {
-        string path = PathOf(transform);
-        var foldout = new Foldout
-        {
-            text = transform.name,
-            value = SessionState.GetBool(FoldoutKey("go", path), transform == _shown.transform),
+            text = "components"
         };
-        foldout.AddToClassList("dock-object");
-        _objectFoldouts.Add(foldout);
-        foldout.RegisterValueChangedCallback(evt =>
-        {
-            if (evt.target == foldout)
-            {
-                SessionState.SetBool(FoldoutKey("go", path), evt.newValue);
-                Restripe();
-            }
-        });
 
-        // Drag the GameObject itself into the graph.
-        var item = new DockItem { Kind = DockItem.ItemKind.GameObject, Path = path, GameObject = transform.gameObject };
-        var toggle = foldout.Q<Toggle>();
-        toggle.AddToClassList("dock-object-header");
-        _headers[path] = toggle;
-        var handle = CreateHandle(EditorGUIUtility.IconContent("GameObject Icon").image, "Drag into the graph for a Prefab Object node");
-        MakeDraggable(handle, item, click: null);
-        toggle.Add(handle);
-        toggle.userData ??= item;
-        _rows[item.Key] = toggle;
-
-        toggle.RegisterCallback<MouseDownEvent>(evt =>
-        {
-            if (evt.button != 0)
-                return;
-            if (evt.clickCount == 2)
-            {
-                Rename(toggle, path, transform.name);
-                evt.StopPropagation();
-                return;
-            }
-            // Selected here and in Unity, so the Inspector shows the same object.
-            Select(path, selectInUnity: true);
-        });
-        toggle.AddManipulator(new ContextualMenuManipulator(evt =>
-        {
-            evt.menu.AppendAction("Add Child", _ => AddChild(path));
-            evt.menu.AppendAction("Rename", _ => Rename(toggle, path, transform.name));
-            if (transform != _shown.transform)
-                evt.menu.AppendAction("Delete", _ => DeleteObject(path));
-            evt.menu.AppendAction(_live ? "Select" : "Select in Project", _ => Selection.activeObject = transform.gameObject);
-        }));
-
-        // Behaviors attached here.
-        if (_root.Behaviors.TryGetValue(transform.gameObject, out var list) && list != null)
-            foreach (var attachment in list.Items)
-                if (attachment != null)
-                    foldout.Add(CreateBehaviorSection(transform.gameObject, path, attachment));
-
-        // Drawn with IMGUI: the Behavior dropdown positions itself from the GUI that opened it.
-        var target = transform.gameObject;
-        var addButton = new IMGUIContainer(() =>
-        {
-            var content = new GUIContent("+ Add Behavior");
-            var rect = GUILayoutUtility.GetRect(content, EditorStyles.miniButton);
-            if (!GUI.Button(rect, content, EditorStyles.miniButton))
-                return;
-            // Prefab Mode open: exactly what the Inspector's button does, on the same objects (with Undo).
-            if (_live)
-                SchematicBehaviorsHeaderGUI.ShowAddBehaviorDropdown(rect, _root, target, _ => AfterLiveEdit());
-            else
-                SchematicBehaviorsHeaderGUI.ShowBehaviorDropdown(rect, AttachedTypes(target), type => AddBehavior(path, type));
-        });
-        addButton.AddToClassList("dock-add-behavior");
-        foldout.Add(addButton);
-
-        foreach (Transform child in transform)
-            foldout.Add(CreateObjectFoldout(child));
+        foldout.AddToClassList("component-foldout");
 
         return foldout;
     }
 
-    #endregion
-
-    #region Behaviors
-
-    private VisualElement CreateBehaviorSection(GameObject target, string path, BehaviorAttachment attachment)
+    /// <summary>
+    /// Creates the actual content for a Behavior tab.
+    /// </summary>
+    private VisualElement CreateTabContent(BehaviorAttachment attachment, Type type, Transform tf, SchematicGraphEditorWindow schematicWindow)
     {
-        var metadata = attachment.Metadata;
-        var behaviorType = metadata != null ? metadata.BehaviorType.Type : null;
-        string title = behaviorType != null ? ObjectNames.NicifyVariableName(behaviorType.Name)
-                     : metadata != null ? $"{metadata.name} (Missing Script)" : "(Missing Behavior)";
+        var dock = new VisualElement();
 
-        var section = new Foldout { text = title, value = SessionState.GetBool(FoldoutKey("behavior", path + behaviorType?.FullName), true) };
-        section.AddToClassList("dock-behavior");
-        section.RegisterValueChangedCallback(evt =>
+        if (type != null && evMap.ContainsKey(tf) && evMap[tf].ContainsKey(type))
         {
-            if (evt.target == section)
-                SessionState.SetBool(FoldoutKey("behavior", path + behaviorType?.FullName), evt.newValue);
-        });
-
-        var toggle = section.Q<Toggle>();
-        toggle.AddManipulator(new ContextualMenuManipulator(evt =>
-        {
-            if (behaviorType != null)
-                evt.menu.AppendAction("Remove Behavior", _ => RemoveBehavior(path, behaviorType));
-            if (behaviorType != null)
-                evt.menu.AppendAction("Edit Script", _ => OpenScript(behaviorType));
-        }));
-
-        if (behaviorType == null || metadata == null)
-            return section;
-
-        var behaviorItem = new DockItem { Kind = DockItem.ItemKind.Behavior, Path = path, Behavior = behaviorType, GameObject = target };
-        var handle = CreateHandle(EditorGUIUtility.IconContent("cs Script Icon").image, "Drag into the graph for a Behavior node with all its Variables and methods");
-        MakeDraggable(handle, behaviorItem, () => _window.FocusNodes(behaviorItem));
-        toggle.Add(handle);
-        toggle.userData ??= behaviorItem;
-        _rows[behaviorItem.Key] = toggle;
-
-        if (behaviorType == typeof(StateMachine))
-        {
-            var open = new Button(() =>
-            {
-                var definition = StateMachineEditorUtility.DefinitionFor(_root, target, create: true);
-                if (definition != null)
-                    StateMachineWindow.Open(definition);
-            }) { text = "Open State Machine", tooltip = "The State Manager and State Graph for this object (created if it has none)." };
-            section.Add(open);
+            return evMap[tf][type];
         }
 
-        var reflection = BehaviorReflection.Get(behaviorType);
-        var properties = new List<VariableDefinition>();
+        var metadata = attachment.Metadata;
 
-        // Variables, each with this object's value right on its row.
-        bool anyVariable = false;
+        var label = new Label(type != null ? type.Name : metadata != null ? $"{metadata.name} (Missing Script)" : "(Missing Behavior)");
+        dock.Add(label);
+
+        if (type == null || metadata == null)
+            return dock;
+
+        var (draw, dockElement) = RenderBehaviorDock(type, schematicWindow, metadata);
+        SignalRenderer.DrawDelayedEvents();
+
+        var propertiesVariables = GetPropertiesVariables(type, metadata);
+
+        if (draw || propertiesVariables.Count > 0)
+        {
+            if (dockElement == null)
+                dockElement = new VisualElement();
+
+            foreach (var propertiesVariable in propertiesVariables)
+            {
+                var propertiesFoldout = CreatePropertiesFoldout(attachment, type, propertiesVariable, tf);
+                dockElement.Add(propertiesFoldout);
+            }
+
+            dock.Add(dockElement);
+        }
+
+        return dock;
+    }
+
+    /// <summary>
+    /// Renders a Behavior through the IO Dock: a renderer registered for the Behavior type (<see cref="IODockTargetAttribute"/>)
+    /// gets the Behavior's Metadata asset as its target. Otherwise it's drawn as the <see cref="DefaultIODockRenderer"/> draws
+    /// a component, except that the fields come from an instance of the Behavior (Behaviors aren't Unity Objects), with
+    /// the Metadata asset as the serialized object that owns them (it holds the Behavior's Signal assets).
+    /// </summary>
+    private (bool, VisualElement) RenderBehaviorDock(Type type, SchematicGraphEditorWindow schematicWindow, BehaviorMetadata metadata)
+    {
+        var renderer = IODockRegistry.GetComponentRenderer(type);
+        if (renderer != null && renderer.GetType() != typeof(DefaultIODockRenderer))
+            return IODockRegistry.RenderObjectDock(type, schematicWindow, metadata, _prefab.transform);
+
+        var behavior = GetBehaviorInstance(type);
+        if (behavior == null)
+            return (false, null);
+
+        var componentScrollView = new VisualElement
+        {
+            name = "IO Dock Scrollview",
+            style =
+            {
+                flexDirection = FlexDirection.Column
+            }
+        };
+        componentScrollView.contentContainer.style.flexDirection = FlexDirection.Column;
+
+        (bool draw, VisualElement customFieldContainer) = IODockRegistry.RenderMultipleFields(schematicWindow, metadata, behavior, displayObjectName: true);
+
+        if (customFieldContainer != null)
+            componentScrollView.Add(customFieldContainer);
+
+        componentScrollView.style.marginTop = 0;
+        componentScrollView.style.marginBottom = 0;
+
+        return (draw, componentScrollView);
+    }
+
+    /// <summary>
+    /// Gets the Behavior's Properties Variables (its <see cref="SchematicPropertiesAttribute"/> ScriptableObjects).
+    /// </summary>
+    private List<VariableDefinition> GetPropertiesVariables(Type type, BehaviorMetadata metadata)
+    {
+        var properties = new List<VariableDefinition>();
+        var reflection = BehaviorReflection.Get(type);
+        if (reflection == null || metadata == null)
+            return properties;
+
         foreach (var variable in metadata.Variables)
         {
-            if (reflection != null && reflection.IsPropertiesVariable(variable.Name))
-            {
-                properties.Add(variable);
+            if (variable == null || !reflection.IsPropertiesVariable(variable.Name))
                 continue;
-            }
-            if (!anyVariable)
-            {
-                section.Add(SectionLabel("Variables"));
-                anyVariable = true;
-            }
+            var variableType = variable.Type.Type;
+            if (variableType != null && typeof(ScriptableObject).IsAssignableFrom(variableType))
+                properties.Add(variable);
+        }
+        return properties;
+    }
 
-            var item = new DockItem
+    /// <summary>
+    /// Creates a foldout for Behavior properties.
+    /// </summary>
+    private Foldout CreatePropertiesFoldout(BehaviorAttachment attachment, Type type, VariableDefinition propertiesVariable, Transform tf)
+    {
+        var propertiesType = propertiesVariable.Type.Type;
+        var variableName = propertiesVariable.Name;
+
+        var propertiesFoldout = new Foldout()
+        {
+            text = variableName == "Properties" ? "Properties" : ObjectNames.NicifyVariableName(variableName),
+            value = false,
+            style =
             {
-                Kind = DockItem.ItemKind.Variable, Path = path, Behavior = behaviorType, GameObject = target,
-                Name = variable.Name, ValueType = variable.Type.Type,
-            };
-            var row = CreateRow(item, VariableIcon, ObjectNames.NicifyVariableName(variable.Name), TypeName(item.ValueType) + (variable.Networked ? "  ⇅" : ""),
-                "Variable: drag the name into the graph to Get or Set it; click it to find its nodes. The field is this object's starting value.");
-            string variableName = variable.Name;
-            var definition = variable;
-            var field = new IMGUIContainer(() =>
+                width = Length.Percent(100),
+                flexGrow = 0,
+                flexShrink = 0
+            }
+        };
+
+        propertiesFoldout.AddManipulator(new ContextualMenuManipulator(evt =>
+        {
+            evt.menu.AppendAction("Reset Properties", _ =>
             {
-                // Prefab Mode open: the Inspector's own field for it (Undo, Prefab Mode saves it).
-                if (_live)
-                    SchematicBehaviorsHeaderGUI.DrawVariableGUI(_root, target, attachment, definition.Name);
+                var newProperties = ScriptableObject.CreateInstance(propertiesType);
+                newProperties.name = "Properties";
+                AssetDatabase.AddObjectToAsset(newProperties, _assetPath);
+                AssetDatabase.SaveAssets();
+
+                attachment.SetOverride(variableName, newProperties, propertiesType);
+
+                var copy = PrefabUtility.LoadPrefabContents(_assetPath);
+                var tfPath = _prefab.transform.GetRelativePath(tf);
+                var tfCopy = FindInCopy(copy, tfPath);
+                var attachmentCopy = tfCopy != null ? copy.GetComponent<SchematicObject>()?.FindAttachment(type, tfCopy.gameObject) : null;
+                if (attachmentCopy != null)
+                {
+                    attachmentCopy.SetOverride(variableName, newProperties, propertiesType);
+                    ApplyChangesToPrefabAsset(copy);
+                }
                 else
-                    DrawVariableField(path, behaviorType, attachment, definition);
+                    PrefabUtility.UnloadPrefabContents(copy);
             });
-            ConstrainIMGUI(field);
-            field.AddToClassList("dock-variable-value");
-            row.Add(field);
-            section.Add(row);
-        }
+        }));
 
-        if (metadata.Signals.Count > 0)
+        var propertiesObject = GetProperties(attachment, propertiesVariable);
+
+        if (propertiesObject == null && propertiesType != null && !propertiesType.IsAbstract)
         {
-            section.Add(SectionLabel("Signals"));
-            foreach (var signal in metadata.Signals)
+            // Stored with the prefab's other Schematic assets, one per Behavior (and GameObject) that uses it.
+            var tfPath = _prefab.transform.GetRelativePath(tf);
+            string scope = type.Name + (string.IsNullOrEmpty(tfPath) ? "" : "_" + tfPath.Replace('/', '_'));
+            propertiesObject = SchematicAssetManager.Create(_prefab, scope, variableName, variableName, propertiesType);
+
+            var copy = PrefabUtility.LoadPrefabContents(_assetPath);
+
+            var tfCopy = FindInCopy(copy, tfPath);
+            var attachmentCopy = tfCopy != null ? copy.GetComponent<SchematicObject>()?.FindAttachment(type, tfCopy.gameObject) : null;
+            if (attachmentCopy != null && propertiesObject != null)
             {
-                var item = new DockItem
-                {
-                    Kind = DockItem.ItemKind.Signal, Path = path, Behavior = behaviorType, GameObject = target,
-                    Name = signal.Name, Signal = signal.Asset, Direction = signal.Direction,
-                };
-                var parameters = new List<string>();
-                foreach (var parameter in signal.Parameters)
-                    parameters.Add($"{TypeName(parameter.Type.Type)} {parameter.Name}");
-                var icon = signal.Direction == SignalDirection.Output ? OutputIcon : InputIcon;
-                string direction = signal.Direction == SignalDirection.Output ? "Output" : signal.Direction == SignalDirection.Input ? "Input" : "";
-                var row = CreateRow(item, icon, ObjectNames.NicifyVariableName(signal.Name), string.Join(", ", parameters),
-                    $"{direction} Signal: drag in to Send it or react to it; click to find its nodes");
-                section.Add(row);
+                attachmentCopy.SetOverride(variableName, propertiesObject, propertiesType);
+                ApplyChangesToPrefabAsset(copy);
             }
+            else
+                PrefabUtility.UnloadPrefabContents(copy);
         }
 
-        // Anything the Behavior adds itself (BehaviorDockSections).
-        var extra = BehaviorDockSections.Create(new BehaviorDockContext
+        var container = new IMGUIContainer(() =>
         {
-            Prefab = _prefab, Target = target, Path = path, BehaviorType = behaviorType, Attachment = attachment, Window = _window,
-            Read = (variable, type) =>
-            {
-                if (_pendingEdits.TryGetValue(EditKey(path, behaviorType, variable), out var pending))
-                    return pending.Revert ? metadata.FindVariable(variable)?.Default?.Get(type) : pending.Value;
-                var entry = attachment.FindOverride(variable);
-                return entry != null ? entry.Value.Get(type) : metadata.FindVariable(variable)?.Default?.Get(type);
-            },
-            Write = (variable, type, value) => QueueEdit(path, behaviorType, variable, type, value),
-        });
-        if (extra != null)
-            section.Add(extra);
+            if (propertiesObject == null) return;
 
-        // Properties last: the Behavior's tuning asset, created for this object if it has none, edited in place.
-        if (properties.Count > 0)
-            section.Add(CreatePropertiesFoldout(target, path, behaviorType, attachment, properties));
-
-        return section;
-    }
-
-    private VisualElement CreateRow(DockItem item, Texture icon, string label, string detail, string tooltip)
-    {
-        var row = DockRows.Build(item, icon, label, detail, tooltip, () =>
-        {
-            _window.FocusNodes(item);
-            ScopeItemInspector.Show(item);
-        });
-        _rows[item.Key] = row;
-        return row;
-    }
-
-    private Foldout CreatePropertiesFoldout(GameObject target, string path, Type behaviorType, BehaviorAttachment attachment, List<VariableDefinition> properties)
-    {
-        var foldout = new Foldout { text = "Properties", value = SessionState.GetBool(FoldoutKey("properties", path + behaviorType.FullName), false) };
-        foldout.AddToClassList("dock-properties");
-        foldout.RegisterValueChangedCallback(evt =>
-        {
-            if (evt.target == foldout)
-                SessionState.SetBool(FoldoutKey("properties", path + behaviorType.FullName), evt.newValue);
+            var soEditor = Editor.CreateEditor(propertiesObject);
+            soEditor.OnInspectorGUI();
         });
 
-        foreach (var variable in properties)
-        {
-            var type = variable.Type.Type;
-            string variableName = variable.Name;
-
-            // Every object gets its own Properties asset, as before; made the first time the dock shows it.
-            string createKey = $"{_assetPath}|{path}|{behaviorType.FullName}|{variableName}";
-            if (CurrentProperties(attachment, variable) == null && type != null && !type.IsAbstract && !Application.isPlaying && _propertiesAttempted.Add(createKey))
-                EditorApplication.delayCall += () => CreateProperties(target, path, behaviorType, attachment, variableName, type);
-
-            UnityEditor.Editor editor = null;
-            var container = new IMGUIContainer(() =>
-            {
-                var current = _pendingEdits.TryGetValue(EditKey(path, behaviorType, variableName), out var pendingProperties) && !pendingProperties.Revert
-                    ? pendingProperties.Value as ScriptableObject
-                    : CurrentProperties(attachment, variable);
-                if (properties.Count > 1)
-                    EditorGUILayout.LabelField(ObjectNames.NicifyVariableName(variableName), EditorStyles.boldLabel);
-
-                // The asset itself, swappable for another one.
-                EditorGUI.BeginChangeCheck();
-                var picked = EditorGUILayout.ObjectField(current, type, false) as ScriptableObject;
-                if (EditorGUI.EndChangeCheck())
-                {
-                    QueueEdit(path, behaviorType, variableName, type, picked);
-                    current = picked;
-                }
-
-                if (current == null)
-                {
-                    EditorGUILayout.LabelField("Creating…", EditorStyles.miniLabel);
-                    return;
-                }
-
-                UnityEditor.Editor.CreateCachedEditor(current, null, ref editor);
-                editor.OnInspectorGUI();
-            });
-            ConstrainIMGUI(container);
-            foldout.Add(container);
-        }
-        return foldout;
+        propertiesFoldout.Add(container);
+        return propertiesFoldout;
     }
 
-    private static ScriptableObject CurrentProperties(BehaviorAttachment attachment, VariableDefinition variable)
+    /// <summary>
+    /// This object's Properties asset for a Behavior: its own (the attachment's override), or the Behavior's default.
+    /// </summary>
+    private static ScriptableObject GetProperties(BehaviorAttachment attachment, VariableDefinition variable)
     {
         var type = variable.Type.Type;
         var entry = attachment.FindOverride(variable.Name);
@@ -560,96 +481,251 @@ public class PrefabHierarchy : VisualElement
         return variable.Default?.Get(type) as ScriptableObject;
     }
 
-    // Each Properties asset is attempted once per editor session, so a failure can't retry in a loop.
-    private static readonly HashSet<string> _propertiesAttempted = new();
-
-    private void CreateProperties(GameObject target, string path, Type behaviorType, BehaviorAttachment attachment, string variableName, Type type)
+    /// <summary>
+    /// Creates the remove Behavior button.
+    /// </summary>
+    private Button CreateRemoveBehaviorButton(Type type, Transform tf, GameObjectFoldout goFoldout)
     {
-        if (_root == null || attachment.FindOverride(variableName)?.Value?.Get(type) != null)
+        var removeComponentButton = new Button(() =>
+        {
+            RemoveBehavior(type, null, tf);
+        })
+        {
+            text = "-"
+        };
+
+        removeComponentButton.style.minWidth = 10;
+        removeComponentButton.style.minHeight = 10;
+        removeComponentButton.style.maxWidth = 10;
+        removeComponentButton.style.maxHeight = 10;
+        removeComponentButton.style.backgroundColor = SchematicGraphEditorWindow.ColorLookupFunctional["Remove"];
+        removeComponentButton.RegisterCallback<MouseEnterEvent>(evt => removeComponentButton.style.backgroundColor = SchematicGraphEditorWindow.ColorLookupFunctional["RemoveHighlight"]);
+        removeComponentButton.RegisterCallback<MouseLeaveEvent>(evt => removeComponentButton.style.backgroundColor = SchematicGraphEditorWindow.ColorLookupFunctional["Remove"]);
+
+        return removeComponentButton;
+    }
+
+    /// <summary>
+    /// Removes a Behavior from a GameObject: from the root Schematic Object's list for it, in the prefab asset.
+    /// </summary>
+    private void RemoveBehavior(Type type, BehaviorAttachment attachment, Transform tf)
+    {
+        var tfPath = _prefab.transform.GetRelativePath(tf);
+        var copy = PrefabUtility.LoadPrefabContents(_assetPath);
+        var tfCopy = FindInCopy(copy, tfPath);
+        var rootCopy = copy.GetComponent<SchematicObject>();
+        if (tfCopy != null && rootCopy != null && rootCopy.Behaviors.TryGetValue(tfCopy.gameObject, out var list) && list != null)
+        {
+            if (type != null)
+                list.Items.RemoveAll(a => a?.Metadata != null && a.Metadata.BehaviorType.Type == type);
+            else
+            {
+                // A Behavior whose script is missing: the attachment with the same Metadata (or none).
+                var metadata = attachment?.Metadata;
+                list.Items.RemoveAll(a => a == null || a.Metadata == metadata);
+            }
+
+            if (list.Items.Count == 0)
+                rootCopy.Behaviors.Remove(tfCopy.gameObject);
+            ApplyChangesToPrefabAsset(copy);
+        }
+        else
+            PrefabUtility.UnloadPrefabContents(copy);
+    }
+
+    /// <summary>
+    /// Creates the "Add Behavior" button with cached Behavior type list.
+    /// </summary>
+    private void CreateAddBehaviorButton(TabView tabView, Transform tf)
+    {
+        tabView.AddTab("+").UseFactory(() =>
+        {
+            // Initialize Behavior types cache if needed
+            if (!_behaviorTypesInitialized)
+            {
+                _availableBehaviorTypes = BuildAvailableBehaviorTypesList();
+                _behaviorTypesInitialized = true;
+            }
+
+            var attached = new HashSet<Type>();
+            foreach (var attachment in GetBehaviors(tf.gameObject))
+                if (attachment.Metadata != null && attachment.Metadata.BehaviorType.Type != null)
+                    attached.Add(attachment.Metadata.BehaviorType.Type);
+
+            var menu = new GenericMenu();
+
+            foreach (var type in _availableBehaviorTypes)
+            {
+                if (attached.Contains(type))
+                    continue;
+
+                string menuPath = BehaviorDropdown.GetMenuPath(type);
+
+                menu.AddItem(new GUIContent(menuPath), false, () =>
+                {
+                    AddBehavior(_prefab.transform.GetRelativePath(tf), type);
+                });
+            }
+
+            menu.ShowAsContext();
+
+            return null;
+        });
+
+        var addTabButton = tabView;
+
+        addTabButton.AddToClassList("tab-add-component");
+    }
+
+    /// <summary>
+    /// Attaches a Behavior to the GameObject at a path in the prefab (as the Inspector's add does: required Behaviors and
+    /// components, OnSetup), in the prefab asset. Also used by the assistant.
+    /// </summary>
+    internal void AddBehavior(string tfPath, Type type)
+    {
+        // Metadata first: attaching needs it, and generating it touches the asset database.
+        if (type == null || BehaviorMetadataGenerator.GetOrCreate(type) == null)
             return;
 
-        // Not during Play Mode: give up for now (the dock tries again next time it's drawn).
-        if (Application.isPlaying)
+        var copy = PrefabUtility.LoadPrefabContents(_assetPath);
+        var tfCopy = FindInCopy(copy, tfPath);
+
+        if (tfCopy != null)
         {
-            _propertiesAttempted.Remove($"{_assetPath}|{path}|{behaviorType.FullName}|{variableName}");
-            return;
+            var rootCopy = copy.GetComponent<SchematicObject>();
+            if (rootCopy == null)
+            {
+                rootCopy = copy.AddComponent<SchematicObject>();
+                rootCopy.AssignObjectID(SchematicObjectIDs.For(_assetPath));
+            }
+
+            rootCopy.AttachBehavior(type, tfCopy.gameObject);
+            ApplyChangesToPrefabAsset(copy);
+        }
+        else
+            PrefabUtility.UnloadPrefabContents(copy);
+    }
+
+    /// <summary>
+    /// Builds a cached list of available Behavior types that can be added.
+    /// </summary>
+    private static List<Type> BuildAvailableBehaviorTypesList()
+    {
+        var allTypes = new List<Type>();
+
+        foreach (var type in BehaviorMetadataGenerator.BehaviorTypes)
+        {
+            if (type == null) continue;
+            if (type.GetCustomAttribute<SchematicBehaviorPathAttribute>()?.Hidden == true) continue;
+
+            allTypes.Add(type);
         }
 
-        // Not in the middle of a compile, import or prefab save: come back once things are quiet.
-        if (EditorApplication.isCompiling || EditorApplication.isUpdating || _editing)
-        {
-            EditorApplication.delayCall += () => CreateProperties(target, path, behaviorType, attachment, variableName, type);
-            return;
-        }
+        allTypes.Sort((a, b) => string.CompareOrdinal(BehaviorDropdown.GetMenuPath(a), BehaviorDropdown.GetMenuPath(b)));
+
+        return allTypes;
+    }
+
+    /// <summary>
+    /// The Behaviors attached to a GameObject of the prefab, from the root Schematic Object.
+    /// </summary>
+    private List<BehaviorAttachment> GetBehaviors(GameObject gameObject)
+    {
+        var behaviors = new List<BehaviorAttachment>();
+        var root = _prefab != null ? _prefab.GetComponent<SchematicObject>() : null;
+        if (root == null || gameObject == null)
+            return behaviors;
+
+        if (root.Behaviors.TryGetValue(gameObject, out var list) && list?.Items != null)
+            foreach (var attachment in list.Items)
+                if (attachment != null)
+                    behaviors.Add(attachment);
+
+        return behaviors;
+    }
+
+    /// <summary>
+    /// One instance of a Behavior type (cached), for reflecting over its fields.
+    /// </summary>
+    private static SchematicBehavior GetBehaviorInstance(Type type)
+    {
+        if (_behaviorInstances.TryGetValue(type, out var behavior))
+            return behavior;
 
         try
         {
-            CreatePropertiesNow(path, behaviorType, attachment, variableName, type);
+            behavior = SchematicBehavior.Create(type);
         }
-        catch (Exception exception)
+        catch (Exception e)
         {
-            Debug.LogException(exception, _prefab);
+            Debug.LogException(e);
+            behavior = null;
         }
+
+        _behaviorInstances[type] = behavior;
+        return behavior;
     }
-
-    private void CreatePropertiesNow(string path, Type behaviorType, BehaviorAttachment attachment, string variableName, Type type)
-    {
-
-        // Stored with the prefab's other Schematic assets, one per Behavior (and GameObject) that uses it.
-        string scope = behaviorType.Name + (string.IsNullOrEmpty(path) ? "" : "_" + path.Replace('/', '_'));
-        var asset = SchematicAssets.SchematicAssetManager.Create(_prefab, scope, variableName, variableName, type);
-        if (asset == null)
-            return;
-
-        QueueEdit(path, behaviorType, variableName, type, asset);
-        FlushPendingEdits();
-    }
-
-    // IMGUI asks for the width it would like; inside the dock it must take what it's given.
-    private static void ConstrainIMGUI(IMGUIContainer container)
-    {
-        container.style.flexGrow = 1;
-        container.style.flexShrink = 1;
-        container.style.minWidth = 0;
-        container.style.overflow = Overflow.Hidden;
-    }
-
-    private HashSet<Type> AttachedTypes(GameObject target)
-    {
-        var attached = new HashSet<Type>();
-        if (_root.Behaviors.TryGetValue(target, out var list) && list != null)
-            foreach (var attachment in list.Items)
-                if (attachment?.Metadata != null && attachment.Metadata.BehaviorType.Type != null)
-                    attached.Add(attachment.Metadata.BehaviorType.Type);
-        return attached;
-    }
-
-    #endregion
-
-    #region Navigation
 
     /// <summary>
-    /// Opens the foldouts down to the row for the given item, scrolls to it and flashes it. False if it isn't in this dock.
+    /// The Behavior script's own icon, if it has one (otherwise the tab shows the Behavior's name).
     /// </summary>
-    public bool Reveal(string key)
+    private static Texture GetBehaviorIcon(Type type)
     {
-        if (!_rows.TryGetValue(key, out var row))
-            return false;
-
-        for (var parent = row.parent; parent != null; parent = parent.parent)
-            if (parent is Foldout foldout)
-                foldout.value = true;
-
-        row.schedule.Execute(() =>
+        foreach (var guid in AssetDatabase.FindAssets(type.Name + " t:MonoScript"))
         {
-            row.GetFirstAncestorOfType<ScrollView>()?.ScrollTo(row);
-            Flash(row);
-        }).StartingIn(30);
-        return true;
+            var script = AssetDatabase.LoadAssetAtPath<MonoScript>(AssetDatabase.GUIDToAssetPath(guid));
+            if (script != null && script.GetClass() == type)
+                return EditorGUIUtility.GetIconForObject(script);
+        }
+        return null;
     }
+
+    private static bool TabExists(TabView tabView, string tabId)
+    {
+        try
+        {
+            return tabView[tabId] != null;
+        }
+        catch (KeyNotFoundException)
+        {
+            return false;
+        }
+    }
+
+    private static Transform FindInCopy(GameObject copy, string tfPath)
+        => string.IsNullOrEmpty(tfPath) ? copy.transform : copy.transform.Find(tfPath);
+
+    /// <summary>
+    /// Applies changes to the prefab asset and triggers rebuild if needed.
+    /// </summary>
+    private async void ApplyChangesToPrefabAsset(GameObject copy)
+    {
+        PrefabUtility.SaveAsPrefabAsset(copy, _assetPath);
+        PrefabUtility.UnloadPrefabContents(copy);
+
+        AssetDatabase.Refresh();
+
+        await EditorUtilities.NextEditorFrame();
+
+        PrefabRefreshUtility.ReimportAndResetPrefab(_prefab);
+        RebuildHierarchy(_prefab.transform);
+    }
+
+    #region Used by the graph window and its minimap
+
+    internal static Texture2D VariableIcon => DockRows.VariableIcon;
+
+    internal static Color ColorOf(Type type) => DockRows.ColorOf(type);
+
+    /// <summary>
+    /// Shows the row for a dock item. This hierarchy has no per-item rows (Signals are drawn in the Behavior tabs), so it
+    /// reports false and the window leaves the dock as it is.
+    /// </summary>
+    public bool Reveal(string key) => false;
 
     private static readonly Dictionary<VisualElement, IVisualElementScheduledItem> _flashing = new();
 
+    /// <summary>Briefly highlights an element (the graph window uses it for its Graph tab rows and nodes).</summary>
     internal static void Flash(VisualElement element)
     {
         // A second click mid-flash restarts it instead of starting another one that would remember the
@@ -673,427 +749,6 @@ public class PrefabHierarchy : VisualElement
             element.style.backgroundColor = Color.Lerp(new Color(0f, 0.55f, 0.6f, 0.9f), new Color(0f, 0.55f, 0.6f, 0f), t);
         }).Every(16);
         _flashing[element] = item;
-    }
-
-    #endregion
-
-    #region Helpers
-
-    private static void MakeDraggable(VisualElement element, DockItem item, Action click) => DockRows.MakeDraggable(element, item, click);
-
-    private static Image CreateHandle(Texture icon, string tooltip)
-    {
-        var handle = new Image { image = icon, tooltip = tooltip };
-        handle.AddToClassList("dock-drag-handle");
-        handle.style.width = 16;
-        handle.style.height = 16;
-        handle.style.marginLeft = 6;
-        return handle;
-    }
-
-    private static Label SectionLabel(string text) => DockRows.SectionLabel(text);
-
-    internal static Color ColorOf(Type type) => DockRows.ColorOf(type);
-
-    private static string TypeName(Type type) => DockRows.TypeName(type);
-
-    private string PathOf(Transform transform) => AnimationUtility.CalculateTransformPath(transform, _shown.transform);
-
-    private string FoldoutKey(string kind, string path) => $"SchematicDock.{_assetPath}.{kind}.{path}";
-
-    private static void OpenScript(Type type)
-    {
-        foreach (var guid in AssetDatabase.FindAssets(type.Name + " t:MonoScript"))
-        {
-            var script = AssetDatabase.LoadAssetAtPath<MonoScript>(AssetDatabase.GUIDToAssetPath(guid));
-            if (script != null && script.GetClass() == type)
-            {
-                AssetDatabase.OpenAsset(script);
-                return;
-            }
-        }
-    }
-
-    #endregion
-
-    #region Prefab editing
-
-    // Structural edits (children, Behaviors) go through the prefab's contents, as the original dock did: load it,
-    // change the copy, save it over the asset, then reimport and redraw.
-    private void EditContents(Action<GameObject> edit)
-    {
-        if (edit != null)
-            _queuedEdits.Add(edit);
-
-        // Busy (another save still finishing, a compile, or the import a save just started): the edit waits its turn
-        // instead of being dropped, and goes in with the next save.
-        if (_editing || EditorApplication.isCompiling || EditorApplication.isUpdating)
-        {
-            ScheduleRetry();
-            return;
-        }
-
-        _editing = true;
-
-        var edits = _queuedEdits.ToArray();
-        _queuedEdits.Clear();
-        // Value edits waiting to be written ride along with this save.
-        var pending = new List<PendingEdit>(_pendingEdits.Values);
-        _pendingEdits.Clear();
-        _flushScheduled?.Pause();
-
-        int trace = PrefabSaveTrace.Begin($"dock edit ({edits.Length} change(s), {pending.Count} value(s))", _assetPath);
-        PrefabSaveTrace.Step(trace, "1 before load", _assetPath, dockObject: _prefab);
-
-        GameObject contents = null;
-        try
-        {
-            contents = PrefabUtility.LoadPrefabContents(_assetPath);
-            PrefabSaveTrace.Step(trace, "2 loaded copy", _assetPath, dockObject: _prefab, contents: contents);
-            ApplyEdits(contents, pending);
-            foreach (var queued in edits)
-                queued(contents);
-            PrefabSaveTrace.Step(trace, "3 copy edited", _assetPath, dockObject: _prefab, contents: contents);
-        }
-        catch (Exception exception)
-        {
-            Debug.LogException(exception);
-            if (contents != null)
-                PrefabUtility.UnloadPrefabContents(contents);
-            Finish();
-            return;
-        }
-        Save(contents, trace);
-    }
-
-    private readonly List<Action<GameObject>> _queuedEdits = new();
-    private bool _retryScheduled;
-
-    // Tries again on the next editor update, until the prefab is free.
-    private void ScheduleRetry()
-    {
-        if (_retryScheduled)
-            return;
-        _retryScheduled = true;
-        EditorApplication.delayCall += () =>
-        {
-            _retryScheduled = false;
-            if (_queuedEdits.Count > 0 || _pendingEdits.Count > 0)
-                EditContents(null);
-        };
-    }
-
-    // One load-edit-save at a time; saving direct edits waits until it's done.
-    private static bool _editing;
-
-    private static void Finish()
-    {
-        _editing = false;
-    }
-
-    #region Value edits
-
-    // A Variable value (or Properties asset) waiting to be written to the prefab. Shown in the dock straight away,
-    // written with the next load-edit-save: after a short pause, when the mouse leaves the dock, or with a structural
-    // edit. The prefab asset in memory is never modified directly.
-    private sealed class PendingEdit
-    {
-        public string Path;
-        public Type Behavior;
-        public string Variable;
-        public Type ValueType;
-        public object Value;
-        public bool Revert;
-    }
-
-    private readonly Dictionary<string, PendingEdit> _pendingEdits = new();
-    private IVisualElementScheduledItem _flushScheduled;
-    private const long FlushDelayMs = 1500;
-
-    private static string EditKey(string path, Type behavior, string variable) => $"{path}|{behavior?.FullName}|{variable}";
-
-    private void QueueEdit(string path, Type behavior, string variable, Type valueType, object value, bool revert = false)
-    {
-        if (_live)
-        {
-            ApplyLive(path, behavior, variable, valueType, value, revert);
-            return;
-        }
-
-        _pendingEdits[EditKey(path, behavior, variable)] = new PendingEdit
-        {
-            Path = path, Behavior = behavior, Variable = variable, ValueType = valueType, Value = value, Revert = revert,
-        };
-
-        // Restarted by every change, so typing finishes before anything is written.
-        _flushScheduled?.Pause();
-        _flushScheduled = schedule.Execute(FlushPendingEdits);
-        _flushScheduled.ExecuteLater(FlushDelayMs);
-    }
-
-    // Prefab Mode open: a value goes straight into the open copy, with Undo, as the Inspector does.
-    private void ApplyLive(string path, Type behavior, string variable, Type valueType, object value, bool revert)
-    {
-        var target = _shown != null ? Find(_shown, path) : null;
-        var attachment = target != null && _root != null ? _root.FindAttachment(behavior, target.gameObject) : null;
-        if (attachment == null)
-            return;
-        Undo.RecordObject(_root, revert ? "Revert Schematic Variable" : "Set Schematic Variable");
-        if (revert)
-            attachment.Overrides.RemoveAll(o => o.Name == variable);
-        else
-            attachment.SetOverride(variable, value, valueType);
-        MarkLiveDirty();
-    }
-
-    private void FlushPendingEdits()
-    {
-        _flushScheduled?.Pause();
-        if (_pendingEdits.Count == 0 || string.IsNullOrEmpty(_assetPath))
-            return;
-        EditContents(null);
-    }
-
-    private void ApplyEdits(GameObject contents, List<PendingEdit> edits)
-    {
-        if (edits.Count == 0)
-            return;
-        var root = contents.GetComponent<SchematicObject>();
-        if (root == null)
-            return;
-
-        foreach (var edit in edits)
-        {
-            var target = Find(contents, edit.Path);
-            var attachment = target != null ? root.FindAttachment(edit.Behavior, target.gameObject) : null;
-            if (attachment == null)
-                continue;
-
-            if (edit.Revert)
-                attachment.Overrides.RemoveAll(o => o.Name == edit.Variable);
-            else
-                attachment.SetOverride(edit.Variable, ToContents(edit.Value, contents), edit.ValueType);
-        }
-    }
-
-    // A reference to one of the prefab's own objects has to point at the matching object in the loaded copy.
-    private object ToContents(object value, GameObject contents)
-    {
-        Transform source = value is GameObject gameObject ? gameObject.transform : value is Component component ? component.transform : null;
-        if (source == null || _prefab == null || source.root != _prefab.transform)
-            return value;
-
-        var match = Find(contents, AnimationUtility.CalculateTransformPath(source, _prefab.transform));
-        if (match == null)
-            return null;
-        return value is GameObject ? (object)match.gameObject : match.GetComponent(value.GetType());
-    }
-
-    // The field on a Variable's row: this object's value (or the default), edited through pending edits.
-    private void DrawVariableField(string path, Type behaviorType, BehaviorAttachment attachment, VariableDefinition definition)
-    {
-        var type = definition.Type.Type;
-        if (type == null)
-            return;
-
-        // Arrays, lists and classes are edited in Prefab Mode, where Unity's own drawers save them safely.
-        if (SchematicValue.IsBoxable(type))
-        {
-            if (GUILayout.Button(new GUIContent("Edit in Prefab…", "Opens the prefab; edit this value in the Inspector."), EditorStyles.miniButton))
-                AssetDatabase.OpenAsset(_prefab);
-            return;
-        }
-
-        _pendingEdits.TryGetValue(EditKey(path, behaviorType, definition.Name), out var pending);
-        var entry = attachment.FindOverride(definition.Name);
-        bool overridden = pending != null ? !pending.Revert : entry != null;
-        object current = pending != null && !pending.Revert ? pending.Value
-                       : entry != null && pending == null ? entry.Value.Get(type)
-                       : definition.Default?.Get(type);
-
-        using (new EditorGUILayout.HorizontalScope())
-        {
-            if (SchematicValueField.Draw(GUIContent.none, type, current, out var newValue))
-                QueueEdit(path, behaviorType, definition.Name, type, newValue);
-
-            using (new EditorGUI.DisabledScope(!overridden))
-                if (GUILayout.Button(new GUIContent("↺", "Back to the Behavior's default"), EditorStyles.miniButton, GUILayout.Width(20)))
-                    QueueEdit(path, behaviorType, definition.Name, type, null, revert: true);
-        }
-    }
-
-    #endregion
-
-    private static Transform Find(GameObject contents, string path)
-        => string.IsNullOrEmpty(path) ? contents.transform : contents.transform.Find(path);
-
-    private void AddChild(string parentPath)
-    {
-        if (_live)
-        {
-            var parent = _shown != null ? Find(_shown, parentPath) : null;
-            if (parent == null)
-                return;
-            var child = new GameObject("New Child");
-            child.transform.SetParent(parent, false);   // into Prefab Mode's scene, with its parent
-            Undo.RegisterCreatedObjectUndo(child, "Add Child");
-            AfterLiveEdit();
-            return;
-        }
-
-        EditContents(contents =>
-        {
-            var parent = Find(contents, parentPath);
-            if (parent != null)
-                new GameObject("New Child").transform.SetParent(parent, false);
-        });
-    }
-
-    private void DeleteObject(string path)
-    {
-        if (_live)
-        {
-            var target = _shown != null ? Find(_shown, path) : null;
-            if (target == null || target == _shown.transform)
-                return;
-            if (_root != null)
-            {
-                Undo.RecordObject(_root, "Delete Object");
-                foreach (var t in target.GetComponentsInChildren<Transform>(true))
-                    _root.Behaviors.Remove(t.gameObject);
-            }
-            Undo.DestroyObjectImmediate(target.gameObject);
-            AfterLiveEdit();
-            return;
-        }
-
-        EditContents(contents =>
-        {
-            var target = Find(contents, path);
-            if (target == null) return;
-            // Drop the Behaviors attached to it (and its children) from the root's list first.
-            var root = contents.GetComponent<SchematicObject>();
-            if (root != null)
-                foreach (var t in target.GetComponentsInChildren<Transform>(true))
-                    root.Behaviors.Remove(t.gameObject);
-            UnityEngine.Object.DestroyImmediate(target.gameObject);
-        });
-    }
-
-    private void Rename(VisualElement anchor, string path, string current)
-    {
-        Add(new InlineIdentifierEditor(popupRect: anchor.WorldBoundToScreen(),
-                                       identifierType: ListIdentifierType.Name,
-                                       getOriginalValue: () => current,
-                                       onFinishedEditting: (bool changed, object value) =>
-                                       {
-                                           string name = value?.ToString();
-                                           if (string.IsNullOrWhiteSpace(name) || name == current) return;
-                                           if (_live)
-                                           {
-                                               var live = _shown != null ? Find(_shown, path) : null;
-                                               if (live == null) return;
-                                               Undo.RecordObject(live.gameObject, "Rename");
-                                               live.name = name;
-                                               AfterLiveEdit();
-                                               return;
-                                           }
-                                           EditContents(contents =>
-                                           {
-                                               var target = Find(contents, path);
-                                               if (target != null)
-                                                   target.name = name;
-                                           });
-                                       }));
-    }
-
-    internal void AddBehavior(string path, Type behaviorType)
-    {
-        // Prefab Mode open: the Inspector's own add (required Behaviors and components, OnSetup, Undo).
-        if (_live)
-        {
-            var target = _shown != null && _root != null ? Find(_shown, path) : null;
-            if (target == null)
-                return;
-            SchematicBehaviorsHeaderGUI.AttachWithUndo(_root, target.gameObject, behaviorType);
-            AfterLiveEdit();
-            return;
-        }
-
-        // Metadata first: attaching needs it, and generating it touches the asset database.
-        if (BehaviorMetadataGenerator.GetOrCreate(behaviorType) == null)
-            return;
-
-        EditContents(contents =>
-        {
-            var root = contents.GetComponent<SchematicObject>();
-            var target = Find(contents, path);
-            if (root != null && target != null)
-                root.AttachBehavior(behaviorType, target.gameObject);
-        });
-    }
-
-    private void RemoveBehavior(string path, Type behaviorType)
-    {
-        if (_live)
-        {
-            var target = _shown != null && _root != null ? Find(_shown, path) : null;
-            var attachment = target != null ? _root.FindAttachment(behaviorType, target.gameObject) : null;
-            if (attachment == null)
-                return;
-            SchematicBehaviorsHeaderGUI.RemoveWithUndo(_root, target.gameObject, attachment);
-            AfterLiveEdit();
-            return;
-        }
-
-        EditContents(contents =>
-        {
-            var root = contents.GetComponent<SchematicObject>();
-            var target = Find(contents, path);
-            if (root == null || target == null || !root.Behaviors.TryGetValue(target.gameObject, out var list) || list == null)
-                return;
-            list.Items.RemoveAll(a => a?.Metadata != null && a.Metadata.BehaviorType.Type == behaviorType);
-            if (list.Items.Count == 0)
-                root.Behaviors.Remove(target.gameObject);
-        });
-    }
-
-    // After an edit of the open Prefab Mode copy: marked for Prefab Mode to save, and redrawn.
-    private void AfterLiveEdit()
-    {
-        MarkLiveDirty();
-        _signature = Signature();
-        Rebuild();
-    }
-
-    private async void Save(GameObject contents, int trace = 0)
-    {
-        // Always finishes, even if a step throws: an unfinished save would hold every later save back.
-        try
-        {
-            PrefabUtility.SaveAsPrefabAsset(contents, _assetPath);
-            PrefabSaveTrace.Step(trace, "4 saved copy over file", _assetPath, dockObject: _prefab, contents: contents);
-            PrefabUtility.UnloadPrefabContents(contents);
-
-            AssetDatabase.Refresh();
-            PrefabSaveTrace.Step(trace, "5 after Refresh", _assetPath, dockObject: _prefab);
-
-            await EditorUtilities.NextEditorFrame();
-            PrefabSaveTrace.Step(trace, "6 next frame", _assetPath, dockObject: _prefab);
-
-            PrefabRefreshUtility.ReimportAndResetPrefab(_prefab);
-            PrefabSaveTrace.Step(trace, "7 after ReimportAndResetPrefab", _assetPath, dockObject: _prefab);
-        }
-        catch (Exception exception)
-        {
-            Debug.LogException(exception);
-        }
-        finally
-        {
-            Finish();
-        }
-        _window.RedrawIODock();
-        PrefabSaveTrace.Step(trace, "8 after dock redraw", _assetPath, dockObject: _window.Prefab);
     }
 
     #endregion
