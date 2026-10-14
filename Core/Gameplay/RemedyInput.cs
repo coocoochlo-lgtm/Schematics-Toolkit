@@ -38,7 +38,7 @@ public class RemedyInput : SingletonData<RemedyInput>
     // The latest value of each held input, resent every frame by UpdateInputs.
     private static readonly Dictionary<SignalData, object> _currentInput = new();
 
-    [IdentityListRenderer(identifierType: ListIdentifierType.Name, identifierField: "Name", depth: 0, foldoutTitle: "Input Maps", itemLabel: "Map")]
+    [IdentityListRenderer(identifierType: ListIdentifierType.Name, identifierField: "Name", depth: 0, foldoutTitle: "Input Maps", itemLabel: "Map", renamable: true)]
     public InputActionMap[] InputMaps = new InputActionMap[0];
     [SerializeField]
     //[Dropdown("GetInputMaps")]
@@ -216,7 +216,7 @@ public class RemedyInput : SingletonData<RemedyInput>
     public class InputActionMap 
     {
         public string Name;
-        [IdentityListRenderer(identifierType: ListIdentifierType.Name, identifierField: "Name", depth: 1, foldoutTitle: "Inputs", itemLabel: "Input")]
+        [IdentityListRenderer(identifierType: ListIdentifierType.Name, identifierField: "Name", depth: 1, foldoutTitle: "Inputs", itemLabel: "Input", renamable: true)]
         public InputActionEvent[] Inputs = new InputActionEvent[0];
 
         public InputActionMap() { }
