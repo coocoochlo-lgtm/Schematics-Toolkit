@@ -17,21 +17,12 @@ namespace Remedy.Schematics
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
         {
-<<<<<<< HEAD
-            // With nothing connected, it moves the object running the graph.
-            Target = GetInputValue<GameObject>("Target", instance);
-            if (Target == null)
-                Target = instance;
-            NewPosition = GetInputValue<Vector3>("Position", NewPosition);
-           
-=======
             // With nothing connected (or an empty object connected), it moves the object running the graph.
             var target = GetInputValue("Target", Target);
             if (target == null)
                 target = instance;
             if (target == null)
                 return;
->>>>>>> ef6557b7644f528f8dc0f5ffe08fe51715ac82f8
 
             // Read into locals rather than the fields: the fields are the inline values shown on the node, and writing
             // a connected value into them would replace what you typed there.

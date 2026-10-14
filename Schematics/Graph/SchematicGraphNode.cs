@@ -435,14 +435,7 @@ namespace Remedy.Schematics
         // Reads one output (of this node) as T, the way an input connected to it would.
         private bool TryReadOutput<T>(Port port, FlowScope scope, out T value)
         {
-<<<<<<< HEAD
-            // Values handed to the flow from outside (a node replicated from another peer) win.
-            var scope = CurrentScope;
-
-            if (scope != null && scope.TryGetInput(this, inputName, out var given))
-=======
             if (Wiring.IsQuery || AnswersOnRequest)
->>>>>>> ef6557b7644f528f8dc0f5ffe08fe51715ac82f8
             {
                 object result = Evaluate(port);
                 if (result != null)
