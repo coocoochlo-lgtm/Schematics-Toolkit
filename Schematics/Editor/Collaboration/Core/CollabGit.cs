@@ -96,7 +96,7 @@ namespace Remedy.Schematics.Collaboration
             if (!present) _pending[guid] = path ?? "";
             var bounds = b != null && b.Length >= 6 ? new Bounds(new Vector3(b[0], b[1], b[2]), new Vector3(b[3], b[4], b[5])) : new Bounds();
             try { AssetAnnounced?.Invoke(guid, bounds); }
-            catch (Exception e) { Debug.LogException(e); }
+            catch (Exception e) { CollabLog.Exception("A CollabGit event handler threw", e); }
         }
 
         internal static void OnResolved(string guid)
@@ -122,7 +122,7 @@ namespace Remedy.Schematics.Collaboration
         internal static void RaisePulled(string[] paths)
         {
             try { Pulled?.Invoke(paths ?? Array.Empty<string>()); }
-            catch (Exception e) { Debug.LogException(e); }
+            catch (Exception e) { CollabLog.Exception("A CollabGit event handler threw", e); }
         }
 
         #endregion

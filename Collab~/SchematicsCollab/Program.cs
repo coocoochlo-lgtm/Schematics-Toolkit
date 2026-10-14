@@ -51,6 +51,10 @@ static class Program
 
         var editor = new EditorLink();
         editor.Start(int.Parse(a.Get("--control-port") ?? "0"));
+        // From here on every warning and error also reaches the Unity Console (with repeats folded).
+        editor.ForwardLogs();
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => Log.Error($"The helper crashed: {e.ExceptionObject}");
+        TaskScheduler.UnobservedTaskException += (_, e) => { Log.Exception("A background task failed", e.Exception.GetBaseException()); e.SetObserved(); };
         var git = new GitAgent(project, editor);
         if (!a.Has("--no-git")) await git.DetectAsync();
         if (git.HasRepo) Log.Write($"Git: {git.Info.root} on {git.Info.branch} ({git.Info.remoteUrl}), project folder '{git.Info.prefix}'.");
@@ -73,7 +77,7 @@ static class Program
                 var address = IPAddress.TryParse(host, out var ip) ? ip : Dns.GetHostAddresses(host).First(x => x.AddressFamily == AddressFamily.InterNetwork);
                 options.Seeds.Add(new IPEndPoint(address, port));
             }
-            catch (Exception e) { Log.Write($"Ignoring --peer {seed}: {e.Message}"); }
+            catch (Exception e) { Log.Warn($"Ignoring --peer {seed}: {e.Message}"); }
         }
         var session = new Session(options);
         Log.Prefix = $"[{options.Id[..6]}] ";
@@ -83,7 +87,8 @@ static class Program
 
         void ApplyProfile(CollabProfile from)
         {
-            if (from != null) profile = new CollabProfile { name = from.name, avatarId = from.avatarId };
+            if (from != null) profile = new CollabProfile { name = from.name, avatarId = from.avatarId, role = Kv.Empty(from.role) ? CollabProtocol.RoleEditor : from.role };
+            profile.client = CollabProtocol.ClientEditor;
             profile.gitName = git.Info.userName;
             profile.gitEmail = git.Info.userEmail;
             if (Kv.Empty(profile.name)) profile.name = !Kv.Empty(git.Info.userName) ? git.Info.userName : Environment.UserName;
@@ -97,10 +102,10 @@ static class Program
             if (frame.channel != CollabProtocol.AssetChannel || Kv.Empty(frame.json)) return;
             CollabFrame announcement;
             try { announcement = Json.Parse<CollabFrame>(frame.json); }
-            catch { return; }
+            catch (Exception e) { Log.Warn($"Ignored a malformed asset announcement from {frame.from} ({e.Message})."); return; }
             if (Kv.Empty(announcement?.key) || Kv.Empty(announcement.text)) return;
             editor.Emit(new CollabFrame { type = CollabFrameType.Announced, key = announcement.key, text = announcement.text, bounds = announcement.bounds, from = frame.from });
-            _ = Task.Run(() => git.AddPending(announcement.key, announcement.text));
+            Background("Tracking an announced asset", () => { git.AddPending(announcement.key, announcement.text); return Task.CompletedTask; });
         };
         editor.SnapshotBefore = () => new[] { session.StateFrame(), GitFrame() };
         editor.SnapshotAfter = () => new[]
@@ -152,11 +157,11 @@ static class Program
                     session.Send(CollabProtocol.AssetChannel, Json.Text(new CollabFrame { key = frame.key, text = frame.text, bounds = frame.bounds }), null);
                     var paths = (frame.paths ?? Array.Empty<string>()).Append(frame.text)
                         .SelectMany(p => p.EndsWith(".meta") ? new[] { p } : new[] { p, p + ".meta" }).Distinct().ToArray();
-                    _ = Task.Run(() => git.AnnounceAsync(frame.text, paths));
+                    Background($"Sharing {frame.text} through git", () => git.AnnounceAsync(frame.text, paths));
                     break;
                 case CollabFrameType.CommitScene:
                     if (Kv.Empty(frame.text)) break;
-                    _ = Task.Run(() => git.CommitSceneAsync(frame.text, frame.json, frame.coAuthors));
+                    Background($"Committing {frame.text}", () => git.CommitSceneAsync(frame.text, frame.json, frame.coAuthors));
                     break;
                 case CollabFrameType.Shutdown:
                     Log.Write("The editor asked the helper to stop.");
@@ -174,10 +179,11 @@ static class Program
             peerPort = session.PeerPort,
             version = CollabProtocol.Version,
             instance = editor.Instance,
+            key = options.Key,
         }));
         Log.Write($"Helper ready: editor port {editor.Port}, peer port {session.PeerPort}, project {project}.");
 
-        if (git.HasRepo) _ = Task.Run(() => git.PollLoopAsync(Stop.Token));
+        if (git.HasRepo) Background("The git poll loop", () => git.PollLoopAsync(Stop.Token));
         if (int.TryParse(a.Get("--parent-pid"), out int parentPid)) _ = Task.Run(() => WatchParent(parentPid));
         AppDomain.CurrentDomain.ProcessExit += (_, _) => Stop.Cancel();
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; Stop.Cancel(); };
@@ -193,6 +199,17 @@ static class Program
         catch { }
         Log.Write("Helper stopped.");
         return 0;
+    }
+
+    /// <summary>Runs work in the background; if it throws, the error reaches the log and the Unity Console.</summary>
+    private static void Background(string what, Func<Task> work)
+    {
+        _ = Task.Run(async () =>
+        {
+            try { await work(); }
+            catch (OperationCanceledException) when (Stop.IsCancellationRequested) { }
+            catch (Exception e) { Log.Exception(what + " failed", e); }
+        });
     }
 
     private static void ApplySettings(GitAgent git, CollabKV[] entries)

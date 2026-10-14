@@ -60,6 +60,37 @@ one session per project key and never leaves, so there's no migration. It names 
 editors see as host (it commits scene snapshots). When the lead leaves, the next one takes over. Traffic is not
 encrypted, so use the relay on networks you trust or tunnel it (for example SSH or WireGuard).
 
+## Playtest builds: the repository is the room
+
+Every build is a playtest client too, with no setup. At build time the editor writes the project key (the same hash of
+remote URL + branch + project folder the helpers use, `CollabProtocol.ProjectKey`), the repository, branch, commit and
+your relay address into the build (`Resources/SchematicsCollabBuildInfo`, a temporary asset deleted after the build).
+When the game starts, `CollabRuntime` (runtime assembly `Remedy.Schematics.Collaboration.Runtime`,
+`Schematics/Runtime/Collaboration/`) listens for the host's beacons with that key (or goes to the relay), joins the room
+as a **playtester** and can then send and receive channel messages, the shared store and presence like an editor.
+An editor in Play Mode is a playtester as well; its game uses the editor's own connection (no second one).
+
+- **Builds never host.** A build joins with port 0 and `client: "build"`; helpers leave it out when choosing a new host,
+  and a relay never makes it the lead. A build may be on a console, paused in a debugger or killed at any moment, while
+  the host keeps the store and commits scene snapshots, which only an editor's helper can do. When the host goes, the
+  build waits for the next host's beacon and joins again (the editors elect one among themselves). With nobody to join,
+  it keeps looking. Two builds alone (no editor) only meet through a relay.
+- **Command line** (all optional): `-collab-off`, `-collab-name NAME`, `-collab-relay HOST:PORT`,
+  `-collab-peer HOST:PORT` (ask an editor's helper directly when UDP broadcast is blocked; repeatable),
+  `-collab-live-edits`.
+- **Settings:** Project Settings > Schematics > Collaboration Features > Playtest builds (on by default; can be limited
+  to development builds, or switched off: the build then has no collaboration client at all). WebGL builds never
+  connect (no sockets in browsers).
+
+## Errors reach the Unity Console
+
+Every warning and error the helper logs (`Log.Warn` / `Log.Error` / `Log.Exception` in `Wire.cs`: sockets, malformed
+frames, failing handlers, git) is also sent to the editor and shown in the Console with a `[Collab]` prefix and a link
+to `Library/SchematicsCollab/collab.log`. Ones from before the editor attached (start-up) are delivered when it does.
+The same message repeating is folded: shown once, then again with a count after 30 s. On the Unity side every
+exception in the bridge, the features and `CollabRuntime` callbacks is caught and logged the same way
+(`CollabLog`), never thrown back into the editor or the game loop.
+
 ## Git automation
 
 The helper finds the repository from the Unity project folder (`git rev-parse --show-toplevel`), along with the
@@ -98,9 +129,13 @@ git name and email in their presence (`git.name`, `git.email`).
 ## Protocol
 
 Every frame is a 4-byte big-endian length followed by UTF-8 JSON: one `CollabFrame` (see
-`Schematics/Editor/Collaboration/Core/CollabProtocol.cs`). Both the helper and Unity compile that file, so a helper
-built from older sources reports an older `Version` and the editor rebuilds it. UDP beacons and pings are one JSON
-frame per datagram.
+`Schematics/Runtime/Collaboration/CollabProtocol.cs`, the one source of truth). The helper and Unity (the runtime
+assembly, used by the editor bridge and by builds) compile that file, so a helper built from older sources reports an
+older `Version` and the editor rebuilds it. The helper also compiles the build's client (`CollabRuntimeClient.cs`,
+`CollabLiveEditCodec.cs`, plain C#) for its self test. UDP beacons and pings are one JSON frame per datagram.
+
+Version 2 added roles: `CollabProfile` / `CollabPeerInfo` carry `role` (`editor` | `playtester`) and `client`
+(`editor` | `build`), the state frame and `helper.json` carry the project `key`, and log frames carry a repeat `count`.
 
 ## Testing
 
@@ -113,4 +148,7 @@ The test runs real helper processes on localhost and plays the editor for each o
 fan-out, targeted and ordered messages, presence, the shared store, replay after an editor reconnect, host migration
 when the host is killed, rejoining, a polite host exit, LAN discovery and project-key isolation, and relay mode. It
 also runs the git automation against a throwaway bare repository: announce, push, pull and resolve; snapshot
-co-authors; live-scene protection; postponing over local edits; never pushing your own commits.
+co-authors; live-scene protection; postponing over local edits; never pushing your own commits. And it runs the
+build's real client (`CollabRuntimeClient`): it joins the room by project key as a playtester, exchanges channel
+messages and shared keys with editors, receives and decodes a live scene edit, sees an editor turn playtester in Play
+Mode, follows a host migration without ever hosting, and a helper warning reaches the editor for the Console.

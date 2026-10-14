@@ -7,8 +7,9 @@ namespace SchematicsCollab;
 /// <summary>
 /// `SchematicsCollab --selftest [--keep] [--work DIR]`: starts real helper processes on localhost, plays the editor for
 /// each one over its control port, and checks host election, fan-out, presence, the shared store, replay after an
-/// editor reconnect, host migration when the host is killed, rejoining, a graceful host exit, LAN discovery, and the git
-/// automation against a throwaway bare repository.
+/// editor reconnect, host migration when the host is killed, rejoining, a graceful host exit, LAN discovery, a build's
+/// playtest client (the real CollabRuntimeClient) joining as a playtester, and the git automation against a throwaway
+/// bare repository.
 /// </summary>
 static class SelfTest
 {
@@ -30,6 +31,7 @@ static class SelfTest
             await SessionTests(basePort);
             await DiscoveryTest(basePort + 100);
             await RelayTest(basePort + 200);
+            await RuntimeClientTest(basePort + 400);
             await GitTests(basePort + 300);
         }
         catch (Exception e)
@@ -353,6 +355,139 @@ static class SelfTest
         Check(stays.Editor.SharedValue("rk") == "2", "the relay keeps the shared store");
         try { relay.Kill(true); } catch { }
         try { stays.Process.Kill(true); } catch { }
+    }
+
+    /// <summary>The playtest client a build runs (CollabRuntimeClient, compiled in from the runtime assembly), with its events recorded.</summary>
+    sealed class RuntimeProbe
+    {
+        public readonly CollabRuntimeClient Client;
+        public readonly List<CollabRuntimeClient.Event> Events = new();
+        public readonly List<string> Logs = new();
+
+        public RuntimeProbe(string key, string name, IEnumerable<int> listenPorts)
+        {
+            Client = new CollabRuntimeClient(new CollabRuntimeClientOptions
+            {
+                Key = key,
+                Name = name,
+                ListenPorts = listenPorts.ToList(),
+                TimeoutMs = 6000,
+                ToJson = frame => Json.Text(frame),
+                FromJson = text => Json.Parse<CollabFrame>(text),
+                Log = (level, text) => { lock (Logs) Logs.Add(level + ": " + text); },
+            });
+        }
+
+        public List<CollabRuntimeClient.Event> Of(CollabRuntimeClient.EventKind kind, string channel = null)
+        {
+            lock (Events)
+            {
+                Client.Poll(e => Events.Add(e));
+                return Events.Where(e => e.Kind == kind && (channel == null || e.Channel == channel)).ToList();
+            }
+        }
+    }
+
+    private static async Task RuntimeClientTest(int port)
+    {
+        Console.WriteLine("Playtest builds: the runtime client joins the repo's room as a playtester");
+        int discovery = port + 50;
+        string key = "runtime-" + Guid.NewGuid().ToString("N")[..8];
+        string project = Path.Combine(_work, "nogit-project");
+        int runtimePort = port + 3;   // the editors' helpers send beacons here too (a stand-in for LAN broadcast)
+        var a = await StartNode("RA", project, port, discovery, key, new[] { port + 1, runtimePort }, "--no-git");
+        await Task.Delay(800);
+        var b = await StartNode("RB", project, port + 1, discovery, key, new[] { port, runtimePort }, "--no-git");
+        Check(await Until(() => a.Editor.Peers.Length == 2 && b.Editor.Peers.Length == 2 && a.Editor.HostId == a.Id, 15000), "two editors form the room");
+
+        var probe = new RuntimeProbe(key, "Tester", new[] { runtimePort, discovery });
+        probe.Client.SetPresence("location", "{\"kind\":\"scene\",\"path\":\"Assets/Level.unity\",\"status\":\"Play Mode\"}");
+        probe.Client.Start();
+        string rid = probe.Client.Id;
+        Check(await Until(() => probe.Client.IsConnected && a.Editor.Peers.Length == 3 && b.Editor.Peers.Length == 3, 15000),
+            "a build's client finds the room by its project key and joins (no setup)");
+        var seen = b.Editor.Peers.FirstOrDefault(p => p.id == rid);
+        Check(seen?.role == CollabProtocol.RolePlaytester && seen?.client == CollabProtocol.ClientBuild && seen?.name == "Tester",
+            $"editors see it as a playtester build ({seen?.role}, {seen?.client})");
+        Check(a.Editor.Peers.Where(p => p.id != rid).All(p => p.role == CollabProtocol.RoleEditor), "editors are editors");
+        Check(seen?.presence?.Any(kv => kv.key == "location" && kv.value.Contains("Level.unity")) == true, "the build's presence (where it plays) reaches editors");
+        Check(probe.Of(CollabRuntimeClient.EventKind.Connected).Count == 1 && probe.Client.Peers.Length == 3 && probe.Client.HostId == a.Id,
+            "the client sees the room and its host");
+
+        // Channels both ways.
+        a.Editor.Send(new CollabFrame { type = CollabFrameType.Send, channel = "notes", json = "{\"text\":\"from the editor\"}" });
+        Check(await Until(() => probe.Of(CollabRuntimeClient.EventKind.Message, "notes").Any(e => e.Json.Contains("from the editor") && e.From == a.Id), 5000),
+            "an editor's channel message reaches the build");
+        probe.Client.Send("notes", "{\"text\":\"from the game\"}");
+        Check(await Until(() => new[] { a, b }.All(n => n.Editor.Of(CollabFrameType.Msg, "notes").Any(f => f.from == rid && f.json.Contains("from the game"))), 5000),
+            "the build's message reaches every editor, with its id as sender");
+
+        // Shared store both ways.
+        probe.Client.SetShared("note:1", "{\"t\":\"hi\"}");
+        Check(await Until(() => new[] { a, b }.All(n => n.Editor.SharedValue("note:1") == "{\"t\":\"hi\"}"), 5000), "a shared key set by the build goes through the host to everyone");
+        b.Editor.Send(new CollabFrame { type = CollabFrameType.Shared, key = "note:2", json = "\"editor\"" });
+        Check(await Until(() => probe.Client.GetShared("note:2") == "\"editor\"" && probe.Of(CollabRuntimeClient.EventKind.SharedChanged).Any(e => e.Key == "note:2"), 5000),
+            "an editor's shared key reaches the build (with a change event)");
+
+        // A live edit, as SceneSync sends it (SceneMsg JSON with the fields a game doesn't read too).
+        string edit = "{\"op\":\"props\",\"scene\":\"Assets/Level.unity\",\"mid\":\"x:1\",\"from\":\"" + b.Id + "\",\"id\":\"g:GlobalObjectId_V1-2-0123456789abcdef0123456789abcdef-1234-0\","
+                      + "\"comp\":\"UnityEngine.Transform:0\",\"props\":[{\"p\":\"m_LocalPosition.x\",\"v\":\"1.5\"},{\"p\":\"m_LocalRotation\",\"v\":\"0,0,0,0\"},"
+                      + "{\"p\":\"m_LocalScale\",\"v\":\"2,2,2\"},{\"p\":\"m_LocalEulerAnglesHint.x\",\"v\":\"9\"}],\"data\":{\"type\":\"\",\"key\":\"\",\"json\":\"\",\"props\":[]},"
+                      + "\"nodes\":[],\"parentId\":\"\",\"sibling\":0,\"aliases\":[]}";
+        b.Editor.Send(new CollabFrame { type = CollabFrameType.Send, channel = "scene", json = edit });
+        Check(await Until(() => probe.Of(CollabRuntimeClient.EventKind.Message, "scene").Count == 1, 5000), "an editor's live scene edit reaches the build");
+        var received = probe.Of(CollabRuntimeClient.EventKind.Message, "scene").FirstOrDefault();
+        var changes = CollabLiveEditCodec.Changes(Json.Parse<LiveEditMsg>(received.Json ?? "{}"));
+        Check(changes.Count == 3
+              && changes[0].Target == LiveEditTarget.LocalPosition && changes[0].Axis == 0 && changes[0].Value == "1.5" && changes[0].ObjectId.StartsWith("g:")
+              && changes[1].Target == LiveEditTarget.LocalRotation && changes[1].Axis == -1
+              && changes[2].Target == LiveEditTarget.LocalScale,
+            $"...and decodes into changes the game applies ({string.Join("; ", changes)})");
+        var active = CollabLiveEditCodec.Changes(new LiveEditMsg { op = "props", id = "g:x", comp = "", props = new List<LiveEditProp> { new() { p = "m_IsActive", v = "0" }, new() { p = "m_TagString", v = "Player" } } });
+        var field = CollabLiveEditCodec.Changes(new LiveEditMsg { op = "comp", id = "g:x", comp = "Game.Door:0", data = new LiveEditComponent { props = new List<LiveEditProp> { new() { p = "m_Enabled", v = "1" }, new() { p = "speed", v = "3" }, new() { p = "target", v = "s:g:y" } } } });
+        Check(active.Count == 1 && active[0].Target == LiveEditTarget.GameObjectActive
+              && field.Count == 2 && field[0].Target == LiveEditTarget.ComponentEnabled && field[1].Target == LiveEditTarget.Field && field[1].Path == "speed"
+              && CollabLiveEditCodec.Changes(new LiveEditMsg { op = "create", id = "g:x" }).Count == 0,
+            "active state, enabled and component fields are decoded; object references and structural ops are left to editors");
+        float x = 0, y = 0, z = 0, w = 0;
+        bool zeroValid = CollabLiveEditCodec.Normalize(ref x, ref y, ref z, ref w);
+        float x2 = 0, y2 = 0, z2 = 0, w2 = 2;
+        CollabLiveEditCodec.Normalize(ref x2, ref y2, ref z2, ref w2);
+        float x3 = float.NaN, y3 = 0, z3 = 0, w3 = 1;
+        bool nanValid = CollabLiveEditCodec.Normalize(ref x3, ref y3, ref z3, ref w3);
+        Check(!zeroValid && w == 1 && x == 0 && w2 == 1 && !nanValid && x3 == 0 && w3 == 1,
+            "invalid rotations (zero, NaN) become the identity and others are normalized");
+
+        // An editor entering Play Mode becomes a playtester.
+        b.Editor.Send(new CollabFrame { type = CollabFrameType.Profile, profile = new CollabProfile { name = "RB", role = CollabProtocol.RolePlaytester } });
+        Check(await Until(() => a.Editor.Peers.FirstOrDefault(p => p.id == b.Id)?.role == CollabProtocol.RolePlaytester
+                                && probe.Client.Peers.FirstOrDefault(p => p.id == b.Id)?.role == CollabProtocol.RolePlaytester, 5000),
+            "an editor in Play Mode shows as a playtester (to editors and builds)");
+        b.Editor.Send(new CollabFrame { type = CollabFrameType.Profile, profile = new CollabProfile { name = "RB", role = CollabProtocol.RoleEditor } });
+
+        // The host goes: the editors pick the next host among themselves (never the build), and the build follows.
+        var killedAt = DateTime.UtcNow;
+        a.Process.Kill(true);
+        Check(await Until(() => b.Editor.InSession && b.Editor.HostId == b.Id && b.Editor.Peers.Length == 2, 15000),
+            $"when the host goes, the remaining editor hosts (not the build) in {(DateTime.UtcNow - killedAt).TotalSeconds:0.0} s");
+        Check(await Until(() => probe.Client.IsConnected && probe.Client.HostId == b.Id && b.Editor.Peers.Any(p => p.id == rid), 20000),
+            $"the build rejoins the new host by itself ({(DateTime.UtcNow - killedAt).TotalSeconds:0.0} s)");
+        Check(probe.Client.GetShared("note:1") == "{\"t\":\"hi\"}", "the shared store survives for the build");
+        b.Editor.Send(new CollabFrame { type = CollabFrameType.Send, channel = "notes", json = "\"after\"" });
+        Check(await Until(() => probe.Of(CollabRuntimeClient.EventKind.Message, "notes").Any(e => e.Json == "\"after\""), 5000), "messages flow again after the migration");
+
+        // A build alone with nobody to join never hosts: it keeps looking.
+        b.Process.Kill(true);
+        await Task.Delay(1500);
+        Check(!probe.Client.IsConnected || await Until(() => !probe.Client.IsConnected, 10000), "with no editor left, the build waits for one instead of hosting");
+        probe.Client.Stop();
+
+        // The helper's warnings reach the editor (and so the Unity Console).
+        var c = await StartNode("RC", project, port + 5, discovery, key, Array.Empty<int>(), "--no-git");
+        var d = await StartNode("RD", project, port + 5, discovery, key, Array.Empty<int>(), "--no-git");
+        Check(await Until(() => d.Editor.Of(CollabFrameType.Log).Any(f => f.key == "warning" && f.text.Contains("in use")), 5000),
+            "a helper's warnings (here: its port was taken) are sent to the editor for the Console");
+        foreach (var n in new[] { c, d }) { try { n.Process.Kill(true); } catch { } }
     }
 
     #endregion

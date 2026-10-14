@@ -39,6 +39,20 @@ namespace Remedy.Schematics.Collaboration
         [Tooltip("Play a short sound when a chat message arrives while the Team window isn't focused.")]
         public bool ChatSound = false;
 
+        [Header("Playtest builds")]
+        [Tooltip("Builds carry the project key (repository + branch + project folder) and join the editors' session as playtesters, " +
+                 "with no setup. Turn off to build without the collaboration client (it then never opens a network connection).")]
+        public bool PlaytestBuildsJoinSessions = true;
+
+        [Tooltip("Only development builds join sessions (release builds are built without the collaboration client).")]
+        public bool DevelopmentBuildsOnly = false;
+
+        [Tooltip("Show the small collaboration overlay (with the Receive Live Edits toggle) in the corner of playtest builds.")]
+        public bool ShowPlaytestOverlay = true;
+
+        [Tooltip("Playtest builds apply editors' live edits from the start (each playtester can still turn it off in the overlay).")]
+        public bool ReceiveLiveEditsByDefault = false;
+
         /// <summary>Saves the settings file after an edit.</summary>
         public void SaveSettings() => Save(true);
     }

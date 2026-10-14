@@ -14,12 +14,26 @@ static class Gate
     public static readonly object Lock = new();
 }
 
+/// <summary>
+/// The helper's log (Library/SchematicsCollab/collab.log). Warnings and errors also go to the Unity Console: the
+/// editor link sets <see cref="Forward"/>, and repeats of the same line are folded so a failure that recurs every tick
+/// shows once (then once more with a count every half minute) instead of flooding the Console.
+/// </summary>
 static class Log
 {
     private static readonly object _file = new();
     private static string _path;
     public static bool Console;
     public static string Prefix = "";
+
+    /// <summary>Where warnings and errors go besides the file: (level "warning"/"error", text, repeats folded in).</summary>
+    public static Action<string, string, int> Forward;
+
+    private sealed class Repeat { public DateTime First; public int Suppressed; }
+    private static readonly Dictionary<string, Repeat> _repeats = new();
+    private static readonly TimeSpan RepeatWindow = TimeSpan.FromSeconds(30);
+
+    public static string FilePath => _path;
 
     public static void Init(string path)
     {
@@ -44,6 +58,37 @@ static class Log
             try { File.AppendAllText(_path, stamped + Environment.NewLine); }
             catch { }
         }
+    }
+
+    /// <summary>Something went wrong but the helper carries on (a feature is degraded, an operation was skipped).</summary>
+    public static void Warn(string text) => Report("warning", text);
+
+    /// <summary>Something failed (an exception, an operation that couldn't be done).</summary>
+    public static void Error(string text) => Report("error", text);
+
+    /// <summary>An exception caught in a handler; logged in full to the file, summarized in the Console.</summary>
+    public static void Exception(string context, Exception e) => Report("error", $"{context}: {e.GetType().Name}: {e.Message}", e.ToString());
+
+    private static void Report(string level, string text, string detail = null)
+    {
+        Write((level == "error" ? "ERROR " : "WARNING ") + (detail ?? text));
+        // Fold repeats: the first one goes out, the next ones within the window are counted and summarized later.
+        string key = level + "|" + text;
+        int folded = 0;
+        var now = DateTime.UtcNow;
+        lock (_repeats)
+        {
+            if (_repeats.TryGetValue(key, out var repeat) && now - repeat.First < RepeatWindow)
+            {
+                repeat.Suppressed++;
+                return;
+            }
+            if (repeat != null) folded = repeat.Suppressed;
+            _repeats[key] = new Repeat { First = now };
+            if (_repeats.Count > 500) _repeats.Clear();
+        }
+        try { Forward?.Invoke(level, text, folded); }
+        catch { /* the editor link is gone; the file has it */ }
     }
 }
 
@@ -150,10 +195,10 @@ sealed class FrameConn
                 LastReceived = DateTime.UtcNow;
                 CollabFrame frame;
                 try { frame = Json.Frame(body); }
-                catch (Exception e) { Log.Write($"Bad frame from {RemoteIp}: {e.Message}"); continue; }
+                catch (Exception e) { Log.Warn($"Ignored a malformed frame from {RemoteIp} ({e.Message})."); continue; }
                 if (frame?.type == null) continue;
                 try { Received?.Invoke(this, frame); }
-                catch (Exception e) { Log.Write($"Handling {frame.type} failed: {e}"); }
+                catch (Exception e) { Log.Exception($"Handling a '{frame.type}' frame failed", e); }
             }
         }
         catch { }
@@ -173,7 +218,7 @@ sealed class FrameConn
         _out.Writer.TryComplete();
         try { _client.Close(); } catch { }
         try { Closed?.Invoke(this); }
-        catch (Exception e) { Log.Write($"Close handler failed: {e}"); }
+        catch (Exception e) { Log.Exception("Closing a connection failed", e); }
     }
 
     public static async Task<FrameConn> ConnectAsync(string host, int port, int timeoutMs)

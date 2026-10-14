@@ -46,7 +46,7 @@ namespace Remedy.Schematics.Collaboration
             if (active == _wasActive) return;
             _wasActive = active;
             try { (active ? Resumed : Paused)?.Invoke(); }
-            catch (Exception e) { Debug.LogException(e); }
+            catch (Exception e) { CollabLog.Exception("A collaboration pause/resume handler threw", e); }
         }
 
         /// <summary>Unix time in milliseconds.</summary>
@@ -73,7 +73,8 @@ namespace Remedy.Schematics.Collaboration
                 return cached.parsed as T;
             T parsed = null;
             try { parsed = JsonUtility.FromJson<T>(raw); }
-            catch (Exception) { /* a peer on another version: ignore */ }
+            catch (Exception e) { CollabLog.Warning($"Ignored {peer.Name}'s unreadable '{key}' presence (another version?): {e.Message}"); }
+            if (parsed is CameraPresence camera) Sanitize(camera);
             _presenceCache[cacheKey] = (raw, parsed);
             return parsed;
         }
@@ -120,11 +121,41 @@ namespace Remedy.Schematics.Collaboration
             if (view != null) view.ShowNotification(new GUIContent(message), seconds);
         }
 
-        /// <summary>Runs an action, logging (not throwing) any exception: callbacks from the session must never break it.</summary>
+        /// <summary>
+        /// Runs an action, logging (not throwing) any exception: callbacks from the session must never break it. The
+        /// same failure repeating (every frame, every repaint) is logged once per 30 s with a count (<see cref="CollabLog"/>).
+        /// </summary>
         public static void Safe(Action action)
         {
+            if (action == null) return;
             try { action(); }
-            catch (Exception e) { Debug.LogException(e); }
+            catch (Exception e) { CollabLog.Exception("A collaboration feature failed (" + (action.Method?.Name ?? "?") + ")", e); }
+        }
+
+        /// <summary>
+        /// A rotation that is safe to draw with or to give a camera: NaN, infinite or (near) zero become the identity,
+        /// anything else is normalized. A zero quaternion makes Unity log "Quaternion To Matrix conversion failed" on
+        /// every GUI call, which used to stop teammates' avatars from being drawn.
+        /// </summary>
+        public static Quaternion SafeRotation(Quaternion q)
+        {
+            float x = q.x, y = q.y, z = q.z, w = q.w;
+            CollabLiveEditCodec.Normalize(ref x, ref y, ref z, ref w);
+            return new Quaternion(x, y, z, w);
+        }
+
+        /// <summary>A position that is safe to draw at (NaN/infinite parts become 0).</summary>
+        public static Vector3 SafePosition(Vector3 v) =>
+            new(float.IsFinite(v.x) ? v.x : 0f, float.IsFinite(v.y) ? v.y : 0f, float.IsFinite(v.z) ? v.z : 0f);
+
+        // Camera presence comes from other editors (and builds): validate it once, where it's parsed.
+        private static void Sanitize(CameraPresence camera)
+        {
+            camera.rotation = SafeRotation(camera.rotation);
+            camera.position = SafePosition(camera.position);
+            camera.pivot = SafePosition(camera.pivot);
+            if (!float.IsFinite(camera.size) || camera.size <= 0f) camera.size = 10f;
+            camera.scenes ??= new List<string>();
         }
 
         #endregion

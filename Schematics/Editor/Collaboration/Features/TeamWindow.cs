@@ -109,6 +109,8 @@ namespace Remedy.Schematics.Collaboration
                 int count = CollabSession.Peers?.Count ?? 0;
                 string state = connected ? $"Connected · {count} {(count == 1 ? "person" : "people")}" : "Not connected · " + CollabStatus.Message;
                 if (connected && EditorApplication.isPlayingOrWillChangePlaymode) state += " · paused (Play Mode)";
+                int playtesters = (CollabSession.Peers ?? (IReadOnlyList<CollabPeer>)Array.Empty<CollabPeer>()).Count(p => !p.IsLocal && p.Role == CollabRole.Playtester);
+                if (connected && playtesters > 0) state += $" · {playtesters} playtesting";
                 GUILayout.Label(state, EditorStyles.miniLabel);
                 GUILayout.FlexibleSpace();
                 if (CollabGit.HasRepository && !string.IsNullOrEmpty(CollabGit.Branch))
@@ -124,6 +126,7 @@ namespace Remedy.Schematics.Collaboration
                 menu.AddItem(new GUIContent("Commit Edited Scenes Now"), false, () => SceneSync.CommitAll(force: false, summary: "Collaborative edits"));
             else menu.AddDisabledItem(new GUIContent("Commit Edited Scenes Now (host only)"));
             if (CollabGit.HasRepository) menu.AddItem(new GUIContent("Pull Now"), false, () => CollabFeatures.Safe(CollabGit.PullNow));
+            menu.AddItem(new GUIContent("Receive Live Edits In Play Mode"), CollabLiveEdits.Enabled, () => CollabLiveEdits.Enabled = !CollabLiveEdits.Enabled);
             menu.AddItem(new GUIContent("Replace Arrived Placeholders"), false, () => CollabPlaceholders.ResolveAll());
             menu.AddSeparator("");
             menu.AddItem(new GUIContent("Collaboration Features Settings…"), false, () => SettingsService.OpenProjectSettings("Project/Schematics/Collaboration Features"));
@@ -164,7 +167,10 @@ namespace Remedy.Schematics.Collaboration
             string name = $"<color={hex}>{Escape(peer.Name)}</color>";
             if (peer.IsLocal) name += " <color=#888888>(you)</color>";
             if (peer.IsHost) name += " <color=#E8B931>♛ host</color>";
-            GUI.Label(new Rect(x, rect.y + 4, rect.width - x - 60, 18), name, _nameStyle);
+            var nameContent = new GUIContent(name);
+            float nameWidth = Mathf.Max(40f, Mathf.Min(_nameStyle.CalcSize(nameContent).x, rect.width - x - 150));
+            GUI.Label(new Rect(x, rect.y + 4, nameWidth, 18), nameContent, _nameStyle);
+            DrawRoleBadge(new Rect(x + nameWidth + 4, rect.y + 5, 90, 16), peer);
 
             if (!peer.IsLocal)
             {
@@ -190,6 +196,22 @@ namespace Remedy.Schematics.Collaboration
                 menu.ShowAsContext();
                 e.Use();
             }
+        }
+
+        /// <summary>"EDITOR" or "PLAYTESTER" (with "· BUILD" for a build of the game), as a small coloured pill.</summary>
+        private void DrawRoleBadge(Rect rect, CollabPeer peer)
+        {
+            bool playing = peer.Role == CollabRole.Playtester;
+            string text = playing ? (peer.IsBuild ? "PLAYTESTER · BUILD" : "PLAYTESTER") : "EDITOR";
+            var style = new GUIStyle(_badgeStyle) { fontSize = 9, padding = new RectOffset(5, 5, 0, 0) };
+            var size = style.CalcSize(new GUIContent(text));
+            var badge = new Rect(rect.x, rect.y, size.x + 2, rect.height);
+            var background = playing ? new Color(0.35f, 0.63f, 0.88f, 0.9f) : new Color(0.45f, 0.45f, 0.5f, 0.9f);
+            if (Event.current.type == EventType.Repaint)
+                GUI.DrawTexture(badge, EditorGUIUtility.whiteTexture, ScaleMode.StretchToFill, true, 0, background, 0, rect.height * 0.5f);
+            GUI.Label(badge, new GUIContent(text, playing
+                ? (peer.IsBuild ? "Playing a build of the game. Your scene edits reach it if they turned on Receive Live Edits." : "Playing in their editor's Play Mode.")
+                : "Editing in a Unity editor."), style);
         }
 
         private static string Describe(CollabPeer peer)

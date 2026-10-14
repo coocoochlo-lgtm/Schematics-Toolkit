@@ -97,11 +97,12 @@ sealed class Session
     public void Start()
     {
         // TCP and UDP share one port number, so a beacon or roster entry only needs one.
+        int wanted = _o.PeerPort;
         for (int attempt = 0; ; attempt++)
         {
             try
             {
-                _listener = new TcpListener(IPAddress.Any, _o.PeerPort);
+                _listener = new TcpListener(IPAddress.Any, wanted);
                 _listener.Start();
                 PeerPort = ((IPEndPoint)_listener.LocalEndpoint).Port;
                 _udp = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp) { EnableBroadcast = true };
@@ -114,10 +115,17 @@ sealed class Session
                 catch { }
                 break;
             }
-            catch (SocketException) when (_o.PeerPort == 0 && attempt < 20)
+            catch (SocketException e) when (attempt < 20)
             {
                 try { _listener?.Stop(); } catch { }
                 try { _udp?.Dispose(); } catch { }
+                // A fixed port that's taken (another program, or a leftover helper): any free one works just as well,
+                // because beacons and the roster carry the port.
+                if (wanted != 0)
+                {
+                    Log.Warn($"Peer port {wanted} is in use ({e.Message}); using a free port instead.");
+                    wanted = 0;
+                }
             }
         }
 
@@ -133,12 +141,12 @@ sealed class Session
                     _discovery.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership,
                         new MulticastOption(IPAddress.Parse(CollabProtocol.MulticastGroup), IPAddress.Any));
                 }
-                catch (Exception e) { Log.Write($"Multicast unavailable ({e.Message}); using broadcast only."); }
+                catch (Exception e) { Log.Warn($"Multicast is unavailable on this machine ({e.Message}); finding teammates by broadcast only."); }
                 _ = Task.Run(() => UdpLoop(_discovery));
             }
             catch (Exception e)
             {
-                Log.Write($"Can't listen for LAN beacons on UDP {_o.DiscoveryPort} ({e.Message}); only --peer seeds and the relay work.");
+                Log.Warn($"Can't listen for LAN beacons on UDP {_o.DiscoveryPort} ({e.Message}); teammates on the local network won't be found automatically (a relay still works). Is another program using that port, or a firewall blocking it?");
             }
         }
         _ = Task.Run(() => UdpLoop(_udp));
@@ -239,6 +247,7 @@ sealed class Session
             id = Id,
             host = InSession ? _hostId : null,
             text = _role.ToString().ToLowerInvariant(),
+            key = Key,
             epoch = _epoch,
             peers = peers.ToArray(),
         };
@@ -251,6 +260,8 @@ sealed class Session
         avatarId = _profile.avatarId,
         gitName = _profile.gitName,
         gitEmail = _profile.gitEmail,
+        role = Kv.Empty(_profile.role) ? CollabProtocol.RoleEditor : _profile.role,
+        client = CollabProtocol.ClientEditor,
         port = PeerPort,
         startedAt = StartedAt,
         isHost = _role == Role.Host,
@@ -499,7 +510,7 @@ sealed class Session
     {
         if (_role != Role.Migrating || _connecting) return;
         var candidate = _roster
-            .Where(p => p.id != _lostHost && !_failed.Contains(p.id))
+            .Where(p => p.id != _lostHost && !_failed.Contains(p.id) && CanHost(p))
             .OrderBy(p => p.avgPingMs < 0 ? int.MaxValue : p.avgPingMs)
             .ThenBy(p => p.id, StringComparer.Ordinal)
             .FirstOrDefault();
@@ -511,6 +522,9 @@ sealed class Session
         string address = Kv.Empty(candidate.address) ? "127.0.0.1" : candidate.address;
         ConnectTo(address, candidate.port, bringStore: true, expectedHost: candidate.id);
     }
+
+    /// <summary>Builds (playtest clients) join sessions but never host one: only editors' helpers can.</summary>
+    public static bool CanHost(CollabPeerInfo peer) => peer != null && peer.client != CollabProtocol.ClientBuild && peer.port > 0;
 
     private void BecomeHost(long epoch)
     {
@@ -552,7 +566,7 @@ sealed class Session
             {
                 if (_stopped) return;
                 try { Tick(); }
-                catch (Exception e) { Log.Write($"Tick failed: {e}"); }
+                catch (Exception e) { Log.Exception("The session tick failed", e); }
             }
         }
     }
@@ -610,7 +624,7 @@ sealed class Session
                     PickSuccessor();
                 if (_role == Role.Migrating && (now - _migrationStarted).TotalSeconds > 30)
                 {
-                    Log.Write("No new host found; searching again.");
+                    Log.Warn("The host left and no new host could be reached for 30 s; searching for the session again.");
                     SetRole(Role.Searching);
                 }
                 break;
@@ -763,7 +777,7 @@ sealed class Session
             lock (Gate.Lock)
             {
                 try { OnDatagram(socket, frame, from); }
-                catch (Exception e) { Log.Write($"Datagram failed: {e.Message}"); }
+                catch (Exception e) { Log.Exception($"Handling a '{frame.type}' datagram failed", e); }
             }
         }
     }

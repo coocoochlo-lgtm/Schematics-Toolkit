@@ -133,17 +133,14 @@ sealed class GitAgent
     /// <summary>
     /// Peers only see each other when this matches: the normalized remote URL + branch + the project's folder in the
     /// repository. Without git: the product name + Unity version file + a project id file created once in Collab~.
+    /// The formula lives in <see cref="CollabProtocol.ProjectKey"/>, shared with the editor (which bakes it into builds).
     /// </summary>
     public string ProjectKey(string productName, string collabFolder)
     {
-        string source;
-        if (Info.hasRepo && !Kv.Empty(Info.remoteUrl))
-            source = $"git|{NormalizeUrl(Info.remoteUrl)}|{Info.branch}|{Info.prefix}";
-        else
+        string version = "", id = "";
+        if (!(Info.hasRepo && !Kv.Empty(Info.remoteUrl)))
         {
-            string version = "";
             try { version = File.ReadAllText(Path.Combine(_projectPath, "ProjectSettings", "ProjectVersion.txt")).Trim(); } catch { }
-            string id = "";
             if (!Kv.Empty(collabFolder))
             {
                 string file = Path.Combine(collabFolder, "project-id");
@@ -152,32 +149,10 @@ sealed class GitAgent
                     if (!File.Exists(file)) File.WriteAllText(file, Guid.NewGuid().ToString("N") + "\n");
                     id = File.ReadAllText(file).Trim();
                 }
-                catch { }
+                catch (Exception e) { Log.Warn($"Couldn't read or create {file} ({e.Message}); peers without git may not find each other."); }
             }
-            source = $"local|{productName}|{version}|{id}|{(Info.hasRepo ? Info.branch : "")}";
         }
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(source)))[..16].ToLowerInvariant();
-    }
-
-    public static string NormalizeUrl(string url)
-    {
-        string u = url.Trim().ToLowerInvariant();
-        int scheme = u.IndexOf("://", StringComparison.Ordinal);
-        if (scheme >= 0) u = u[(scheme + 3)..];
-        int at = u.IndexOf('@');
-        if (at >= 0 && (u.IndexOf('/') < 0 || at < u.IndexOf('/'))) u = u[(at + 1)..];   // credentials / git@
-        // scp-like host:path -> host/path (but keep host:port/path)
-        int colon = u.IndexOf(':');
-        if (colon > 0 && (u.IndexOf('/') < 0 || colon < u.IndexOf('/')))
-        {
-            string after = u[(colon + 1)..];
-            int slash = after.IndexOf('/');
-            string maybePort = slash >= 0 ? after[..slash] : after;
-            u = maybePort.All(char.IsDigit) && maybePort.Length > 0 ? u[..colon] + after[maybePort.Length..] : u[..colon] + "/" + after;
-        }
-        u = u.TrimEnd('/');
-        if (u.EndsWith(".git")) u = u[..^4];
-        return u;
+        return CollabProtocol.ProjectKey(Info.hasRepo, Info.remoteUrl, Info.branch, Info.prefix, productName, version, id);
     }
 
     #endregion
@@ -229,7 +204,7 @@ sealed class GitAgent
             while (_wake.CurrentCount > 0) _wake.Wait(0);
             if (!HasUpstream || !AutoPull || !_editor.Attached) continue;
             try { await SyncAsync(); }
-            catch (Exception e) { Log.Write($"Pull failed: {e}"); }
+            catch (Exception e) { Log.Exception("The automatic pull failed", e); }
         }
     }
 

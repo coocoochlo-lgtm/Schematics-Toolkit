@@ -52,6 +52,7 @@ namespace Remedy.Schematics.Collaboration
         private static readonly Dictionary<string, string> _shared = new Dictionary<string, string>();
         private static string _pullId;
         private static string _relayInUse;
+        private static string _projectKey;
 
         static CollabBridge()
         {
@@ -67,6 +68,16 @@ namespace Remedy.Schematics.Collaboration
             EditorSceneManager.sceneClosed += s => SendLiveScenes();
             EditorSceneManager.newSceneCreated += (s, setup, mode) => SendLiveScenes();
             EditorSceneManager.sceneSaved += s => SendLiveScenes();
+            // Play Mode makes this editor a playtester (others see the role, and live edits reach its game).
+            EditorApplication.playModeStateChanged += change =>
+            {
+                if (change != PlayModeStateChange.EnteredPlayMode && change != PlayModeStateChange.EnteredEditMode) return;
+                _local.Role = EditorApplication.isPlaying ? CollabRole.Playtester : CollabRole.Editor;
+                if (_greeted) Write(new CollabFrame { type = CollabFrameType.Profile, profile = Profile() });
+            };
+            _local.Role = EditorApplication.isPlayingOrWillChangePlaymode ? CollabRole.Playtester : CollabRole.Editor;
+            // Warnings and errors point at the helper's log, where the full story is.
+            CollabLog.Footer = "Collaboration helper log: <a href=\"Library/SchematicsCollab/collab.log\">Library/SchematicsCollab/collab.log</a>";
             _relayInUse = CollabSettings.RelayAddress;
             // Reconnect at once (this runs right after a script reload).
             _nextAttempt = 0;
@@ -75,6 +86,20 @@ namespace Remedy.Schematics.Collaboration
         #region State for the public API
 
         internal static bool InSession => _inSession && _greeted;
+
+        /// <summary>
+        /// The project key (the room) the helper uses, or null before it said: from its state, else its helper.json.
+        /// Builds carry it so they join the same room.
+        /// </summary>
+        internal static string ProjectKey
+        {
+            get
+            {
+                if (!string.IsNullOrEmpty(_projectKey)) return _projectKey;
+                var state = ReadState();
+                return state != null && !string.IsNullOrEmpty(state.key) ? state.key : null;
+            }
+        }
         internal static CollabPeer Local => _local;
         internal static IReadOnlyList<CollabPeer> PeerList => _peerList;
 
@@ -209,7 +234,16 @@ namespace Remedy.Schematics.Collaboration
                     .Concat(Directory.GetFiles(Path.Combine(folder, "SchematicsCollab"), "*.csproj")).ToList();
                 var protocol = AssetDatabase.FindAssets("CollabProtocol t:MonoScript").Select(AssetDatabase.GUIDToAssetPath)
                     .FirstOrDefault(p => p.EndsWith("/CollabProtocol.cs", StringComparison.Ordinal));
-                if (protocol != null) sources.Add(Path.GetFullPath(protocol));
+                if (protocol != null)
+                {
+                    // The protocol and the playtest client next to it (CollabRuntimeClient, CollabLiveEditCodec) are compiled into the helper too.
+                    string folderOfProtocol = Path.GetDirectoryName(Path.GetFullPath(protocol));
+                    foreach (var name in new[] { "CollabProtocol.cs", "CollabRuntimeClient.cs", "CollabLiveEditCodec.cs" })
+                    {
+                        string file = Path.Combine(folderOfProtocol, name);
+                        if (File.Exists(file)) sources.Add(file);
+                    }
+                }
                 return sources.Any(s => File.GetLastWriteTimeUtc(s) > built);
             }
             catch { return false; }
@@ -457,7 +491,13 @@ namespace Remedy.Schematics.Collaboration
             });
         }
 
-        private static CollabProfile Profile() => new CollabProfile { name = CollabSettings.EffectiveName, avatarId = CollabSettings.AvatarId };
+        private static CollabProfile Profile() => new CollabProfile
+        {
+            name = CollabSettings.EffectiveName,
+            avatarId = CollabSettings.AvatarId,
+            role = EditorApplication.isPlayingOrWillChangePlaymode ? CollabProtocol.RolePlaytester : CollabProtocol.RoleEditor,
+            client = CollabProtocol.ClientEditor,
+        };
 
         private static CollabKV[] SettingsEntries() => new[]
         {
@@ -521,7 +561,7 @@ namespace Remedy.Schematics.Collaboration
             while (handled++ < 500 && _incoming.TryDequeue(out var frame))
             {
                 try { Handle(frame); }
-                catch (Exception e) { Debug.LogException(e); }
+                catch (Exception e) { CollabLog.Exception($"Handling '{frame.type}' from the collaboration helper failed", e); }
             }
             if (_client == null && !_connecting && _building == null && EditorApplication.timeSinceStartup >= _nextAttempt)
             {
@@ -531,7 +571,7 @@ namespace Remedy.Schematics.Collaboration
                 {
                     _startedAt = 0;
                     CollabStatus.Set(CollabState.Error, "The helper didn't start. See its log.");
-                    Debug.LogError($"[Collab] The collaboration helper didn't start. Its log: {LogPath}");
+                    CollabLog.Error($"The collaboration helper didn't start. Its log: {LogPath}");
                     _nextAttempt = EditorApplication.timeSinceStartup + 30;
                     return;
                 }
@@ -622,7 +662,7 @@ namespace Remedy.Schematics.Collaboration
                         _pullId = null;
                         AssetDatabase.AllowAutoRefresh();
                     }
-                    if (!string.IsNullOrEmpty(frame.text) && frame.text != "postponed") Debug.LogError("[Collab] " + frame.text);
+                    if (!string.IsNullOrEmpty(frame.text) && frame.text != "postponed") CollabLog.Error(StripPrefix(frame.text));
                     if (frame.paths != null && frame.paths.Length > 0)
                     {
                         AssetDatabase.Refresh();
@@ -631,11 +671,19 @@ namespace Remedy.Schematics.Collaboration
                     }
                     break;
                 case CollabFrameType.Log:
-                    if (frame.flag) Debug.LogError(frame.text);
-                    else if (frame.key == "warning") Debug.LogWarning(frame.text);
-                    else Debug.Log(frame.text);
+                    // Every warning and error of the helper lands here (it folds repeats; CollabLog folds again and
+                    // adds the link to the helper's log).
+                    if (frame.flag) CollabLog.Error(StripPrefix(frame.text));
+                    else if (frame.key == "warning") CollabLog.Warning(StripPrefix(frame.text));
+                    else CollabLog.Info(StripPrefix(frame.text));
                     break;
             }
+        }
+
+        private static string StripPrefix(string text)
+        {
+            text = text ?? "";
+            return text.StartsWith(CollabLog.Prefix, StringComparison.Ordinal) ? text.Substring(CollabLog.Prefix.Length) : text;
         }
 
         private static void OnHello(CollabFrame hello)
@@ -680,6 +728,7 @@ namespace Remedy.Schematics.Collaboration
             string oldHost = _hostId;
             _local.Id = state.id;
             _inSession = state.flag;
+            if (!string.IsNullOrEmpty(state.key)) _projectKey = state.key;
             _hostId = state.host;
 
             var seen = new HashSet<string>();
@@ -734,6 +783,9 @@ namespace Remedy.Schematics.Collaboration
             Set(ref peer.IsHost, info.isHost);
             Set(ref peer.PingMs, isLocal ? 0 : info.pingMs);
             Set(ref peer.IsLocal, isLocal);
+            if (isLocal) Set(ref peer.Role, EditorApplication.isPlayingOrWillChangePlaymode ? CollabRole.Playtester : CollabRole.Editor);
+            else Set(ref peer.Role, info.role == CollabProtocol.RolePlaytester ? CollabRole.Playtester : CollabRole.Editor);
+            Set(ref peer.IsBuild, info.client == CollabProtocol.ClientBuild);
             if (!string.IsNullOrEmpty(info.color) && ColorUtility.TryParseHtmlString(info.color, out var color)) Set(ref peer.Color, color);
 
             var presence = new Dictionary<string, string>();

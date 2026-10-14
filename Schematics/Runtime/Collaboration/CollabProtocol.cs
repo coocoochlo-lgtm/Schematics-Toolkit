@@ -1,11 +1,15 @@
 using System;
+using System.Security.Cryptography;
+using System.Text;
 
 // The JSON shapes below are filled in by the deserializer, which the compiler can't see.
 #pragma warning disable 0649
 
-// This file is compiled twice: by Unity (the editor bridge) and by the SchematicsCollab helper in Collab~ (linked from
-// its .csproj). Keep it free of UnityEngine/UnityEditor and of newer C# features so both compilers accept it. Because
-// both sides share it word for word, a helper built from older sources reports an older Version and gets rebuilt.
+// This file is the one source of truth for the wire protocol. It's compiled three times: by Unity into the runtime
+// assembly Remedy.Schematics.Collaboration.Runtime (used by the editor bridge and by the playtest client inside builds),
+// and by the SchematicsCollab helper in Collab~ (linked from its .csproj). Keep it free of UnityEngine/UnityEditor and
+// of newer C#/.NET features (C# 9, .NET Standard 2.1) so every compiler accepts it. Because all sides share it word for
+// word, a helper built from older sources reports an older Version and gets rebuilt.
 
 namespace Remedy.Schematics.Collaboration
 {
@@ -17,7 +21,7 @@ namespace Remedy.Schematics.Collaboration
     internal static class CollabProtocol
     {
         /// <summary>Bumped whenever the protocol or the helper's behaviour changes, so stale helpers get rebuilt.</summary>
-        public const int Version = 1;
+        public const int Version = 2;
 
         /// <summary>UDP port the LAN beacons go to (broadcast and multicast).</summary>
         public const int DiscoveryPort = 47811;
@@ -32,6 +36,59 @@ namespace Remedy.Schematics.Collaboration
         public const string CommitTrailer = "Schematics-Collab: auto";
 
         /// <summary>Session colours, handed out by the host so each participant has a different one.</summary>
+        /// <summary>Peer roles (<see cref="CollabProfile.role"/>): editing in a Unity editor, or playing the game.</summary>
+        public const string RoleEditor = "editor";
+        public const string RolePlaytester = "playtester";
+
+        /// <summary>What runs a peer (<see cref="CollabProfile.client"/>): an editor's helper, or the client inside a build.</summary>
+        public const string ClientEditor = "editor";
+        public const string ClientBuild = "build";
+
+        /// <summary>
+        /// The room a project lives in. Peers only see each other when this matches. With git: the normalized remote URL
+        /// + branch + the project's folder inside the repository, so every clone of the repo on that branch (and every
+        /// build made from it) meets in one room. Without git: the product name + Unity version file + a project id file
+        /// created once in Collab~. The helper, the editor (at build time) and builds all use this one function.
+        /// </summary>
+        public static string ProjectKey(bool hasRepo, string remoteUrl, string branch, string prefix,
+            string productName, string unityVersionFile, string projectId)
+        {
+            string source;
+            if (hasRepo && !string.IsNullOrEmpty(remoteUrl))
+                source = "git|" + NormalizeUrl(remoteUrl) + "|" + branch + "|" + prefix;
+            else
+                source = "local|" + productName + "|" + unityVersionFile + "|" + projectId + "|" + (hasRepo ? branch : "");
+            byte[] hash;
+            using (var sha = SHA256.Create()) hash = sha.ComputeHash(Encoding.UTF8.GetBytes(source));
+            var hex = new StringBuilder(16);
+            for (int i = 0; i < 8; i++) hex.Append(hash[i].ToString("x2"));
+            return hex.ToString();
+        }
+
+        /// <summary>A remote URL reduced to host/path, so https, ssh and scp-style URLs of one repository compare equal.</summary>
+        public static string NormalizeUrl(string url)
+        {
+            string u = (url ?? "").Trim().ToLowerInvariant();
+            int scheme = u.IndexOf("://", StringComparison.Ordinal);
+            if (scheme >= 0) u = u.Substring(scheme + 3);
+            int at = u.IndexOf('@');
+            if (at >= 0 && (u.IndexOf('/') < 0 || at < u.IndexOf('/'))) u = u.Substring(at + 1);   // credentials / git@
+            // scp-like host:path -> host/path (but keep host:port/path)
+            int colon = u.IndexOf(':');
+            if (colon > 0 && (u.IndexOf('/') < 0 || colon < u.IndexOf('/')))
+            {
+                string after = u.Substring(colon + 1);
+                int slash = after.IndexOf('/');
+                string maybePort = slash >= 0 ? after.Substring(0, slash) : after;
+                bool digits = maybePort.Length > 0;
+                foreach (char c in maybePort) if (!char.IsDigit(c)) digits = false;
+                u = digits ? u.Substring(0, colon) + after.Substring(maybePort.Length) : u.Substring(0, colon) + "/" + after;
+            }
+            u = u.TrimEnd('/');
+            if (u.EndsWith(".git", StringComparison.Ordinal)) u = u.Substring(0, u.Length - 4);
+            return u;
+        }
+
         public static readonly string[] Palette =
         {
             "#4C9AFF", "#FF5630", "#36B37E", "#FFAB00", "#6554C0", "#00B8D9",
@@ -44,7 +101,7 @@ namespace Remedy.Schematics.Collaboration
     {
         // Editor <-> helper
         public const string Hello = "hello";             // editor: seq = last seq seen, id = helper instance seen. helper: id = instance, seq = newest, flag = resync
-        public const string State = "state";             // helper: flag = in a session, id = local peer id, host = host id, text = role, peers
+        public const string State = "state";             // helper: flag = in a session, id = local peer id, host = host id, text = role, key = project key, peers
         public const string SharedAll = "sharedAll";     // helper: entries = whole shared store
         public const string Git = "git";                 // helper: git = repository info
         public const string PendingAll = "pendingAll";   // helper: entries = guid -> path of announced assets not pulled yet
@@ -53,7 +110,7 @@ namespace Remedy.Schematics.Collaboration
         public const string PullBegin = "pullBegin";     // helper: id. The editor stops auto refresh and answers PullReady
         public const string PullReady = "pullReady";     // editor: id
         public const string PullEnd = "pullEnd";         // helper: id, paths (project-relative), text = error
-        public const string Log = "log";                 // helper: text, flag = error, key = "warning" for warnings
+        public const string Log = "log";                 // helper: text, flag = error, key = "warning" for warnings, count = repeats folded into it
         public const string Send = "send";               // editor: channel, json, to
         public const string Profile = "profile";         // editor: profile
         public const string Settings = "settings";       // editor: entries (relay, gitPoll, autoPull, autoPush)
@@ -64,7 +121,7 @@ namespace Remedy.Schematics.Collaboration
         public const string Shutdown = "shutdown";       // editor
 
         // Helper <-> helper (and both directions of the editor link for these)
-        public const string Join = "join";               // peer->host: id, key, profile, presence, port, seq = startedAt, epoch, entries (store to merge)
+        public const string Join = "join";               // peer->host: id, key, profile, presence, port (0 = can't host: a build), seq = startedAt, epoch, entries (store to merge)
         public const string Welcome = "welcome";         // host->peer: id = host id, epoch, entries, peers
         public const string NotHost = "notHost";         // any->peer: host = the host it knows, text = address, port
         public const string Roster = "roster";           // host->peers: peers, epoch, host
@@ -131,6 +188,8 @@ namespace Remedy.Schematics.Collaboration
         public int pingMs;          // from the receiving peer's point of view (filled in by its helper)
         public int avgPingMs;       // average round trip to everyone else; the best one takes over as host
         public long startedAt;
+        public string role;         // CollabProtocol.RoleEditor / RolePlaytester ("" from old peers = editor)
+        public string client;       // CollabProtocol.ClientEditor / ClientBuild; builds never host
         public CollabKV[] presence;
     }
 
@@ -141,6 +200,8 @@ namespace Remedy.Schematics.Collaboration
         public string avatarId;
         public string gitName;
         public string gitEmail;
+        public string role;         // CollabProtocol.RoleEditor / RolePlaytester (an editor in Play Mode is a playtester)
+        public string client;       // CollabProtocol.ClientEditor / ClientBuild
     }
 
     [Serializable]
@@ -174,5 +235,6 @@ namespace Remedy.Schematics.Collaboration
         public int peerPort;
         public int version;
         public string instance;
+        public string key;          // the project key (the room), for builds made while the helper runs
     }
 }
