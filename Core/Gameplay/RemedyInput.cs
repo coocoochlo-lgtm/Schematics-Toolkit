@@ -52,10 +52,12 @@ public class RemedyInput : SingletonData<RemedyInput>
 
     public void InitializeInput()
     {
-        if (InputMaps.Length > 0)
+        if (InputMaps != null && InputMaps.Length > 0 && InputMaps[0] != null)
         {
             SetInputMap(InputMaps[0].Name);
         }
+        else
+            Debug.LogWarning("Remedy Input: there are no Input Maps, so no input is read. Add one in the Schematic window's Global tab (Input System).");
     }
 
     public void SetInputMap(string mapName)
@@ -78,6 +80,9 @@ public class RemedyInput : SingletonData<RemedyInput>
             var action = inputEventCollection.Input;
             if (action == null || _boundHandlers.ContainsKey(action))
                 continue;
+
+            if (action.bindings.Count == 0)
+                Debug.LogWarning($"Remedy Input: the input \"{inputEventCollection.Name}\" of map \"{map.Name}\" has no bindings, so it can't be pressed. Add one in the Schematic window's Global tab (Input System).");
 
             if (inputEventCollection.Output == null)
                 Debug.LogWarning($"Remedy Input: the input \"{inputEventCollection.Name}\" of map \"{map.Name}\" has no Signal, so nothing hears it. Open it in the Schematic window's Global tab (Input System) to create one.");
@@ -158,14 +163,24 @@ public class RemedyInput : SingletonData<RemedyInput>
             return;
         }
 
-        object value = output.Parameters[0].Type switch
+        object value;
+        try
         {
-            Union.ValueType.Bool => context.ReadValueAsButton(),
-            Union.ValueType.Float => context.ReadValue<float>(),
-            Union.ValueType.Vector2 => context.ReadValue<Vector2>(),
-            Union.ValueType.Vector3 => context.ReadValue<Vector3>(),
-            _ => context.ReadValueAsObject(),
-        };
+            value = output.Parameters[0].Type switch
+            {
+                Union.ValueType.Bool => context.ReadValueAsButton(),
+                Union.ValueType.Float => context.ReadValue<float>(),
+                Union.ValueType.Vector2 => context.ReadValue<Vector2>(),
+                Union.ValueType.Vector3 => context.ReadValue<Vector3>(),
+                _ => context.ReadValueAsObject(),
+            };
+        }
+        catch (InvalidOperationException)
+        {
+            // The binding gives another type than the Signal's parameter (e.g. a stick into a float): send what it
+            // reads instead of throwing inside the Input System's callback, and listeners convert it.
+            value = context.ReadValueAsObject();
+        }
 
         _currentInput[output] = value;
         output.Broadcast(value);
