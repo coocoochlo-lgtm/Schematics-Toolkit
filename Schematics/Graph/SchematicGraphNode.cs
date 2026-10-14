@@ -308,6 +308,7 @@ namespace Remedy.Schematics
         {
             // Values handed to the flow from outside (a node replicated from another peer) win.
             var scope = CurrentScope;
+
             if (scope != null && scope.TryGetInput(this, inputName, out var given))
             {
                 _cachedInputsByName[inputName] = given;
