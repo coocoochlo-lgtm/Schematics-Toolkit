@@ -9,6 +9,8 @@ namespace Remedy.Audio
     {
         private GameObject _audioSourceCollection;
         public static GameObject AudioSourceCollection => Instance._audioSourceCollection ??= new("Audio Source Collection");
+        private static bool _warnedMissingMusicPrefab;
+        private static bool _warnedMissingSfxPrefab;
 
         private SerializableDictionary<string, List<AudioDefinition>> _audioDefinitions => AudioData.AudioDefinitions;
 
@@ -22,8 +24,9 @@ namespace Remedy.Audio
                 AudioSource source = Instance._musicSource;
                 if (source == null)
                 {
-                    source = Instantiate(AudioData.MusicSourcePrefab).GetComponent<AudioSource>();
+                    source = CreateSource(AudioData.MusicSourcePrefab, "Music Source", ref _warnedMissingMusicPrefab);
                     source.transform.parent = Instance.transform;
+                    Instance._musicSource = source;
                 }
                 return source;
             }
@@ -51,7 +54,7 @@ namespace Remedy.Audio
                 }
             }
 
-            foreach (var obj in _objectSources)
+            foreach (var obj in new List<KeyValuePair<GameObject, Dictionary<string, AudioSource>>>(_objectSources))
             {
                 if (obj.Key == null || !obj.Key.activeSelf)
                 {
@@ -60,7 +63,11 @@ namespace Remedy.Audio
                         foreach (var def in _activeAudioDefinitions)
                         {
                             if (def.Source == null || def.Source == source)
+                            {
+                                if (def.Source == source && def.Loop && source != null)
+                                    source.Stop();
                                 def.DontDestroyOnComplete = false;
+                            }
                         }
                     }
 
@@ -103,38 +110,91 @@ namespace Remedy.Audio
                 {
                     Instance._activeAudioDefinitions.Add(definitionInstance);
 
-                    if (Instance._objectSources.ContainsKey(sourceObject) && Instance._objectSources[sourceObject].ContainsKey(definition.Name))
-                        definitionInstance.Source = Instance._objectSources[sourceObject][definition.Name];
+                    if (Instance._objectSources.TryGetValue(sourceObject, out var objectSources)
+                        && objectSources.TryGetValue(definition.Name, out var existingSource)
+                        && existingSource != null)
+                        definitionInstance.Source = existingSource;
                     else
                     {
-                        var source = Instantiate(AudioData.SFXSourcePrefab);
-                        source.name = $"SFX_{definition.Name}";
+                        var source = CreateSource(AudioData.SFXSourcePrefab, $"SFX_{definition.Name}", ref _warnedMissingSfxPrefab);
                         source.transform.position = sourceObject.transform.position;
-                        definitionInstance.Source = source.GetComponent<AudioSource>();
+                        definitionInstance.Source = source;
 
                         if (!Instance._objectSources.ContainsKey(sourceObject))
                             Instance._objectSources.Add(sourceObject, new());
-                        Instance._objectSources[sourceObject].Add(definition.Name, definitionInstance.Source);
+                        Instance._objectSources[sourceObject][definition.Name] = definitionInstance.Source;
                     }
 
                     definitionInstance.ObjectToFollow = sourceObject;
                     definitionInstance.DontDestroyOnComplete = true;
-                    definitionInstance.Source.PlayOneShot(definitionInstance.Clip);
+                    if (definitionInstance.Loop)
+                        definitionInstance.Source.Play();
+                    else
+                        definitionInstance.Source.PlayOneShot(definitionInstance.Clip);
                 }
                 // Positional
                 else
                 {
                     Instance._activeAudioDefinitions.Add(definitionInstance);
 
-                    var source = Instantiate(AudioData.SFXSourcePrefab);
+                    var source = CreateSource(AudioData.SFXSourcePrefab, $"SFX_{definition.Name}", ref _warnedMissingSfxPrefab);
                     source.transform.position = position;
-                    definitionInstance.Source = source.GetComponent<AudioSource>();
-                    definitionInstance.Source.PlayOneShot(definitionInstance.Clip);
+                    definitionInstance.Source = source;
+                    if (definitionInstance.Loop)
+                        definitionInstance.Source.Play();
+                    else
+                        definitionInstance.Source.PlayOneShot(definitionInstance.Clip);
                 }
             }
 
             definitionInstance.Source.transform.parent = AudioSourceCollection.transform;
             return definitionInstance.Source;
+        }
+
+        private static AudioSource CreateSource(GameObject prefab, string sourceName, ref bool warnedMissingPrefab)
+        {
+            GameObject sourceObject;
+            if (prefab != null)
+                sourceObject = Instantiate(prefab);
+            else
+            {
+                sourceObject = new GameObject(sourceName);
+                if (!warnedMissingPrefab)
+                {
+                    Debug.LogWarning($"[Audio] No source prefab is assigned for '{sourceName}'. Using a default AudioSource instead. Assign the source prefab in AudioData to customize it.");
+                    warnedMissingPrefab = true;
+                }
+            }
+
+            sourceObject.name = sourceName;
+            if (!sourceObject.TryGetComponent(out AudioSource source))
+                source = sourceObject.AddComponent<AudioSource>();
+            return source;
+        }
+
+        public static AudioSource Play(
+            AudioClip clip,
+            AudioType type = AudioType.SoundEffect,
+            GameObject sourceObject = null,
+            Vector3 position = default,
+            float volume = 1f,
+            float pitch = 1f,
+            float spatialBlend = 1f,
+            bool loop = false,
+            Action onComplete = null)
+        {
+            if (clip == null)
+                return null;
+
+            var definition = new AudioDefinition(clip)
+            {
+                Type = type,
+                Volume = volume,
+                Pitch = pitch,
+                SpatialBlend = spatialBlend,
+                Loop = loop
+            };
+            return Play(definition, type, sourceObject, position, onComplete);
         }
 
         /// <summary>

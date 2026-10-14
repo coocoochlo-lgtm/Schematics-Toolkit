@@ -8,16 +8,15 @@ using UnityEngine.UIElements;
 namespace Remedy.Schematics.Browsers
 {
     /// <summary>
-    /// The shared shape of every Schematics browser window: a header (a hint on the left, the window's own controls,
-    /// then buttons to jump between the browsers and the Level Designer) above a <see cref="SchematicTemplateGrid"/>
-    /// (search, thumbnail size, chips and the tiles). Styled by one shared stylesheet, <c>SchematicBrowser.uss</c>, so
-    /// every browser looks alike and restyling them is a one-file change.
+    /// The shared shell for Schematics browser windows: a header (a hint, the window's controls, and buttons to jump
+    /// between browsers and the Level Designer) above the window's content. Most windows use a
+    /// <see cref="SchematicTemplateGrid"/>; specialized browsers can supply their own content. Styled by one shared
+    /// stylesheet, <c>SchematicBrowser.uss</c>.
     /// </summary>
     /// <remarks>
     /// These are ordinary <see cref="EditorWindow"/>s: they open as tabs and dock anywhere, next to the Project window
-    /// by default. To make another browser, derive from this, give it a <see cref="PrefsKey"/>, set up the grid in
-    /// <see cref="ConfigureGrid"/> (its Source, chips and right-click menu), say what a double-click does in
-    /// <see cref="OnPicked"/>, and add an Open method that calls <see cref="OpenWindow{T}"/>.
+    /// by default. To make another browser, derive from this and provide a <see cref="PrefsKey"/>. Configure the
+    /// shared grid in <see cref="ConfigureGrid"/>, or override <see cref="BuildContent"/> for a specialized view.
     /// </remarks>
     public abstract class SchematicBrowserWindow : EditorWindow
     {
@@ -50,6 +49,16 @@ namespace Remedy.Schematics.Browsers
         /// <summary>Add this window's own controls to the header (toggles, dropdowns, buttons).</summary>
         protected virtual void BuildHeader(VisualElement header) { }
 
+        /// <summary>Build the main content; by default this is the shared template grid.</summary>
+        protected virtual VisualElement BuildContent()
+        {
+            Grid = new SchematicTemplateGrid(PrefsKey);
+            Grid.AddToClassList("schematic-browser__grid");
+            Grid.Picked += OnPicked;
+            ConfigureGrid(Grid);
+            return Grid;
+        }
+
         /// <summary>A tile was double-clicked, or Enter was pressed on it.</summary>
         protected abstract void OnPicked(SchematicTemplate item);
 
@@ -79,7 +88,7 @@ namespace Remedy.Schematics.Browsers
 
         protected virtual void OnDisable() { }
 
-        /// <summary>Builds the UI. Override <see cref="BuildHeader"/> and <see cref="ConfigureGrid"/> rather than this.</summary>
+        /// <summary>Builds the UI. Override the header, content, or grid configuration as needed.</summary>
         protected virtual void CreateGUI()
         {
             var root = rootVisualElement;
@@ -107,11 +116,7 @@ namespace Remedy.Schematics.Browsers
 
             Header.Add(BuildNavigation());
 
-            Grid = new SchematicTemplateGrid(PrefsKey);
-            Grid.AddToClassList("schematic-browser__grid");
-            Grid.Picked += OnPicked;
-            root.Add(Grid);
-            ConfigureGrid(Grid);
+            root.Add(BuildContent());
         }
 
         // Buttons to the other Schematics windows, so they feel like one tool. The current one is highlighted.
@@ -123,6 +128,8 @@ namespace Remedy.Schematics.Browsers
                 typeof(TemplateBrowserWindow), SchematicBrowsers.OpenTemplates);
             AddNavButton(nav, "Objects", "PrefabVariant Icon", "Schematic Objects: every Schematic prefab in the project.",
                 typeof(SchematicObjectsBrowserWindow), SchematicBrowsers.OpenSchematicObjects);
+            AddNavButton(nav, "Audio", "AudioClip Icon", "Audio Clips: organize, tag and preview audio.",
+                typeof(AudioClipBrowserWindow), AudioClipBrowserWindow.Open);
             if (SchematicBrowsers.HasLevelDesigner)
                 AddNavButton(nav, "Level Designer", "SceneAsset Icon", "The Level Designer window: blockouts, art designs and character metrics.",
                     SchematicBrowsers.LevelDesignerType, SchematicBrowsers.OpenLevelDesigner);

@@ -24,10 +24,50 @@ MonoBehaviour:
         m_Id: 1210c32f-8ee0-4b70-a70f-9f16ef7ac637
         m_Processors: 
         m_Interactions: 
-        m_SingletonActionBindings: []
+        m_SingletonActionBindings:
+        - m_Name: move
+          m_Id: 6c90bb29-e31e-40fc-96da-c92f91382780
+          m_Path: 2DVector
+          m_Interactions: 
+          m_Processors: 
+          m_Groups: 
+          m_Action: Input
+          m_Flags: 4
+        - m_Name: up
+          m_Id: 0ec1fc2e-396b-4e53-9421-02af84bfe202
+          m_Path: <Keyboard>/w
+          m_Interactions: 
+          m_Processors: 
+          m_Groups: 
+          m_Action: Input
+          m_Flags: 8
+        - m_Name: down
+          m_Id: 1181978b-707b-48ba-9bac-68767ec04a0b
+          m_Path: <Keyboard>/s
+          m_Interactions: 
+          m_Processors: 
+          m_Groups: 
+          m_Action: Input
+          m_Flags: 8
+        - m_Name: left
+          m_Id: e2240a5f-166e-49a5-bd45-a49a0ada12f6
+          m_Path: <Keyboard>/a
+          m_Interactions: 
+          m_Processors: 
+          m_Groups: 
+          m_Action: Input
+          m_Flags: 8
+        - m_Name: right
+          m_Id: dd5b7764-2beb-4914-bfa9-9449a0e22ab0
+          m_Path: <Keyboard>/d
+          m_Interactions: 
+          m_Processors: 
+          m_Groups: 
+          m_Action: Input
+          m_Flags: 8
         m_Flags: 0
         m_Priority: 0
-      Output: {fileID: 0}
+      Output: {fileID: 11400000, guid: 26020b3ad1f9a1b4ab96c4984099add2, type: 2}
       OneShot: 0
     - Name: Jump
       Input:
@@ -40,7 +80,7 @@ MonoBehaviour:
         m_SingletonActionBindings: []
         m_Flags: 0
         m_Priority: 0
-      Output: {fileID: 0}
+      Output: {fileID: 11400000, guid: ccc69d691ce005a4db77f3d58ccc7051, type: 2}
       OneShot: 0
     - Name: Default text
       Input:
@@ -53,7 +93,7 @@ MonoBehaviour:
         m_SingletonActionBindings: []
         m_Flags: 0
         m_Priority: 0
-      Output: {fileID: 0}
+      Output: {fileID: 11400000, guid: c26942416f234c847874f96d63d0f097, type: 2}
       OneShot: 0
     - Name: Default text
       Input:
@@ -66,7 +106,7 @@ MonoBehaviour:
         m_SingletonActionBindings: []
         m_Flags: 0
         m_Priority: 0
-      Output: {fileID: 0}
+      Output: {fileID: 11400000, guid: 9ba2c26aeccaddd44911b0d8b9bd59f2, type: 2}
       OneShot: 0
     - Name: Default text
       Input:
@@ -79,7 +119,7 @@ MonoBehaviour:
         m_SingletonActionBindings: []
         m_Flags: 0
         m_Priority: 0
-      Output: {fileID: 0}
+      Output: {fileID: 11400000, guid: 566314ddce3bdcb4e9f0a65955923c72, type: 2}
       OneShot: 0
   - Name: Default text
     Inputs:
@@ -94,7 +134,7 @@ MonoBehaviour:
         m_SingletonActionBindings: []
         m_Flags: 0
         m_Priority: 0
-      Output: {fileID: 0}
+      Output: {fileID: 11400000, guid: 90cf48f9ca1353a4bb020ea9a30f26b6, type: 2}
       OneShot: 0
   _currentActionMap:
     Name: Move
@@ -107,10 +147,50 @@ MonoBehaviour:
         m_Id: 1210c32f-8ee0-4b70-a70f-9f16ef7ac637
         m_Processors: 
         m_Interactions: 
-        m_SingletonActionBindings: []
+        m_SingletonActionBindings:
+        - m_Name: move
+          m_Id: 6c90bb29-e31e-40fc-96da-c92f91382780
+          m_Path: 2DVector
+          m_Interactions: 
+          m_Processors: 
+          m_Groups: 
+          m_Action: Input
+          m_Flags: 4
+        - m_Name: up
+          m_Id: 0ec1fc2e-396b-4e53-9421-02af84bfe202
+          m_Path: <Keyboard>/w
+          m_Interactions: 
+          m_Processors: 
+          m_Groups: 
+          m_Action: Input
+          m_Flags: 8
+        - m_Name: down
+          m_Id: 1181978b-707b-48ba-9bac-68767ec04a0b
+          m_Path: <Keyboard>/s
+          m_Interactions: 
+          m_Processors: 
+          m_Groups: 
+          m_Action: Input
+          m_Flags: 8
+        - m_Name: left
+          m_Id: e2240a5f-166e-49a5-bd45-a49a0ada12f6
+          m_Path: <Keyboard>/a
+          m_Interactions: 
+          m_Processors: 
+          m_Groups: 
+          m_Action: Input
+          m_Flags: 8
+        - m_Name: right
+          m_Id: dd5b7764-2beb-4914-bfa9-9449a0e22ab0
+          m_Path: <Keyboard>/d
+          m_Interactions: 
+          m_Processors: 
+          m_Groups: 
+          m_Action: Input
+          m_Flags: 8
         m_Flags: 0
         m_Priority: 0
-      Output: {fileID: 0}
+      Output: {fileID: 11400000, guid: 26020b3ad1f9a1b4ab96c4984099add2, type: 2}
       OneShot: 0
     - Name: Jump
       Input:
@@ -123,7 +203,7 @@ MonoBehaviour:
         m_SingletonActionBindings: []
         m_Flags: 0
         m_Priority: 0
-      Output: {fileID: 0}
+      Output: {fileID: 11400000, guid: ccc69d691ce005a4db77f3d58ccc7051, type: 2}
       OneShot: 0
     - Name: Default text
       Input:
@@ -136,7 +216,7 @@ MonoBehaviour:
         m_SingletonActionBindings: []
         m_Flags: 0
         m_Priority: 0
-      Output: {fileID: 0}
+      Output: {fileID: 11400000, guid: c26942416f234c847874f96d63d0f097, type: 2}
       OneShot: 0
     - Name: Default text
       Input:
@@ -149,7 +229,7 @@ MonoBehaviour:
         m_SingletonActionBindings: []
         m_Flags: 0
         m_Priority: 0
-      Output: {fileID: 0}
+      Output: {fileID: 11400000, guid: 9ba2c26aeccaddd44911b0d8b9bd59f2, type: 2}
       OneShot: 0
     - Name: Default text
       Input:
@@ -162,5 +242,5 @@ MonoBehaviour:
         m_SingletonActionBindings: []
         m_Flags: 0
         m_Priority: 0
-      Output: {fileID: 0}
+      Output: {fileID: 11400000, guid: 566314ddce3bdcb4e9f0a65955923c72, type: 2}
       OneShot: 0
