@@ -31,6 +31,16 @@ namespace BlueGraph.Editor
 
         private Vector2 lastMousePosition;
 
+        private readonly CommentKeyTool commentKeyTool;
+
+        /// <summary>True while C is held over the canvas (comments are only made then).</summary>
+        public bool IsCommentKeyHeld => commentKeyTool != null && commentKeyTool.IsHeld;
+
+        /// <summary>
+        /// Forgets a held C key: the window calls this when it loses focus, since the key-up then goes elsewhere.
+        /// </summary>
+        public void ReleaseCommentKey() => commentKeyTool?.Release();
+
         public CanvasView(GraphEditorWindow window)
         {
             EditorWindow = window;
@@ -48,7 +58,10 @@ namespace BlueGraph.Editor
 
             this.AddManipulator(new ContentDragger());
             this.AddManipulator(new SelectionDragger());
-            this.AddManipulator(new CommentRectangleSelector(this));
+            this.AddManipulator(new RectangleSelector());
+            // Comments are made only while C is held (C+drag draws one, C+click wraps the selection).
+            commentKeyTool = new CommentKeyTool(this);
+            this.AddManipulator(commentKeyTool);
             this.AddManipulator(new ClickSelector());
 
             // Add event handlers for shortcuts and changes
@@ -146,11 +159,7 @@ namespace BlueGraph.Editor
                 return;
             }
 
-            // C: Add a new comment around the selected nodes (or just at mouse position)
-            if (evt.keyCode == KeyCode.C && !evt.ctrlKey && !evt.commandKey)
-            {
-                AddComment();
-            }
+            // (C isn't a one-press shortcut any more: comments are made while it's held, see CommentKeyTool.)
 
             // H: Horizontally align selected nodes
             if (evt.keyCode == KeyCode.H && !evt.ctrlKey && !evt.commandKey)
@@ -455,6 +464,7 @@ namespace BlueGraph.Editor
             serializedGraph = null;
 
             DeleteElements(graphElements.ToList());
+            commentViews.Clear();
             Load(Graph);
         }
 
@@ -672,17 +682,6 @@ namespace BlueGraph.Editor
             return contentRect;
         }
 
-        private const string CommentOnBoxSelectKey = "BlueGraph.CommentOnBoxSelect";
-
-        /// <summary>
-        /// When on (the default), box-selecting nodes also wraps them in a new comment. Saved per user.
-        /// </summary>
-        public bool CommentOnBoxSelect
-        {
-            get { return EditorPrefs.GetBool(CommentOnBoxSelectKey, true); }
-            set { EditorPrefs.SetBool(CommentOnBoxSelectKey, value); }
-        }
-
         private bool refitScheduled;
 
         /// <summary>
@@ -704,37 +703,12 @@ namespace BlueGraph.Editor
             }).StartingIn(20);
         }
 
-        /// <summary>
-        /// Called after a box selection: wraps the selected nodes in a comment, unless they're already exactly the
-        /// members of one (so re-selecting a group doesn't stack comments).
-        /// </summary>
-        internal void OnBoxSelected()
-        {
-            if (!CommentOnBoxSelect)
-                return;
-
-            var selectedNodes = new HashSet<NodeView>();
-            foreach (var item in selection)
-                if (item is NodeView node)
-                    selectedNodes.Add(node);
-            if (selectedNodes.Count == 0)
-                return;
-
-            foreach (var comment in commentViews)
-                if (selectedNodes.SetEquals(comment.MemberNodes()))
-                    return;
-
-            AddComment();
-        }
-
         public override void BuildContextualMenu(ContextualMenuPopulateEvent evt)
         {
             if (evt.target == this)
             {
-                evt.menu.AppendAction("Box Select Creates Comments", _ => CommentOnBoxSelect = !CommentOnBoxSelect,
-                    CommentOnBoxSelect ? DropdownMenuAction.Status.Checked : DropdownMenuAction.Status.Normal);
-                lastMousePosition = evt.mousePosition;
-                evt.menu.AppendAction(selection.Count > 0 ? "Group Selection in Comment (C)" : "Add Comment (C)", _ => AddComment());
+                // Comments are only made while C is held; say how, where people look for it.
+                evt.menu.AppendAction("Add Comment: hold C and drag (or click to wrap the selection)", _ => { }, DropdownMenuAction.Status.Disabled);
                 evt.menu.AppendSeparator();
             }
             base.BuildContextualMenu(evt);
@@ -744,12 +718,19 @@ namespace BlueGraph.Editor
         /// Add a new comment to the canvas and the associated Graph
         /// 
         /// If there are selected nodes, this'll encapsulate the selection with
-        /// the comment box. Otherwise, it'll add at defaultPosition.
+        /// the comment box. Otherwise, it'll add at the last mouse position.
         /// </summary>
         public void AddComment()
         {
-            Undo.RegisterCompleteObjectUndo(Graph, "Add Comment");
+            AddCommentAt(lastMousePosition);
+        }
 
+        /// <summary>
+        /// Wraps the selected nodes in a new comment or, with no nodes selected, drops a small comment at a point
+        /// (in window coordinates, like a mouse event's position).
+        /// </summary>
+        public void AddCommentAt(Vector2 worldPosition)
+        {
             // Pad out the bounding box a bit more on the selection
             var padding = 30f; // TODO: Remove hardcoding
 
@@ -757,9 +738,9 @@ namespace BlueGraph.Editor
 
             if (bounds.width < 1 || bounds.height < 1)
             {
-                Vector2 worldPosition = contentViewContainer.WorldToLocal(lastMousePosition);
-                bounds.x = worldPosition.x;
-                bounds.y = worldPosition.y;
+                Vector2 graphPosition = contentViewContainer.WorldToLocal(worldPosition);
+                bounds.x = graphPosition.x;
+                bounds.y = graphPosition.y;
 
                 // TODO: For some reason CSS minWidth/minHeight isn't being respected. 
                 // Maybe I need to wait for CSS to load before setting bounds?
@@ -772,13 +753,45 @@ namespace BlueGraph.Editor
             bounds.width += padding * 2;
             bounds.height += padding * 3;
 
+            CreateComment(bounds, false);
+        }
+
+        /// <summary>
+        /// Adds a comment covering a region of the graph (in graph coordinates), as drawn with C+drag. Drawn around
+        /// nodes, it hugs them as usual; drawn over empty space, it keeps the size it was drawn at.
+        /// </summary>
+        public void AddComment(Rect graphRegion)
+        {
+            graphRegion.width = Mathf.Max(graphRegion.width, 150);
+            graphRegion.height = Mathf.Max(graphRegion.height, 50);
+
+            bool hasNodes = false;
+            foreach (var node in nodes.ToList())
+                if (node is NodeView view && graphRegion.Contains(view.GetPosition().center))
+                {
+                    hasNodes = true;
+                    break;
+                }
+
+            CreateComment(graphRegion, !hasNodes);
+        }
+
+        private void CreateComment(Rect region, bool fixedSize)
+        {
+            if (Graph == null)
+                return;
+
+            Undo.RegisterCompleteObjectUndo(Graph, "Add Comment");
+
             // Add the model
             var comment = new Comment();
             comment.Text = "New Comment";
-            comment.Region = bounds;
+            comment.Region = region;
+            comment.Color = Comment.DefaultColor;
+            comment.FixedSize = fixedSize;
 
             Graph.Comments.Add(comment);
-            serializedGraph.Update();
+            serializedGraph?.Update();
             EditorUtility.SetDirty(Graph);
 
             // Add the view
@@ -787,9 +800,13 @@ namespace BlueGraph.Editor
             AddElement(commentView);
 
             Dirty(commentView);
+            ScheduleCommentRefit();
 
-            // Focus the title editor on first load
-            commentView.EditTitle();
+            // Focus the title editor on first load (once C is up, so its key-repeat doesn't type into it)
+            if (commentKeyTool != null)
+                commentKeyTool.RunAfterRelease(() => { if (commentView.panel != null) commentView.EditTitle(); });
+            else
+                commentView.EditTitle();
         }
 
         /// <summary>

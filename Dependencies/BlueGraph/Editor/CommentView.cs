@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UIElements;
 
+using UnityEditor;
 using UnityEditor.Experimental.GraphView;
+using UnityEditor.UIElements;
 
 namespace BlueGraph.Editor
 {
@@ -18,6 +20,9 @@ namespace BlueGraph.Editor
         private CommentTheme theme;
         private bool isEditingCancelled;
 
+        private readonly ColorField colorField;
+        private double lastColorChange = -10;
+
         public CommentView(Comment comment)
         {
             Target = comment;
@@ -25,8 +30,16 @@ namespace BlueGraph.Editor
             
             styleSheets.Add(Resources.Load<StyleSheet>("BlueGraphEditor/CommentView"));
             
+            // The header: the title (with its editor) on the left, a color swatch on the right.
             titleContainer = new VisualElement();
             titleContainer.AddToClassList("titleContainer");
+            titleContainer.style.flexDirection = FlexDirection.Row;
+            titleContainer.style.alignItems = Align.FlexStart;
+
+            var titleStack = new VisualElement();
+            titleStack.style.flexGrow = 1;
+            titleStack.style.flexShrink = 1;
+            titleContainer.Add(titleStack);
             
             titleEditor = new TextField();
             
@@ -34,14 +47,32 @@ namespace BlueGraph.Editor
             input.RegisterCallback<KeyDownEvent>(OnTitleKeyDown);
             input.RegisterCallback<FocusOutEvent>(e => { OnFinishEditingTitle(); });
             
-            titleContainer.Add(titleEditor);
+            titleStack.Add(titleEditor);
             
             titleLabel = new Label();
             titleLabel.text = comment.Text;
             
-            titleContainer.Add(titleLabel);
+            titleStack.Add(titleLabel);
 
             titleEditor.style.display = DisplayStyle.None;
+
+            // Any color at all, through Unity's color picker. (The context menu has a palette of ready-made ones.)
+            colorField = new ColorField
+            {
+                showAlpha = false,
+                showEyeDropper = false,
+                hdr = false,
+                tooltip = "Comment color: tints the comment here and on the minimap",
+            };
+            colorField.AddToClassList("commentColorSwatch");
+            colorField.style.width = 22;
+            colorField.style.height = 16;
+            colorField.style.marginTop = 9;
+            colorField.style.marginRight = 6;
+            colorField.style.flexShrink = 0;
+            colorField.SetValueWithoutNotify(comment.Color);
+            colorField.RegisterValueChangedCallback(e => SetColor(e.newValue));
+            titleContainer.Add(colorField);
 
             Add(titleContainer);
 
@@ -55,27 +86,27 @@ namespace BlueGraph.Editor
             this.AddManipulator(new ContextualMenuManipulator(BuildContextualMenu));
             
             SetTheme(Target.Theme);
+            ApplyColor();
         }
         
         public virtual void BuildContextualMenu(ContextualMenuPopulateEvent evt)
         {
             if (evt.target is CommentView)
             {
-                // Add options to change theme
-                foreach (var theme in (CommentTheme[])Enum.GetValues(typeof(CommentTheme)))
+                // A palette of ready-made colors; the swatch in the header picks any other.
+                var current = Target.Color;
+                foreach (var (colorName, color) in Comment.Palette)
                 {
-                    var actionStatus = DropdownMenuAction.Status.Normal;
-                    if (this.theme == theme)
-                    {
-                        actionStatus = DropdownMenuAction.Status.Disabled;
-                    }
-
-                    evt.menu.AppendAction(
-                        theme + " Theme", 
-                        (a) => { SetTheme(theme); }, 
-                        actionStatus
-                    );
+                    var picked = color;
+                    bool isCurrent = SameColor(current, picked);
+                    evt.menu.AppendAction("Color/" + colorName, _ => SetColor(picked),
+                        isCurrent ? DropdownMenuAction.Status.Checked : DropdownMenuAction.Status.Normal);
                 }
+                evt.menu.AppendSeparator("Color/");
+                // (The event is recycled once the menu shows, so keep where it was opened now.)
+                var window = GetFirstAncestorOfType<CanvasView>()?.EditorWindow;
+                var screenPoint = (window != null ? window.position.position : Vector2.zero) + evt.mousePosition;
+                evt.menu.AppendAction("Color/Custom\u2026", _ => CommentColorWindow.Open(this, screenPoint));
 
                 evt.menu.AppendAction("Resize To Fit Nodes", _ =>
                 {
@@ -87,9 +118,68 @@ namespace BlueGraph.Editor
                 evt.menu.AppendSeparator();
             }
         }
+
+        private static bool SameColor(Color a, Color b) =>
+            Mathf.Abs(a.r - b.r) < 0.01f && Mathf.Abs(a.g - b.g) < 0.01f && Mathf.Abs(a.b - b.b) < 0.01f;
+
+        /// <summary>
+        /// Recolors the comment (undoably). A burst of changes, like dragging around Unity's color picker, makes one
+        /// undo step rather than hundreds.
+        /// </summary>
+        public void SetColor(Color color)
+        {
+            color.a = 1f;
+            if (SameColor(color, Target.Color) && Target.Color.a > 0f)
+            {
+                colorField.SetValueWithoutNotify(Target.Color);
+                return;
+            }
+
+            var graph = GetFirstAncestorOfType<CanvasView>()?.Graph;
+            double now = EditorApplication.timeSinceStartup;
+            if (graph != null && now - lastColorChange > 1.0)
+                Undo.RegisterCompleteObjectUndo(graph, "Change Comment Color");
+            lastColorChange = now;
+
+            Target.Color = color;
+            colorField.SetValueWithoutNotify(Target.Color);
+            ApplyColor();
+            if (graph != null)
+                EditorUtility.SetDirty(graph);
+        }
+
+        /// <summary>
+        /// Paints the comment in its color: a solid title bar and a see-through body and outline, so the nodes inside
+        /// stay easy to read. Selected comments keep the usual blue outline.
+        /// </summary>
+        public void ApplyColor()
+        {
+            var color = Target.Color;
+            style.backgroundColor = new Color(color.r, color.g, color.b, 0.12f);
+            var border = selected ? (Color)new Color32(0x44, 0xC0, 0xFF, 0xFF) : new Color(color.r, color.g, color.b, 0.55f);
+            style.borderTopColor = style.borderBottomColor = style.borderLeftColor = style.borderRightColor = border;
+
+            titleLabel.style.backgroundColor = color;
+            // Dark text on light colors, light text on dark ones.
+            float luminance = 0.2126f * color.r + 0.7152f * color.g + 0.0722f * color.b;
+            titleLabel.style.color = luminance > 0.5f ? Color.black : Color.white;
+        }
+
+        public override void OnSelected()
+        {
+            base.OnSelected();
+            ApplyColor();
+        }
+
+        public override void OnUnselected()
+        {
+            base.OnUnselected();
+            ApplyColor();
+        }
         
         /// <summary>
-        /// Change the color theme used on the canvas
+        /// Change the color theme used on the canvas. Kept for older code: colors have replaced themes (a comment
+        /// saved with a theme but no color shows in that theme's color).
         /// </summary>
         public void SetTheme(CommentTheme theme)
         {
@@ -149,7 +239,8 @@ namespace BlueGraph.Editor
 
         private void OnMouseDown(MouseDownEvent evt)
         {
-            if (evt.clickCount == 2)
+            // A double-click on the color swatch is for the swatch, not the title.
+            if (evt.clickCount == 2 && !(evt.target is VisualElement element && colorField.Contains(element)))
             {
                 if (HitTest(evt.localMousePosition))
                 {
@@ -258,7 +349,7 @@ namespace BlueGraph.Editor
 
             var canvas = GetFirstAncestorOfType<CanvasView>();
             if (moved && canvas != null && canvas.Graph != null)
-                UnityEditor.EditorUtility.SetDirty(canvas.Graph);
+                EditorUtility.SetDirty(canvas.Graph);
         }
 
         public void Dirty() { }

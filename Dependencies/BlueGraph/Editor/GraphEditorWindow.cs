@@ -48,6 +48,9 @@ namespace BlueGraph.Editor
 
         protected virtual void OnLostFocus()
         {
+            // A C key held for drawing comments releases elsewhere now, so stop treating it as held.
+            Canvas?.ReleaseCommentKey();
+
             if (Graph != null)
                 Graph.IsBeingEditted = false;
         }
