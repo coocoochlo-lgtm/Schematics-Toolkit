@@ -18,6 +18,11 @@ namespace Remedy.Schematics.Assistant
     /// Q to say one. It tells you what it's going to do, then hops into the graph and flies around doing it. Drag it
     /// anywhere while it's idle (drop it over another window to move it there); Esc stops it mid-task.
     /// <para>
+    /// When nobody's using him he sits anchored to his window's bottom-right corner (his "home"), out of the way of
+    /// what's in the window, and stays there as the window is resized. He leaves it to work or explain something, and
+    /// goes back as soon as he's done.
+    /// </para>
+    /// <para>
     /// Kept light: it's one sprite moved with a transform (no layout), animated a few times a second, and it stops
     /// animating while the editor isn't in focus.
     /// </para>
@@ -28,6 +33,8 @@ namespace Remedy.Schematics.Assistant
 
         private const string HostKey = "Schematics.Assistant.Host";
         private const string PositionKey = "Schematics.Assistant.Position";
+        private const string AnchoredKey = "Schematics.Assistant.Anchored";
+        private const float HomeMarginX = 24f, HomeMarginY = 28f;   // home: this far in from the bottom-right corner
         private const int TickMs = 33;          // ~30 updates a second, and only while the editor has focus
         private const float BobHeight = 3f, BobSpeed = 2.2f;
 
@@ -44,9 +51,10 @@ namespace Remedy.Schematics.Assistant
         private bool _navigating;
         private float _navigatedAt = -10f;
         private bool Navigating => _navigating || _time - _navigatedAt < 0.75f;
-        private float _offscreenSince = -1f;
         private Rect? _targetRect;          // what he's explaining, in his window's root space (the bubble keeps off it)
-        private bool _returnHome;            // after a task: back to the window's bottom right once the bubble's gone
+        // At home: anchored to the bottom-right corner of his window, so a resize keeps him there (his position is
+        // worked out from the window's size rather than kept). Anything that moves him elsewhere lifts the anchor.
+        private bool _anchored;
         private float _idleSince = -1f;             // explaining: the bubble goes on this side (+1 right, -1 left), away from the thing
         private readonly Label _bubbleText;
         private readonly TextField _input;
@@ -77,7 +85,6 @@ namespace Remedy.Schematics.Assistant
         internal void BeginWorkStep()
         {
             _mood = Mood.Working;
-            _returnHome = true;
         }
 
         internal void EndWorkStep()
@@ -224,8 +231,10 @@ namespace Remedy.Schematics.Assistant
             var remembered = RememberedHost();
             var host = Allowed(remembered) ? remembered : window;
             Instance = new AssistantOverlay();
-            if (Allowed(host))
-                Instance.HopTo(host, RememberedPosition(host));
+            if (Allowed(host) && RememberedPosition() is { } position)
+                Instance.HopTo(host, position);
+            else if (Allowed(host))
+                Instance.HopTo(host, Vector2.zero, anchor: true);
             else
                 Instance.Respawn(blip: false);
             // Out of the box: the first time it appears, it installs what it needs in the background.
@@ -248,8 +257,8 @@ namespace Remedy.Schematics.Assistant
                 Instance.Respawn(blip: true);
                 return;
             }
-            var size = window.rootVisualElement.layout.size;
-            Instance.HopTo(window, float.IsNaN(size.x) ? new Vector2(40, 40) : new Vector2(size.x * 0.5f, size.y * 0.5f));
+            // Straight to his home spot there, out of the way.
+            Instance.HopTo(window, Vector2.zero, anchor: true);
         }
 
         public static void Hide()
@@ -269,22 +278,55 @@ namespace Remedy.Schematics.Assistant
             return Resources.FindObjectsOfTypeAll<EditorWindow>().FirstOrDefault(w => w.GetType().FullName == type);
         }
 
-        private static Vector2 RememberedPosition(EditorWindow host)
+        // Where he was before a script reload, or null when he was at home (or there's nothing remembered).
+        private static Vector2? RememberedPosition()
         {
+            if (SessionState.GetBool(AnchoredKey, true))
+                return null;
             var parts = SessionState.GetString(PositionKey, "").Split(',');
             if (parts.Length == 2 && float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float x)
                 && float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float y))
                 return new Vector2(x, y);
-            var size = host != null ? host.rootVisualElement.layout.size : Vector2.zero;
-            return float.IsNaN(size.x) || size.x < 200 ? new Vector2(320, 60) : new Vector2(size.x - 100, size.y - 120);
+            return null;
         }
 
         private void Remember()
         {
             if (_host == null) return;
             SessionState.SetString(HostKey, _host.GetType().FullName);
+            SessionState.SetBool(AnchoredKey, _anchored);
             SessionState.SetString(PositionKey, string.Format(CultureInfo.InvariantCulture, "{0},{1}", _position.x, _position.y));
         }
+
+        /// <summary>His home spot in a window: tucked into its bottom-right corner (top-left of the robot, root space).</summary>
+        private Vector2 HomeSpot(EditorWindow window)
+        {
+            if (window == null)
+                return _position;
+            var size = window.rootVisualElement.layout.size;
+            if (float.IsNaN(size.x) || size.x < 1f || float.IsNaN(size.y) || size.y < 1f)
+                size = window.position.size;
+            // Never off the top-left, even in a tiny window.
+            return new Vector2(Mathf.Max(0f, size.x - _width - HomeMarginX), Mathf.Max(0f, size.y - _height - HomeMarginY));
+        }
+
+        /// <summary>Back to (and anchored at) his home spot in the window he's in, right away (no blip).</summary>
+        private void Anchor()
+        {
+            if (_host == null)
+                return;
+            _anchored = true;
+            var home = HomeSpot(_host);
+            if (home == _position)
+                return;
+            _position = home;
+            Place(force: true);
+            Remember();
+        }
+
+        // Nobody's using him: no task, explanation, question box, listening, drag, flight or blip.
+        private bool Idle => _mood == Mood.Idle && !_explaining && !_pressed && !_dragging && _flyTime < 0f && _blipPhase == 0
+            && _input.style.display == DisplayStyle.None && !(AssistantWork.Current?.Playing ?? false);
 
         // After a script reload, Sprocket comes back where it was.
         [InitializeOnLoadMethod]
@@ -294,8 +336,11 @@ namespace Remedy.Schematics.Assistant
                 Attach(null);
         };
 
-        /// <summary>Moves into another window at a position in its root space (instantly).</summary>
-        public void HopTo(EditorWindow window, Vector2 position)
+        /// <summary>
+        /// Moves into another window at a position in its root space (instantly). With <paramref name="anchor"/>, the
+        /// position is ignored: he goes to his home spot in the bottom-right corner and stays anchored there.
+        /// </summary>
+        public void HopTo(EditorWindow window, Vector2 position, bool anchor = false)
         {
             if (window == null)
                 return;
@@ -316,6 +361,7 @@ namespace Remedy.Schematics.Assistant
                 window.rootVisualElement.RegisterCallback<PointerDownEvent>(OnHostPointerDown, TrickleDown.TrickleDown);
                 window.rootVisualElement.RegisterCallback<PointerUpEvent>(OnHostPointerUp, TrickleDown.TrickleDown);
                 window.rootVisualElement.RegisterCallback<WheelEvent>(OnHostWheel, TrickleDown.TrickleDown);
+                window.rootVisualElement.RegisterCallback<GeometryChangedEvent>(OnHostResized);
                 if (window is SchematicGraphEditorWindow graph)
                     _lastGraph = graph;
             }
@@ -324,10 +370,33 @@ namespace Remedy.Schematics.Assistant
             _flyTime = -1f;
             _flight?.TrySetResult(false);
             _flight = null;
-            _position = position;
-            schedule.Execute(() => { _position = Clamp(_position); Place(force: true); Remember(); });
+            _anchored = anchor;
+            _position = anchor ? HomeSpot(window) : position;
+            // Once the window has laid out: home again (its real size is known now), or kept inside it.
+            schedule.Execute(() => { _position = _anchored ? HomeSpot(_host) : Clamp(_position); Place(force: true); Remember(); });
             Place(force: true);
             Remember();
+        }
+
+        // The window he's in changed size (or the editor's layout did): at home, he stays in the corner; idle
+        // elsewhere, he goes home right away; busy, he's kept inside it.
+        private void OnHostResized(GeometryChangedEvent evt)
+        {
+            if (_host == null || evt.newRect.size == evt.oldRect.size && !_anchored)
+                return;
+            if (_anchored || (Idle && !Navigating))
+                Anchor();
+            else if (!_pressed)
+            {
+                var inside = Clamp(_position);
+                if (inside != _position)
+                {
+                    _position = inside;
+                    if (_flyTime >= 0f) _flyTo = Clamp(_flyTo);
+                    Place(force: true);
+                    Remember();
+                }
+            }
         }
 
         /// <summary>Hops into a window (if it isn't there yet), entering from its nearest edge.</summary>
@@ -349,6 +418,7 @@ namespace Remedy.Schematics.Assistant
                 _host.rootVisualElement.UnregisterCallback<PointerDownEvent>(OnHostPointerDown, TrickleDown.TrickleDown);
                 _host.rootVisualElement.UnregisterCallback<PointerUpEvent>(OnHostPointerUp, TrickleDown.TrickleDown);
                 _host.rootVisualElement.UnregisterCallback<WheelEvent>(OnHostWheel, TrickleDown.TrickleDown);
+                _host.rootVisualElement.UnregisterCallback<GeometryChangedEvent>(OnHostResized);
             }
             _navigating = false;
             RemoveFromHierarchy();
@@ -376,7 +446,6 @@ namespace Remedy.Schematics.Assistant
         private int _blipPhase;
         private float _blipTime;
         private EditorWindow _blipWindow;
-        private Vector2 _blipPosition;
         private const float BlipOut = 0.28f, BlipIn = 0.4f;
         private double _nextWatch;
 
@@ -389,20 +458,22 @@ namespace Remedy.Schematics.Assistant
             var window = RespawnWindow();
             if (window == null)
                 return;
-            var size = window.rootVisualElement.layout.size;
-            if (float.IsNaN(size.x) || size.x < 1f) size = window.position.size;
-            var spot = new Vector2(size.x - _width - 24f, size.y - _height - 28f);
+            var spot = HomeSpot(window);
+            // Already (nearly) there: just settles into the corner.
             if (window == _host && panel != null && Vector2.Distance(_position, spot) < 24f)
+            {
+                _flyTime = -1f;
+                Anchor();
                 return;
+            }
             if (!blip || _host == null || panel == null)
             {
                 _blipPhase = 0;
-                HopTo(window, spot);
+                HopTo(window, spot, anchor: true);
                 if (blip) StartBlipIn();
                 return;
             }
             _blipWindow = window;
-            _blipPosition = spot;
             _blipPhase = 1;
             _blipTime = 0f;
         }
@@ -441,11 +512,11 @@ namespace Remedy.Schematics.Assistant
             return Resources.FindObjectsOfTypeAll<EditorWindow>().FirstOrDefault(w => Allowed(w) && IsShownTab(w));
         }
 
-        // Done with a task (an explanation, a request) and nothing left to read: blip back to the bottom right.
+        // Not being used and away from home (done with a task or an explanation, or put down somewhere), with nothing
+        // left to read: blip back to the bottom right. At home, he just stays anchored there.
         private void ReturnHomeWhenDone()
         {
-            bool settled = _returnHome && !Navigating && _mood == Mood.Idle && !(AssistantWork.Current?.Playing ?? false) && !_explaining && !_pressed && _flyTime < 0f && _blipPhase == 0
-                && _bubble.style.display == DisplayStyle.None && _input.style.display == DisplayStyle.None && !AssistantInstaller.IsInstalling;
+            bool settled = !_anchored && Idle && !Navigating && _bubble.style.display == DisplayStyle.None;
             if (!settled)
             {
                 _idleSince = -1f;
@@ -455,7 +526,6 @@ namespace Remedy.Schematics.Assistant
                 _idleSince = _time;
             if (_time - _idleSince < 0.5f)
                 return;
-            _returnHome = false;
             _idleSince = -1f;
             Respawn(blip: true);
         }
@@ -468,26 +538,24 @@ namespace Remedy.Schematics.Assistant
             _nextWatch = EditorApplication.timeSinceStartup + 0.25;
             var size = HostSize;
 
-            // The window got smaller (or the editor was resized) and he's partly outside it: after a second, back home
-            // with a blip; while busy, just nudged back inside.
+            // Anchored: still in the corner (in case the window's size changed without telling him).
+            if (_anchored && _host != null && HomeSpot(_host) != _position)
+                Anchor();
+
+            // The window got smaller (or the editor was resized) and he's partly outside it: idle, straight home;
+            // while busy, nudged back inside. (Resizes normally reach him right away through OnHostResized.)
             bool outside = size.x > _width && size.y > _height
                 && (_position.x < -2f || _position.y < -2f || _position.x + _width > size.x + 2f || _position.y + _height > size.y + 2f);
-            if (!outside)
-                _offscreenSince = -1f;
-            else if (_offscreenSince < 0f)
-                _offscreenSince = _time;
-            else if (_time - _offscreenSince >= 1f)
+            if (outside)
             {
-                _offscreenSince = -1f;
-                if (Busy || _explaining || _mood == Mood.Listening || _input.style.display == DisplayStyle.Flex)
+                if (Idle)
+                    Anchor();
+                else
                 {
                     _position = Clamp(_position);
                     Place(force: true);
                     Remember();
                 }
-                else
-                    Respawn(blip: true);
-                return;
             }
 
             if (Busy || Navigating)
@@ -506,7 +574,7 @@ namespace Remedy.Schematics.Assistant
                 var window = _blipWindow;
                 _blipWindow = null;
                 _blipPhase = 0;
-                HopTo(window, _blipPosition);
+                HopTo(window, Vector2.zero, anchor: true);
                 StartBlipIn();
                 window?.Repaint();
             }
@@ -807,7 +875,6 @@ namespace Remedy.Schematics.Assistant
             _bubbleAway = 0;
             if (string.IsNullOrWhiteSpace(utterance) || Busy)
                 return;
-            _returnHome = true;   // when it's done (and the bubble's read), back to the bottom right
 
             _work?.Dispose();
             _work = new CancellationTokenSource();
@@ -1000,6 +1067,7 @@ namespace Remedy.Schematics.Assistant
         public Task FlyToAsync(Vector2 target, bool snappy = false)
         {
             _flight?.TrySetResult(false);
+            _anchored = false;
             _flyFrom = _position;
             _flyTo = Clamp(target);
             _flyTime = 0f;
@@ -1123,7 +1191,7 @@ namespace Remedy.Schematics.Assistant
         private void StartGhost()
         {
             _inspection++;          // a new drag interrupts an explanation
-            _returnHome = false;    // and where it's put is where it stays
+            _anchored = false;      // and lifts him out of his corner (he goes back once he's done)
             _explaining = false;
             if (_mood == Mood.Talking || _mood == Mood.Inspecting) { _mood = Mood.Idle; AssistantVoice.StopSpeaking(); }
             HideBubble();
@@ -1173,7 +1241,6 @@ namespace Remedy.Schematics.Assistant
                 return;
             _marker.Hide();
             _bubbleAway = 0;
-            _returnHome = true;
 
             // Hops to the side of it (not for whole windows), then talks with the bubble on his other side.
             var size = HostSize;
@@ -1500,8 +1567,9 @@ namespace Remedy.Schematics.Assistant
         {
             if (args.stage == ShortcutStage.Begin)
             {
-                // Typing (a text field anywhere, or his own question box): it's just a letter.
-                if (TypingSomewhere() || (AssistantOverlay.Instance?.Typing ?? false))
+                // Typing (a text field anywhere, or his own question box): it's just a letter. Flying the Scene view
+                // camera (right mouse button held): it's "fly down" (see AssistantShortcuts).
+                if (TypingSomewhere() || (AssistantOverlay.Instance?.Typing ?? false) || AssistantShortcuts.SceneFlying)
                     return;
                 var overlay = AssistantOverlay.Instance ?? AssistantOverlay.Attach(EditorWindow.focusedWindow);
                 overlay?.BeginListening();
