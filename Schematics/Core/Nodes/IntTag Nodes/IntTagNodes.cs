@@ -20,28 +20,9 @@ namespace Remedy.Schematics
         /// <summary>The connected tag, or <paramref name="fallback"/> (the node's dropdown) when nothing is connected.</summary>
         protected IntTag ReadTag(string port, IntTag fallback)
         {
-            if (!HasInputConnections(port))
-                return fallback;
-
-            // Pull the newest value, then convert by what the Union actually holds: ints come from other tag nodes,
-            // a boxed IntTag can come from a Variable or Signal.
-            GetInputValue<int>(port, fallback.Value);
-            if (!_cachedInputsByName.TryGetValue(port, out var union))
-                return fallback;
-            switch (union.Type)
-            {
-                case Union.ValueType.Int:
-                case Union.ValueType.Float:
-                    return new IntTag(union.GetValue<int>());
-                case Union.ValueType.Object:
-                case Union.ValueType.Union:
-                    var boxed = SignalArgs.FromUnion<object>(union);
-                    if (boxed is IntTag tag) return tag;
-                    if (boxed is int id) return new IntTag(id);
-                    return fallback;
-                default:
-                    return fallback;
-            }
+            // Ints (from other tag nodes), IntTags and boxed tags from Variables or Signals all convert; anything else
+            // (or nothing connected) uses the dropdown.
+            return GetInputValue(port, fallback);
         }
 
         /// <summary>

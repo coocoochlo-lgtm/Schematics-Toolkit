@@ -26,10 +26,12 @@ namespace Remedy.Schematics
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
         {
-            if(TargetGraph != null)
-            {
-                TargetGraph?.TriggerEvent<OnFunction>(instance, FunctionName, FunctionParameters.ToArray());
-            }
+            if (TargetGraph == null)
+                return;
+
+            // On Function receives the name (to check it's the one being called) and the parameters list.
+            var parameters = GetInputValue("FunctionParameters", FunctionParameters);
+            TargetGraph.TriggerEvent<OnFunction>(instance, FunctionName, PortValues.ToUnion(parameters));
         }
     }
 

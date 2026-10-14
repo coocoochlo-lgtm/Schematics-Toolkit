@@ -24,16 +24,21 @@ namespace Remedy.Schematics
 
         protected override void OnTrigger(GameObject instance, params Union[] arguments)
         {
-            if(FunctionName != arguments[0].GetValue<string>())
+            // Called by Call Function with (name, parameters).
+            if (arguments.Length == 0 || FunctionName != PortValues.ReferenceOf(arguments[0]) as string)
             {
                 _blocked = true;
                 return;
             }
 
-            for(int i = 1; i < arguments.Length; i++)
-            {
-                SetOutputValue(FunctionParameters[i].Name, arguments[i]);
-            }
+            var parameters = arguments.Length > 1 ? PortValues.ReferenceOf(arguments[1]) as List<FunctionParameter> : null;
+            SetOutputValue("FunctionParameters", parameters != null ? PortValues.ToUnion(parameters) : Union.Null);
+
+            // Each parameter is also available by name, for nodes that read it that way.
+            if (parameters != null)
+                foreach (var parameter in parameters)
+                    if (parameter != null && !string.IsNullOrEmpty(parameter.Name))
+                        SetOutputValue(parameter.Name, parameter.Value);
         }
     }
 }

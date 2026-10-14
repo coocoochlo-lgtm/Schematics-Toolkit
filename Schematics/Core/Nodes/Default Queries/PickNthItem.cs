@@ -3,6 +3,8 @@
 #pragma warning disable 0414
 
 using BlueGraph;
+using System.Collections;
+using Remedy.Framework;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -24,10 +26,12 @@ namespace Remedy.Schematics
 
         public override object OnRequestValue(Port port)
         {
-            List = GetOutputValue<List<object>>("List");
-            Index = GetOutputValue<int>("Index");
-
-            return List[Index];
+            var list = GetInputValue<IList>("List", List);
+            int index = GetInputValue("Index", Index);
+            if (list == null || index < 0 || index >= list.Count)
+                return null;
+            var item = list[index];
+            return item is Union union ? SignalArgs.ToObject(union) : item;
         }
     }
 }

@@ -106,6 +106,18 @@ namespace Remedy.Schematics
                 return;
             SetOutputValue(ValuePort, SignalArgs.ToUnion<object>(store.Get(index)));
         }
+
+        // A Variable can be read any time, so connected inputs get its current value even when flow never passed here.
+        protected override bool AnswersOnRequest => true;
+
+        public override object OnRequestValue(Port port)
+        {
+            var instance = RunningInstance;
+            if (instance == null && !HasInputConnections(OfPort))
+                return null;
+            var store = ResolveStore(instance, out int index);
+            return store != null && index >= 0 ? store.Get(index) : null;
+        }
     }
 
     /// <summary>

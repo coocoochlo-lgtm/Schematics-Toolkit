@@ -52,6 +52,24 @@ namespace Remedy.Schematics
         private readonly FlowScope _rootScope = new();
         private Step _executing;
         private bool _isExecuting;
+
+        // Identifies the step running now, so query (pure) nodes evaluated several times during one step are only
+        // computed once (see SchematicGraphNode). Every step gets a new one, so the next step recomputes them.
+        private int _stepStamp;
+        private static int _lastStamp;
+
+        /// <summary>
+        /// The stamp of the step running right now, or 0 outside of one. Query nodes remember their result for this
+        /// stamp; 0 means "don't remember, always compute".
+        /// </summary>
+        internal static int CurrentStamp
+        {
+            get
+            {
+                var flow = Current;
+                return flow != null && flow._isExecuting ? flow._stepStamp : 0;
+            }
+        }
         private bool _skipBreakOnce;
 
         private static readonly Stack<Flow> _pool = new();
@@ -141,6 +159,7 @@ namespace Remedy.Schematics
             Stepping = false;
             _skipBreakOnce = false;
             _remote = false;
+            _stepStamp = 0;
             _executing = default;
             if (_pool.Count < 64)
                 _pool.Push(this);
@@ -201,6 +220,9 @@ namespace Remedy.Schematics
         {
             _executing = step;
             _isExecuting = true;
+            if (++_lastStamp == 0)
+                _lastStamp = 1;
+            _stepStamp = _lastStamp;
             _pending.Clear();
             try
             {

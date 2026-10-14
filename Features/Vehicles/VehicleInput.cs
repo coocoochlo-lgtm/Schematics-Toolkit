@@ -1,4 +1,5 @@
 using System;
+using Remedy.Framework;
 using Remedy.Schematics;
 using UnityEngine;
 
@@ -50,7 +51,7 @@ namespace Remedy.Vehicles
     {
         /// <summary>
         /// True if the vehicle should take the local player's input right now: with <paramref name="playerDriverOnly"/>,
-        /// only while its driver is tagged as the player (GlobalSubsystem.PlayerTag); otherwise while anyone drives.
+        /// only while its driver has the player's Int Tag (GlobalSubsystem.PlayerTag, IntTags.Player by default); otherwise while anyone drives.
         /// A vehicle without Vehicle Seats always takes it.<br/>
         /// Online, only the player controlling the driver (the owner of its NetworkObject) takes it, so other players'
         /// keys never steer someone else's car on their copy of it.
@@ -64,8 +65,9 @@ namespace Remedy.Vehicles
                 return false;
             if (!playerDriverOnly)
                 return true;
-            string tag = GlobalSubsystem.PlayerTag;
-            return string.IsNullOrEmpty(tag) || driver.CompareTag(tag);
+            // Untagged as the Player Tag means "anyone counts as the player".
+            IntTag tag = GlobalSubsystem.PlayerTag;
+            return !tag.IsTagged || driver.HasIntTag(tag);
         }
 
         /// <summary>Any Signal value as an axis: bools are 0/1, Vector2s give their y.</summary>

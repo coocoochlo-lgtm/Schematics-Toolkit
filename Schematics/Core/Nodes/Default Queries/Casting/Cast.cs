@@ -19,8 +19,10 @@ namespace Remedy.Schematics
 
         public override object OnRequestValue(Port port)
         {
-            CastedValue = (T)GetOutputValue<object>("Value");
-            return CastedValue;
+            // Converts what it can (a component to its GameObject or another component on it, numbers to numbers...);
+            // anything else gives nothing rather than throwing.
+            var value = GetInputValue<object>("Value", null);
+            return PortValues.TryFromObject(value, out T casted) ? casted : default(T);
         }
     }
 }

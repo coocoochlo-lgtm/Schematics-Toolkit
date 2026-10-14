@@ -18,7 +18,9 @@ namespace Remedy.Schematics
 
         public override object OnRequestValue(Port port)
         {
-            return GameObject;
+            // The spawned object running the graph (this used to be the prefab asset). Outside a flow, the prefab.
+            var instance = RunningInstance;
+            return instance != null ? instance : GameObject;
         }
     }
 }

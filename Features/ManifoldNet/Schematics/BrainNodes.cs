@@ -1,9 +1,11 @@
 using BlueGraph;
 using Remedy.Box3DPhysics;
+using Remedy.Framework;
 using Remedy.Schematics;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace Remedy.ManifoldNetwork.Schematics
 {
@@ -306,14 +308,14 @@ namespace Remedy.ManifoldNetwork.Schematics
         }
     }
 
-    /// <summary>The nearest object with a tag within range: it, its position, and how far.</summary>
-    [SchematicDoc(@"{""name"": ""Nearest With Tag"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""AI/Senses"", ""description"": ""The nearest object with a tag within range: it, its position, and how far."", ""inputs"": [{""name"": ""From"", ""type"": ""GameObject""}, {""name"": ""Tag"", ""type"": ""string""}, {""name"": ""Range"", ""type"": ""float""}], ""outputs"": [{""name"": ""Found"", ""type"": ""bool""}, {""name"": ""Object"", ""type"": ""GameObject""}, {""name"": ""Position"", ""type"": ""Vector3""}, {""name"": ""Distance"", ""type"": ""float""}], ""use_for"": [""finding the closest enemy, player or pickup""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next.""}")]
+    /// <summary>The nearest object with an Int Tag within range: it, its position, and how far.</summary>
+    [SchematicDoc(@"{""name"": ""Nearest With Tag"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""AI/Senses"", ""description"": ""The nearest object with an Int Tag within range: it, its position, and how far."", ""inputs"": [{""name"": ""From"", ""type"": ""GameObject""}, {""name"": ""Tag"", ""type"": ""IntTag""}, {""name"": ""Range"", ""type"": ""float""}], ""outputs"": [{""name"": ""Found"", ""type"": ""bool""}, {""name"": ""Object"", ""type"": ""GameObject""}, {""name"": ""Position"", ""type"": ""Vector3""}, {""name"": ""Distance"", ""type"": ""float""}], ""use_for"": [""finding the closest enemy, player or pickup""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next.""}")]
     [Serializable]
     [Node(Name = "Nearest With Tag", Path = "AI/Senses"), Tags("Object")]
     public class NearestWithTagNode : SchematicActionNode
     {
         [Input("From")] public GameObject From;
-        [Input("Tag")] public string Tag = "Player";
+        [Input("Tag", Editable = true)] public IntTag ObjectTag = IntTags.Player;
         [Input("Range")] public float Range = 30f;
 
         [Output("Found")] public bool Found;
@@ -321,19 +323,32 @@ namespace Remedy.ManifoldNetwork.Schematics
         [Output("Position")] public Vector3 Position;
         [Output("Distance")] public float Distance;
 
+        // The Unity tag name older versions of this node saved; moved onto ObjectTag by name.
+        [SerializeField, HideInInspector, FormerlySerializedAs("Tag")] private string _legacyTag;
+
+        public override void OnValidate()
+        {
+            MigrateLegacyTag(ref _legacyTag, ref ObjectTag);
+            EnsureDataPort("Tag", typeof(IntTag), PortDirection.Input);
+            base.OnValidate();
+        }
+
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
         {
+            if (_legacyTag != null)
+                MigrateLegacyTag(ref _legacyTag, ref ObjectTag);
+
             var from = (GetInputValue<GameObject>("From", From) ?? instance).transform.position;
-            string tag = GetInputValue("Tag", Tag);
+            var tag = GetInputValue("Tag", ObjectTag);
             float range = GetInputValue("Range", Range);
             GameObject best = null;
             float bestDistance = range;
-            GameObject[] tagged;
-            try { tagged = GameObject.FindGameObjectsWithTag(tag); }
-            catch (UnityException) { tagged = Array.Empty<GameObject>(); }
-            foreach (var candidate in tagged)
+            // An Int Tag lookup: a dictionary hit rather than a scene search.
+            var tagged = IntTagRegistry.Find(tag);
+            for (int i = 0; i < tagged.Count; i++)
             {
-                if (candidate == instance) continue;
+                var candidate = tagged[i];
+                if (candidate == null || candidate == instance) continue;
                 float distance = Vector3.Distance(from, candidate.transform.position);
                 if (distance <= bestDistance) { bestDistance = distance; best = candidate; }
             }

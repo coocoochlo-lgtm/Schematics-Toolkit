@@ -4,6 +4,7 @@ using SaintsField.Playa;*/
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Serialization;
 //using SaintsField.ComponentHeader;
 
 // TODO: Add compiler Ifs for Module Assemblies to dynamically add Modifiable Data
@@ -86,7 +87,27 @@ namespace Remedy.Common
         [Layout("Game/Player", ELayout.Tab | ELayout.Tab)]
         [LayoutStart("./Components")]
         [Tag]*/
-        public string PlayerTag;
+        [Tooltip("The Int Tag that marks the player: Trigger Volumes react to objects with it, and vehicles listen to player input while a driver with it is aboard.")]
+        public IntTag PlayerIntTag = IntTags.Player;
+
+        // Older Game Data assets saved a Unity tag name here; it's moved onto PlayerIntTag (by name) when the asset loads.
+        [SerializeField, HideInInspector, FormerlySerializedAs("PlayerTag")]
+        private string _legacyPlayerTag;
+
+        private void OnEnable() => ApplyPlayerTag();
+
+        private void OnValidate() => ApplyPlayerTag();
+
+        private void ApplyPlayerTag()
+        {
+            if (!string.IsNullOrEmpty(_legacyPlayerTag))
+            {
+                if (IntTags.TryGetId(_legacyPlayerTag, out int id))
+                    PlayerIntTag = id;
+                _legacyPlayerTag = null;
+            }
+            GlobalSubsystem.SetPlayerTag(PlayerIntTag);
+        }
 
         // --- Character Controller --- //
         /*[Layout("Game", ELayout.Tab | ELayout.Collapse)]

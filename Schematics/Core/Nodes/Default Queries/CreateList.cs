@@ -3,6 +3,7 @@
 #pragma warning disable 0414
 
 using BlueGraph;
+using Remedy.Framework;
 using UnityEngine;
 using System.Collections.Generic;
 using System.Collections;
@@ -24,23 +25,20 @@ namespace Remedy.Schematics
 
         public override object OnRequestValue(Port port)
         {
-            var itemList = GetInputValues<object>("Items").ToList();
-            itemList ??= new List<object>();
-
+            // A new list each time: a flow that continues later (after a Wait) keeps the one it was given.
             var newList = new List<object>();
-
-            foreach(var item in itemList)
+            foreach (var item in GetInputValues<object>("Items"))
             {
-                if(item is IEnumerable && !(item is string))
+                if (item is IEnumerable items && item is not string)
                 {
-                    newList.AddRange(((IEnumerable<object>)item).ToList());
+                    foreach (var inner in items)
+                        newList.Add(inner is Union union ? SignalArgs.ToObject(union) : inner);
                 }
                 else
                 {
                     newList.Add(item);
                 }
             }
-
             return newList;
         }
     }
