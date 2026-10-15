@@ -341,6 +341,10 @@ namespace Remedy.Schematics
 
         public void OnValidate()
         {
+#if UNITY_EDITOR
+            KeepOwnGraph();
+#endif
+
             // Tags edited in the Inspector: Edit Mode rebuilds the registry lazily; Play Mode applies the difference now.
             if (!Application.isPlaying)
                 IntTagRegistry.RequestEditModeRefresh();
@@ -350,6 +354,60 @@ namespace Remedy.Schematics
 
         /// <summary>True if this object has the tag right now (see <see cref="IntTagExtensions.HasIntTag(GameObject, IntTag)"/>).</summary>
         public bool HasTag(IntTag tag) => gameObject.HasIntTag(tag);
+
+#if UNITY_EDITOR
+        // The graph this object had before the last Inspector change, to put back a graph that belongs to another object.
+        [NonSerialized] private SchematicGraph _validatedGraph;
+        [NonSerialized] private bool _validatedOnce;
+
+        /// <summary>
+        /// A Schematic Object can only use the graph made for it: a graph is built around its object's Behaviors, Signals
+        /// and Variables, so another object's graph (or a Singleton's) would break. Graphs not yet tied to a prefab are
+        /// allowed (they get tied to this one).
+        /// </summary>
+        private void KeepOwnGraph()
+        {
+            var graph = SchematicGraph;
+            if (graph != null && !_validatedOnce)
+            {
+                _validatedOnce = true;
+                _validatedGraph = graph;
+                return;
+            }
+            _validatedOnce = true;
+            if (graph == null || graph == _validatedGraph || BelongsHere(graph))
+            {
+                _validatedGraph = graph;
+                return;
+            }
+
+            Debug.LogWarning($"[Schematics] '{graph.name}' was made for " +
+                             (graph is SingletonGraph ? "a Singleton" : $"'{(graph.Prefab != null ? graph.Prefab.name : "another object")}'") +
+                             $", so it can't be used by '{name}': a graph only works with the Behaviors, Signals and Variables of the object it was made for.", this);
+            SchematicGraph = _validatedGraph;
+        }
+
+        private bool BelongsHere(SchematicGraph graph)
+        {
+            if (graph is SingletonGraph)
+                return false;
+            if (graph.Prefab == null)
+                return true;
+
+            string graphPrefab = UnityEditor.AssetDatabase.GetAssetPath(graph.Prefab);
+            if (string.IsNullOrEmpty(graphPrefab))
+                return true;
+
+            // This object's prefab: the asset itself, the one open in Prefab Mode, or the one a scene object is a copy of.
+            string mine = UnityEditor.AssetDatabase.GetAssetPath(gameObject);
+            if (string.IsNullOrEmpty(mine))
+            {
+                var stage = UnityEditor.SceneManagement.PrefabStageUtility.GetPrefabStage(gameObject);
+                mine = stage != null ? stage.assetPath : UnityEditor.PrefabUtility.GetPrefabAssetPathOfNearestInstanceRoot(gameObject);
+            }
+            return string.IsNullOrEmpty(mine) ? false : mine == graphPrefab;
+        }
+#endif
 
         public void Assign(SchematicGraph graph)
         {

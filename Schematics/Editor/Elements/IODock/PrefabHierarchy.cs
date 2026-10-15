@@ -819,7 +819,33 @@ public class PrefabHierarchy : VisualElement
         if (root == null || gameObject == null)
             return behaviors;
 
-        if (root.Behaviors.TryGetValue(gameObject, out var list) && list?.Items != null)
+        if (!root.Behaviors.TryGetValue(gameObject, out var list) || list == null)
+        {
+            // The stored key may be another copy of this same object (e.g. the one in Prefab Mode or a scene, or the copy
+            // a save was made from): match it by its path in its own prefab instead.
+            string path = PathOf(gameObject.transform);
+            foreach (var entry in root.Behaviors)
+            {
+                var key = entry.Key;
+                if (key == null || entry.Value == null)
+                    continue;
+                var keyRoot = key.transform.root;
+                if (keyRoot.GetRelativePath(key.transform) == path && key.name == gameObject.name)
+                {
+                    list = entry.Value;
+                    break;
+                }
+            }
+
+            if (list == null && root.Behaviors.Count > 0 && gameObject == _shown)
+                Debug.LogWarning($"[Schematics] The Prefab tab found no Behaviors for '{gameObject.name}', but its Schematic Object has " +
+                                 $"{root.Behaviors.Count} Behavior entr{(root.Behaviors.Count == 1 ? "y" : "ies")} keyed by: " +
+                                 string.Join(", ", root.Behaviors.Keys.Select(k => k == null ? "<missing object>"
+                                     : $"'{k.name}' ({(EditorUtility.IsPersistent(k) ? "asset" : k.scene.IsValid() ? "scene " + k.scene.name : "not saved")})")),
+                                 _shown);
+        }
+
+        if (list?.Items != null)
             foreach (var attachment in list.Items)
                 if (attachment != null)
                     behaviors.Add(attachment);
