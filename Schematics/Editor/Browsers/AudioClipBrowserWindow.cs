@@ -46,14 +46,15 @@ namespace Remedy.Schematics.Browsers
         protected override string Hint => "Click a waveform to preview; drag a clip into the scene or another window.";
 
         [MenuItem("Window/Remedy/Audio Clip Browser", false, 102)]
-        public static void Open() => OpenWindow<AudioClipBrowserWindow>();
+        public static void Open() => ProjectManagerWindow.Open(ProjectManagerWindow.Section.Audio);
 
         protected override void OnEnable()
         {
             base.OnEnable();
             minSize = new Vector2(620f, 320f);
             EditorApplication.projectChanged += OnProjectChanged;
-            rootVisualElement.RegisterCallback<PointerUpEvent>(OnEditorClick, TrickleDown.TrickleDown);
+            EditorApplication.update += UpdatePreview;
+            EditorApplication.focusChanged += OnEditorFocusChanged;
             EnsureFolders();
             EnsureDefaultTags();
             ReloadAssets();
@@ -62,7 +63,8 @@ namespace Remedy.Schematics.Browsers
         protected override void OnDisable()
         {
             EditorApplication.projectChanged -= OnProjectChanged;
-            rootVisualElement.UnregisterCallback<PointerUpEvent>(OnEditorClick, TrickleDown.TrickleDown);
+            EditorApplication.update -= UpdatePreview;
+            EditorApplication.focusChanged -= OnEditorFocusChanged;
             StopPreview();
             foreach (var waveform in _ownedWaveforms)
                 DestroyImmediate(waveform);
@@ -73,6 +75,12 @@ namespace Remedy.Schematics.Browsers
         }
 
         private void OnLostFocus() => StopPreview();
+
+        private void OnEditorFocusChanged(bool focused)
+        {
+            if (!focused)
+                StopPreview();
+        }
 
         protected override void BuildHeader(VisualElement header)
         {
@@ -95,6 +103,7 @@ namespace Remedy.Schematics.Browsers
         {
             var body = new VisualElement();
             body.AddToClassList("audio-browser");
+            body.RegisterCallback<PointerUpEvent>(OnEditorClick, TrickleDown.TrickleDown);
 
             _folderList = new VisualElement();
             _folderList.AddToClassList("audio-browser__folders");
@@ -321,8 +330,21 @@ namespace Remedy.Schematics.Browsers
             var card = new VisualElement();
             card.AddToClassList("audio-browser__card");
             card.style.width = size;
+            card.style.height = size;
+            card.style.flexDirection = FlexDirection.Column;
+            card.style.borderTopColor = card.style.borderRightColor = card.style.borderBottomColor = card.style.borderLeftColor =
+                EditorGUIUtility.isProSkin ? new Color(1f, 1f, 1f, 0.35f) : new Color(0f, 0f, 0f, 0.35f);
             card.style.backgroundColor = GetTags(clip).FirstOrDefault()?.Color
                 ?? (EditorGUIUtility.isProSkin ? new Color(0.22f, 0.22f, 0.22f) : new Color(0.78f, 0.78f, 0.78f));
+            var thumbnail = new Image
+            {
+                image = WaveformFor(clip),
+                scaleMode = ScaleMode.StretchToFill,
+                pickingMode = PickingMode.Ignore
+            };
+            thumbnail.AddToClassList("audio-browser__waveform");
+            card.Add(thumbnail);
+
             var gloss = new Image
             {
                 image = GlossTexture,
@@ -331,6 +353,12 @@ namespace Remedy.Schematics.Browsers
             };
             gloss.AddToClassList("audio-browser__gloss");
             card.Add(gloss);
+
+            var flash = new VisualElement { pickingMode = PickingMode.Ignore };
+            flash.AddToClassList("audio-browser__flash");
+
+            var playCue = new Label("▶") { pickingMode = PickingMode.Ignore };
+            playCue.AddToClassList("audio-browser__play-cue");
 
             var name = new Label(clip.name) { tooltip = AssetDatabase.GetAssetPath(clip) };
             name.AddToClassList("audio-browser__clip-name");
@@ -344,28 +372,31 @@ namespace Remedy.Schematics.Browsers
             card.Add(tagName);
 
             var timeline = BuildTimeline(clip);
+            timeline.Container.style.position = Position.Absolute;
+            timeline.Container.style.left = 7f;
+            timeline.Container.style.right = 7f;
+            timeline.Container.style.bottom = 5f;
             card.Add(timeline.Container);
+            card.Add(flash);
+            card.Add(playCue);
 
-            var previewSurface = new VisualElement();
-            previewSurface.AddToClassList("audio-browser__thumbnail");
-            previewSurface.AddToClassList("audio-preview-surface");
-            var thumbnail = new Image
+            card.RegisterCallback<PointerDownEvent>(evt =>
             {
-                image = WaveformFor(clip),
-                scaleMode = ScaleMode.StretchToFill,
-                pickingMode = PickingMode.Ignore
-            };
-            thumbnail.AddToClassList("audio-browser__waveform");
-            previewSurface.Add(thumbnail);
-            previewSurface.RegisterCallback<PointerDownEvent>(evt =>
-            {
-                if (evt.button != 0)
+                if (evt.button != 0 || IsWithin(evt.target as VisualElement, "audio-player-control"))
                     return;
                 timeline.PressPosition = evt.position;
                 timeline.PressTime = EditorApplication.timeSinceStartup;
                 timeline.Pressed = true;
             });
-            previewSurface.RegisterCallback<PointerMoveEvent>(evt =>
+            var baseBorder = EditorGUIUtility.isProSkin ? new Color(1f, 1f, 1f, 0.35f) : new Color(0f, 0f, 0f, 0.35f);
+            card.RegisterCallback<PointerEnterEvent>(_ =>
+            {
+                var highlight = EditorGUIUtility.isProSkin ? new Color(0.65f, 0.82f, 1f, 0.9f) : new Color(0.12f, 0.38f, 0.7f, 0.85f);
+                card.style.borderTopColor = card.style.borderRightColor = card.style.borderBottomColor = card.style.borderLeftColor = highlight;
+            });
+            card.RegisterCallback<PointerLeaveEvent>(_ =>
+                card.style.borderTopColor = card.style.borderRightColor = card.style.borderBottomColor = card.style.borderLeftColor = baseBorder);
+            card.RegisterCallback<PointerMoveEvent>(evt =>
             {
                 if (!timeline.Pressed || (evt.pressedButtons & 1) == 0)
                     return;
@@ -380,7 +411,7 @@ namespace Remedy.Schematics.Browsers
                 DragAndDrop.StartDrag(clip.name);
                 evt.StopPropagation();
             });
-            previewSurface.RegisterCallback<PointerUpEvent>(evt =>
+            card.RegisterCallback<PointerUpEvent>(evt =>
             {
                 if (!timeline.Pressed)
                 {
@@ -389,19 +420,22 @@ namespace Remedy.Schematics.Browsers
                     return;
                 }
                 timeline.Pressed = false;
+                if (evt.button == 0 && !IsWithin(evt.target as VisualElement, "audio-player-control"))
+                    FlashCard(card);
                 if (evt.button == 0
                     && !timeline.Dragged
+                    && !IsWithin(evt.target as VisualElement, "audio-player-control")
                     && EditorApplication.timeSinceStartup - timeline.PressTime <= 0.45d)
                     TogglePreview(clip);
                 timeline.Dragged = false;
             });
-            previewSurface.RegisterCallback<PointerLeaveEvent>(_ =>
+            card.RegisterCallback<PointerLeaveEvent>(_ =>
             {
                 if (timeline.Pressed)
                     timeline.Dragged = true;
             });
-            card.Add(previewSurface);
 
+            timeline.PlayCue = playCue;
             _players.Add(timeline);
             card.RegisterCallback<ContextClickEvent>(evt => ShowClipMenu(clip));
             return card;
@@ -412,6 +446,10 @@ namespace Remedy.Schematics.Browsers
             var container = new VisualElement();
             container.AddToClassList("audio-browser__timeline");
             container.AddToClassList("audio-player-control");
+            var time = new Label($"0:00 / {FormatTime(clip.length)}");
+            time.AddToClassList("audio-browser__time");
+            container.Add(time);
+
             var seek = new Slider(0f, Mathf.Max(clip.samples - 1, 1))
             {
                 value = 0f,
@@ -430,9 +468,6 @@ namespace Remedy.Schematics.Browsers
                     StopPreview();
             });
             container.Add(seek);
-            var time = new Label($"0:00 / {FormatTime(clip.length)}");
-            time.AddToClassList("audio-browser__time");
-            container.Add(time);
             return new PlayerControls(clip, container, seek, time);
         }
 
@@ -446,7 +481,24 @@ namespace Remedy.Schematics.Browsers
             StopPreview();
             AudioPreview.Play(clip);
             _previewClip = clip;
+            var activePlayer = _players.FirstOrDefault(player => player.Clip == clip);
+            if (activePlayer != null)
+            {
+                activePlayer.PlayCue.AddToClassList("audio-browser__play-cue--visible");
+                activePlayer.PlayCue.schedule.Execute(() =>
+                {
+                    if (activePlayer.PlayCue != null)
+                        activePlayer.PlayCue.RemoveFromClassList("audio-browser__play-cue--visible");
+                }).ExecuteLater(650);
+            }
             UpdatePlayers();
+        }
+
+        private static void FlashCard(VisualElement card)
+        {
+            card.RemoveFromClassList("audio-browser__card--flash");
+            card.schedule.Execute(() => card.AddToClassList("audio-browser__card--flash")).ExecuteLater(1);
+            card.schedule.Execute(() => card.RemoveFromClassList("audio-browser__card--flash")).ExecuteLater(420);
         }
 
         private void StopPreview()
@@ -457,6 +509,8 @@ namespace Remedy.Schematics.Browsers
             _previewClip = null;
             UpdatePlayers();
         }
+
+        internal void StopHostedPreview() => StopPreview();
 
         private void UpdatePlayers()
         {
@@ -470,7 +524,7 @@ namespace Remedy.Schematics.Browsers
             }
         }
 
-        private void Update()
+        private void UpdatePreview()
         {
             RefreshPendingWaveforms();
             if (_previewClip == null)
@@ -932,6 +986,7 @@ namespace Remedy.Schematics.Browsers
             public readonly VisualElement Container;
             public readonly Slider Seek;
             public readonly Label Time;
+            public Label PlayCue;
             public Vector2 PressPosition;
             public double PressTime;
             public bool Pressed;

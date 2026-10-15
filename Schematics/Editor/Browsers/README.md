@@ -1,38 +1,34 @@
-# Schematics Browsers
+# Project Manager
 
-Dockable UI Toolkit windows for finding and managing Schematic Objects and audio. The Schematic Object browsers share
-one look: a header (a hint, the window's own controls, and buttons to jump between browsers and the Level Designer)
-over the thumbnail grid (search, size slider, chips, tiles) from `Schematics/Editor/Templates`.
+Project Manager is a dockable window containing tabs for **Templates**, **Schematic Objects**, **Audio**, and (when
+installed) the **Level Designer**. The existing Window/Tools menu commands and main-toolbar buttons remain usable and
+open Project Manager at their corresponding section.
 
-| Window | Open from | Double-click | Right-click |
-| --- | --- | --- | --- |
-| **Templates** | *Window > Remedy > Template Browser*, main toolbar | places it in the scene | Create, Open Prefab, Open Graph, Ping, Level Design, Remove… |
-| **Schematic Objects** | *Window > Remedy > Schematic Objects*, main toolbar | opens the prefab | Open Prefab, Open Graph, Ping, Place in Scene, Make Template, Level Design, Refresh Thumbnail |
-| **Audio Clips** | *Window > Remedy > Audio Clip Browser*, or the **Audio** browser tab | click a waveform to preview; drag it to use the clip | set one tag, move between Music/SFX, select in Project |
+The Template and Schematic Objects sections retain their existing grid behaviors. Tiles highlight on hover and briefly
+flash on activation. Each section's tag definitions are stored in the project asset at
+`Assets/Project Manager/ProjectManagerTags.asset`, while assignments remain asset labels. Legacy per-user tag names
+are migrated into that asset when a section is next opened. Tags can be assigned from a tile's context menu and are
+also available as grid chips. Audio retains its separate `AudioClipTag` assets,
+Music/SFX organization, import, waveform preview/seeking and per-clip tag behavior. Its play gesture toggles playback,
+shows a fading play cue, and briefly flashes the whole card.
 
-Drag any tile into the Scene view to place it where you drop it. Schematic Objects lists every prefab under `Assets/`
-with a Schematic Object on its root; the chips group them by folder or by Int Tag (header dropdown). The list is scanned
-once and then follows imports, moves and deletes (*Rescan* starts over).
+The Level Designer remains optional: Project Manager discovers it by type name and does not reference its assembly.
+Its existing Levels, Characters and Palette tabs are hosted within the Level Designer section. Tags there attach to
+saved blockout/variant scene assets, never objects inside a scene.
 
-The Audio Clip Browser manages `Assets/Content/Audio/Music`, `Assets/Content/Audio/SFX`, and its editable tags under
-`Assets/Content/Audio/Tags`. It imports files or folder trees, creates folders, previews one clip at a time, and lets
-you seek on the clip timeline above its waveform. Each clip has at most one tag; tags carry their own color and
-Music/SFX category. Assigning a tag moves the clip to that category, and the audio catalog is rebuilt while preserving
-existing per-clip settings.
+The Audio section manages `Assets/Content/Audio/Music`, `Assets/Content/Audio/SFX`, and tags under
+`Assets/Content/Audio/Tags`. Each audio clip has at most one Audio tag; tags carry a color and Music/SFX category.
+Assigning a tag moves the clip to that category, and the audio catalog rebuild preserves existing per-clip settings.
 
 ## Main toolbar
 
-**Level Designer**, **Templates** and **Objects** buttons sit on the main toolbar, right of the Play buttons.
+The Project Manager and section shortcuts appear on Unity's main toolbar.
 
-- Unity 6.3+: Unity's `[MainToolbarElement]` API, docked right. If you don't see them, right-click the main toolbar and
-  turn on the *Remedy* elements (you can move them there too).
-- Unity 6.0 to 6.2: injected into the toolbar's right-hand zone by reflection. If that ever fails you get one Console
-  message and the windows are still under *Window > Remedy*.
+- Unity 6.3+: Unity's `[MainToolbarElement]` API. Right-click the toolbar to show or move the *Remedy* elements.
+- Unity 6.0 to 6.2: the buttons are injected into the toolbar's right-hand zone by reflection. If that changes in a
+  Unity update, they remain available under *Window > Remedy*.
 
-The Level Designer is opened by type name (`Remedy.LevelDesigner.Editor.LevelDesignerWindow`), so this assembly doesn't
-depend on it; without it, its button is left out.
-
-## Making another browser
+## Extending a browser section
 
 ```csharp
 public class MyBrowser : SchematicBrowserWindow
@@ -46,5 +42,5 @@ public class MyBrowser : SchematicBrowserWindow
 }
 ```
 
-Restyle every browser at once in `SchematicBrowser.uss` (class names are listed at its top).
-For content that is not a schematic-template grid, override `BuildContent()` and keep the shared header/navigation.
+Restyle the shared browser content in `SchematicBrowser.uss`. For content that is not a schematic-template grid,
+override `BuildContent()` and `BuildHeader()` on `SchematicBrowserWindow`; Project Manager hosts those same panels.

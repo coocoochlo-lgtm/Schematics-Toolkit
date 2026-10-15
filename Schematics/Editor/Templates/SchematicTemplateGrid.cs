@@ -164,6 +164,9 @@ namespace Remedy.Schematics.Templates
         /// </summary>
         public Action<DropdownMenu, SchematicTemplate> TileMenu { get; set; }
 
+        /// <summary>Additional context-menu items appended after the configured/default tile actions.</summary>
+        public Action<DropdownMenu, SchematicTemplate> AdditionalTileMenu { get; set; }
+
         /// <summary>What the grid says when there's nothing at all to show. Null: the "No templates yet" hint.</summary>
         public string EmptyMessage { get; set; }
 
@@ -570,6 +573,7 @@ namespace Remedy.Schematics.Templates
             if (TileMenu != null)
             {
                 TileMenu(evt.menu, template);
+                AdditionalTileMenu?.Invoke(evt.menu, template);
                 evt.StopPropagation();
                 return;
             }
@@ -596,6 +600,7 @@ namespace Remedy.Schematics.Templates
                 if (EditorUtility.DisplayDialog("Remove Template", $"Remove '{template.DisplayName}' from the templates? The prefab itself is kept.", "Remove", "Cancel"))
                     SchematicTemplates.Remove(template);
             });
+            AdditionalTileMenu?.Invoke(evt.menu, template);
             evt.StopPropagation();
         }
 
@@ -624,7 +629,7 @@ namespace Remedy.Schematics.Templates
             private readonly Image _image;
             private readonly Label _label;
             private readonly Label _plus;
-            private bool _selected, _hovered;
+            private bool _selected, _hovered, _flash;
             private Vector2 _pressPosition;
             private bool _pressed;
 
@@ -734,7 +739,9 @@ namespace Remedy.Schematics.Templates
 
             private void Paint()
             {
-                style.backgroundColor = _hovered && !_selected ? HoverColor : Color.clear;
+                style.backgroundColor = _flash
+                    ? new Color(0.25f, 0.55f, 0.9f, 0.28f)
+                    : _hovered && !_selected ? HoverColor : Color.clear;
                 _label.style.backgroundColor = _selected ? SelectedColor : Color.clear;
                 _label.style.color = _selected ? new StyleColor(SelectedTextColor) : new StyleColor(StyleKeyword.Null);
                 _image.style.opacity = Template == null && !_hovered ? 0.7f : 1f;
@@ -745,6 +752,13 @@ namespace Remedy.Schematics.Templates
                 if (evt.button != 0) return;
                 _grid.Focus();
                 _grid.Select(Template);
+                _flash = true;
+                Paint();
+                schedule.Execute(() =>
+                {
+                    _flash = false;
+                    Paint();
+                }).ExecuteLater(240);
                 _pressed = true;
                 _pressPosition = evt.position;
                 if (evt.clickCount == 2)

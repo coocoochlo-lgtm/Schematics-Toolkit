@@ -6,9 +6,8 @@ using UnityEngine;
 namespace Remedy.Schematics.Browsers
 {
     /// <summary>
-    /// One place that opens each of the Schematics windows: the Template Browser, the Schematic Objects browser and
-    /// the Level Designer. The main toolbar buttons and the browsers' own header buttons all go through here, so they
-    /// always open the same way.
+    /// One place that routes the legacy browser shortcuts into Project Manager's matching section, with an optional
+    /// Level Designer discovered by type name so the browser assembly does not depend on that feature.
     /// </summary>
     /// <remarks>
     /// The Level Designer is a separate feature (Features/Level Designer) that this assembly deliberately doesn't
@@ -25,10 +24,10 @@ namespace Remedy.Schematics.Browsers
         private static Type _levelDesignerType;
         private static bool _levelDesignerLooked;
 
-        /// <summary>Opens (or focuses) the dockable Template Browser.</summary>
+        /// <summary>Opens Project Manager on the Template Browser section.</summary>
         public static void OpenTemplates() => TemplateBrowserWindow.Open();
 
-        /// <summary>Opens (or focuses) the Schematic Objects browser.</summary>
+        /// <summary>Opens Project Manager on the Schematic Objects section.</summary>
         public static void OpenSchematicObjects() => SchematicObjectsBrowserWindow.Open();
 
         /// <summary>The Level Designer window type, or null when that feature isn't in the project.</summary>
@@ -54,6 +53,11 @@ namespace Remedy.Schematics.Browsers
         /// </summary>
         public static void OpenLevelDesigner()
         {
+            if (HasLevelDesigner)
+            {
+                ProjectManagerWindow.OpenLevelDesigner();
+                return;
+            }
             var type = LevelDesignerType;
             if (type != null)
             {
