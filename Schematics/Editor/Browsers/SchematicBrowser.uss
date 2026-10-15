@@ -115,8 +115,74 @@
 }
 
 .schematic-grid__tile {
-    transition-property: background-color;
+    transition-property: background-color, scale;
     transition-duration: 0.08s;
+}
+
+.schematic-grid__tile:hover {
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-left-color: rgba(100, 170, 255, 0.65);
+    border-right-color: rgba(100, 170, 255, 0.65);
+    border-top-color: rgba(100, 170, 255, 0.65);
+    border-bottom-color: rgba(100, 170, 255, 0.65);
+}
+
+.project-manager {
+    flex-direction: column;
+    flex-grow: 1;
+    min-width: 0;
+    min-height: 0;
+}
+
+.project-manager__tabs {
+    flex-shrink: 0;
+    padding-left: 5px;
+    padding-right: 5px;
+}
+
+.project-manager__tab {
+    flex-direction: row;
+    align-items: center;
+    margin-right: 3px;
+}
+
+.project-manager__tab Image {
+    width: 16px;
+    height: 16px;
+    margin-right: 4px;
+}
+
+.project-manager__content {
+    flex-grow: 1;
+    min-width: 0;
+    min-height: 0;
+}
+
+.project-manager__page {
+    flex-grow: 1;
+    min-width: 0;
+    min-height: 0;
+    flex-direction: column;
+}
+
+.project-manager__empty {
+    margin: 20px;
+    opacity: 0.7;
+    white-space: normal;
+}
+
+.project-manager__tag-row {
+    margin: 2px 4px 5px;
+}
+
+.project-manager__tag {
+    min-height: 18px;
+    margin: 1px 3px 1px 0;
+    padding: 1px 6px;
+    border-radius: 8px;
 }
 
 .schematic-browser__button {
@@ -213,6 +279,12 @@
     border-color: var(--schematic-border);
     border-radius: 4px;
     overflow: hidden;
+    transition-property: border-color, scale;
+    transition-duration: 0.12s;
+}
+
+.audio-browser__card:hover {
+    scale: 1.015 1.015;
 }
 
 .audio-browser__gloss {
@@ -222,6 +294,40 @@
     right: 0;
     bottom: 0;
     opacity: 0.28;
+}
+
+.audio-browser__flash {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(255, 255, 255, 0.75);
+    opacity: 0;
+    transition-property: opacity;
+    transition-duration: 0.38s;
+}
+
+.audio-browser__card--flash .audio-browser__flash {
+    opacity: 0.2;
+}
+
+.audio-browser__play-cue {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 35%;
+    height: 30%;
+    color: white;
+    font-size: 30px;
+    -unity-text-align: middle-center;
+    opacity: 0;
+    transition-property: opacity;
+    transition-duration: 0.6s;
+}
+
+.audio-browser__play-cue--visible {
+    opacity: 0.9;
 }
 
 .audio-browser__waveform {

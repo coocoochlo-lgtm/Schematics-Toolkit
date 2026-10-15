@@ -12,8 +12,7 @@ using UnityEngine.UIElements;
 namespace Remedy.Schematics.Browsers
 {
     /// <summary>
-    /// Buttons on Unity's main toolbar (the bar with Play and Pause) for the Level Designer, the Template Browser and the
-    /// Schematic Objects browser, so they're one click away instead of in a menu.
+    /// Buttons on Unity's main toolbar (the bar with Play and Pause) for Project Manager and its sections.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -32,8 +31,15 @@ namespace Remedy.Schematics.Browsers
         internal const string LevelDesignerTooltip = "Open the Level Designer (blockouts, art designs, character metrics).";
         internal const string TemplatesTooltip = "Open the Template Browser: premade Schematic Objects to start from.";
         internal const string ObjectsTooltip = "Open the Schematic Objects browser: every Schematic prefab in the project.";
+        internal const string ProjectManagerTooltip = "Open Project Manager: templates, schematic objects, audio and levels.";
+        internal const string AudioTooltip = "Open Project Manager on the Audio section.";
 
 #if UNITY_6000_3_OR_NEWER
+        [MainToolbarElement("Remedy/Project Manager", defaultDockPosition = MainToolbarDockPosition.Right)]
+        public static MainToolbarElement ProjectManagerButton()
+            => new MainToolbarButton(new MainToolbarContent("Project Manager", SchematicBrowsers.Icon("Project"), ProjectManagerTooltip),
+                ProjectManagerWindow.Open);
+
         [MainToolbarElement("Remedy/Level Designer", defaultDockPosition = MainToolbarDockPosition.Right)]
         public static MainToolbarElement LevelDesignerButton()
             => new MainToolbarButton(new MainToolbarContent("Level Designer", SchematicBrowsers.Icon("SceneAsset Icon"), LevelDesignerTooltip),
@@ -48,6 +54,11 @@ namespace Remedy.Schematics.Browsers
         public static MainToolbarElement SchematicObjectsButton()
             => new MainToolbarButton(new MainToolbarContent("Objects", SchematicBrowsers.Icon("PrefabVariant Icon"), ObjectsTooltip),
                 SchematicBrowsers.OpenSchematicObjects);
+
+        [MainToolbarElement("Remedy/Audio", defaultDockPosition = MainToolbarDockPosition.Right)]
+        public static MainToolbarElement AudioButton()
+            => new MainToolbarButton(new MainToolbarContent("Audio", SchematicBrowsers.Icon("AudioClip Icon"), AudioTooltip),
+                AudioClipBrowserWindow.Open);
 #endif
     }
 
@@ -102,7 +113,7 @@ namespace Remedy.Schematics.Browsers
         {
             _gaveUp = true;
             EditorApplication.update -= Update;
-            Debug.Log($"[Schematics] Couldn't add the Level Designer / Templates / Objects buttons to the main toolbar ({reason}). They're under Window > Remedy.");
+            Debug.Log($"[Schematics] Couldn't add the Project Manager buttons to the main toolbar ({reason}). They're under Window > Remedy.");
         }
 
         private static bool TryInject()
@@ -141,8 +152,10 @@ namespace Remedy.Schematics.Browsers
 
             if (SchematicBrowsers.HasLevelDesigner)
                 container.Add(Button("Level Designer", "SceneAsset Icon", SchematicMainToolbar.LevelDesignerTooltip, SchematicBrowsers.OpenLevelDesigner));
+            container.Add(Button("Project Manager", "Project", SchematicMainToolbar.ProjectManagerTooltip, ProjectManagerWindow.Open));
             container.Add(Button("Templates", "Prefab Icon", SchematicMainToolbar.TemplatesTooltip, SchematicBrowsers.OpenTemplates));
             container.Add(Button("Objects", "PrefabVariant Icon", SchematicMainToolbar.ObjectsTooltip, SchematicBrowsers.OpenSchematicObjects));
+            container.Add(Button("Audio", "AudioClip Icon", SchematicMainToolbar.AudioTooltip, AudioClipBrowserWindow.Open));
             return container;
         }
 

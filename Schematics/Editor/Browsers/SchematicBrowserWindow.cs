@@ -59,6 +59,32 @@ namespace Remedy.Schematics.Browsers
             return Grid;
         }
 
+        internal void BuildHostedUI(VisualElement host)
+        {
+            host.Clear();
+            host.AddToClassList("schematic-browser");
+            host.AddToClassList(EditorGUIUtility.isProSkin ? "schematic-browser--dark" : "schematic-browser--light");
+            var sheet = StyleSheet;
+            if (sheet != null)
+                host.styleSheets.Add(sheet);
+
+            Header = new VisualElement { name = "header" };
+            Header.AddToClassList("schematic-browser__header");
+            host.Add(Header);
+            if (!string.IsNullOrEmpty(Hint))
+            {
+                var hint = new Label(Hint);
+                hint.AddToClassList("schematic-browser__hint");
+                Header.Add(hint);
+            }
+
+            var controls = new VisualElement();
+            controls.AddToClassList("schematic-browser__controls");
+            Header.Add(controls);
+            BuildHeader(controls);
+            host.Add(BuildContent());
+        }
+
         /// <summary>A tile was double-clicked, or Enter was pressed on it.</summary>
         protected abstract void OnPicked(SchematicTemplate item);
 
@@ -171,7 +197,7 @@ namespace Remedy.Schematics.Browsers
         }
 
         /// <summary>The shared stylesheet (null if it's missing: the browsers still work, just plainer).</summary>
-        protected static StyleSheet StyleSheet
+        internal static StyleSheet StyleSheet
         {
             get
             {
