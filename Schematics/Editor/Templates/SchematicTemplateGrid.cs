@@ -111,6 +111,12 @@ namespace Remedy.Schematics.Templates
             set { _showCreateTile = value; Refresh(); }
         }
 
+        /// <summary>Label for the create tile. Null uses "New Template…".</summary>
+        public string CreateTileLabel { get; set; }
+
+        /// <summary>Tooltip for the create tile. Null uses the standard template creation hint.</summary>
+        public string CreateTileTooltip { get; set; }
+
         /// <summary>Show the category chips.</summary>
         public bool ShowCategories
         {
@@ -669,8 +675,8 @@ namespace Remedy.Schematics.Templates
 
                 if (template == null)
                 {
-                    _label.text = "New Template…";
-                    tooltip = "Make a new template: empty, from the selected scene object, or from an existing prefab.";
+                    _label.text = grid.CreateTileLabel ?? "New Template…";
+                    tooltip = grid.CreateTileTooltip ?? "Make a new template: empty, from the selected scene object, or from an existing prefab.";
                     _plus = new Label("+") { pickingMode = PickingMode.Ignore };
                     _plus.style.position = Position.Absolute;
                     _plus.style.left = 0;

@@ -32,6 +32,8 @@ namespace Remedy.Schematics.Browsers
         private string _selectedFolder = AudioRoot;
         private AudioClipTag _selectedTag;
         private AudioClip _previewClip;
+        private int _previewSamplePosition;
+        private bool _previewPaused;
         private Slider _tileSizeSlider;
         private VisualElement _folderList;
         private VisualElement _tagFilters;
@@ -329,6 +331,7 @@ namespace Remedy.Schematics.Browsers
             float size = _tileSizeSlider?.value ?? 168f;
             var card = new VisualElement();
             card.AddToClassList("audio-browser__card");
+            card.AddToClassList("audio-preview-surface");
             card.style.width = size;
             card.style.height = size;
             card.style.flexDirection = FlexDirection.Column;
@@ -460,7 +463,13 @@ namespace Remedy.Schematics.Browsers
             seek.RegisterValueChangedCallback(evt =>
             {
                 if (_previewClip == clip)
-                    AudioPreview.SetSamplePosition(clip, Mathf.RoundToInt(evt.newValue));
+                {
+                    _previewSamplePosition = Mathf.RoundToInt(evt.newValue);
+                    if (!_previewPaused)
+                        AudioPreview.SetSamplePosition(clip, _previewSamplePosition);
+                    else
+                        UpdatePreviewTime(clip, _previewSamplePosition);
+                }
             });
             seek.RegisterCallback<PointerDownEvent>(_ =>
             {
@@ -475,11 +484,27 @@ namespace Remedy.Schematics.Browsers
         {
             if (_previewClip == clip)
             {
-                StopPreview();
+                if (_previewPaused)
+                {
+                    AudioPreview.Play(clip, _previewSamplePosition);
+                    _previewPaused = false;
+                }
+                else
+                {
+                    _previewSamplePosition = Mathf.Clamp(
+                        Mathf.RoundToInt(AudioPreview.Position() * clip.frequency),
+                        0,
+                        Mathf.Max(clip.samples - 1, 0));
+                    AudioPreview.Stop();
+                    _previewPaused = true;
+                    UpdatePreviewTime(clip, _previewSamplePosition);
+                }
                 return;
             }
             StopPreview();
-            AudioPreview.Play(clip);
+            _previewSamplePosition = 0;
+            _previewPaused = false;
+            AudioPreview.Play(clip, _previewSamplePosition);
             _previewClip = clip;
             var activePlayer = _players.FirstOrDefault(player => player.Clip == clip);
             if (activePlayer != null)
@@ -507,6 +532,8 @@ namespace Remedy.Schematics.Browsers
                 return;
             AudioPreview.Stop();
             _previewClip = null;
+            _previewSamplePosition = 0;
+            _previewPaused = false;
             UpdatePlayers();
         }
 
@@ -529,18 +556,28 @@ namespace Remedy.Schematics.Browsers
             RefreshPendingWaveforms();
             if (_previewClip == null)
                 return;
+            if (_previewPaused)
+                return;
             if (!AudioPreview.IsPlaying())
             {
-                _previewClip = null;
-                UpdatePlayers();
+                StopPreview();
                 return;
             }
             var player = _players.FirstOrDefault(item => item.Clip == _previewClip);
             if (player == null)
                 return;
             float seconds = AudioPreview.Position();
-            player.Seek.SetValueWithoutNotify(Mathf.Clamp(seconds * _previewClip.frequency, 0f, Mathf.Max(_previewClip.samples - 1, 1)));
-            player.Time.text = FormatTime(seconds) + " / " + FormatTime(_previewClip.length);
+            _previewSamplePosition = Mathf.Clamp(Mathf.RoundToInt(seconds * _previewClip.frequency), 0, Mathf.Max(_previewClip.samples - 1, 0));
+            UpdatePreviewTime(_previewClip, _previewSamplePosition);
+        }
+
+        private void UpdatePreviewTime(AudioClip clip, int samplePosition)
+        {
+            var player = _players.FirstOrDefault(item => item.Clip == clip);
+            if (player == null)
+                return;
+            player.Seek.SetValueWithoutNotify(samplePosition);
+            player.Time.text = FormatTime(samplePosition / (float)clip.frequency) + " / " + FormatTime(clip.length);
         }
 
         private static string FormatTime(float seconds)
@@ -1053,7 +1090,7 @@ namespace Remedy.Schematics.Browsers
                 }
             }
 
-            public static void Play(AudioClip clip) => Call("PlayPreviewClip", clip, 0, false);
+            public static void Play(AudioClip clip, int startSample = 0) => Call("PlayPreviewClip", clip, startSample, false);
             public static void Stop() => Call("StopAllPreviewClips");
             public static bool IsPlaying() => Call("IsPreviewClipPlaying") is bool playing && playing;
             public static float Position() => Call("GetPreviewClipPosition") is float position ? position : 0f;

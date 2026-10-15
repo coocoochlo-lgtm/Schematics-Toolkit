@@ -73,7 +73,9 @@ namespace Remedy.Schematics.Browsers
 
         protected override void ConfigureGrid(SchematicTemplateGrid grid)
         {
-            grid.ShowCreateTile = false;
+            grid.ShowCreateTile = true;
+            grid.CreateTileLabel = "New Schematic Object…";
+            grid.CreateTileTooltip = "Create a Schematic Object from an empty template, the selected scene object, or a prefab.";
             grid.EmptyMessage = "No Schematic Objects yet.\nMake one from the Template Browser, or right-click in the Project window > Create > Schematics > Schematic Object.";
             grid.TileMenu = BuildMenu;
             grid.AdditionalTileMenu = (menu, entry) =>
