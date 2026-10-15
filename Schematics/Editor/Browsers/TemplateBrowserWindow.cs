@@ -6,7 +6,7 @@ using UnityEngine.UIElements;
 namespace Remedy.Schematics.Browsers
 {
     /// <summary>
-    /// The Template Browser as a normal dockable tab: every Schematic template (all catalogs merged), to look through,
+    /// The Template Browser section hosted in Project Manager: every Schematic template (all catalogs merged), to look through,
     /// manage (the "+" tile and the right-click menu) and place. Double-click or Enter puts the template in the open
     /// scene at the Scene view's pivot; drag a tile into the Scene view to put it where you drop it.
     /// </summary>
@@ -16,8 +16,8 @@ namespace Remedy.Schematics.Browsers
     /// </remarks>
     public class TemplateBrowserWindow : SchematicBrowserWindow
     {
-        /// <summary>Opens (or focuses) the Template Browser.</summary>
-        public static TemplateBrowserWindow Open() => OpenWindow<TemplateBrowserWindow>();
+        /// <summary>Opens Project Manager on the Templates section.</summary>
+        public static TemplateBrowserWindow Open() => ProjectManagerWindow.Open(ProjectManagerWindow.Section.Templates).TemplatePage;
 
         protected override string PrefsKey => "Remedy.Schematics.TemplateBrowser";
         protected override string Title => "Templates";
@@ -39,6 +39,10 @@ namespace Remedy.Schematics.Browsers
 
         protected override void ConfigureGrid(SchematicTemplateGrid grid)
         {
+            grid.CategoriesOf = entry => ProjectManagerTags.Categories("Templates", entry.Prefab,
+                new[] { entry.CategoryOrDefault });
+            grid.AdditionalTileMenu = (menu, entry) =>
+                ProjectManagerTags.AppendMenu(menu, "Templates", entry.Prefab, () => Grid?.Refresh());
             ApplyFilter(EditorPrefs.GetBool($"{PrefsKey}.LevelDesignOnly", false));
         }
 

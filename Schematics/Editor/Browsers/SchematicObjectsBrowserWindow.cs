@@ -8,7 +8,7 @@ using UnityEngine.UIElements;
 namespace Remedy.Schematics.Browsers
 {
     /// <summary>
-    /// Schematic Objects: every Schematic prefab already in the project (any prefab under Assets/ with a Schematic Object
+    /// The Schematic Objects section hosted in Project Manager: every Schematic prefab already in the project (any prefab under Assets/ with a Schematic Object
     /// on its root), in the same grid as the Template Browser. Chips group them by folder or by Int Tag. Double-click
     /// opens the prefab; drag a tile into the Scene view to place it; right-click to open its graph, ping it, make it a
     /// template or tag it for level design.
@@ -23,8 +23,8 @@ namespace Remedy.Schematics.Browsers
 
         private static readonly List<string> GroupChoices = new() { "Group by Folder", "Group by Tag" };
 
-        /// <summary>Opens (or focuses) the Schematic Objects browser.</summary>
-        public static SchematicObjectsBrowserWindow Open() => OpenWindow<SchematicObjectsBrowserWindow>();
+        /// <summary>Opens Project Manager on the Schematic Objects section.</summary>
+        public static SchematicObjectsBrowserWindow Open() => ProjectManagerWindow.Open(ProjectManagerWindow.Section.SchematicObjects).ObjectsPage;
 
         protected override string PrefsKey => "Remedy.Schematics.ObjectsBrowser";
         protected override string Title => "Schematic Objects";
@@ -76,6 +76,8 @@ namespace Remedy.Schematics.Browsers
             grid.ShowCreateTile = false;
             grid.EmptyMessage = "No Schematic Objects yet.\nMake one from the Template Browser, or right-click in the Project window > Create > Schematics > Schematic Object.";
             grid.TileMenu = BuildMenu;
+            grid.AdditionalTileMenu = (menu, entry) =>
+                ProjectManagerTags.AppendMenu(menu, "SchematicObjects", entry.Prefab, () => Grid?.Refresh());
             grid.Source = () => SchematicObjectIndex.All;
             ApplyGrouping();
             ApplyFilter(EditorPrefs.GetBool($"{PrefsKey}.LevelDesignOnly", false));
@@ -85,8 +87,10 @@ namespace Remedy.Schematics.Browsers
         {
             if (Grid == null) return;
             Grid.CategoriesOf = Grouping == GroupBy.Tag
-                ? SchematicObjectIndex.TagsOf
-                : new Func<SchematicTemplate, IEnumerable<string>>(entry => new[] { SchematicObjectIndex.FolderOf(entry) });
+                ? new Func<SchematicTemplate, IEnumerable<string>>(entry =>
+                    ProjectManagerTags.Categories("SchematicObjects", entry.Prefab, SchematicObjectIndex.TagsOf(entry)))
+                : new Func<SchematicTemplate, IEnumerable<string>>(entry =>
+                    ProjectManagerTags.Categories("SchematicObjects", entry.Prefab, new[] { SchematicObjectIndex.FolderOf(entry) }));
         }
 
         private void ApplyFilter(bool levelDesignOnly)

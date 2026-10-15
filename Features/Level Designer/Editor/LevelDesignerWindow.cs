@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
@@ -16,8 +17,8 @@ namespace Remedy.LevelDesigner.Editor
     /// height, air time, run speed…), exported to JSON or CSV, and which character the blockout's jump and run rulers
     /// use. <b>Palette</b>: the team's named blockout colours. The header holds the blockout X-ray toggle and opacity, the snapping step, and the
     /// Levels menu (the folder every scene goes in, moving existing scenes there, capturing a thumbnail).<br/>
-    /// A normal dockable editor window built with UI Toolkit: drag its tab next to the Inspector, the Scene view or
-    /// anywhere else, and it stays there across sessions like any built-in window.
+    /// The Level Designer panel hosted in Project Manager (or a standalone window when Project Manager is unavailable),
+    /// built with UI Toolkit.
     /// </summary>
     public class LevelDesignerWindow : EditorWindow
     {
@@ -25,9 +26,21 @@ namespace Remedy.LevelDesigner.Editor
         [MenuItem("Tools/Remedy/Level Designer")]
         public static void Open()
         {
+            if (OpenProjectManager())
+                return;
             // GetWindow makes (or focuses) a regular dockable window with a tab; it isn't a utility or popup window.
             var window = GetWindow<LevelDesignerWindow>(false, "Level Designer", true);
             window.Show();
+        }
+
+        private static bool OpenProjectManager()
+        {
+            var manager = Type.GetType("Remedy.Schematics.Browsers.ProjectManagerWindow, Remedy.Schematics.Browsers.Editor", false);
+            var open = manager?.GetMethod("OpenLevelDesigner", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+            if (open == null)
+                return false;
+            open.Invoke(null, null);
+            return true;
         }
 
         private static GUIContent Title()
@@ -36,9 +49,15 @@ namespace Remedy.LevelDesigner.Editor
             return new GUIContent("Level Designer", icon, "Blockouts, variants, character metrics and the blockout palette");
         }
 
-        /// <summary>Opens the window on its Palette tab (the blockout colours).</summary>
+        /// <summary>Opens Project Manager on the Level Designer's Palette tab.</summary>
         public static void OpenPalette()
         {
+            if (OpenProjectManager())
+            {
+                var manager = Type.GetType("Remedy.Schematics.Browsers.ProjectManagerWindow, Remedy.Schematics.Browsers.Editor", false);
+                manager?.GetMethod("OpenLevelDesignerPalette", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)?.Invoke(null, null);
+                return;
+            }
             Open();
             var window = GetWindow<LevelDesignerWindow>(false, "Level Designer", true);
             window._tab = Tab.Palette;
@@ -106,7 +125,13 @@ namespace Remedy.LevelDesigner.Editor
 
         public void CreateGUI()
         {
-            var root = rootVisualElement;
+            CreateHostedGUI(rootVisualElement);
+        }
+
+        public void CreateHostedGUI(VisualElement root, bool showPalette = false)
+        {
+            if (showPalette)
+                _tab = Tab.Palette;
             root.Clear();
             root.Add(BuildHeader());
             _body = new VisualElement { style = { flexGrow = 1 } };
@@ -323,6 +348,20 @@ namespace Remedy.LevelDesigner.Editor
             image.style.backgroundColor = new Color(0f, 0f, 0f, 0.25f);
             row.Add(image);
             row.Add(new Label { name = "name", style = { unityTextAlign = TextAnchor.MiddleLeft, flexGrow = 1, overflow = Overflow.Hidden } });
+            var background = new Color(0f, 0f, 0f, 0f);
+            row.RegisterCallback<PointerEnterEvent>(_ => row.style.backgroundColor = new Color(0.3f, 0.55f, 0.8f, 0.18f));
+            row.RegisterCallback<PointerLeaveEvent>(_ => row.style.backgroundColor = background);
+            row.RegisterCallback<PointerDownEvent>(evt =>
+            {
+                if (evt.button != 0)
+                    return;
+                row.style.backgroundColor = new Color(0.25f, 0.55f, 0.9f, 0.35f);
+                row.schedule.Execute(() =>
+                {
+                    if (row != null)
+                        row.style.backgroundColor = background;
+                }).ExecuteLater(220);
+            });
             return row;
         }
 
@@ -422,6 +461,7 @@ namespace Remedy.LevelDesigner.Editor
 
             var path = new Label(LevelDesignerContext.PathOf(blockout)) { style = { fontSize = 10, color = new Color(0.6f, 0.6f, 0.6f), marginLeft = 6 } };
             _artPane.Add(path);
+            AddLevelTags(_artPane, LevelDesignerContext.PathOf(blockout));
             var blockoutThumb = CardThumbnail(blockout.SceneGuid, LevelDesignerContext.PathOf(blockout));
             blockoutThumb.style.width = 197;
             blockoutThumb.style.marginLeft = 6;
@@ -498,6 +538,7 @@ namespace Remedy.LevelDesigner.Editor
             pathLabel.style.fontSize = 10;
             pathLabel.style.color = exists ? new Color(0.6f, 0.6f, 0.6f) : new Color(1f, 0.4f, 0.3f);
             card.Add(pathLabel);
+            AddLevelTags(card, variantPath);
 
             var compose = new Toggle("Compose into build")
             {
@@ -535,6 +576,25 @@ namespace Remedy.LevelDesigner.Editor
                     LevelDesignerContext.OpenVariant(blockout, variant);
             });
             return card;
+        }
+
+        private void AddLevelTags(VisualElement host, string scenePath)
+        {
+            var scene = string.IsNullOrEmpty(scenePath) ? null : AssetDatabase.LoadAssetAtPath<SceneAsset>(scenePath);
+            if (scene == null)
+                return;
+            var tagType = Type.GetType("Remedy.Schematics.Browsers.ProjectManagerTags, Remedy.Schematics.Browsers.Editor", false);
+            var buildEditor = tagType?.GetMethod("BuildEditor", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+            if (buildEditor == null)
+                return;
+            var editor = buildEditor.Invoke(null, new object[] { "Levels", scene, (Action)(() =>
+            {
+                _blockoutList?.RefreshItems();
+                if (_tab == Tab.Levels)
+                    BuildArtPane();
+            }) }) as VisualElement;
+            if (editor != null)
+                host.Add(editor);
         }
 
         private const string DismissArtMigrationKey = "Remedy.LevelDesigner.DismissArtFolderMigration";
@@ -588,6 +648,7 @@ namespace Remedy.LevelDesigner.Editor
         private static VisualElement Card()
         {
             var card = new VisualElement();
+            card.AddToClassList("level-designer__card");
             card.style.width = 210;
             card.style.minHeight = 130;
             card.style.marginRight = card.style.marginBottom = 6;
@@ -596,6 +657,28 @@ namespace Remedy.LevelDesigner.Editor
             card.style.borderTopLeftRadius = card.style.borderTopRightRadius = card.style.borderBottomLeftRadius = card.style.borderBottomRightRadius = 6;
             card.style.borderLeftWidth = card.style.borderRightWidth = card.style.borderTopWidth = card.style.borderBottomWidth = 1;
             card.style.borderLeftColor = card.style.borderRightColor = card.style.borderTopColor = card.style.borderBottomColor = new Color(1f, 1f, 1f, 0.08f);
+            var background = card.style.backgroundColor.value;
+            card.RegisterCallback<PointerEnterEvent>(_ =>
+            {
+                card.style.borderLeftColor = card.style.borderRightColor = card.style.borderTopColor = card.style.borderBottomColor =
+                    EditorGUIUtility.isProSkin ? new Color(0.55f, 0.75f, 1f, 0.75f) : new Color(0.12f, 0.38f, 0.7f, 0.75f);
+            });
+            card.RegisterCallback<PointerLeaveEvent>(_ =>
+            {
+                card.style.backgroundColor = background;
+                card.style.borderLeftColor = card.style.borderRightColor = card.style.borderTopColor = card.style.borderBottomColor = new Color(1f, 1f, 1f, 0.08f);
+            });
+            card.RegisterCallback<PointerDownEvent>(evt =>
+            {
+                if (evt.button != 0)
+                    return;
+                card.style.backgroundColor = new Color(0.25f, 0.55f, 0.9f, 0.3f);
+                card.schedule.Execute(() =>
+                {
+                    if (card != null)
+                        card.style.backgroundColor = background;
+                }).ExecuteLater(220);
+            });
             return card;
         }
 
