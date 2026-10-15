@@ -89,13 +89,10 @@ public class PrefabHierarchy : VisualElement
         Clear();
         _foldouts.Clear();
 
-        // While the prefab is open in Prefab Mode, its open copy is what's shown and edited (as the Inspector does):
-        // Prefab Mode saves it. Otherwise the prefab asset.
-        var live = LiveRoot();
+        // Always the prefab asset: every change is made through the load-edit-save below.
         if (_prefab == null)
             _prefab = AssetDatabase.LoadAssetAtPath<GameObject>(_assetPath);
-        _shown = live != null ? live : _prefab;
-        _shownIsLive = live != null;
+        _shown = _prefab;
         if (_shown == null)
             return;
 
@@ -108,11 +105,10 @@ public class PrefabHierarchy : VisualElement
         _signature = Signature();
     }
 
-    #region Prefab Mode, and following changes made elsewhere
+    #region Following changes made elsewhere
 
-    // The object the hierarchy shows: the Prefab Mode copy when the prefab is open there, otherwise the asset.
+    // The object the hierarchy shows: the prefab asset.
     private GameObject _shown;
-    private bool _shownIsLive;
 
     private const long WatchMs = 500;
     private IVisualElementScheduledItem _watch;
@@ -122,29 +118,18 @@ public class PrefabHierarchy : VisualElement
     private readonly HashSet<string> _expanded = new();
     private readonly HashSet<string> _expandedComponents = new();
 
-    private GameObject LiveRoot()
-    {
-        if (string.IsNullOrEmpty(_assetPath))
-            return null;
-        var stage = UnityEditor.SceneManagement.PrefabStageUtility.GetCurrentPrefabStage();
-        return stage != null && stage.assetPath == _assetPath ? stage.prefabContentsRoot : null;
-    }
-
     private string PathOf(Transform tf) => _shown != null && tf != null ? _shown.transform.GetRelativePath(tf) : "";
 
     /// <summary>
-    /// Twice a second: rebuilds when the prefab's objects or attached Behaviors changed elsewhere (the Inspector, Undo,
-    /// a Prefab Mode save), or when Prefab Mode opened or closed on it. Values aren't watched (their fields show the
-    /// current value anyway), so typing in a field never rebuilds.
+    /// Twice a second: only redraws (never edits) when the prefab asset's objects or attached Behaviors changed
+    /// elsewhere, e.g. a Prefab Mode save. Values aren't watched, so typing in a field never rebuilds.
     /// </summary>
     private void Watch()
     {
         if (_editing || panel == null || EditorApplication.isCompiling || EditorApplication.isUpdating)
             return;
 
-        var live = LiveRoot();
-        bool changedStage = (live != null) != _shownIsLive || (live != null && live != _shown) || _shown == null;
-        if (changedStage || Signature() != _signature)
+        if (_shown == null || Signature() != _signature)
             RebuildHierarchy();
     }
 
@@ -895,86 +880,31 @@ public class PrefabHierarchy : VisualElement
 
     #region Editing the prefab
 
-    // One load-edit-save at a time; edits made meanwhile wait and go in together with the next one.
+    // True while a save is in flight (the redraw watcher waits for it).
     private static bool _editing;
-    private readonly List<Action<GameObject, bool>> _queuedEdits = new();
-    private bool _retryScheduled;
 
     /// <summary>
-    /// Makes a change to the prefab. Open in Prefab Mode: on its open copy, with Undo (the same objects the Inspector
-    /// edits; Prefab Mode saves them). Otherwise with the load-edit-save of the prefab file: load its contents, change
-    /// them, save them over the asset, reimport, rebuild. The edit gets the root to change and whether it's the
-    /// Prefab Mode copy.
+    /// Makes a change to the prefab with the original load-edit-save: load the prefab's contents, change them, save
+    /// them over the asset, reimport, rebuild. The edit gets the loaded root (and false: it's never the Prefab Mode copy).
     /// </summary>
     private void EditPrefab(string undoName, Action<GameObject, bool> edit)
     {
-        var live = LiveRoot();
-        if (live != null)
-        {
-            try
-            {
-                edit(live, true);
-            }
-            catch (Exception exception)
-            {
-                Debug.LogException(exception, live);
-            }
-            var schematic = live.GetComponent<SchematicObject>();
-            if (schematic != null)
-                EditorUtility.SetDirty(schematic);
-            if (live.scene.IsValid())
-                UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(live.scene);
-            RebuildHierarchy();
-            return;
-        }
-
-        if (edit != null)
-            _queuedEdits.Add(edit);
-
-        if (_editing || EditorApplication.isCompiling || EditorApplication.isUpdating)
-        {
-            ScheduleRetry();
-            return;
-        }
-        if (_queuedEdits.Count == 0)
+        if (edit == null)
             return;
 
-        _editing = true;
-        var edits = _queuedEdits.ToArray();
-        _queuedEdits.Clear();
-
-        int trace = PrefabSaveTrace.Begin($"dock edit ({edits.Length} change(s))", _assetPath);
-        GameObject copy = null;
+        var copy = PrefabUtility.LoadPrefabContents(_assetPath);
         try
         {
-            copy = PrefabUtility.LoadPrefabContents(_assetPath);
-            PrefabSaveTrace.Step(trace, "loaded copy", _assetPath, dockObject: _prefab, contents: copy);
             KeepSchematicLink(copy);
-            foreach (var queued in edits)
-                queued(copy, false);
+            edit(copy, false);
         }
         catch (Exception exception)
         {
             Debug.LogException(exception);
-            if (copy != null)
-                PrefabUtility.UnloadPrefabContents(copy);
-            _editing = false;
+            PrefabUtility.UnloadPrefabContents(copy);
             return;
         }
-        ApplyChangesToPrefabAsset(copy, trace);
-    }
-
-    private void ScheduleRetry()
-    {
-        if (_retryScheduled)
-            return;
-        _retryScheduled = true;
-        EditorApplication.delayCall += () =>
-        {
-            _retryScheduled = false;
-            if (_queuedEdits.Count > 0)
-                EditPrefab(null, null);
-        };
+        ApplyChangesToPrefabAsset(copy);
     }
 
     /// <summary>
@@ -1021,38 +951,21 @@ public class PrefabHierarchy : VisualElement
     }
 
     /// <summary>
-    /// Saves the edited copy over the prefab asset, reimports it and rebuilds.
+    /// Applies changes to the prefab asset and triggers rebuild if needed.
     /// </summary>
-    private async void ApplyChangesToPrefabAsset(GameObject copy, int trace = 0)
+    private async void ApplyChangesToPrefabAsset(GameObject copy)
     {
-        try
-        {
-            PrefabUtility.SaveAsPrefabAsset(copy, _assetPath);
-            PrefabSaveTrace.Step(trace, "saved copy over file", _assetPath, dockObject: _prefab, contents: copy);
-            PrefabUtility.UnloadPrefabContents(copy);
+        _editing = true;
+        PrefabUtility.SaveAsPrefabAsset(copy, _assetPath);
+        PrefabUtility.UnloadPrefabContents(copy);
 
-            AssetDatabase.Refresh();
+        AssetDatabase.Refresh();
 
-            await EditorUtilities.NextEditorFrame();
+        await EditorUtilities.NextEditorFrame();
 
-            if (_prefab == null)
-                _prefab = AssetDatabase.LoadAssetAtPath<GameObject>(_assetPath);
-            PrefabRefreshUtility.ReimportAndResetPrefab(_prefab);
-            PrefabSaveTrace.Step(trace, "after reimport", _assetPath, dockObject: _prefab);
-        }
-        catch (Exception exception)
-        {
-            Debug.LogException(exception);
-        }
-        finally
-        {
-            _editing = false;
-        }
-
-        RebuildHierarchy();
-
-        if (_queuedEdits.Count > 0)
-            ScheduleRetry();
+        PrefabRefreshUtility.ReimportAndResetPrefab(_prefab);
+        _editing = false;
+        RebuildHierarchy(_prefab.transform);
     }
 
     #endregion
