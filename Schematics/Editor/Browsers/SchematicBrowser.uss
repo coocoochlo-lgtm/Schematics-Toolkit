@@ -175,6 +175,24 @@
     background-color: rgba(54, 119, 173, 0.78);
 }
 
+.level-designer__card-frame {
+    position: relative;
+    overflow: hidden;
+    background-image: url("../Styling/Resources/Textures/button-gradient.png");
+    background-size: 100% 100%;
+    transition-property: background-color, border-color, scale;
+    transition-duration: 0.12s;
+}
+
+.level-designer__card-gloss {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    opacity: 0.24;
+}
+
 .project-manager {
     flex-direction: column;
     flex-grow: 1;
