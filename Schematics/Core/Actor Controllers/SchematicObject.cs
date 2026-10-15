@@ -35,8 +35,9 @@ namespace Remedy.Schematics
         /// The Schematic Behaviors attached through the Inspector, keyed by the GameObject they're attached to
         /// (this object or one of its children).
         /// </summary>
-        [HideInInspector]
+        //[HideInInspector]
         public SerializableDictionary<GameObject, BehaviorAttachmentList> Behaviors = new();
+        public List<BehaviorAttachment> test = new();
 
         [SerializeField, HideInInspector]
         private int _objectId;
@@ -492,10 +493,10 @@ namespace Remedy.Schematics
             if (target == null)
                 target = gameObject;
 
-            var existing = FindAttachment(behaviorType, target);
-            if (existing != null)
-                return existing;
-
+            //var existing = FindAttachment(behaviorType, target);
+            //if (existing != null)
+            //    return existing;
+            
             foreach (var requiredBehavior in SchematicBehavior.GetRequiredBehaviors(behaviorType))
                 AttachBehavior(requiredBehavior, target);
 
@@ -513,6 +514,8 @@ namespace Remedy.Schematics
             if (attachment.Metadata == null)
                 Debug.LogWarning($"{behaviorType.Name} has no Behavior Metadata yet. Use Tools/Remedy/Schematics/Refresh Behavior Metadata, then attach it again.", this);
             list.Items.Add(attachment);
+
+            test.Add(attachment);
 
             SchematicBehavior.RunSetup(behaviorType, target, attachment);
             return attachment;

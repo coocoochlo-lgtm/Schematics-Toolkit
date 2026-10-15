@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   ShowCursor: 0
   InputMaps:
-  - Name: Move
+  - Name: Character Controller
     Inputs:
     - Name: Move
       Input:
@@ -81,63 +81,9 @@ MonoBehaviour:
         m_Flags: 0
         m_Priority: 0
       Output: {fileID: 11400000, guid: ccc69d691ce005a4db77f3d58ccc7051, type: 2}
-      OneShot: 0
-    - Name: Default text
-      Input:
-        m_Name: Input
-        m_Type: 0
-        m_ExpectedControlType: 
-        m_Id: 10177b96-fa35-46a5-9a62-db5c600db789
-        m_Processors: 
-        m_Interactions: 
-        m_SingletonActionBindings: []
-        m_Flags: 0
-        m_Priority: 0
-      Output: {fileID: 11400000, guid: c26942416f234c847874f96d63d0f097, type: 2}
-      OneShot: 0
-    - Name: Default text
-      Input:
-        m_Name: Input
-        m_Type: 0
-        m_ExpectedControlType: 
-        m_Id: 29a2d6db-f4cf-4443-9632-f8abbea68f03
-        m_Processors: 
-        m_Interactions: 
-        m_SingletonActionBindings: []
-        m_Flags: 0
-        m_Priority: 0
-      Output: {fileID: 11400000, guid: 9ba2c26aeccaddd44911b0d8b9bd59f2, type: 2}
-      OneShot: 0
-    - Name: Default text
-      Input:
-        m_Name: Input
-        m_Type: 0
-        m_ExpectedControlType: 
-        m_Id: 954dd83a-2041-4422-ba55-6db2b859af5a
-        m_Processors: 
-        m_Interactions: 
-        m_SingletonActionBindings: []
-        m_Flags: 0
-        m_Priority: 0
-      Output: {fileID: 11400000, guid: 566314ddce3bdcb4e9f0a65955923c72, type: 2}
-      OneShot: 0
-  - Name: Default text
-    Inputs:
-    - Name: Default text
-      Input:
-        m_Name: Input
-        m_Type: 0
-        m_ExpectedControlType: 
-        m_Id: d072410f-6ef5-41a9-91c9-9205d29d4168
-        m_Processors: 
-        m_Interactions: 
-        m_SingletonActionBindings: []
-        m_Flags: 0
-        m_Priority: 0
-      Output: {fileID: 11400000, guid: 90cf48f9ca1353a4bb020ea9a30f26b6, type: 2}
       OneShot: 0
   _currentActionMap:
-    Name: Move
+    Name: Character Controller
     Inputs:
     - Name: Move
       Input:
@@ -204,43 +150,4 @@ MonoBehaviour:
         m_Flags: 0
         m_Priority: 0
       Output: {fileID: 11400000, guid: ccc69d691ce005a4db77f3d58ccc7051, type: 2}
-      OneShot: 0
-    - Name: Default text
-      Input:
-        m_Name: Input
-        m_Type: 0
-        m_ExpectedControlType: 
-        m_Id: 10177b96-fa35-46a5-9a62-db5c600db789
-        m_Processors: 
-        m_Interactions: 
-        m_SingletonActionBindings: []
-        m_Flags: 0
-        m_Priority: 0
-      Output: {fileID: 11400000, guid: c26942416f234c847874f96d63d0f097, type: 2}
-      OneShot: 0
-    - Name: Default text
-      Input:
-        m_Name: Input
-        m_Type: 0
-        m_ExpectedControlType: 
-        m_Id: 29a2d6db-f4cf-4443-9632-f8abbea68f03
-        m_Processors: 
-        m_Interactions: 
-        m_SingletonActionBindings: []
-        m_Flags: 0
-        m_Priority: 0
-      Output: {fileID: 11400000, guid: 9ba2c26aeccaddd44911b0d8b9bd59f2, type: 2}
-      OneShot: 0
-    - Name: Default text
-      Input:
-        m_Name: Input
-        m_Type: 0
-        m_ExpectedControlType: 
-        m_Id: 954dd83a-2041-4422-ba55-6db2b859af5a
-        m_Processors: 
-        m_Interactions: 
-        m_SingletonActionBindings: []
-        m_Flags: 0
-        m_Priority: 0
-      Output: {fileID: 11400000, guid: 566314ddce3bdcb4e9f0a65955923c72, type: 2}
       OneShot: 0
