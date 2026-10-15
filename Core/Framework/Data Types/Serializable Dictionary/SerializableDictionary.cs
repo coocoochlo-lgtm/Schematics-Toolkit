@@ -10,12 +10,26 @@ namespace Remedy.Framework
     [Serializable]
     public class SerializableDictionary<TKey, TValue> : IDictionary<TKey, TValue>, ISerializationCallbackReceiver
     {
-        private Dictionary<TKey, TValue> dictionary = new Dictionary<TKey, TValue>();
+        private Dictionary<TKey, TValue> _dictionary = new Dictionary<TKey, TValue>();
+
+        // Set when Unity has just loaded `items`: the dictionary is built from them the first time it's used, not inside
+        // OnAfterDeserialize, where Unity objects used as keys may not be loaded yet (comparing them to null there can
+        // say "null", which used to drop them and leave the dictionary empty).
+        [NonSerialized]
+        private bool _pending;
+
+        // The dictionary, built from the stored items first if they were just loaded.
+        private Dictionary<TKey, TValue> dictionary
+        {
+            get
+            {
+                EnsureBuilt();
+                return _dictionary;
+            }
+        }
 
         [SerializeField]
         private List<DictionaryItem> items = new List<DictionaryItem>();
-
-        private bool invalidFlag;
 
         public TValue this[TKey key]
         {
@@ -118,51 +132,39 @@ namespace Remedy.Framework
 
         public void OnBeforeSerialize()
         {
-            if (invalidFlag)
-            {
+            // Not built since it was loaded: the stored items are still exactly its contents.
+            if (_pending)
                 return;
-            }
-            else
-            {
-                items.Clear();
-            }
 
-            foreach (var pair in dictionary)
-            {
+            items.Clear();
+            foreach (var pair in _dictionary)
                 items.Add(new DictionaryItem(pair.Key, pair.Value));
-            }
         }
 
         public void OnAfterDeserialize()
         {
-            dictionary.Clear();
+            // Built on first use (see _pending); the items are kept, so nothing is lost if it's saved before then.
+            _pending = true;
+        }
 
-            invalidFlag = false;
+        private void EnsureBuilt()
+        {
+            if (!_pending)
+                return;
+            _pending = false;
 
-            for (var i = 0; i < items.Count; ++i)
+            _dictionary ??= new Dictionary<TKey, TValue>();
+            _dictionary.Clear();
+            if (items == null)
+                return;
+
+            foreach (var item in items)
             {
-                if (items[i] != null)
-                {
-                    if (items[i].key != null || !(dictionary.ContainsKey(items[i].key)))
-                    {
-                        try
-                        {
-                            dictionary.Add(items[i].key, items[i].value);
-                        }
-                        catch
-                        { }
-                    }
-                    else
-                    {
-                        invalidFlag = true;
-                        continue;
-                    }
-                }
-            }
-
-            if (!invalidFlag)
-            {
-                items.Clear();
+                // Plain reference check: an entry whose object is missing is kept rather than silently dropped.
+                if (item == null || ReferenceEquals(item.key, null))
+                    continue;
+                if (!_dictionary.ContainsKey(item.key))
+                    _dictionary.Add(item.key, item.value);
             }
         }
 
@@ -189,12 +191,12 @@ namespace Remedy.Framework
 
         public TKey KeyAt(int index)
         {
-            return items[index].key;
+            return dictionary.Keys.ElementAt(index);
         }
 
         public TValue ValueAt(int index)
         {
-            return items[index].value;
+            return dictionary.Values.ElementAt(index);
         }
 
         public override string ToString()
@@ -251,7 +253,8 @@ namespace Remedy.Framework
         /// </summary>
         public void FromString(string dictionaryString)
         {
-            dictionary = NewFromString(dictionaryString).dictionary;
+            _dictionary = NewFromString(dictionaryString).dictionary;
+            _pending = false;
         }
 
         public static implicit operator Dictionary<TKey, TValue>(SerializableDictionary<TKey, TValue> serializableDictionary)
