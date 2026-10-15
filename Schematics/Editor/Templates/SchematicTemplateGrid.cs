@@ -677,13 +677,17 @@ namespace Remedy.Schematics.Templates
                 {
                     _label.text = grid.CreateTileLabel ?? "New Template…";
                     tooltip = grid.CreateTileTooltip ?? "Make a new template: empty, from the selected scene object, or from an existing prefab.";
+                    _image.image = Resources.Load<Texture2D>("Textures/button-gradient");
+                    _image.scaleMode = ScaleMode.StretchToFill;
+                    _image.style.backgroundColor = new Color(0.18f, 0.36f, 0.55f, 0.55f);
+                    _image.style.opacity = 0.72f;
                     _plus = new Label("+") { pickingMode = PickingMode.Ignore };
                     _plus.style.position = Position.Absolute;
                     _plus.style.left = 0;
                     _plus.style.right = 0;
                     _plus.style.top = 0;
                     _plus.style.unityTextAlign = TextAnchor.MiddleCenter;
-                    _plus.style.opacity = 0.6f;
+                    _plus.style.opacity = 0.92f;
                     _image.Add(_plus);
                     _image.style.borderTopWidth = _image.style.borderBottomWidth = _image.style.borderLeftWidth = _image.style.borderRightWidth = 1;
                     var dashed = new Color(0.5f, 0.5f, 0.5f, 0.5f);

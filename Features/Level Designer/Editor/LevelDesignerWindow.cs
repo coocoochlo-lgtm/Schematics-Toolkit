@@ -340,6 +340,7 @@ namespace Remedy.LevelDesigner.Editor
         private static VisualElement MakeBlockoutItem()
         {
             var row = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, paddingLeft = 4 } };
+            AddCardFrame(row);
             var image = new Image { name = "thumbnail", scaleMode = ScaleMode.ScaleAndCrop };
             image.style.width = 64;
             image.style.height = 36;
@@ -653,20 +654,26 @@ namespace Remedy.LevelDesigner.Editor
             card.style.minHeight = 130;
             card.style.marginRight = card.style.marginBottom = 6;
             card.style.paddingLeft = card.style.paddingRight = card.style.paddingTop = card.style.paddingBottom = 6;
-            card.style.backgroundColor = new Color(0f, 0f, 0f, 0.15f);
+            card.style.backgroundColor = EditorGUIUtility.isProSkin
+                ? new Color(0.18f, 0.20f, 0.23f, 0.92f)
+                : new Color(0.82f, 0.85f, 0.89f, 0.96f);
             card.style.borderTopLeftRadius = card.style.borderTopRightRadius = card.style.borderBottomLeftRadius = card.style.borderBottomRightRadius = 6;
             card.style.borderLeftWidth = card.style.borderRightWidth = card.style.borderTopWidth = card.style.borderBottomWidth = 1;
-            card.style.borderLeftColor = card.style.borderRightColor = card.style.borderTopColor = card.style.borderBottomColor = new Color(1f, 1f, 1f, 0.08f);
+            card.style.borderLeftColor = card.style.borderRightColor = card.style.borderTopColor = card.style.borderBottomColor =
+                EditorGUIUtility.isProSkin ? new Color(1f, 1f, 1f, 0.22f) : new Color(0f, 0f, 0f, 0.22f);
+            AddCardFrame(card);
             var background = card.style.backgroundColor.value;
             card.RegisterCallback<PointerEnterEvent>(_ =>
             {
                 card.style.borderLeftColor = card.style.borderRightColor = card.style.borderTopColor = card.style.borderBottomColor =
                     EditorGUIUtility.isProSkin ? new Color(0.55f, 0.75f, 1f, 0.75f) : new Color(0.12f, 0.38f, 0.7f, 0.75f);
+                card.style.scale = new Scale(new Vector2(1.015f, 1.015f));
             });
             card.RegisterCallback<PointerLeaveEvent>(_ =>
             {
                 card.style.backgroundColor = background;
                 card.style.borderLeftColor = card.style.borderRightColor = card.style.borderTopColor = card.style.borderBottomColor = new Color(1f, 1f, 1f, 0.08f);
+                card.style.scale = new Scale(Vector2.one);
             });
             card.RegisterCallback<PointerDownEvent>(evt =>
             {
@@ -680,6 +687,29 @@ namespace Remedy.LevelDesigner.Editor
                 }).ExecuteLater(220);
             });
             return card;
+        }
+
+        private static void AddCardFrame(VisualElement card)
+        {
+            card.AddToClassList("level-designer__card-frame");
+            card.style.position = Position.Relative;
+            card.style.overflow = Overflow.Hidden;
+            card.style.borderTopWidth = card.style.borderRightWidth = card.style.borderBottomWidth = card.style.borderLeftWidth = 1;
+            card.style.borderTopLeftRadius = card.style.borderTopRightRadius =
+                card.style.borderBottomLeftRadius = card.style.borderBottomRightRadius = 5;
+            var border = EditorGUIUtility.isProSkin ? new Color(1f, 1f, 1f, 0.22f) : new Color(0f, 0f, 0f, 0.22f);
+            card.style.borderTopColor = card.style.borderRightColor = card.style.borderBottomColor = card.style.borderLeftColor = border;
+            var gloss = new Image
+            {
+                image = Resources.Load<Texture2D>("Textures/button-gradient"),
+                scaleMode = ScaleMode.StretchToFill,
+                pickingMode = PickingMode.Ignore
+            };
+            gloss.style.position = Position.Absolute;
+            gloss.style.left = gloss.style.top = gloss.style.right = gloss.style.bottom = 0;
+            gloss.style.opacity = 0.24f;
+            gloss.AddToClassList("level-designer__card-gloss");
+            card.Add(gloss);
         }
 
         private static TextField NotesField(string value, System.Action<string> set, string placeholder)
