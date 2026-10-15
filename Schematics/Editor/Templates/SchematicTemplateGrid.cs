@@ -117,6 +117,9 @@ namespace Remedy.Schematics.Templates
         /// <summary>Tooltip for the create tile. Null uses the standard template creation hint.</summary>
         public string CreateTileTooltip { get; set; }
 
+        /// <summary>Place the create tile before the asset tiles.</summary>
+        public bool CreateTileFirst { get; set; }
+
         /// <summary>Show the category chips.</summary>
         public bool ShowCategories
         {
@@ -286,13 +289,18 @@ namespace Remedy.Schematics.Templates
         /// <summary>Selects a template (if it's visible).</summary>
         public void Select(SchematicTemplate template)
         {
+            Select(template, true);
+        }
+
+        private void Select(SchematicTemplate template, bool scrollIntoView)
+        {
             if (Selected == template) return;
             Selected = template;
             foreach (var tile in _tiles)
                 tile.SetSelected(tile.Template != null && tile.Template == template);
             UpdateDetails();
             var selectedTile = _tiles.FirstOrDefault(t => t.Template == template && t.Template != null);
-            if (selectedTile != null)
+            if (scrollIntoView && selectedTile != null)
                 _scroll.ScrollTo(selectedTile);
             SelectionChanged?.Invoke(template);
         }
@@ -306,6 +314,9 @@ namespace Remedy.Schematics.Templates
             _tiles.Clear();
 
             string search = _search.value?.Trim() ?? "";
+            if (_showCreateTile && CreateTileFirst)
+                AddCreateTile();
+
             foreach (var template in ItemsInCategory(_category))
             {
                 if (_filter != null && !_filter(template))
@@ -317,11 +328,9 @@ namespace Remedy.Schematics.Templates
                 _content.Add(tile);
             }
 
-            if (_showCreateTile)
+            if (_showCreateTile && !CreateTileFirst)
             {
-                var plus = new Tile(this, null);
-                _tiles.Add(plus);
-                _content.Add(plus);
+                AddCreateTile();
             }
 
             bool anyTemplates = _tiles.Any(t => t.Template != null);
@@ -339,9 +348,16 @@ namespace Remedy.Schematics.Templates
             // Keep the selection if it's still shown; otherwise select the first.
             var keep = Selected != null && _tiles.Any(t => t.Template == Selected) ? Selected : _tiles.FirstOrDefault(t => t.Template != null)?.Template;
             Selected = null;
-            Select(keep);
+            Select(keep, !CreateTileFirst);
             if (keep == null)
                 UpdateDetails();
+        }
+
+        private void AddCreateTile()
+        {
+            var tile = new Tile(this, null);
+            _tiles.Add(tile);
+            _content.Add(tile);
         }
 
         private IEnumerable<SchematicTemplate> Items
@@ -688,6 +704,8 @@ namespace Remedy.Schematics.Templates
                     _plus.style.top = 0;
                     _plus.style.unityTextAlign = TextAnchor.MiddleCenter;
                     _plus.style.opacity = 0.92f;
+                    _plus.style.color = Color.white;
+                    _plus.style.unityFontStyleAndWeight = FontStyle.Bold;
                     _image.Add(_plus);
                     _image.style.borderTopWidth = _image.style.borderBottomWidth = _image.style.borderLeftWidth = _image.style.borderRightWidth = 1;
                     var dashed = new Color(0.5f, 0.5f, 0.5f, 0.5f);
