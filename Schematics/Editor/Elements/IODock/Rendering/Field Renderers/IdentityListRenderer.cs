@@ -199,17 +199,21 @@ public class IdentityListContainerRenderer : FieldRenderer
             header.Add(removeButton);
         }
 
-        if (toggle != null)
+        // Double-click the item's title to rename it, as in the Prefab Hierarchy: read with pointer events on the title
+        // label (the foldout's toggle takes mouse clicks for itself), and only when the attribute allows renaming.
+        if (toggle != null && CanRename(current))
         {
-            toggle.tooltip = "Double-click to rename.";
-            toggle.RegisterCallback<MouseDownEvent>(evt =>
+            VisualElement title = toggle.Q<Label>();
+            if (title == null)
+                title = toggle;
+            title.tooltip = "Double-click to rename.";
+            title.RegisterCallback<PointerDownEvent>(evt =>
             {
-                if (evt.clickCount == 2 && evt.button == 0)
-                {
-                    ChangeValue(elementPath, current, toggle, newName => itemFoldout.text = newName);
-                    evt.StopPropagation();
-                }
-            });
+                if (evt.button != 0 || evt.clickCount != 2)
+                    return;
+                evt.StopPropagation();
+                ChangeValue(elementPath, current, toggle, newName => itemFoldout.text = newName);
+            }, TrickleDown.TrickleDown);
         }
 
         (bool drawFields, VisualElement fieldsContainer) = IODockRegistry.RenderMultipleFields(_window, _object, current, elementPath, onModified: _onModified);
@@ -233,26 +237,36 @@ public class IdentityListContainerRenderer : FieldRenderer
                                                                 if (newValue == null || (newValue is string name && string.IsNullOrWhiteSpace(name)))
                                                                     return;
 
-                                                                // Renamed on the object's current data, so the change is kept.
-                                                                var target = ManagedPath.Resolve(_object, elementPath);
-                                                                if (target == null || target.GetType() != item.GetType())
-                                                                    target = item;
-                                                                var identifier = IdentifierMember(target.GetType());
-                                                                if (identifier == null)
-                                                                    return;
-
-                                                                if (newValue is string text)
-                                                                    newValue = text.Trim();
-                                                                if (Equals(identifier.GetValue(target), newValue))
-                                                                    return;
-
-                                                                if (_object != null)
-                                                                    Undo.RecordObject(_object, "Rename " + ItemLabel);
-                                                                identifier.SetValue(target, newValue);
-                                                                OnModified();
-                                                                onItemEditted?.Invoke(GetItemName(target));
+                                                                // The popup reports from its OnDisable; the data is changed right after, as in the Prefab Hierarchy.
+                                                                EditorApplication.delayCall += () => ApplyRename(elementPath, item, newValue, onItemEditted);
                                                             },
                                                             popupOptions: GetPopupOptions());
+    }
+
+    // Items are renamable when the attribute allows it and they have the identifier field it names.
+    private bool CanRename(object item)
+        => _listAttr != null && _listAttr.Renamable && item != null && IdentifierMember(item.GetType()) != null;
+
+    private void ApplyRename(string elementPath, object item, object newValue, Action<string> onItemEditted)
+    {
+        // Renamed on the object's current data, so the change is kept.
+        var target = ManagedPath.Resolve(_object, elementPath);
+        if (target == null || target.GetType() != item.GetType())
+            target = item;
+        var identifier = IdentifierMember(target.GetType());
+        if (identifier == null)
+            return;
+
+        if (newValue is string text)
+            newValue = text.Trim();
+        if (Equals(identifier.GetValue(target), newValue))
+            return;
+
+        if (_object != null)
+            Undo.RecordObject(_object, "Rename " + ItemLabel);
+        identifier.SetValue(target, newValue);
+        OnModified();
+        onItemEditted?.Invoke(GetItemName(target));
     }
 
     /// <summary>

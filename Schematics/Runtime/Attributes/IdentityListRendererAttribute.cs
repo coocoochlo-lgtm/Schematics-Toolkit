@@ -15,6 +15,8 @@ public class IdentityListRendererAttribute : CustomFieldRendererAttribute
     public string RemoveItem;
     public string FoldoutTitle;
     public string ItemLabel;
+    /// <summary>Whether items can be renamed (double-click their title) through the identifier field.</summary>
+    public bool Renamable;
 
     /// <summary>
     /// 
@@ -24,8 +26,9 @@ public class IdentityListRendererAttribute : CustomFieldRendererAttribute
     /// <param name="depth">Increment for each placement of this attribute reletive to the nest of the class the field is included in to make it visually distinct from the other nests in the Hierarchy</param>
     /// <param name="extraFields">Names of Fields in the class of items within the list that should also be drawn in the IODock.</param>
     /// <param name="options">A reference to a Field, Property, or Method that returns the Options available for a Dropdown.</param>
-    public IdentityListRendererAttribute(ListIdentifierType identifierType, string identifierField, int depth, string addItemCallback = null, string removeItemCallback = null, string[] extraFields = null, string options = null, string foldoutTitle = "", string itemLabel = "")
+    public IdentityListRendererAttribute(ListIdentifierType identifierType, string identifierField, int depth, string addItemCallback = null, string removeItemCallback = null, string[] extraFields = null, string options = null, string foldoutTitle = "", string itemLabel = "", bool renamable = true)
     {
+        Renamable = renamable;
         IdentifierType = identifierType;
         Identifier = identifierField;
         ExtraFields = extraFields;
