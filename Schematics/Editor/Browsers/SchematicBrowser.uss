@@ -65,6 +65,39 @@
     margin-left: 6px;
 }
 
+.schematic-browser__button,
+.project-manager__tab,
+.schematic-grid__chip,
+.project-manager__tag,
+.audio-browser__tag-filter {
+    background-image: url("../Styling/Resources/Textures/button-gradient.png");
+    background-size: 100% 100%;
+    transition-property: background-color, border-color;
+    transition-duration: 0.12s;
+}
+
+.schematic-browser__button,
+.project-manager__tab,
+.schematic-grid__chip,
+.audio-browser__tag-filter {
+    background-color: rgba(44, 93, 135, 0.72);
+    color: #ffffff;
+}
+
+.schematic-browser__button:hover,
+.project-manager__tab:hover,
+.schematic-grid__chip:hover,
+.audio-browser__tag-filter:hover {
+    background-color: rgba(54, 119, 173, 0.92);
+}
+
+.project-manager__tab:checked,
+.schematic-grid__chip--selected,
+.audio-browser__tag-filter--selected {
+    background-color: #2c5d87;
+    border-color: rgba(255, 255, 255, 0.65);
+}
+
 .schematic-browser__toggle > Label {
     min-width: 0;
     margin-right: 4px;
@@ -128,6 +161,36 @@
     border-right-color: rgba(100, 170, 255, 0.65);
     border-top-color: rgba(100, 170, 255, 0.65);
     border-bottom-color: rgba(100, 170, 255, 0.65);
+}
+
+.schematic-grid__tile--create {
+    background-image: url("../Styling/Resources/Textures/button-gradient.png");
+    background-size: 100% 100%;
+    background-color: rgba(44, 93, 135, 0.46);
+    border-width: 1px;
+    border-color: rgba(120, 180, 235, 0.65);
+}
+
+.schematic-grid__tile--create:hover {
+    background-color: rgba(54, 119, 173, 0.78);
+}
+
+.level-designer__card-frame {
+    position: relative;
+    overflow: hidden;
+    background-image: url("../Styling/Resources/Textures/button-gradient.png");
+    background-size: 100% 100%;
+    transition-property: background-color, border-color, scale;
+    transition-duration: 0.12s;
+}
+
+.level-designer__card-gloss {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    opacity: 0.24;
 }
 
 .project-manager {
