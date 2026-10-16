@@ -7,7 +7,8 @@ using UnityEngine;
 
 /// <summary>
 /// Applies forces, springs and gravity to a character's Box3D body. Movement controllers on the same GameObject drive it
-/// through its methods (on the selected instance): <c>Self.GetSchematicBehavior&lt;CharacterMotionContext&gt;().ApplyForce(...)</c>.
+/// through its methods (on the selected instance), from a <see cref="BehaviorHandle{TBehavior}"/> field:
+/// <c>_motion.Selected.ApplyForce(...)</c> (or <c>Self.GetSchematicBehavior&lt;CharacterMotionContext&gt;()</c> from outside).
 /// </summary>
 [SchematicDoc(@"{""name"": ""Character Motion Context"", ""kind"": ""behavior"", ""menu"": ""Movement/3D/Character Motion Context"", ""description"": ""Applies forces, springs and gravity to a character's Box3D body. Movement controllers on the same GameObject drive it through its methods (on the selected instance): Self.GetSchematicBehavior<CharacterMotionContext>().ApplyForce(...)."", ""variables"": [""Properties"", ""OnPushed"", ""SpringPathFinished"", ""IsKinematic"", ""CameraTransform""], ""signals"": [""JumpInput"", ""MoveInput"", ""StaminaUpdated"", ""SetDirectionOfGravity"", ""OnJump"", ""OnMoveOnGround"", ""OnFall""], ""use_for"": [""applying movement forces to a character""], ""notes"": ""Required by the movement controllers; send its input Signals to move.""}")]
 [SchematicBehaviorPath("Movement/3D/Character Motion Context")]
@@ -96,6 +97,10 @@ public class CharacterMotionContext : SchematicBehavior
     // The Box3D body is created in its own Awake, which may come after OnCreate: it's set up on the first physics step.
     private readonly VariableHandle<bool> _bodyConfigured = false;
 
+    // The Raycast Context on the same GameObject. Its rows are its own: index its Variables with _raycast[instance],
+    // never with this Behavior's instance.
+    private readonly BehaviorHandle<CharacterRaycastContext> _raycast;
+
     private static float DeltaTime => Time.fixedDeltaTime;
 
     // Lifecycle
@@ -159,7 +164,7 @@ public class CharacterMotionContext : SchematicBehavior
 
         var body = Self.GetComponent<Box3DBody>();
         ConfigureBody(body);
-        var raycast = Self.GetSchematicBehavior<CharacterRaycastContext>();
+        var raycast = _raycast.Selected;
         body.SetKinematic(IsKinematic.Value);
 
         ref var velocity = ref _velocity.Ref;
@@ -429,9 +434,9 @@ public class CharacterMotionContext : SchematicBehavior
         var instance = Selected;
         ref var moveInput = ref _moveInput.Ref;
         moveInput = TransformInputDirection(moveInput);
-        // The Raycast Context's own row for this object (GetSchematicBehavior selects it there): this Behavior's instance is
-        // a row of the Motion Context, not of the Raycast Context.
-        instance.GetSchematicBehavior<CharacterRaycastContext>()?.PerformWallCast(moveInput);
+        // The Raycast Context's own row for this object, left selected there for callers that read its Variables next:
+        // this Behavior's instance is a row of the Motion Context, not of the Raycast Context.
+        _raycast.Select(instance)?.PerformWallCast(moveInput);
     }
 
     // internals
@@ -441,21 +446,21 @@ public class CharacterMotionContext : SchematicBehavior
 
         WallCheckInMoveDirection();
 
-        // The Raycast Context's Variables are read for this object through its own selection, not with this Behavior's
-        // instance (which is a row of the Motion Context).
-        raycast = instance.GetSchematicBehavior<CharacterRaycastContext>();
-        if (raycast == null) return;
+        // The Raycast Context's Variables are read with its own row for this object, not with this Behavior's instance
+        // (which is a row of the Motion Context).
+        var raycastInstance = _raycast[instance];
+        if (raycastInstance == null) return;
 
         ref var wallProjectedVelocity = ref _wallProjectedVelocity.Ref;
-        if (raycast.WallCastResult.Value.TryGetClosestHit(out var closestWallHit))
+        if (raycast.WallCastResult[raycastInstance].TryGetClosestHit(out var closestWallHit))
         {
             _wallHitPoint.Value = closestWallHit.point;
             wallProjectedVelocity = Vector3.ProjectOnPlane(HorizontalVelocity, -closestWallHit.normal);
 
             if (wallProjectedVelocity.magnitude > 0.01f)
             {
-                raycast.PerformWallCast(wallProjectedVelocity.normalized);
-                if (raycast.WallCastResult.Value.HasHit)
+                raycast.PerformWallCast(raycastInstance, wallProjectedVelocity.normalized);
+                if (raycast.WallCastResult[raycastInstance].HasHit)
                     wallProjectedVelocity = Vector3.zero;
             }
         }
@@ -502,10 +507,11 @@ public class CharacterMotionContext : SchematicBehavior
         }
 
         var properties = Properties[instance];
-        var raycast = instance.GetSchematicBehavior<CharacterRaycastContext>();
-        if (properties != null && properties.SlideOnWall && raycast != null && raycast.WallCastResult.Value.TryGetClosestHit(out _))
+        var raycastInstance = _raycast[instance];
+        var raycast = raycastInstance != null ? (CharacterRaycastContext)raycastInstance.Behavior : null;
+        if (properties != null && properties.SlideOnWall && raycast != null && raycast.WallCastResult[raycastInstance].TryGetClosestHit(out _))
         {
-            var wallPosition = raycast.WallPosition.Value;
+            var wallPosition = raycast.WallPosition[raycastInstance];
             Gizmos.color = Color.green;
             Gizmos.DrawLine(position, wallPosition);
             CustomGizmos.DrawArrow(wallPosition, _wallProjectedVelocity[instance], bodyVelocity.magnitude, new Color(0, 1f, 0, 0.5f));

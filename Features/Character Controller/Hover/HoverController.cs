@@ -28,10 +28,12 @@ namespace Remedy.CharacterControllers.Hover
         private readonly VariableHandle<float> _currentHoverTime = 0f;
         private readonly VariableHandle<float> _currentFallSpeed = 0f;
 
+        private readonly BehaviorHandle<CharacterMotionContext> _motion;
+
         protected override void OnStart()
         {
             var instance = Self;
-            var motion = instance.GetSchematicBehavior<CharacterMotionContext>();
+            var motion = _motion.Select(instance);
             if (motion == null)
                 return;
 
@@ -42,7 +44,7 @@ namespace Remedy.CharacterControllers.Hover
 
         protected override void OnEnable()
         {
-            var motion = Self.GetSchematicBehavior<CharacterMotionContext>();
+            var motion = _motion.Selected;
             if (motion != null)
                 motion.IsKinematic.Value = false;
 
@@ -53,7 +55,7 @@ namespace Remedy.CharacterControllers.Hover
         protected override void OnFixedUpdate()
         {
             var properties = Properties.Value;
-            var motion = Self.GetSchematicBehavior<CharacterMotionContext>();
+            var motion = _motion.Selected;
             if (properties == null || motion == null)
                 return;
 

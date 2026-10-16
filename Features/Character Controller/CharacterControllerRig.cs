@@ -104,6 +104,11 @@ namespace Remedy.CharacterControllers
         private readonly VariableHandle<RaycastHit> _groundHit = default(RaycastHit);
         private readonly VariableHandle<float> _yVelocity = 0f;
 
+        // The movement controllers that may be attached to the same GameObject.
+        private readonly BehaviorHandle<WallSlideController> _wallSlide;
+        private readonly BehaviorHandle<HoverController> _hover;
+        private readonly BehaviorHandle<LedgeGrabController> _ledgeGrab;
+
         public bool HasDecal => ShadowDecal.Value != null;
 
         protected override void OnStart()
@@ -125,9 +130,9 @@ namespace Remedy.CharacterControllers
         }
 
         // Whether a movement controller on this object is attached and enabled.
-        private static bool IsActive<TController>(BehaviorInstance instance) where TController : SchematicBehavior
+        private static bool IsActive<TController>(BehaviorHandle<TController> handle, BehaviorInstance instance) where TController : SchematicBehavior
         {
-            var controller = ExecutionContext.FindInstance(instance.GameObject, typeof(TController));
+            var controller = handle[instance];
             return controller != null && controller.Enabled;
         }
 
@@ -173,9 +178,9 @@ namespace Remedy.CharacterControllers
 
             VerticalVelocity.Invoke(Self, velocity.y);
 
-            if (IsActive<WallSlideController>(Self))
+            if (IsActive(_wallSlide, Self))
             {
-                var wallSlide = Self.GetSchematicBehavior<WallSlideController>();
+                var wallSlide = _wallSlide.Selected;
 
                 position.x = Mathf.Lerp(position.x, transform.position.x, followSpeed * dt);
                 position.z = Mathf.Lerp(position.z, transform.position.z, followSpeed * dt);
@@ -188,7 +193,7 @@ namespace Remedy.CharacterControllers
 
                 IsWallSliding.Invoke(Self, true);
             }
-            else if (IsActive<HoverController>(Self))
+            else if (IsActive(_hover, Self))
             {
                 var localVelocity = renderer.InverseTransformDirection(velocity);
 
@@ -215,7 +220,7 @@ namespace Remedy.CharacterControllers
 
                 renderer.localScale = baseScale;
             }
-            else if (IsActive<LedgeGrabController>(Self))
+            else if (IsActive(_ledgeGrab, Self))
             {
                 // Target position is LedgePosition - the hand's offset from the renderer, in world space
                 //_targetRendererPosition = LedgeGrabController.LedgePosition - CharacterRenderer.TransformVector(handLocalOffset);

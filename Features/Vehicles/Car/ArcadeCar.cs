@@ -110,6 +110,9 @@ namespace Remedy.Vehicles
         // Everything else that changes per step, in one place per spawned car.
         private readonly VariableHandle<CarState> _state = (CarState)null;
 
+        // The Vehicle Seats on the same GameObject, if any.
+        private readonly BehaviorHandle<VehicleSeats> _seats;
+
         #endregion
 
         #region Signals
@@ -403,7 +406,7 @@ namespace Remedy.Vehicles
         {
             if (AlwaysActive[instance])
                 return true;
-            var seats = ExecutionContext.FindInstance(instance.GameObject, typeof(VehicleSeats));
+            var seats = _seats[instance];
             return seats == null || ((VehicleSeats)seats.Behavior).HasDriver[seats];
         }
 

@@ -43,6 +43,9 @@ public sealed class BehaviorInstance
     internal bool Started;
     internal bool Removing;
 
+    // Every Behavior attached to the same GameObject, indexed by Behavior type. Set when the instance is tracked.
+    internal BehaviorSiblings Siblings;
+
     // Components looked up through GetComponent, kept for the object's whole life (pooling included).
     private Component[] _componentCache = System.Array.Empty<Component>();
 
@@ -91,9 +94,18 @@ public sealed class BehaviorInstance
 
     /// <summary>
     /// Gets another Behavior on this instance's GameObject, with this object selected. Null if it isn't attached here.
+    /// O(1), but inside a Behavior prefer a <see cref="BehaviorHandle{TBehavior}"/> field, which says which Behavior it
+    /// needs up front and also gives the sibling's row: <c>_motion.Select(instance)</c>, <c>_motion[instance]</c>.
     /// </summary>
     public TBehavior GetSchematicBehavior<TBehavior>() where TBehavior : SchematicBehavior
-        => GameObject.GetSchematicBehavior<TBehavior>();
+        => BehaviorHandle<TBehavior>.SelectSibling(this);
+
+    /// <summary>
+    /// The spawned instance of another Behavior on this instance's GameObject (a base type finds a derived one), or null.
+    /// Selects nothing.
+    /// </summary>
+    public BehaviorInstance GetSibling<TBehavior>() where TBehavior : SchematicBehavior
+        => Siblings?.Find(BehaviorTypeId<TBehavior>.Id);
 
     internal void TrackSubscription(SignalSubscription subscription) => _subscriptions.Add(subscription);
 

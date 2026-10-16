@@ -34,25 +34,30 @@ namespace Remedy.CharacterControllers.WallSlide
 
         private readonly VariableHandle<RaycastHit> _lastWallHit = default(RaycastHit);
 
+        private readonly BehaviorHandle<CharacterMotionContext> _motion;
+        private readonly BehaviorHandle<CharacterRaycastContext> _raycast;
+
         protected override void OnStart()
         {
             var instance = Self;
-            var motion = instance.GetSchematicBehavior<CharacterMotionContext>();
+            var motion = _motion.Select(instance);
             motion?.JumpInput.Subscribe(instance, value => Jump(instance, value));
         }
 
         protected override void OnFixedUpdate()
         {
             var properties = Properties.Value;
-            var motion = Self.GetSchematicBehavior<CharacterMotionContext>();
-            var raycast = Self.GetSchematicBehavior<CharacterRaycastContext>();
+            var motion = _motion.Selected;
+            var raycast = _raycast.Selected;
+            // The Raycast Context's own row for this object, for reading its Variables (this instance is a row of the Wall Slide Controller).
+            var raycastInstance = _raycast.Instance;
             if (properties == null || motion == null || raycast == null)
                 return;
 
             motion.ApplyVerticalForce(-properties.WallSlideSpeed, true);
 
             motion.WallCheckInMoveDirection();
-            if (raycast.WallCastResult.Value.TryGetClosestHit(out RaycastHit hit))
+            if (raycast.WallCastResult[raycastInstance].TryGetClosestHit(out RaycastHit hit))
                 StickOnWall(Self, properties, motion, hit);
             else
                 OnWallSlideExitted.Invoke(Self, false);
@@ -61,7 +66,7 @@ namespace Remedy.CharacterControllers.WallSlide
         public void Jump(BehaviorInstance instance, bool value)
         {
             var properties = Properties[instance];
-            var motion = instance.GetSchematicBehavior<CharacterMotionContext>();
+            var motion = _motion.Select(instance);
             if (!value || properties == null || motion == null)
                 return;
 

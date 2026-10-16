@@ -19,8 +19,9 @@ public static class ExecutionContext
     private static readonly Dictionary<Type, BehaviorRuntime> _runtimesByType = new();
     private static readonly List<BehaviorRuntime> _runtimes = new();
     private static readonly Dictionary<int, SchematicObject> _objects = new();
-    // Every GameObject that has Behaviors attached (roots and children), for GetSchematicBehavior.
-    private static readonly Dictionary<GameObject, List<BehaviorInstance>> _instancesByGameObject = new();
+    // Every GameObject that has Behaviors attached (roots and children), for GetSchematicBehavior. Keyed by reference,
+    // so lookups make no native calls; entries are removed when their Schematic Object is destroyed.
+    private static readonly Dictionary<GameObject, BehaviorSiblings> _instancesByGameObject = new(GameObjectReferenceComparer.Instance);
     private static int _nextUID = 1;
 
     /// <summary>
@@ -165,19 +166,33 @@ public static class ExecutionContext
 
     /// <summary>
     /// Finds the spawned instance of a Behavior attached to a GameObject, or null if that Behavior doesn't control it.
+    /// A base type finds a derived Behavior.
     /// </summary>
     public static BehaviorInstance FindInstance(GameObject gameObject, Type behaviorType)
     {
-        if (gameObject == null || !_instancesByGameObject.TryGetValue(gameObject, out var instances))
+        var siblings = SiblingsOf(gameObject);
+        if (siblings == null || behaviorType == null)
             return null;
 
-        for (int i = 0; i < instances.Count; i++)
-        {
-            var instance = instances[i];
-            if (instance.IsSpawned && behaviorType.IsInstanceOfType(instance.Behavior))
-                return instance;
-        }
-        return null;
+        int typeId = BehaviorTypeIds.Get(behaviorType);
+        // Not a Behavior class (an interface, say): only a scan can tell.
+        return typeId >= 0 ? siblings.Find(typeId) : siblings.FindSpawned(behaviorType);
+    }
+
+    /// <summary>
+    /// Finds the spawned instance of a Behavior attached to a GameObject, or null if that Behavior doesn't control it.
+    /// A base type finds a derived Behavior. O(1): no scan, no type checks.
+    /// </summary>
+    public static BehaviorInstance FindInstance<TBehavior>(GameObject gameObject) where TBehavior : SchematicBehavior
+        => SiblingsOf(gameObject)?.Find(BehaviorTypeId<TBehavior>.Id);
+
+    // The Behaviors attached to a GameObject, or null. Destroyed GameObjects get null, as with `gameObject == null`, but
+    // the native check only runs for GameObjects that have Behaviors (a miss, e.g. a raycast hitting scenery, skips it).
+    private static BehaviorSiblings SiblingsOf(GameObject gameObject)
+    {
+        if (ReferenceEquals(gameObject, null) || !_instancesByGameObject.TryGetValue(gameObject, out var siblings))
+            return null;
+        return gameObject != null ? siblings : null;
     }
 
     /// <summary>
@@ -192,8 +207,8 @@ public static class ExecutionContext
         if (gameObject == null)
             return 0;
 
-        if (_instancesByGameObject.TryGetValue(gameObject, out var instances) && instances.Count > 0)
-            return instances[0].UID;
+        if (_instancesByGameObject.TryGetValue(gameObject, out var siblings) && siblings.Instances.Count > 0)
+            return siblings.Instances[0].UID;
 
         var schematicObject = gameObject.GetComponentInParent<SchematicObject>();
         return schematicObject != null ? schematicObject.UID : 0;
@@ -201,12 +216,13 @@ public static class ExecutionContext
 
     internal static void Track(BehaviorInstance instance)
     {
-        if (!_instancesByGameObject.TryGetValue(instance.GameObject, out var instances))
+        if (!_instancesByGameObject.TryGetValue(instance.GameObject, out var siblings))
         {
-            instances = new List<BehaviorInstance>(2);
-            _instancesByGameObject.Add(instance.GameObject, instances);
+            siblings = new BehaviorSiblings(instance.GameObject);
+            _instancesByGameObject.Add(instance.GameObject, siblings);
         }
-        instances.Add(instance);
+        siblings.Add(instance);
+        instance.Siblings = siblings;
     }
 
     /// <summary>
@@ -217,12 +233,14 @@ public static class ExecutionContext
         var instances = schematicObject.BehaviorInstances;
         for (int i = 0; i < instances.Count; i++)
         {
-            var gameObject = instances[i].GameObject;
-            if (!_instancesByGameObject.TryGetValue(gameObject, out var tracked))
+            var siblings = instances[i].Siblings;
+            if (siblings == null)
                 continue;
-            tracked.Remove(instances[i]);
-            if (tracked.Count == 0)
-                _instancesByGameObject.Remove(gameObject);
+            siblings.Remove(instances[i]);
+            // Only drop the entry if it is still the one registered (the GameObject may have been tracked again since).
+            if (siblings.Instances.Count == 0
+                && _instancesByGameObject.TryGetValue(siblings.GameObject, out var tracked) && tracked == siblings)
+                _instancesByGameObject.Remove(siblings.GameObject);
         }
     }
 

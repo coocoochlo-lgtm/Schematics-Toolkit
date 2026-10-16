@@ -40,6 +40,9 @@ namespace Remedy.Splines
         [SchematicDoc(@"{""name"": ""BackPercent"", ""kind"": ""variable"", ""behavior"": ""Spline Pair Agent"", ""type"": ""double"", ""default"": ""0.0"", ""description"": ""The back point's position along the spline, 0-1.""}")]
         public readonly VariableHandle<double> BackPercent = 0.0;
 
+        // The Spline Agent on the same GameObject, which moves the front point.
+        private readonly BehaviorHandle<SplineAgent> _agent;
+
         protected override void OnSetup(BehaviorSetupContext context)
         {
             var front = new GameObject("Front").transform;
@@ -54,7 +57,7 @@ namespace Remedy.Splines
         // LateUpdate: after the Spline Agent has moved the front point this frame.
         protected override void OnLateUpdate()
         {
-            var agent = Self.GetSchematicBehavior<SplineAgent>();
+            var agent = _agent.Selected;
             if (agent == null)
                 return;
             SplineComputer spline = agent.Spline.Value;

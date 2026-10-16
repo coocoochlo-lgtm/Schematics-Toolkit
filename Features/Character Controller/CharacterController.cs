@@ -43,6 +43,10 @@ public class PhysicsBasedCharacterController : SchematicBehavior
     private readonly VariableHandle<bool> _canJump = true;
     private readonly VariableHandle<bool> _enableGravity = true;
 
+    // Siblings on the same GameObject (attached along with this by [RequireBehavior]).
+    private readonly BehaviorHandle<CharacterMotionContext> _motion;
+    private readonly BehaviorHandle<CharacterRaycastContext> _raycast;
+
     /// <summary>
     /// The Properties of the controller attached to the given GameObject, for systems that need to predict its motion.
     /// </summary>
@@ -56,7 +60,7 @@ public class PhysicsBasedCharacterController : SchematicBehavior
     protected override void OnStart()
     {
         var instance = Self;
-        var motion = instance.GetSchematicBehavior<CharacterMotionContext>();
+        var motion = _motion.Select(instance);
         if (motion == null)
             return;
 
@@ -86,14 +90,13 @@ public class PhysicsBasedCharacterController : SchematicBehavior
 
         MoveToPosition.Subscribe(position =>
         {
-            var target = instance.GetSchematicBehavior<CharacterMotionContext>();
-            target?.TeleportToPosition(position);
+            _motion.Select(instance)?.TeleportToPosition(position);
         });
     }
 
     protected override void OnEnable()
     {
-        var motion = Self.GetSchematicBehavior<CharacterMotionContext>();
+        var motion = _motion.Selected;
         if (motion != null)
             motion.IsKinematic.Value = false;
 
@@ -110,8 +113,8 @@ public class PhysicsBasedCharacterController : SchematicBehavior
     protected override void OnFixedUpdate()
     {
         var properties = Properties.Value;
-        var motion = Self.GetSchematicBehavior<CharacterMotionContext>();
-        var raycast = Self.GetSchematicBehavior<CharacterRaycastContext>();
+        var motion = _motion.Selected;
+        var raycast = _raycast.Selected;
         if (properties == null || motion == null || raycast == null)
             return;
 

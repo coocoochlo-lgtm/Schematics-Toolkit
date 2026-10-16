@@ -252,6 +252,30 @@ if (controller != null)
     Debug.Log(controller.Properties.Value.MoveSpeed);
 ```
 
+Inside a Behavior, reach the other Behaviors on your own GameObject through `BehaviorHandle<T>` fields instead. Like Signals they need no initializer (they're bound when the Behavior is created), and every read is an array index: no lookup by GameObject, no type checks, no allocation, so they're the way to talk to siblings every frame.
+
+```csharp
+[RequireBehavior(typeof(CharacterMotionContext), typeof(CharacterRaycastContext))]
+public class Glider : SchematicBehavior
+{
+    private readonly BehaviorHandle<CharacterMotionContext> _motion;
+    private readonly BehaviorHandle<CharacterRaycastContext> _raycast;
+
+    protected override void OnFixedUpdate()
+    {
+        var motion = _motion.Selected;           // this object's Motion Context, selected (null if it has none)
+        var raycastRow = _raycast.Instance;      // this object's row in the Raycast Context, selecting nothing
+        if (motion == null || raycastRow == null)
+            return;
+
+        if (!_raycast.Behavior.IsGrounded[raycastRow])
+            motion.ApplyVerticalForce(-1f);
+    }
+}
+```
+
+`_motion.Select(instance)` and `_motion[instance]` do the same for an instance you hold (in a Signal handler, say); `_motion.Has(instance)` tells whether the object has one, and `_motion.Behavior` is the shared system with nothing selected. A sibling's rows belong to its own Behavior, so index its Variables with `_raycast[instance]`, never with your own instance (that throws). Siblings that aren't spawned read as null, and Behaviors added at runtime with `AddBehavior` show up at once. A base type finds a derived Behavior, as `GetSchematicBehavior` does.
+
 Lifecycle order: `OnCreate` (first creation only) → `OnStart` → `OnEnable` → `OnUpdate`/`OnLateUpdate`/`OnFixedUpdate` → `OnDisable` → `OnDestroy`.
 Behaviors also receive `OnCollisionEnter`/`Exit` and `OnTriggerEnter`/`Exit` for the GameObject they're attached to. Variables reset on every spawn, so fetch components with `Self.GetComponent<T>()`, which caches them for the object's whole life.
 

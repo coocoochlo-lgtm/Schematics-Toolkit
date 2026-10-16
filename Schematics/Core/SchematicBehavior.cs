@@ -26,7 +26,9 @@ using UnityEngine;
 ///     _speed.Value = 0f;   // the other object's speed; Self is back to normal after the block
 /// </code>
 /// Components are best fetched with <see cref="BehaviorInstance.GetComponent{T}"/>, which caches them for the object's life;
-/// Variables are reset every spawn, so they're the wrong place to cache anything.<br/>
+/// Variables are reset every spawn, so they're the wrong place to cache anything. Other Behaviors on the same GameObject
+/// are reached through <see cref="BehaviorHandle{TBehavior}"/> fields (<c>private readonly BehaviorHandle&lt;Health&gt; _health;</c>
+/// then <c>_health.Selected</c> or <c>_health[instance]</c>), which are O(1) with no lookup.<br/>
 /// Lifecycle order on spawn: <see cref="OnCreate"/> (first time the object is ever created) →
 /// <see cref="OnStart"/> → <see cref="OnEnable"/>. On despawn: <see cref="OnDisable"/> → <see cref="OnDestroy"/>.
 /// </remarks>
@@ -223,6 +225,7 @@ public abstract class SchematicBehavior
 
         behavior.ResolveVariableNames();
         behavior.BindSignals();
+        behavior.BindBehaviorHandles();
         return behavior;
     }
 
@@ -259,6 +262,24 @@ public abstract class SchematicBehavior
         }
 
         _signals = signals.ToArray();
+    }
+
+    // Fills every BehaviorHandle field with a link to this Behavior's cursor. Runs once per Behavior type, like BindSignals.
+    private void BindBehaviorHandles()
+    {
+        for (var type = GetType(); type != null && type != typeof(SchematicBehavior); type = type.BaseType)
+        {
+            foreach (var field in type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+            {
+                if (!typeof(IBehaviorHandle).IsAssignableFrom(field.FieldType))
+                    continue;
+
+                // Each field gets its own link: they share the cursor, but each caches its own target system.
+                var link = new BehaviorLink(Cursor);
+                var handle = Activator.CreateInstance(field.FieldType, BindingFlags.Instance | BindingFlags.NonPublic, null, new object[] { link }, null);
+                field.SetValue(this, handle);
+            }
+        }
     }
 
     /// <summary>

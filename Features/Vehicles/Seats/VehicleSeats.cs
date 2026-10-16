@@ -175,7 +175,7 @@ namespace Remedy.Vehicles
         /// </summary>
         public static bool TryEnter(GameObject vehicle, GameObject occupant, int seat = -1)
         {
-            var instance = vehicle != null ? ExecutionContext.FindInstance(vehicle, typeof(VehicleSeats)) : null;
+            var instance = ExecutionContext.FindInstance<VehicleSeats>(vehicle);
             return instance != null && ((VehicleSeats)instance.Behavior).TryEnterSeat(instance, occupant, seat);
         }
 
@@ -213,13 +213,13 @@ namespace Remedy.Vehicles
         /// </summary>
         public static GameObject DriverOf(GameObject vehicle)
         {
-            var instance = vehicle != null ? ExecutionContext.FindInstance(vehicle, typeof(VehicleSeats)) : null;
+            var instance = ExecutionContext.FindInstance<VehicleSeats>(vehicle);
             return instance != null ? ((VehicleSeats)instance.Behavior).Driver[instance] : null;
         }
 
         /// <summary>True if <paramref name="vehicle"/> has Vehicle Seats at all (a vehicle without them is driven by graphs or AI only).</summary>
         public static bool HasSeats(GameObject vehicle)
-            => vehicle != null && ExecutionContext.FindInstance(vehicle, typeof(VehicleSeats)) != null;
+            => ExecutionContext.FindInstance<VehicleSeats>(vehicle) != null;
 
         /// <summary>The occupant of a seat (by index) of this instance, or null.</summary>
         public GameObject OccupantOf(BehaviorInstance instance, int seat)
