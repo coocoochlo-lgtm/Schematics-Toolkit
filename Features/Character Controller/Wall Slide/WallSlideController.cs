@@ -11,6 +11,10 @@ namespace Remedy.CharacterControllers.WallSlide
     [SchematicBehaviorPath("Movement/3D/Wall Slide Controller")]
     public class WallSlideController : SchematicBehavior
     {
+        [SchematicEventLink(typeof(CharacterMotionContext), nameof(CharacterMotionContext.MoveInput))]
+        public readonly SignalHandle<Vector2> MoveInput;
+        [SchematicEventLink(typeof(CharacterMotionContext), nameof(CharacterMotionContext.JumpInput))]
+        public readonly SignalHandle<bool> JumpInput;
         [SchematicDoc(@"{""name"": ""OnWallJump"", ""kind"": ""signal"", ""behavior"": ""Wall Slide Controller"", ""direction"": ""output"", ""description"": ""Sent by Wall Slide Controller when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [OutputSignal]
         public readonly SignalHandle OnWallJump;

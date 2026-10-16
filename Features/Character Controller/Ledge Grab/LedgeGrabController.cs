@@ -13,6 +13,10 @@ namespace Remedy.CharacterControllers.LedgeGrab
     [SchematicBehaviorPath("Movement/3D/Ledge Grab Controller")]
     public class LedgeGrabController : SchematicBehavior
     {
+        [SchematicEventLink(typeof(CharacterMotionContext), nameof(CharacterMotionContext.MoveInput))]
+        public readonly SignalHandle<Vector2> MoveInput;
+        [SchematicEventLink(typeof(CharacterMotionContext), nameof(CharacterMotionContext.JumpInput))]
+        public readonly SignalHandle<bool> JumpInput;
         [SchematicDoc(@"{""name"": ""OnClamber"", ""kind"": ""signal"", ""behavior"": ""Ledge Grab Controller"", ""direction"": ""output"", ""description"": ""Sent by Ledge Grab Controller when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [OutputSignal]
         public readonly SignalHandle OnClamber;

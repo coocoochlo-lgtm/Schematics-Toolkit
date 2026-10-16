@@ -12,6 +12,10 @@ using UnityEngine;
 [RequireBehavior(typeof(CharacterMotionContext), typeof(CharacterRaycastContext))]
 public class PhysicsBasedCharacterController : SchematicBehavior
 {
+    [SchematicEventLink(typeof(CharacterMotionContext), nameof(CharacterMotionContext.MoveInput))]
+    public readonly SignalHandle<Vector2> MoveInput;
+    [SchematicEventLink(typeof(CharacterMotionContext), nameof(CharacterMotionContext.JumpInput))]
+    public readonly SignalHandle<bool> JumpInput;
     [SchematicDoc(@"{""name"": ""MoveToPosition"", ""kind"": ""signal"", ""behavior"": ""Physics Based Character Controller"", ""direction"": ""input"", ""params"": [{""name"": ""Position"", ""type"": ""Vector3""}], ""description"": ""Tells Physics Based Character Controller to act."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
     [InputSignal]
     [Parameter("Position", typeof(Vector3))]

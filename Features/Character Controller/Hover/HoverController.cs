@@ -11,6 +11,10 @@ namespace Remedy.CharacterControllers.Hover
     [SchematicBehaviorPath("Movement/3D/Flight and Hover Controller")]
     public class HoverController : SchematicBehavior
     {
+        [SchematicEventLink(typeof(CharacterMotionContext), nameof(CharacterMotionContext.MoveInput))]
+        public readonly SignalHandle<Vector2> MoveInput;
+        [SchematicEventLink(typeof(CharacterMotionContext), nameof(CharacterMotionContext.JumpInput))]
+        public readonly SignalHandle<bool> JumpInput;
         [SchematicDoc(@"{""name"": ""Properties"", ""kind"": ""variable"", ""behavior"": ""Hover Controller"", ""type"": ""HoverControllerProperties"", ""default"": ""null"", ""description"": ""Properties (HoverControllerProperties) of Hover Controller.""}")]
         public readonly VariableHandle<HoverControllerProperties> Properties = (HoverControllerProperties)null;
 

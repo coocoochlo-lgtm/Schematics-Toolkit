@@ -176,7 +176,19 @@ public static class BehaviorMetadataGenerator
                 });
             }
 
-            definition.Asset = SyncSignalAsset(metadata, definition, field?.GetCustomAttribute<Remedy.Schematics.NetworkSyncAttribute>(true));
+            // A linked field ([SchematicEventLink]) is the other Behavior's Signal: same asset, direction and parameters.
+            var link = field?.GetCustomAttribute<SchematicEventLinkAttribute>(true);
+            var linked = link != null ? LinkedSignal(link) : null;
+            if (linked != null)
+            {
+                definition.Asset = linked.Asset;
+                definition.Direction = linked.Direction;
+                definition.Parameters.Clear();
+                foreach (var parameter in linked.Parameters)
+                    definition.Parameters.Add(new SignalParameterDefinition { Name = parameter.Name, Type = parameter.Type.Type });
+            }
+            else
+                definition.Asset = SyncSignalAsset(metadata, definition, field?.GetCustomAttribute<Remedy.Schematics.NetworkSyncAttribute>(true));
             signals.Add(definition);
             previous.Remove(signal.Name);
         }
@@ -184,7 +196,8 @@ public static class BehaviorMetadataGenerator
         // Signals that were removed from code take their assets with them.
         foreach (var removed in previous.Values)
         {
-            if (removed.Asset != null && AssetDatabase.IsSubAsset(removed.Asset))
+            // Only this Metadata's own Signal assets: a linked Signal belongs to the other Behavior.
+            if (removed.Asset != null && AssetDatabase.IsSubAsset(removed.Asset) && AssetDatabase.GetAssetPath(removed.Asset) == AssetDatabase.GetAssetPath(metadata))
             {
                 AssetDatabase.RemoveObjectFromAsset(removed.Asset);
                 UnityEngine.Object.DestroyImmediate(removed.Asset, true);
@@ -192,6 +205,34 @@ public static class BehaviorMetadataGenerator
         }
 
         metadata.Signals = signals;
+    }
+
+    private static readonly HashSet<Type> _linking = new();
+
+    // The Signal a [SchematicEventLink] points at, from the linked Behavior's Metadata (made or refreshed first if needed).
+    private static SignalDefinition LinkedSignal(SchematicEventLinkAttribute link)
+    {
+        if (link.Type == null || string.IsNullOrEmpty(link.FieldName) || !typeof(SchematicBehavior).IsAssignableFrom(link.Type))
+            return null;
+        if (!_linking.Add(link.Type))
+            return null; // links going round in a circle
+        try
+        {
+            FindAll().TryGetValue(link.Type, out var linkedMetadata);
+            var found = linkedMetadata != null ? linkedMetadata.FindSignal(link.FieldName) : null;
+            if (found == null || found.Asset == null)
+            {
+                Refresh(link.Type, ref linkedMetadata);
+                found = linkedMetadata != null ? linkedMetadata.FindSignal(link.FieldName) : null;
+            }
+            if (found == null)
+                Debug.LogWarning($"[Schematics] SchematicEventLink: {link.Type.Name} has no Signal named '{link.FieldName}'.");
+            return found;
+        }
+        finally
+        {
+            _linking.Remove(link.Type);
+        }
     }
 
     private static SignalData SyncSignalAsset(BehaviorMetadata metadata, SignalDefinition definition, Remedy.Schematics.NetworkSyncAttribute networkSync)
