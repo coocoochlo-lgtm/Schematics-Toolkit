@@ -120,6 +120,9 @@ namespace Remedy.Schematics.Templates
         /// <summary>Place the create tile before the asset tiles.</summary>
         public bool CreateTileFirst { get; set; }
 
+        /// <summary>Action for the create tile. Null opens the standard template creation menu.</summary>
+        public Action CreateTileAction { get; set; }
+
         /// <summary>Show the category chips.</summary>
         public bool ShowCategories
         {
@@ -713,7 +716,10 @@ namespace Remedy.Schematics.Templates
                     RegisterCallback<PointerDownEvent>(evt =>
                     {
                         if (evt.button != 0) return;
-                        _grid.ShowCreateMenu();
+                        if (_grid.CreateTileAction != null)
+                            _grid.CreateTileAction();
+                        else
+                            _grid.ShowCreateMenu();
                         evt.StopPropagation();
                     });
                 }

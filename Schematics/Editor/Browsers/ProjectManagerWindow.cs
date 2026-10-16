@@ -11,7 +11,7 @@ namespace Remedy.Schematics.Browsers
     /// <summary>A dockable home for the Schematics asset browsers and the Level Designer.</summary>
     public class ProjectManagerWindow : EditorWindow
     {
-        public enum Section { Templates, SchematicObjects, Audio, LevelDesigner }
+        public enum Section { SchematicObjects = 1, Audio = 2, LevelDesigner = 3 }
 
         private readonly Dictionary<Section, EditorWindow> _pages = new();
         private readonly Dictionary<Section, VisualElement> _pageRoots = new();
@@ -21,12 +21,11 @@ namespace Remedy.Schematics.Browsers
 
         [SerializeField] private Section _section;
 
-        internal TemplateBrowserWindow TemplatePage => Page<TemplateBrowserWindow>(Section.Templates);
         internal SchematicObjectsBrowserWindow ObjectsPage => Page<SchematicObjectsBrowserWindow>(Section.SchematicObjects);
 
         [MenuItem("Window/Remedy/Project Manager", false, 99)]
         [MenuItem("Tools/Remedy/Project Manager", false, 0)]
-        public static void Open() => Open(Section.Templates);
+        public static void Open() => Open(Section.SchematicObjects);
 
         public static ProjectManagerWindow Open(Section section)
         {
@@ -69,6 +68,8 @@ namespace Remedy.Schematics.Browsers
             root.Clear();
             _pageRoots.Clear();
             _tabToggles.Clear();
+            if (!Enum.IsDefined(typeof(Section), _section))
+                _section = Section.SchematicObjects;
             root.AddToClassList("project-manager");
             var sheet = SchematicBrowserWindow.StyleSheet;
             if (sheet != null)
@@ -76,7 +77,6 @@ namespace Remedy.Schematics.Browsers
 
             var toolbar = new Toolbar();
             toolbar.AddToClassList("project-manager__tabs");
-            AddTab(toolbar, Section.Templates, "Templates");
             AddTab(toolbar, Section.SchematicObjects, "Schematic Objects");
             AddTab(toolbar, Section.Audio, "Audio");
             if (SchematicBrowsers.HasLevelDesigner)
@@ -157,7 +157,6 @@ namespace Remedy.Schematics.Browsers
 
             EditorWindow page = section switch
             {
-                Section.Templates => CreateInstance<TemplateBrowserWindow>(),
                 Section.SchematicObjects => CreateInstance<SchematicObjectsBrowserWindow>(),
                 Section.Audio => CreateInstance<AudioClipBrowserWindow>(),
                 Section.LevelDesigner => SchematicBrowsers.LevelDesignerType != null

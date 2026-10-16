@@ -29,9 +29,9 @@ namespace Remedy.Schematics.Browsers
     public static class SchematicMainToolbar
     {
         internal const string LevelDesignerTooltip = "Open the Level Designer (blockouts, art designs, character metrics).";
-        internal const string TemplatesTooltip = "Open the Template Browser: premade Schematic Objects to start from.";
+        internal const string TemplatesTooltip = "Choose a template and create a new Schematic Object prefab.";
         internal const string ObjectsTooltip = "Open the Schematic Objects browser: every Schematic prefab in the project.";
-        internal const string ProjectManagerTooltip = "Open Project Manager: templates, schematic objects, audio and levels.";
+        internal const string ProjectManagerTooltip = "Open Project Manager: schematic objects, audio and levels.";
         internal const string AudioTooltip = "Open Project Manager on the Audio section.";
 
 #if UNITY_6000_3_OR_NEWER

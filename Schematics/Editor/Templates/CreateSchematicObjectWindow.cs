@@ -11,9 +11,8 @@ namespace Remedy.Schematics.Templates
     /// of your own in the selected folder (with its own copy of the template's graph), ready to rename.
     /// </summary>
     /// <remarks>
-    /// The old way (dragging a GameObject into the Project window) still works exactly as before. This is the quick
-    /// pop-up for right-click creation; the dockable Template Browser (Window > Remedy > Template Browser, or the main
-    /// toolbar) lives in the Schematics Browsers assembly and shows the same grid.
+    /// The non-dockable template chooser is also launched from the Schematic Objects grid's plus tile. The old way
+    /// (dragging a GameObject into the Project window) still works exactly as before.
     /// </remarks>
     public class CreateSchematicObjectWindow : EditorWindow
     {
@@ -160,6 +159,7 @@ namespace Remedy.Schematics.Templates
             root.Add(header);
 
             _grid = new SchematicTemplateGrid("Remedy.Schematics.CreateWindow");
+            _grid.CreateTileFirst = true;
             _grid.Picked += Create;
             root.Add(_grid);
 
@@ -172,7 +172,7 @@ namespace Remedy.Schematics.Templates
             footer.style.paddingTop = 4;
             footer.style.paddingBottom = 6;
             footer.Add(new Button(Close) { text = "Cancel" });
-            var create = new Button(() => _grid.PickSelected()) { text = "Create" };
+            var create = new Button(() => _grid.PickSelected()) { text = "Okay" };
             create.style.minWidth = 80;
             footer.Add(create);
             _grid.SelectionChanged += t => create.SetEnabled(t != null);

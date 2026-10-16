@@ -337,7 +337,7 @@
 .audio-browser__card {
     position: relative;
     margin: 5px;
-    padding: 5px;
+    padding: 3px;
     border-width: 1px;
     border-color: var(--schematic-border);
     border-radius: 4px;

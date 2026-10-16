@@ -76,7 +76,9 @@ namespace Remedy.Schematics.Browsers
             grid.ShowCreateTile = true;
             grid.CreateTileFirst = true;
             grid.CreateTileLabel = "New Schematic Object…";
-            grid.CreateTileTooltip = "Create a Schematic Object from an empty template, the selected scene object, or a prefab.";
+            grid.CreateTileTooltip = "Choose a template and create a new Schematic Object prefab.";
+            grid.CreateTileAction = () =>
+                CreateSchematicObjectWindow.ShowForProject(SchematicObjectFactory.SelectedProjectFolder());
             grid.EmptyMessage = "No Schematic Objects yet.\nUse the + tile to create one, or right-click in the Project window > Create > Schematics > Schematic Object.";
             grid.TileMenu = BuildMenu;
             grid.AdditionalTileMenu = (menu, entry) =>
