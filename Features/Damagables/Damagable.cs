@@ -1,61 +1,64 @@
-using System.Collections;
-using UnityEngine;
-using UnityEngine.Events;
-//using SaintsField;
-//using SaintsField.Playa;
+using Remedy.Schematics;
 using Cysharp.Threading.Tasks;
-using Remedy.Common;
+using UnityEngine;
 
 namespace Remedy.Damagables
 {
-    [SchematicComponent("Damageables/Damageable")]
-    //[Searchable]
-    public class Damageable : MonoBehaviour
+    /// <summary>
+    /// Health, damage and healing for an object. The methods act on the selected instance, e.g.
+    /// <c>target.GetSchematicBehavior&lt;Damageable&gt;()?.Damage(instigation)</c>, or take the instance explicitly.
+    /// </summary>
+    [SchematicDoc(@"{""name"": ""Damageable"", ""kind"": ""behavior"", ""menu"": ""Damageables/Damageable"", ""description"": ""Health, damage and healing for an object. The methods act on the selected instance, e.g. target.GetSchematicBehavior<Damageable>()?.Damage(instigation), or take the instance explicitly."", ""variables"": [""DamageLayer"", ""Health"", ""MaxHealth"", ""IsAlive""], ""signals"": [""OnKnockback""], ""use_for"": [""health for players, enemies and breakable objects"", ""death and healing""]}")]
+    [SchematicBehaviorPath("Damageables/Damageable")]
+    public class Damageable : SchematicBehavior
     {
-
-        /*[Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Events", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Output")]*/
-        public SignalData OnDamageBegin;
-        public SignalData OnHealBegin;
-        public SignalData OnHealInstigation;
-        public SignalData OnDamageContinued;
-        public SignalData OnHealContinued;
-        public SignalData OnDamageFinish;
-        public SignalData OnHealFinish;
+        [OutputSignal] [NetworkSync(SignalSender.Authority)] public readonly SignalHandle OnDamageBegin;
+        [OutputSignal] [NetworkSync(SignalSender.Authority)] public readonly SignalHandle OnHealBegin;
+        [OutputSignal] public readonly SignalHandle OnHealInstigation;
+        [OutputSignal] public readonly SignalHandle OnDamageContinued;
+        [OutputSignal] public readonly SignalHandle OnHealContinued;
+        [OutputSignal] public readonly SignalHandle OnDamageFinish;
+        [OutputSignal] public readonly SignalHandle OnHealFinish;
+        [SchematicDoc(@"{""name"": ""OnKnockback"", ""kind"": ""signal"", ""behavior"": ""Damageable"", ""direction"": ""output"", ""params"": [{""name"": ""Direction"", ""type"": ""Vector3""}], ""description"": ""Not handled by the Damageable. This functionality must be uniquely implemented for each object that uses this Component. The given value is the direction from the instigation position to this object."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [Tooltip("Not handled by the Damageable. This functionality must be uniquely implemented for each object that uses this Component. The given value is the direction from the instigation position to this object.")]
-        public UnityEvent<Vector3> OnKnockback;
-        public SignalData OnDeath;
-        public SignalData OnFullHealth;
-        public SignalData OnRevive;
+        [OutputSignal, Parameter("Direction", typeof(Vector3))]
+        [NetworkSync(SignalSender.Authority)]
+        public readonly SignalHandle<Vector3> OnKnockback;
+        [OutputSignal] [NetworkSync(SignalSender.Authority)] public readonly SignalHandle OnDeath;
+        [OutputSignal] [NetworkSync(SignalSender.Authority)] public readonly SignalHandle OnFullHealth;
+        [OutputSignal] [NetworkSync(SignalSender.Authority)] public readonly SignalHandle OnRevive;
 
-        /*[Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Component", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Properties")]
-        [Dropdown("GetDamageLayer")]*/
-        public int DamageLayer;
-        //public DropdownList<int> GetDamageLayer => DamageData.GetDamageLayers();
+        [SchematicDoc(@"{""name"": ""DamageLayer"", ""kind"": ""variable"", ""behavior"": ""Damageable"", ""type"": ""int"", ""default"": ""0"", ""description"": ""Damage Layer (int) of Damageable.""}")]
+        public readonly VariableHandle<int> DamageLayer = 0;
+        [SchematicDoc(@"{""name"": ""Health"", ""kind"": ""variable"", ""behavior"": ""Damageable"", ""type"": ""float"", ""default"": ""100f"", ""description"": ""Health (float) of Damageable.""}")]
+        [NetworkSync]
+        public readonly VariableHandle<float> Health = 100f;
+        [SchematicDoc(@"{""name"": ""MaxHealth"", ""kind"": ""variable"", ""behavior"": ""Damageable"", ""type"": ""float"", ""default"": ""100f"", ""description"": ""Max Health (float) of Damageable.""}")]
+        [NetworkSync]
+        public readonly VariableHandle<float> MaxHealth = 100f;
+        [SchematicDoc(@"{""name"": ""IsAlive"", ""kind"": ""variable"", ""behavior"": ""Damageable"", ""type"": ""bool"", ""default"": ""true"", ""description"": ""Is Alive (bool) of Damageable.""}")]
+        [NetworkSync]
+        public readonly VariableHandle<bool> IsAlive = true;
 
-        [SerializeField]
-        private float _health = 0;
-        public float Health => _health;
+        protected override void OnEnable() => DamageManager.AddDamageable(Self, DamageLayer.Value);
+        protected override void OnDisable() => DamageManager.RemoveDamageable(Self);
 
-        [SerializeField]
-        private float _maxHealth;
-        public float MaxHealth => _maxHealth;
+        /// <summary>Damages the selected Damageable.</summary>
+        public void Damage(DamageInstigation instigation) => Damage(Selected, instigation);
 
-        [SerializeField]
-        private bool _isAlive = true;
-        public bool IsAlive => _isAlive;
+        /// <summary>Heals the selected Damageable.</summary>
+        public void Heal(DamageInstigation instigation) => Heal(Selected, instigation);
 
-        /// <summary>
-        /// Damage this object
-        /// </summary>
-        /// <param name="instigator"></param>
-        public virtual void Damage(DamageInstigation instigation)
+        /// <summary>Instantly kills the selected Damageable.</summary>
+        public void Kill(DamageInstigation instigation) => Kill(Selected, instigation);
+
+        /// <summary>Brings the selected Damageable back to full health and alive.</summary>
+        public void Revive(DamageInstigation instigation) => Revive(Selected, instigation);
+
+        public virtual void Damage(BehaviorInstance instance, DamageInstigation instigation)
         {
-            OnDamageBegin?.FinalInvoke(default);
-            OnKnockback?.Invoke(transform.position - instigation.Position);
+            OnDamageBegin.Invoke(instance);
+            OnKnockback.Invoke(instance, instance.Transform.position - instigation.Position);
 
             if (!DamageInstigationData.Lookup.TryGetValue(instigation.DataID, out var data))
             {
@@ -65,28 +68,24 @@ namespace Remedy.Damagables
 
             if (data.Duration > 0)
             {
-                ApplyDamageOverTime(data.Duration, data.Amount).Forget();
+                ApplyDamageOverTime(instance, data.Duration, data.Amount).Forget();
             }
             else
             {
-                _health -= data.Amount;
-                OnDamageFinish?.FinalInvoke(default);
+                Health[instance] -= data.Amount;
+                OnDamageFinish.Invoke(instance);
 
-                if (_health <= 0f && _isAlive)
+                if (Health[instance] <= 0f && IsAlive[instance])
                 {
-                    _isAlive = false;
-                    OnDeath?.FinalInvoke(default);
+                    IsAlive[instance] = false;
+                    OnDeath.Invoke(instance);
                 }
             }
         }
 
-        /// <summary>
-        /// Heal this object
-        /// </summary>
-        /// <param name="instigator"></param>
-        public virtual void Heal(DamageInstigation instigation)
+        public virtual void Heal(BehaviorInstance instance, DamageInstigation instigation)
         {
-            OnHealBegin?.FinalInvoke(default);
+            OnHealBegin.Invoke(instance);
 
             if (!DamageInstigationData.Lookup.TryGetValue(instigation.DataID, out var data))
             {
@@ -96,39 +95,49 @@ namespace Remedy.Damagables
 
             if (data.Duration > 0)
             {
-                ApplyHealingOverTime(data.Duration, data.Amount).Forget();
+                ApplyHealingOverTime(instance, data.Duration, data.Amount).Forget();
             }
             else
             {
-                _health = Mathf.Min(_health + data.Amount, _maxHealth);
-                OnHealInstigation?.FinalInvoke(default);
+                Health[instance] = Mathf.Min(Health[instance] + data.Amount, MaxHealth[instance]);
+                OnHealInstigation.Invoke(instance);
 
-                if (_health == MaxHealth)
-                    OnFullHealth?.FinalInvoke(default);
+                if (Health[instance] == MaxHealth[instance])
+                    OnFullHealth.Invoke(instance);
             }
         }
 
-        /// <summary>
-        /// A coroutine that applies damage over time
-        /// </summary>
-        /// <param name="instigator"></param>
-        /// <returns></returns>
-        private async UniTaskVoid ApplyDamageOverTime(float time, float amount)
+        public void Kill(BehaviorInstance instance, DamageInstigation instigation)
         {
+            IsAlive[instance] = false;
+            OnDeath.Invoke(instance);
+        }
+
+        public void Revive(BehaviorInstance instance, DamageInstigation instigation)
+        {
+            IsAlive[instance] = true;
+            Health[instance] = MaxHealth[instance];
+            OnRevive.Invoke(instance);
+        }
+
+        // Spans frames, so it works on the instance explicitly and stops if the object despawns or is reused.
+        private async UniTaskVoid ApplyDamageOverTime(BehaviorInstance instance, float time, float amount)
+        {
+            int uid = instance.UID;
             int steps = Mathf.CeilToInt(time / Time.fixedDeltaTime);
             float damagePerStep = amount / steps;
 
-            for (int i = 0; i < steps; i++)
+            for (int i = 0; i < steps && instance.IsSpawnedAs(uid); i++)
             {
-                _health -= damagePerStep;
-                OnDamageContinued?.FinalInvoke(default);
+                Health[instance] -= damagePerStep;
+                OnDamageContinued.Invoke(instance);
 
-                if (_health <= 0f && _isAlive)
+                if (Health[instance] <= 0f && IsAlive[instance])
                 {
-                    _health = 0f;
-                    _isAlive = false;
-                    OnDamageFinish?.FinalInvoke(default);
-                    OnDeath?.FinalInvoke(default);
+                    Health[instance] = 0f;
+                    IsAlive[instance] = false;
+                    OnDamageFinish.Invoke(instance);
+                    OnDeath.Invoke(instance);
                     break;
                 }
 
@@ -136,53 +145,29 @@ namespace Remedy.Damagables
             }
         }
 
-        /// <summary>
-        /// A coroutine that applies damage over time
-        /// </summary>
-        /// <param name="instigator"></param>
-        /// <returns></returns>
-        private async UniTaskVoid ApplyHealingOverTime(float time, float amount)
+        private async UniTaskVoid ApplyHealingOverTime(BehaviorInstance instance, float time, float amount)
         {
+            int uid = instance.UID;
             int steps = Mathf.CeilToInt(time / Time.fixedDeltaTime);
-            float damagePerStep = amount / steps;
+            float healPerStep = amount / steps;
 
-            for (int i = 0; i < steps; i++)
+            for (int i = 0; i < steps && instance.IsSpawnedAs(uid); i++)
             {
-                _health += damagePerStep;
+                Health[instance] = Mathf.Min(Health[instance] + healPerStep, MaxHealth[instance]);
 
-                if (_health == _maxHealth)
+                if (Health[instance] == MaxHealth[instance])
                 {
-                    OnHealFinish?.FinalInvoke(default);
-                    OnFullHealth?.FinalInvoke(default);
+                    OnHealFinish.Invoke(instance);
+                    OnFullHealth.Invoke(instance);
+                    return;
                 }
 
-                OnHealContinued?.FinalInvoke(default);
+                OnHealContinued.Invoke(instance);
                 await UniTask.WaitForFixedUpdate();
             }
 
-            OnHealFinish?.FinalInvoke(default);
-        }
-
-        /// <summary>
-        /// Instantly Kills the Damagable
-        /// </summary>
-        /// <param name="instigator"></param>
-        public void Kill(DamageInstigation instigation)
-        {
-            _isAlive = false;
-            OnDeath?.FinalInvoke(default);
-        }
-
-
-        /// <summary>
-        /// Brings the health of the Damagable back up to Max and brings it back alive
-        /// </summary>
-        /// <param name="instigator"></param>
-        public void Revive(DamageInstigation instigation)
-        {
-            _isAlive = true;
-            _health = _maxHealth;
-            OnRevive?.FinalInvoke(default);
+            if (instance.IsSpawnedAs(uid))
+                OnHealFinish.Invoke(instance);
         }
     }
 }

@@ -1,0 +1,75 @@
+using Remedy.Schematics;
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace Remedy.ManifoldNetwork.Schematics
+{
+    /// <summary>
+    /// A learning brain for a Schematic Object, run by a Manifold Neuron Network. Its inputs and outputs are slots you
+    /// define in the IO Dock; the graph feeds the inputs on <see cref="OnThink"/> (Set Brain Input) and reads the
+    /// decisions on <see cref="OnDecided"/> (Get Brain Output). Teach it (Teach Brain Output), praise or punish it
+    /// (Reward Brain), and it learns as it plays.
+    /// <para>Shared: every instance of the object thinks with one brain (and learns together). Per Instance: each gets its own.</para>
+    /// </summary>
+    [SchematicDoc(@"{""name"": ""Brain"", ""kind"": ""behavior"", ""menu"": ""AI/Brain"", ""description"": ""A learning brain for a Schematic Object, run by a Manifold Neuron Network. Its inputs and outputs are slots you define in the IO Dock; the graph feeds the inputs on OnThink (Set Brain Input) and reads the decisions on OnDecided (Get Brain Output). Teach it (Teach Brain Output), praise or punish it (Reward Brain), and it learns as it plays. Shared: every instance of the object thinks with one brain (and learns together). Per Instance: each gets its own."", ""variables"": [""Definition""], ""signals"": [""OnThink"", ""OnDecided""], ""use_for"": [""learning enemy AI"", ""creatures that are trained or bred"", ""bots that learn by watching the player""]}")]
+    [SchematicBehaviorPath("AI/Brain")]
+    public class Brain : SchematicBehavior
+    {
+        [SchematicDoc(@"{""name"": ""Definition"", ""kind"": ""variable"", ""behavior"": ""Brain"", ""type"": ""BrainDefinition"", ""default"": ""null"", ""description"": ""The brain's design: its slots, how it learns, and what it has learned. Created next to the prefab from the IO Dock.""}")]
+        [Tooltip("The brain's design: its slots, how it learns, and what it has learned. Created next to the prefab from the IO Dock.")]
+        public readonly VariableHandle<BrainDefinition> Definition = (BrainDefinition)null;
+
+        [SchematicDoc(@"{""name"": ""OnThink"", ""kind"": ""signal"", ""behavior"": ""Brain"", ""direction"": ""output"", ""description"": ""Before the brain thinks: set its inputs here (Set Brain Input). Also a good time to teach it."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
+        [Tooltip("Before the brain thinks: set its inputs here (Set Brain Input). Also a good time to teach it.")]
+        [OutputSignal]
+        public readonly SignalHandle OnThink;
+
+        [SchematicDoc(@"{""name"": ""OnDecided"", ""kind"": ""signal"", ""behavior"": ""Brain"", ""direction"": ""output"", ""description"": ""The brain has decided: read its outputs here (Get Brain Output) and act on them."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
+        [Tooltip("The brain has decided: read its outputs here (Get Brain Output) and act on them.")]
+        [OutputSignal]
+        [NetworkSync(SignalSender.Authority)]
+        public readonly SignalHandle OnDecided;
+
+        // Behavior-level: every instance's agent, whichever object it's on.
+        private readonly Dictionary<BehaviorInstance, BrainAgent> _agents = new();
+
+        protected override void OnStart()
+        {
+            var definition = Definition.Value;
+            if (definition == null)
+            {
+                Debug.LogWarning($"{Self.GameObject.name}'s Brain has no Brain Definition. Create one from its section in the IO Dock.", Self.GameObject);
+                return;
+            }
+            var agent = new BrainAgent(Self, definition);
+            _agents[Self] = agent;
+            // Networks[objectID]: the Schematic Object (prefab) this instance is of.
+            BrainHub.Join(this, agent, Self.Owner != null ? Self.Owner.ObjectID : 0);
+        }
+
+        protected override void OnDestroy()
+        {
+            if (_agents.TryGetValue(Self, out var agent))
+            {
+                BrainHub.Leave(agent);
+                _agents.Remove(Self);
+            }
+        }
+
+        /// <summary>The brain of an instance (null if it has none, or no definition).</summary>
+        public BrainAgent AgentOf(BehaviorInstance instance)
+            => instance != null && _agents.TryGetValue(instance, out var agent) ? agent : null;
+
+        /// <summary>The brain of a GameObject's Brain behavior (null if it has none).</summary>
+        public static BrainAgent AgentOn(GameObject gameObject)
+        {
+            if (gameObject == null)
+                return null;
+            var instance = ExecutionContext.FindInstance(gameObject, typeof(Brain));
+            return instance?.Behavior is Brain brain ? brain.AgentOf(instance) : null;
+        }
+
+        internal void Think(BrainAgent agent) => OnThink.Invoke(agent.Instance);
+        internal void Decided(BrainAgent agent) => OnDecided.Invoke(agent.Instance);
+    }
+}

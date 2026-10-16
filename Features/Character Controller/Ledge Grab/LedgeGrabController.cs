@@ -1,103 +1,110 @@
 using Remedy.Framework;
-using Remedy.Schematics.Utils;
 using System.Collections.Generic;
 using UnityEngine;
 
 namespace Remedy.CharacterControllers.LedgeGrab
 {
-    [RequireComponent(typeof(CharacterMotionContext))]
-    [RequireComponent(typeof(CharacterRaycastContext))]
-    [SchematicComponent("Movement/3D/Wall Slide Controller")]
-    public class LedgeGrabController : MonoBehaviour
+    /// <summary>
+    /// Hangs from a ledge in front of the character, and clambers up it on jump. Input comes from the Motion Context's Signals.
+    /// </summary>
+    [SchematicDoc(@"{""name"": ""Ledge Grab Controller"", ""kind"": ""behavior"", ""menu"": ""Movement/3D/Ledge Grab Controller"", ""description"": ""Hangs from a ledge in front of the character, and clambers up it on jump. Input comes from the Motion Context's Signals."", ""variables"": [""Properties"", ""FacingRotation"", ""CurrentWallSide""], ""signals"": [""OnClamber"", ""OnLedgeGrabExitted""], ""use_for"": [""grabbing and climbing ledges""]}")]
+    [RequireComponent(typeof(Box3D.Hybrid.Box3DBody))]
+    [RequireBehavior(typeof(CharacterMotionContext), typeof(CharacterRaycastContext))]
+    [SchematicBehaviorPath("Movement/3D/Ledge Grab Controller")]
+    public class LedgeGrabController : SchematicBehavior
     {
-        public Rigidbody Rigidbody => gameObject.GetCachedComponent<Rigidbody>();
-
-        [SchematicEventLink(typeof(CharacterMotionContext), nameof(CharacterMotionContext.JumpInput))]
-        public Signal<bool> JumpInput => _motionContext.JumpInput;
         [SchematicEventLink(typeof(CharacterMotionContext), nameof(CharacterMotionContext.MoveInput))]
-        public Signal<Vector2> MoveInput => _motionContext.MoveInput;
+        public readonly SignalHandle<Vector2> MoveInput;
+        [SchematicEventLink(typeof(CharacterMotionContext), nameof(CharacterMotionContext.JumpInput))]
+        public readonly SignalHandle<bool> JumpInput;
+        [SchematicDoc(@"{""name"": ""OnClamber"", ""kind"": ""signal"", ""behavior"": ""Ledge Grab Controller"", ""direction"": ""output"", ""description"": ""Sent by Ledge Grab Controller when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
+        [OutputSignal]
+        public readonly SignalHandle OnClamber;
+        [SchematicDoc(@"{""name"": ""OnLedgeGrabExitted"", ""kind"": ""signal"", ""behavior"": ""Ledge Grab Controller"", ""direction"": ""output"", ""description"": ""Sent by Ledge Grab Controller when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
+        [OutputSignal]
+        public readonly SignalHandle OnLedgeGrabExitted;
 
-        public SignalData OnClamber;
-        public SignalData OnLedgeGrabExitted;
+        [SchematicDoc(@"{""name"": ""Properties"", ""kind"": ""variable"", ""behavior"": ""Ledge Grab Controller"", ""type"": ""LedgeGrabControllerProperties"", ""default"": ""null"", ""description"": ""Properties (LedgeGrabControllerProperties) of Ledge Grab Controller.""}")]
+        public readonly VariableHandle<LedgeGrabControllerProperties> Properties = (LedgeGrabControllerProperties)null;
 
-        [SchematicProperties]
-        public LedgeGrabControllerProperties Properties;
-
-        public Quaternion FacingRotation;
+        [SchematicDoc(@"{""name"": ""FacingRotation"", ""kind"": ""variable"", ""behavior"": ""Ledge Grab Controller"", ""type"": ""Quaternion"", ""default"": ""Quaternion.identity"", ""description"": ""Facing Rotation (Quaternion) of Ledge Grab Controller.""}")]
+        public readonly VariableHandle<Quaternion> FacingRotation = Quaternion.identity;
 
         public enum WallSide { Left, Right }
-        public WallSide CurrentWallSide { get; private set; }
+        [SchematicDoc(@"{""name"": ""CurrentWallSide"", ""kind"": ""variable"", ""behavior"": ""Ledge Grab Controller"", ""type"": ""WallSide"", ""default"": ""WallSide.Left"", ""description"": ""Current Wall Side (WallSide) of Ledge Grab Controller.""}")]
+        public readonly VariableHandle<WallSide> CurrentWallSide = WallSide.Left;
 
-        public RaycastHit _lastWallHit;
-        private Vector3 _facingDir;
+        private readonly VariableHandle<RaycastHit> _lastWallHit = default(RaycastHit);
+        private readonly VariableHandle<List<Vector3>> _clamberPoints = new List<Vector3> { Vector3.zero, Vector3.zero };
 
-        private bool _cached;
-        private CharacterMotionContext _motionContext;
-        private CharacterRaycastContext _raycastContext;
-        private Transform _transform;
-        private List<Vector3> _clamberPoints = new();
+        private readonly BehaviorHandle<CharacterMotionContext> _motion;
+        private readonly BehaviorHandle<CharacterRaycastContext> _raycast;
 
-        private void OnEnable()
+        protected override void OnStart()
         {
-            _cached = false;
-            Cache();
-
-            JumpInput?.Subscribe(this, (bool val) => Jump(val)); 
-
-            _motionContext.WallCheckInMoveDirection();
-            if (_raycastContext.WallCastResult.TryGetClosestHit(out RaycastHit hit))
-            {
-                StickOnWall(hit);
-            }
+            var instance = Self;
+            var motion = _motion.Select(instance);
+            motion?.JumpInput.Subscribe(instance, value => Jump(instance, value));
         }
 
-        private void OnDisable()
+        protected override void OnEnable()
         {
-            JumpInput?.Unsubscribe(this);
+            var properties = Properties.Value;
+            var motion = _motion.Selected;
+            var raycast = _raycast.Selected;
+            // The Raycast Context's own row for this object, for reading its Variables (this instance is a row of the Ledge Grab Controller).
+            var raycastInstance = _raycast.Instance;
+            if (properties == null || motion == null || raycast == null)
+                return;
+
+            motion.WallCheckInMoveDirection();
+            if (raycast.WallCastResult[raycastInstance].TryGetClosestHit(out RaycastHit hit))
+                StickOnWall(Self, properties, motion, raycast.Properties[raycastInstance], hit);
         }
 
-        public void Jump(bool value)
+        protected override void OnDisable()
         {
-            if (value)
-            {
-                _clamberPoints[0] = _transform.position + Properties.ClamberHeight * Vector3.up;
-                _clamberPoints[1] = (_transform.position + Properties.ClamberHeight * Vector3.up) + -_lastWallHit.normal * Properties.ClamberForward;
-                _motionContext.FollowSpringPath(_transform.position.y, _clamberPoints);
-                OnClamber?.FinalInvoke(default);
-            }
+            OnLedgeGrabExitted.Invoke(Self);
         }
 
-        private void Cache()
+        public void Jump(BehaviorInstance instance, bool value)
         {
-            if (!_cached)
-            {
-                _motionContext = GetComponent<CharacterMotionContext>();
-                _raycastContext = GetComponent<CharacterRaycastContext>();
-                _transform = transform;
-                _clamberPoints.Capacity = 2;
-                _cached = true;
-            }
+            var properties = Properties[instance];
+            var motion = _motion.Select(instance);
+            if (!value || properties == null || motion == null)
+                return;
+
+            var position = instance.Transform.position;
+            var points = _clamberPoints[instance];
+            points[0] = position + properties.ClamberHeight * Vector3.up;
+            points[1] = (position + properties.ClamberHeight * Vector3.up) + -_lastWallHit[instance].normal * properties.ClamberForward;
+            motion.FollowSpringPath(position.y, points);
+            OnClamber.Invoke(instance);
         }
 
-        private void StickOnWall(RaycastHit hit)
+        private void StickOnWall(BehaviorInstance instance, LedgeGrabControllerProperties properties, CharacterMotionContext motion, CharacterRaycastProperties raycastProperties, RaycastHit hit)
         {
-            _lastWallHit = hit;
+            _lastWallHit.Value = hit;
+            var transform = instance.Transform;
 
-            _facingDir = -_lastWallHit.normal;
+            var facingDir = -hit.normal;
 
-            FacingRotation = Quaternion.LookRotation(_facingDir, Vector3.up);
+            FacingRotation.Value = Quaternion.LookRotation(facingDir, Vector3.up);
 
-            float side = Vector3.Dot(_facingDir, _motionContext.HorizontalDirection);
-            CurrentWallSide = side > 0 ? WallSide.Left : WallSide.Right;
+            float side = Vector3.Dot(facingDir, motion.HorizontalDirection);
+            CurrentWallSide.Value = side > 0 ? WallSide.Left : WallSide.Right;
 
-            var ledgeResult = RaycastUtility.SphereCast(_transform, _transform.position, _facingDir, Properties.LedgeCheckRadius, _raycastContext.Properties.CollisionMask, -1, _raycastContext.Properties.MaxGroundSlopeAngle);
+            if (raycastProperties == null)
+                return;
 
-            if (_lastWallHit.distance < Properties.GapFromWall)
+            var ledgeResult = RaycastUtility.SphereCast(transform, transform.position, facingDir, properties.LedgeCheckRadius, raycastProperties.CollisionMask, -1, raycastProperties.MaxGroundSlopeAngle);
+
+            if (hit.distance < properties.GapFromWall)
             {
                 if (ledgeResult.TryGetClosestHit(out RaycastHit ledgeHit))
                 {
-                    var ledgeProjectedPosition = Vector3.ProjectOnPlane(_transform.position, ledgeHit.normal);
-                    var wallProjectedPosition = Vector3.ProjectOnPlane(_transform.position, _lastWallHit.normal);
+                    var ledgeProjectedPosition = Vector3.ProjectOnPlane(transform.position, ledgeHit.normal);
+                    var wallProjectedPosition = Vector3.ProjectOnPlane(transform.position, hit.normal);
 
                     ledgeProjectedPosition.y = 0;
                     wallProjectedPosition.x = 0;
@@ -105,7 +112,7 @@ namespace Remedy.CharacterControllers.LedgeGrab
 
                     var actualPosition = ledgeProjectedPosition + wallProjectedPosition;
 
-                    _motionContext.TeleportToPosition(actualPosition + _lastWallHit.normal * Properties.GapFromWall);
+                    motion.TeleportToPosition(actualPosition + hit.normal * properties.GapFromWall);
                 }
             }
         }

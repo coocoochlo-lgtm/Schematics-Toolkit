@@ -6,6 +6,7 @@ using BlueGraph;
 using Remedy.Schematics;
 using UnityEngine;
 
+[SchematicDoc(@"{""name"": ""On Before First Scene Loaded"", ""kind"": ""node"", ""flow"": ""event"", ""category"": ""Events"", ""description"": ""In a singleton graph: starts a flow before the first scene loads."", ""use_for"": [""loading settings and saves""], ""notes"": ""Starts a flow: connect its arrow to the actions that should run.""}")]
 [Node(Path = "Events"), Tags("Runtime")]
 public class OnBeforeFirstSceneLoaded : SchematicEventNode
 { }

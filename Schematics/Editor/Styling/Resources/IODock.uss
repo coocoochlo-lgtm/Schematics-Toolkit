@@ -614,3 +614,70 @@ TextElement
 {
 	background-color: black;
 }
+
+/* ---- Behavior dock (Prefab tab) ---- */
+.event-container-variable
+{
+	background-color: rgba(0,60,45,0.25);
+}
+.dock-row
+{
+	margin: 1px 4px 1px 8px;
+	min-height: 20px;
+}
+.dock-row:hover
+{
+	background-color: rgba(255,255,255,0.06);
+}
+.dock-row .event-name
+{
+	margin-bottom: 0;
+	padding: 0 4px;
+}
+.dock-row-detail
+{
+	font-size: 10px;
+	padding-right: 4px;
+}
+.dock-section-label
+{
+	font-size: 10px;
+	margin-left: 8px;
+	opacity: 0.8;
+}
+.dock-behavior
+{
+	margin: 2px 0 4px 4px;
+	padding-bottom: 2px;
+	border-left-width: 2px;
+	border-left-color: rgba(120,160,255,0.35);
+}
+.dock-object > Toggle
+{
+	background-color: rgba(0,0,0,0.2);
+}
+.dock-drag-handle
+{
+	opacity: 0.75;
+}
+.dock-drag-handle:hover
+{
+	opacity: 1;
+}
+.dock-add-behavior
+{
+	margin: 2px 8px 6px 8px;
+}
+
+.dock-row-handle
+{
+	max-width: 55%;
+}
+.dock-variable-value
+{
+	margin-left: 4px;
+}
+.dock-properties
+{
+	margin: 4px 4px 2px 8px;
+}

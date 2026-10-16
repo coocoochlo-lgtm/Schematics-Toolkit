@@ -1,0 +1,11 @@
+﻿// SPDX-FileCopyrightText: 2026 CAPCOM CO., LTD.
+// SPDX-License-Identifier: Apache-2.0
+
+namespace REDox.Serialization;
+
+public enum DictionaryFormatHandling
+{
+    Object = 0,
+    Map = 1,
+    KeyValuePair = 2
+}

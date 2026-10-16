@@ -1,10 +1,7 @@
 ﻿using BlueGraph;
 using BlueGraph.Editor;
-using log4net.DateFormatter;
-using PlasticGui.Configuration.CloudEdition.Welcome;
 using Remedy.Framework;
 using Remedy.Schematics;
-using Remedy.Schematics.Utils;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -16,19 +13,14 @@ using UnityEditor;
 using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.UIElements;
-using static SignalData;
 
 /// <summary>
 /// A custom Unity editor window for editing flow graphs and schematics.
 /// Provides a visual interface for creating and managing schematic graphs with drag-and-drop functionality,
 /// event management, and real-time validation of flow connections.
 /// </summary>
-public class SchematicGraphEditorWindow : GraphEditorWindow
+public partial class SchematicGraphEditorWindow : GraphEditorWindow
 {
-    /// <summary>
-    /// Manages schematic editor events and handles event reference validation and saving.
-    /// </summary>
-    internal SignalManager SignalManager;
     internal string GlobalPath
     {
         get
@@ -147,49 +139,21 @@ public class SchematicGraphEditorWindow : GraphEditorWindow
     };
     #endregion
 
-    #region UI State
-    /// <summary>
-    /// Determines whether component names should be displayed in the UI.
-    /// This setting affects the visibility of component labels in the hierarchy view.
-    /// </summary>
-    internal bool ShowComponentNames = false;
-    /// <summary>
-    /// Tracks whether a flash animation is currently in progress to prevent multiple simultaneous animations.
-    /// </summary>
-    bool flashed = false;
-    #endregion
 
     #region Caches
     /// <summary>
-    /// Maps scriptable events to their associated components for quick lookup during node operations.
-    /// This cache improves performance when displaying component relationships in the UI.
-    /// </summary>
-    internal Dictionary<SignalData, List<UnityEngine.Object>> TargetEventMap = new();
-    /// <summary>
-    /// Maps components to their corresponding ObjectField UI elements for efficient UI updates.
-    /// </summary>
-    private Dictionary<Component, ObjectField> _componentFieldMap = new();
-    /// <summary>
-    /// Cached list of all invoke nodes in the current graph for performance optimization.
-    /// </summary>
-    private List<SendSignalNode> _cachedInvokeNodes = new();
-    /// <summary>
-    /// Cached list of all on-invoke nodes in the current graph for performance optimization.
-    /// </summary>
-    private List<OnSignalReceivedNode> _cachedOnInvokeNodes = new();
-    /// <summary>
     /// Static collection of all editor windows that need to be saved.
-    /// This ensures proper cleanup and data persistence across multiple editor instances.
     /// </summary>
     private static List<SchematicGraphEditorWindow> _windowsToSave;
-    /// <summary>
-    /// Gets the list of editor windows that require saving, initializing it if necessary.
-    /// </summary>
     public static List<SchematicGraphEditorWindow> WindowsToSave => _windowsToSave ??= new();
-    /// <summary>
-    /// List of processed IO bases to prevent duplicate processing during graph operations.
-    /// </summary>
-    /*private List<IOBase> _processed = new();*/
+
+    /// <summary>The Prefab tab's dock, for revealing rows from the graph.</summary>
+    private PrefabHierarchy _dock;
+    private SchematicMinimap _minimap;
+    private CanvasMotion _motion;
+
+    // Which node FocusNodes showed last for each dock item, so repeated clicks step through them.
+    private readonly Dictionary<string, int> _focusIndex = new();
 
     internal static ProcessProfiler Profiler = new ProcessProfiler();
 
@@ -293,6 +257,11 @@ public class SchematicGraphEditorWindow : GraphEditorWindow
     private bool _updatedPortParams = false;
 
     /// <summary>
+    /// Raised when a graph loads into a window, with the canvas: for tools that add to it (the Timeline Graph's bar).
+    /// </summary>
+    public static event Action<SchematicGraphEditorWindow, VisualElement> CanvasLoaded;
+
+    /// <summary>
     /// Loads and initializes a graph in the editor window.
     /// Sets up the UI, event management, caches, and callbacks required for graph editing.
     /// </summary>
@@ -315,7 +284,6 @@ public class SchematicGraphEditorWindow : GraphEditorWindow
             }
         }
 
-        SignalManager = new((SchematicGraph)graph);
         _sidebarAndContent = new SidebarAndContent("schematic-snc");
 
         _sidebarAndContent.styleSheets.Add(Resources.Load<StyleSheet>("IODock"));
@@ -358,7 +326,6 @@ public class SchematicGraphEditorWindow : GraphEditorWindow
         {
             var path = AssetDatabase.GetAssetPath(SchematicGraph);
             SchematicGUID = AssetDatabase.AssetPathToGUID(path);
-            SignalManager.WorkingSet.Clear();
             RedrawIODock();
         }
         else
@@ -385,88 +352,61 @@ public class SchematicGraphEditorWindow : GraphEditorWindow
         var alreadyUpdated = _updatedPortParams;
         _updatedPortParams = true;
 
-        foreach (var nodeView in Canvas.Query<NodeView>().ToList())
-        {
-            if (nodeView.Target != null && nodeView.Target is SendSignalNode invokeFlowNode)
-            {
-                if (invokeFlowNode.Signal != null && TargetEventMap.ContainsKey(invokeFlowNode.Signal))
-                {
-                    var signal = invokeFlowNode.Signal;
+        SyncNodePorts();
 
-                    foreach (var port in invokeFlowNode.Ports.Values.Where(port => port.Type != typeof(ActionPort)).ToList())
-                    {
-                        invokeFlowNode.RemovePort(invokeFlowNode.GetPort(port.Name));
-                    }
+        // Clicking a Signal or Variable node reveals it in the IO Dock.
+        Canvas.RegisterCallback<MouseUpEvent>(OnCanvasMouseUp, TrickleDown.TrickleDown);
 
-                    foreach (var param in signal.Property.GetAttributes().OfType<ParameterAttribute>())
-                    {
-                        invokeFlowNode.AddPort(new Port
-                        {
-                            Type = param.Type,
-                            Name = param.Name,
-                            Capacity = PortCapacity.Multiple,
-                            Direction = PortDirection.Input
-                        });
-                    }
+        _motion = new CanvasMotion(Canvas);
 
-                    foreach (var component in TargetEventMap[invokeFlowNode.Signal])
-                    {
-                        var objectField = new ObjectField()
-                        {
-                            objectType = typeof(MonoBehaviour),
-                            value = component
-                        };
-                        objectField.SetEnabled(false);
+        // The flow visualizer (balls along the arrows flows go through, values over the wires; Play Mode, switched
+        // with the Flow button above the minimap). Under the minimap and the debug panel.
+        Canvas.Add(new FlowVisualizer(this));
 
-                        nodeView.Add(objectField);
-                    }
-                }
-            }
+        _minimap = new SchematicMinimap(Canvas, _motion);
+        _minimap.Buttons.Insert(0, FlowVisualizer.CreateToggle());
+        Canvas.Add(_minimap);
 
-            if (nodeView.Target != null && nodeView.Target is OnSignalReceivedNode onInvokeFlowNode)
-            {
-                var signal = onInvokeFlowNode.Signal;
+        // Graph debugging: breakpoints, the stopped node's box, and the panel along the bottom.
+        Canvas.styleSheets.Add(Resources.Load<StyleSheet>("FlowDebugger"));
+        _debugPanel = new FlowDebugPanel(this);
+        Canvas.Add(_debugPanel);
+        // The minimap moves up out of the panel's way while it shows.
+        var debugPanel = _debugPanel;
+        var minimap = _minimap;
+        debugPanel.Changed += () => minimap.SetBottomInset(debugPanel.ShownHeight);
+        Canvas.RegisterCallback<ContextualMenuPopulateEvent>(OnDebugContextMenu);
+        rootVisualElement.RegisterCallback<KeyDownEvent>(OnDebugKey, TrickleDown.TrickleDown);
+        if (_nodeViewCreated != null)
+            graph.OnNodeViewCreated -= _nodeViewCreated;
+        _nodeViewCreated = _ => QueueDebugRefresh();
+        graph.OnNodeViewCreated += _nodeViewCreated;
+        RefreshDebugState(frame: false);
 
-                foreach(var port in onInvokeFlowNode.Ports.Values.Where(port => port.Type != typeof(ActionPort)).ToList())
-                {
-                    onInvokeFlowNode.RemovePort(onInvokeFlowNode.GetPort(port.Name));
-                }
-
-                foreach (var param in signal.Property.GetAttributes().OfType<ParameterAttribute>())
-                {
-                    onInvokeFlowNode.AddPort(new Port
-                    {
-                        Type = param.Type,
-                        Name = param.Name,
-                        Capacity = PortCapacity.Multiple,
-                        Direction = PortDirection.Output
-                    });
-                }
-
-                if (onInvokeFlowNode.Signal != null && TargetEventMap.ContainsKey(onInvokeFlowNode.Signal))
-                {
-                    foreach (var component in TargetEventMap[onInvokeFlowNode.Signal])
-                    {
-                        var objectField = new ObjectField()
-                        {
-                            objectType = typeof(MonoBehaviour),
-                            value = component
-                        };
-                        objectField.SetEnabled(false);
-                    }
-                }
-            }
-        }
         if (!alreadyUpdated) Reload();
+
+        // Other tools' additions to the canvas (e.g. the Timeline bar of Timeline Graphs).
+        try { CanvasLoaded?.Invoke(this, Canvas); }
+        catch (Exception exception) { Debug.LogException(exception); }
+
+        // Sprocket, the assistant (Preferences > Schematics Assistant).
+        Remedy.Schematics.Assistant.AssistantOverlay.Attach(this);
 
         Profiler.StopTracking(loadProcess);
 
-        Prefab.GetComponent<SchematicObject>().SchematicGraph = SchematicGraph;
+        // Only links a prefab that has no graph yet (in memory; the Prefab tab's next save writes it into the file). A
+        // State's graph (or another graph shown for the same prefab) must not replace the Schematic Object's own.
+        if (Prefab != null && Prefab.TryGetComponent(out SchematicObject schematicObject) && schematicObject.SchematicGraph == null
+            && !(SchematicGraph is SingletonGraph))
+            schematicObject.SchematicGraph = SchematicGraph;
     }
 
 
     private void OnDisable()
     {
+        if (Graph != null && _nodeViewCreated != null)
+            Graph.OnNodeViewCreated -= _nodeViewCreated;
+
         if(Canvas != null)
         {
             Application.focusChanged -= Reload;
@@ -493,6 +433,7 @@ public class SchematicGraphEditorWindow : GraphEditorWindow
         {
             SchematicGraph.Prefab = prefabAsset;
         }
+        PrefabSaveTrace.Step(0, $"window redraw (path {_prefabPath})", _prefabPath, dockObject: SchematicGraph.Prefab);
 
         SchematicGraph.Prefab = Prefab;
 
@@ -511,231 +452,813 @@ public class SchematicGraphEditorWindow : GraphEditorWindow
 
     private void RedrawPrefabIO()
     {
-        // Draw
         _sidebarTabs["Prefab"].Clear();
+        _dock = null;
+        if (SchematicGraph is SingletonGraph singleton)
+        {
+            _sidebarTabs["Prefab"].Set(new IMGUIContainer(() => DrawSingletonPanel(singleton)));
+            return;
+        }
         if (Prefab != null)
         {
-            _sidebarTabs["Prefab"].UseFactory(() =>
-            {
-                VisualElement content = new();
-
-                // Component Name Toggle for Component Tabs
-                var componentNamesToggle = new Toggle
-                {
-                    text = "Show Component Names",
-                    value = ShowComponentNames
-                };
-                componentNamesToggle.RegisterValueChangedCallback(evt =>
-                {
-                    ShowComponentNames = evt.newValue;
-                    RedrawPrefabIO();
-                });
-
-                //content.Add(componentNamesToggle);
-                content.Add(new PrefabHierarchy(Prefab, this));
-
-                return content;
-            });
+            _dock = new PrefabHierarchy(Prefab, this);
+            _sidebarTabs["Prefab"].Set(_dock);
         }
     }
 
+    /// <summary>
+    /// A Singleton Graph has no prefab: its object is created when the game starts. This panel shows how, and its State Machine.
+    /// </summary>
+    private void DrawSingletonPanel(SingletonGraph singleton)
+    {
+        EditorGUILayout.HelpBox("This Singleton gets its own object when the game starts (kept across scenes), registered automatically: no Resources folder needed.", MessageType.None);
+
+        EditorGUI.BeginChangeCheck();
+        bool spawn = EditorGUILayout.Toggle(new GUIContent("Spawn On Start", "Create this Singleton's object when the game starts."), singleton.SpawnOnStart);
+        int order = EditorGUILayout.IntField(new GUIContent("Order", "Singletons are created in ascending order."), singleton.Order);
+        var stateMachine = (StateMachineDefinition)EditorGUILayout.ObjectField("State Machine", singleton.StateMachine, typeof(StateMachineDefinition), false);
+        if (EditorGUI.EndChangeCheck())
+        {
+            Undo.RecordObject(singleton, "Edit Singleton");
+            singleton.SpawnOnStart = spawn;
+            singleton.Order = order;
+            singleton.StateMachine = stateMachine;
+            if (stateMachine != null && stateMachine.Prefab == null && stateMachine.Singleton == null)
+            {
+                Undo.RecordObject(stateMachine, "Edit Singleton");
+                stateMachine.Singleton = singleton;
+                EditorUtility.SetDirty(stateMachine);
+            }
+            EditorUtility.SetDirty(singleton);
+            SingletonGraphRegistry.Sync();
+        }
+
+        if (GUILayout.Button(singleton.StateMachine != null ? "Open State Machine" : "Create State Machine"))
+            StateMachineWindow.Open(StateMachineEditorUtility.DefinitionFor(singleton, create: true));
+
+        if (Application.isPlaying)
+        {
+            EditorGUILayout.Space();
+            var host = singleton.Host;
+            using (new EditorGUI.DisabledScope(host == null))
+                if (GUILayout.Button(host != null ? $"Select {host.name}" : "Not running"))
+                    Selection.activeGameObject = host.gameObject;
+            var machine = host != null ? host.gameObject.GetSchematicBehavior<StateMachine>() : null;
+            if (machine != null)
+                EditorGUILayout.LabelField("Current State", machine.CurrentState.Value);
+        }
+    }
+
+    // Graph tab rows by DockItem key, so a clicked node can reveal its row.
+    private readonly Dictionary<string, VisualElement> _graphRows = new();
+
+    /// <summary>
+    /// The Graph tab: the graph's own Variables and Signals (and other graphs' you've pinned), then every node in this
+    /// graph that sends, hears, reads or writes something, grouped by what it uses. Click a node there to jump to it.
+    /// </summary>
     private void RedrawGraphIO()
     {
-        // Draw
         _sidebarTabs["Graph"].Clear();
-        if(Prefab != null)
-            _sidebarTabs["Graph"].Set(IODockRegistry.RenderMultipleFields(this, Prefab.GetComponent<SchematicObject>(), Prefab.GetComponent<SchematicObject>()).Item2);
+        _graphRows.Clear();
+        if (SchematicGraph == null)
+            return;
+
+        var content = new VisualElement();
+        content.Add(new GraphScopeDock(this, SchematicGraph, _graphRows));
+
+        var groups = new SortedDictionary<string, List<Node>>();
+        foreach (var node in SchematicGraph.Nodes)
+        {
+            string label = DescribeUse(node);
+            if (label == null) continue;
+            if (!groups.TryGetValue(label, out var list))
+                groups[label] = list = new List<Node>();
+            list.Add(node);
+        }
+
+        var used = new Foldout { text = "Used in This Graph", value = SessionState.GetBool("SchematicGraphScope.Used", false) };
+        used.AddToClassList("dock-object");
+        used.RegisterValueChangedCallback(evt => { if (evt.target == used) SessionState.SetBool("SchematicGraphScope.Used", evt.newValue); });
+        if (groups.Count == 0)
+            used.Add(new Label("No Signal, Variable or Behavior nodes yet. Drag them in from the Prefab tab or above."));
+
+        foreach (var group in groups)
+        {
+            var foldout = new Foldout { text = $"{group.Key}  ({group.Value.Count})", value = true };
+            foreach (var node in group.Value)
+            {
+                var target = node;
+                var button = new Button(() => FocusNode(target)) { text = node.Name };
+                button.style.unityTextAlign = TextAnchor.MiddleLeft;
+                foldout.Add(button);
+            }
+            used.Add(foldout);
+        }
+        content.Add(used);
+
+        _sidebarTabs["Graph"].Set(content);
     }
+
+    /// <summary>Shows a dock item's row (in the Prefab or Graph tab), without moving the canvas.</summary>
+    internal void Reveal(DockItem item)
+    {
+        string key = item.Key;
+        if (_graphRows.TryGetValue(key, out var row))
+        {
+            _sidebarTabs.SelectTab("Graph");
+            row.schedule.Execute(() =>
+            {
+                row.GetFirstAncestorOfType<ScrollView>()?.ScrollTo(row);
+                PrefabHierarchy.Flash(row);
+            }).StartingIn(30);
+        }
+        else if (_dock != null && _dock.Reveal(key))
+            _sidebarTabs.SelectTab("Prefab");
+    }
+
+    /// <summary>A graph's Variables or Signals changed (here or in the Inspector): redraw, and re-pin nodes if needed.</summary>
+    internal void OnGraphScopeChanged(SchematicGraph graph, bool structural)
+    {
+        if (SchematicGraph == null || Canvas == null)
+            return;
+        bool mine = graph == SchematicGraph || SchematicGraph.Nodes.Any(n => n is GraphVariableNodeBase v && v.Owner == graph);
+        if (!mine)
+            return;
+        if (structural)
+            SyncNodePorts();
+        RedrawGraphIO();
+    }
+
+    private static string DescribeUse(Node node) => node switch
+    {
+        SendSignalNode send when send.Signal != null => "Signal: " + send.Signal.name,
+        OnSignalReceivedNode receive when receive.Signal != null => "Signal: " + receive.Signal.name,
+        GetBehaviorVariableNode get => "Variable: " + get.Variable + " (" + get.Target.Describe() + ")",
+        SetBehaviorVariableNode set => "Variable: " + set.Variable + " (" + set.Target.Describe() + ")",
+        BehaviorReferenceNode behavior => "Behavior: " + behavior.Target.Describe(),
+        PrefabObjectNode obj => "Object: " + (string.IsNullOrEmpty(obj.Path) ? "(root)" : obj.Path),
+        GraphVariableNodeBase variable => "Graph Variable: " + (variable.Definition?.Name ?? "(missing)") + (variable.Owner != null ? " (" + variable.Owner.name + ")" : ""),
+        _ => null,
+    };
+
+    #region Navigation
+
+    /// <summary>The dock item a node uses, or null.</summary>
+    internal static string KeyOf(Node node) => node switch
+    {
+        SendSignalNode send => send.Signal != null ? DockItem.SignalKey(send.Signal) : null,
+        OnSignalReceivedNode receive => receive.Signal != null ? DockItem.SignalKey(receive.Signal) : null,
+        GetBehaviorVariableNode get => DockItem.VariableKey(get.Target.Type, get.Target.Path, get.Variable),
+        SetBehaviorVariableNode set => DockItem.VariableKey(set.Target.Type, set.Target.Path, set.Variable),
+        BehaviorReferenceNode behavior => DockItem.BehaviorKey(behavior.Target.Type, behavior.Target.Path),
+        PrefabObjectNode obj => DockItem.ObjectKey(obj.Path),
+        GraphVariableNodeBase variable => DockItem.GraphVariableKey(variable.DeclaringGraph, variable.VariableId),
+        _ => null,
+    };
+
+    /// <summary>
+    /// Selects and frames the next node in the graph that uses the item. Clicking the same item again steps to the next one.
+    /// </summary>
+    internal void FocusNodes(DockItem item)
+    {
+        string key = item.Key;
+        var matches = new List<NodeView>();
+        foreach (var view in Canvas.Query<NodeView>().ToList())
+            if (view.Target != null && KeyOf(view.Target) == key)
+                matches.Add(view);
+
+        if (matches.Count == 0)
+        {
+            ShowNotification(new GUIContent($"No nodes use {item.DisplayName} yet. Drag it into the graph."), 1.5);
+            return;
+        }
+
+        matches.Sort((a, b) => a.GetPosition().position.y != b.GetPosition().position.y
+            ? a.GetPosition().position.y.CompareTo(b.GetPosition().position.y)
+            : a.GetPosition().position.x.CompareTo(b.GetPosition().position.x));
+
+        _focusIndex.TryGetValue(key, out int index);
+        index %= matches.Count;
+        _focusIndex[key] = index + 1;
+
+        FocusView(matches[index]);
+        if (matches.Count > 1)
+            ShowNotification(new GUIContent($"{item.DisplayName}: {index + 1} of {matches.Count}"), 1.0);
+    }
+
+    internal void FocusNode(Node node)
+    {
+        foreach (var view in Canvas.Query<NodeView>().ToList())
+            if (view.Target == node)
+            {
+                FocusView(view);
+                return;
+            }
+    }
+
+    private void FocusView(NodeView view)
+    {
+        Canvas.ClearSelection();
+        Canvas.AddToSelection(view);
+        if (_motion != null) _motion.Frame(view.GetPosition());
+        else Canvas.FrameSelection();
+        PrefabHierarchy.Flash(view);
+    }
+
+    private void OnCanvasMouseUp(MouseUpEvent evt)
+    {
+        if (evt.button != 0)
+            return;
+
+        // After the canvas has updated its selection.
+        Canvas.schedule.Execute(() =>
+        {
+            if (Canvas.selection.Count != 1 || !(Canvas.selection[0] is NodeView view) || view.Target == null)
+                return;
+
+            // The node's settings in the Inspector.
+            NodeInspectorTarget.Show(SchematicGraph, view.Target);
+
+            string key = KeyOf(view.Target);
+            if (key == null)
+                return;
+            if (_graphRows.TryGetValue(key, out var row))
+            {
+                _sidebarTabs.SelectTab("Graph");
+                row.schedule.Execute(() =>
+                {
+                    row.GetFirstAncestorOfType<ScrollView>()?.ScrollTo(row);
+                    PrefabHierarchy.Flash(row);
+                }).StartingIn(30);
+                return;
+            }
+            if (_dock == null)
+                return;
+            _sidebarTabs.SelectTab("Prefab");
+            _dock.Reveal(key);
+        });
+    }
+
+    #endregion
+
+    #region Debugging
+
+    private FlowDebugPanel _debugPanel;
+    private Action<VisualElement> _nodeViewCreated;
+    private NodeView _boxedView;
+    private VisualElement _debugBox;
+    private bool _boxIsError;
+    private bool _debugRefreshQueued;
+
+    /// <summary>The open graph window showing the graph, if any.</summary>
+    internal static SchematicGraphEditorWindow FindOpen(SchematicGraph graph)
+    {
+        foreach (var window in Resources.FindObjectsOfTypeAll<SchematicGraphEditorWindow>())
+            if (window.SchematicGraph == graph && window.Canvas != null)
+                return window;
+        return null;
+    }
+
+    /// <summary>Opens (or focuses) the graph's window and frames the node.</summary>
+    internal static void ShowNodeInGraph(SchematicGraph graph, Node node)
+    {
+        var window = FindOpen(graph);
+        if (window == null)
+        {
+            GraphAssetHandler.OnOpenGraph(graph);
+            window = FindOpen(graph);
+        }
+        if (window == null)
+            return;
+        window.Focus();
+        // After the window has laid itself out, so framing knows its size.
+        EditorApplication.delayCall += () =>
+        {
+            if (window == null)
+                return;
+            window.RefreshDebugState(frame: false);
+            if (node != null)
+                window.FrameDebugNode(node);
+        };
+    }
+
+    private void QueueDebugRefresh()
+    {
+        if (_debugRefreshQueued || Canvas == null)
+            return;
+        _debugRefreshQueued = true;
+        Canvas.schedule.Execute(() =>
+        {
+            _debugRefreshQueued = false;
+            RefreshDebugState(frame: false);
+        });
+    }
+
+    /// <summary>Redraws breakpoint dots, the box around a stopped (or failed) node, and the debug panel.</summary>
+    internal void RefreshDebugState(bool frame)
+    {
+        if (Canvas == null || SchematicGraph == null)
+            return;
+
+        SyncBreakpointMarkers();
+        _debugPanel?.Refresh();
+
+        // The box goes on the node this graph's stopped flow is at, or else the error the panel is showing.
+        Node boxed = null;
+        bool error = false;
+        var flow = FlowDebugger.Current;
+        if (flow != null)
+        {
+            if (flow.Graph == SchematicGraph && flow.PausedNode != null)
+            {
+                boxed = flow.PausedNode;
+                error = flow.Paused == Flow.PauseReason.Error;
+            }
+        }
+        else if (_debugPanel?.ShownError != null)
+        {
+            boxed = SchematicGraph.GetNodeById(_debugPanel.ShownError.NodeId);
+            error = true;
+        }
+
+        var view = boxed != null ? ViewOf(boxed) : null;
+        SetDebugBox(view, error);
+        if (frame && view != null)
+            FrameDebugNode(boxed);
+    }
+
+    /// <summary>Selects the node and glides the view to it.</summary>
+    internal void FrameDebugNode(Node node)
+    {
+        var view = ViewOf(node);
+        if (view == null)
+            return;
+        Canvas.ClearSelection();
+        Canvas.AddToSelection(view);
+        if (_motion != null) _motion.Frame(view.GetPosition());
+        else Canvas.FrameSelection();
+    }
+
+    private NodeView ViewOf(Node node)
+    {
+        foreach (var view in Canvas.Query<NodeView>().ToList())
+            if (view.Target == node || (view.Target != null && node != null && view.Target.ID == node.ID))
+                return view;
+        return null;
+    }
+
+    // An orange (breakpoint) or red (error) box around the node: it pulses a few times to catch the eye, then stays.
+    private void SetDebugBox(NodeView view, bool error)
+    {
+        if (view == _boxedView && error == _boxIsError && _debugBox != null && _debugBox.parent == view)
+            return;
+
+        _debugBox?.RemoveFromHierarchy();
+        _debugBox = null;
+        _boxedView = view;
+        _boxIsError = error;
+        if (view == null)
+            return;
+
+        var box = new VisualElement { name = "flow-highlight", pickingMode = PickingMode.Ignore };
+        box.AddToClassList("flow-highlight");
+        box.AddToClassList(error ? "flow-highlight--error" : "flow-highlight--paused");
+        view.hierarchy.Add(box);
+        _debugBox = box;
+
+        float t = 0f;
+        IVisualElementScheduledItem pulse = null;
+        pulse = box.schedule.Execute(() =>
+        {
+            t += 0.016f;
+            if (t >= 1.5f || box.parent == null)
+            {
+                box.style.opacity = StyleKeyword.Null;
+                pulse.Pause();
+                return;
+            }
+            box.style.opacity = 0.6f + 0.4f * Mathf.Cos(t * Mathf.PI * 4f);
+        }).Every(16);
+    }
+
+    private void SyncBreakpointMarkers()
+    {
+        foreach (var view in Canvas.Query<NodeView>().ToList())
+        {
+            if (!(view.Target is SchematicGraphNode node))
+                continue;
+            var marker = view.Q("flow-breakpoint");
+            if (node.Breakpoint && marker == null)
+            {
+                marker = new VisualElement { name = "flow-breakpoint", pickingMode = PickingMode.Ignore, tooltip = "Breakpoint" };
+                marker.AddToClassList("flow-breakpoint");
+                view.hierarchy.Add(marker);
+            }
+            else if (!node.Breakpoint && marker != null)
+                marker.RemoveFromHierarchy();
+        }
+    }
+
+    private void ToggleBreakpoints(IEnumerable<SchematicGraphNode> nodes)
+    {
+        var list = nodes.ToList();
+        if (list.Count == 0)
+            return;
+        Undo.RecordObject(SchematicGraph, "Toggle Breakpoint");
+        // Several at once: all on, unless they all have one already.
+        bool on = list.Any(n => !n.Breakpoint);
+        foreach (var node in list)
+            node.Breakpoint = on;
+        EditorUtility.SetDirty(SchematicGraph);
+        SyncBreakpointMarkers();
+    }
+
+    private IEnumerable<SchematicGraphNode> SelectedGraphNodes() =>
+        Canvas.selection.OfType<NodeView>().Select(v => v.Target).OfType<SchematicGraphNode>();
+
+    private void OnDebugContextMenu(ContextualMenuPopulateEvent evt)
+    {
+        var view = (evt.target as VisualElement)?.GetFirstOfType<NodeView>();
+        if (view?.Target is SchematicGraphNode node)
+        {
+            var targets = view.selected ? SelectedGraphNodes().ToList() : new List<SchematicGraphNode> { node };
+            evt.menu.AppendAction("Breakpoint (F9)", _ => ToggleBreakpoints(targets),
+                targets.All(n => n.Breakpoint) ? DropdownMenuAction.Status.Checked : DropdownMenuAction.Status.Normal);
+            evt.menu.AppendSeparator();
+        }
+        else if (evt.target == Canvas && SchematicGraph.Nodes.OfType<SchematicGraphNode>().Any(n => n.Breakpoint))
+        {
+            evt.menu.AppendAction("Remove All Breakpoints", _ =>
+                ToggleBreakpoints(SchematicGraph.Nodes.OfType<SchematicGraphNode>().Where(n => n.Breakpoint)));
+        }
+    }
+
+    // F9 toggles breakpoints on the selected nodes; F5 continues (Shift+F5 stops) and F10 steps a stopped flow.
+    private void OnDebugKey(KeyDownEvent evt)
+    {
+        // Not while typing in a field.
+        if (evt.target is TextField || (evt.target as VisualElement)?.GetFirstOfType<TextField>() != null)
+            return;
+
+        switch (evt.keyCode)
+        {
+            case KeyCode.F9:
+                ToggleBreakpoints(SelectedGraphNodes());
+                break;
+            case KeyCode.F5 when FlowDebugger.Current != null:
+                if (evt.shiftKey) FlowDebugger.Stop();
+                else FlowDebugger.Continue();
+                break;
+            case KeyCode.F10 when FlowDebugger.Current != null:
+                FlowDebugger.Step();
+                break;
+            default:
+                return;
+        }
+        evt.StopPropagation();
+    }
+
+    #endregion
 
     /// <summary>
     /// Handles drag-and-drop update events over the canvas.
-    /// Sets the appropriate visual feedback when objects are being dragged over the canvas.
     /// </summary>
-    /// <param name="evt">The drag update event data</param>
     private void OnDragUpdated(DragUpdatedEvent evt)
     {
-        if (DragAndDrop.objectReferences.Length > 0)
+        if (DragAndDrop.GetGenericData(DockItem.DragKey) is DockItem || DragAndDrop.objectReferences.Any(o => o is SignalData))
         {
-            DragAndDrop.visualMode = DragAndDropVisualMode.Copy; 
+            DragAndDrop.visualMode = DragAndDropVisualMode.Copy;
             evt.StopPropagation();
         }
     }
 
     /// <summary>
-    /// Handles drag-and-drop perform events when objects are dropped onto the canvas.
-    /// Creates appropriate nodes or shows context menus based on the type of dropped object.
+    /// Handles items dropped onto the canvas: IO Dock rows (Behaviors, Variables, Signals, GameObjects) and Signal assets.
     /// </summary>
-    /// <param name="evt">The drag perform event data</param>
     private void OnDragPerform(DragPerformEvent evt)
     {
-        if (DragAndDrop.objectReferences.Length > 0)
+        Vector2 dropPosition = evt.mousePosition;
+
+        if (DragAndDrop.GetGenericData(DockItem.DragKey) is DockItem item)
         {
-            Vector2 dropPosition = evt.mousePosition;
+            DragAndDrop.AcceptDrag();
+            DragAndDrop.SetGenericData(DockItem.DragKey, null);
+            evt.StopPropagation();
 
-            foreach (var obj in DragAndDrop.objectReferences)
+            switch (item.Kind)
             {
-                if (obj is SignalData scriptableEvent)
-                {
-                    ShowEventDropMenu(scriptableEvent, dropPosition);
-                }
-                else if(obj is ScriptableVariable scriptableVariable)
-                {
-                    ShowVariableDropMenu(scriptableVariable, dropPosition);
-                }
+                case DockItem.ItemKind.Signal: DropSignal(item.Signal, item.Direction, dropPosition); break;
+                case DockItem.ItemKind.Variable: ShowVariableDropMenu(item, dropPosition); break;
+                case DockItem.ItemKind.GraphVariable: ShowGraphVariableDropMenu(item, dropPosition); break;
+                case DockItem.ItemKind.Behavior: CreateBehaviorNode(item, dropPosition); break;
+                case DockItem.ItemKind.GameObject: CreatePrefabObjectNode(item, dropPosition); break;
             }
+            return;
+        }
 
+        bool accepted = false;
+        foreach (var obj in DragAndDrop.objectReferences)
+        {
+            if (obj is SignalData signal)
+            {
+                DropSignal(signal, DirectionFor(SchematicGraph, signal), dropPosition);
+                accepted = true;
+            }
+        }
+
+        if (accepted)
+        {
             DragAndDrop.AcceptDrag();
             evt.StopPropagation();
         }
     }
 
     /// <summary>
-    /// Displays the Event Drop Menu if it was an Event that was dropped as
-    /// described in <see cref="OnDragPerform(DragPerformEvent)"/>
-    /// enabling creation of Event Nodes in the Graph by the user..
+    /// A Signal's direction says what the graph can do with it: an Input Signal is one the Behavior listens to, so the
+    /// graph sends it; an Output Signal is one the Behavior sends, so the graph reacts to it. Only Signals without a
+    /// direction (e.g. global ones) ask.
     /// </summary>
-    /// <param name="evt">The drag perform event data</param>
+    private void DropSignal(SignalData signal, SignalDirection direction, Vector2 position)
+    {
+        if (signal == null)
+            return;
+        switch (direction)
+        {
+            case SignalDirection.Input: CreateInvokeNode(signal, position); break;
+            case SignalDirection.Output: CreateOnInvokeNode(signal, position); break;
+            default: ShowEventDropMenu(signal, position); break;
+        }
+    }
+
+    /// <summary>The direction a Behavior declared for this Signal asset; Unspecified for Signals that aren't a Behavior's.</summary>
+    /// <summary>
+    /// Like <see cref="DirectionOf"/>, but graph Signals follow their own direction rule: in the graph that owns them,
+    /// Input Signals are reacted to and Output Signals are sent; from any other graph it's the reverse.
+    /// </summary>
+    internal static SignalDirection DirectionFor(SchematicGraph user, SignalData signal)
+    {
+        bool? send = GraphSignalRules.ShouldSend(user, signal);
+        if (send.HasValue)
+            return send.Value ? SignalDirection.Input : SignalDirection.Output;
+        return DirectionOf(signal);
+    }
+
+    internal static SignalDirection DirectionOf(SignalData signal)
+    {
+        if (signal != null && AssetDatabase.LoadMainAssetAtPath(AssetDatabase.GetAssetPath(signal)) is BehaviorMetadata metadata)
+            foreach (var definition in metadata.Signals)
+                if (definition.Asset == signal)
+                    return definition.Direction;
+        return SignalDirection.Unspecified;
+    }
+
     private void ShowEventDropMenu(SignalData evtAsset, Vector2 position)
     {
+        if (evtAsset == null)
+            return;
+
         GenericMenu menu = new GenericMenu();
-
-        menu.AddItem(new GUIContent($"Action ► Invoke {evtAsset.name}"), false, () => {
-            CreateInvokeNode(evtAsset, position);
-        });
-
-        menu.AddItem(new GUIContent($"Event ► On {evtAsset.name} Invoked"), false, () => {
-            CreateOnInvokeNode(evtAsset, position);
-        });
-
+        menu.AddItem(new GUIContent($"Action ► Send {evtAsset.name}"), false, () => CreateInvokeNode(evtAsset, position));
+        menu.AddItem(new GUIContent($"Event ► On {evtAsset.name} Received"), false, () => CreateOnInvokeNode(evtAsset, position));
         menu.ShowAsContext();
     }
 
-    /// <summary>
-    /// Displays a context menu when a ScriptableVariable is dropped onto the canvas.
-    /// Currently commented out but reserved for future variable node functionality.
-    /// </summary>
-    /// <param name="varAsset">The scriptable variable asset that was dropped</param>
-    /// <param name="position">The position where the object was dropped</param>
-    private void ShowVariableDropMenu(ScriptableVariable varAsset, Vector2 position)
+    private void ShowVariableDropMenu(DockItem item, Vector2 position)
     {
         GenericMenu menu = new GenericMenu();
-
-        menu.AddItem(new GUIContent($"Action ► Set Variable {varAsset.name}"), false, () => {
-            //CreateInvokeNode(evtAsset, position);
-        });
-
-        menu.AddItem(new GUIContent($"Query ► Get {varAsset.name}"), false, () => {
-            //CreateOnInvokeNode(evtAsset, position);
-        });
-
+        menu.AddItem(new GUIContent($"Query ► Get {item.Name}"), false, () => CreateVariableNode(item, position, set: false));
+        menu.AddItem(new GUIContent($"Action ► Set {item.Name}"), false, () => CreateVariableNode(item, position, set: true));
         menu.ShowAsContext();
     }
 
-    /// <summary>
-    /// Creates an invoke node for a given scriptable event at the specified position, for drag-and-drop of I/O from the User
-    /// </summary>
-    /// <param name="signalAsset">The scriptable event to create an invoke node for</param>
-    /// <param name="position">The position to place the new node</param>
-    private void CreateInvokeNode(SignalData signalAsset, Vector2 position)
+    private void ShowGraphVariableDropMenu(DockItem item, Vector2 position)
     {
-        var node = (SendSignalNode)NodeReflection.GetNodeTypes()[nameof(SendSignalNode)].CreateInstance();
-        node.Signal = signalAsset;
-
-        foreach (var param in signalAsset.Parameters.Contents)
-        {
-            node.AddPort(new Port
-            {
-                Type = Union.TypeLookup[param.Value.Type],
-                Name = param.Name,
-                Capacity = PortCapacity.Multiple,
-                Direction = PortDirection.Input
-            });
-        }
-
-        Canvas.AddNodeFromSearch(node, this.position.position + position , null);
+        GenericMenu menu = new GenericMenu();
+        menu.AddItem(new GUIContent($"Query ► Get {item.Name}"), false, () => CreateGraphVariableNode(item, position, set: false));
+        menu.AddItem(new GUIContent($"Action ► Set {item.Name}"), false, () => CreateGraphVariableNode(item, position, set: true));
+        menu.ShowAsContext();
     }
 
-    /// <summary>
-    /// Creates an on-invoke node for a given scriptable event at the specified position, for drag-and-drop of I/O from the User
-    /// </summary>
-    /// <param name="signalAsset">The scriptable event to create an on-invoke node for</param>
-    /// <param name="position">The position to place the new node</param>
-    private void CreateOnInvokeNode(SignalData signalAsset, Vector2 position)
+    private Node CreateGraphVariableNode(DockItem item, Vector2 position, bool set)
     {
-        var node = (OnSignalReceivedNode)NodeReflection.GetNodeTypes()[nameof(OnSignalReceivedNode)].CreateInstance();
-        node.Signal = signalAsset;
-
-        foreach (var param in signalAsset.Parameters.Contents)
-        {
-            node.AddPort(new Port
-            {
-                Type = Union.TypeLookup[param.Value.Type],
-                Name = param.Name,
-                Capacity = PortCapacity.Multiple,
-                Direction = PortDirection.Output
-            });
-        }
-
+        GraphVariableNodeBase node = set ? NewNode<SetGraphVariableNode>() : NewNode<GetGraphVariableNode>();
+        node.Owner = item.Graph == SchematicGraph ? null : item.Graph;
+        node.VariableId = item.VariableId;
+        node.Name = (set ? "Set " : "Get ") + ObjectNames.NicifyVariableName(item.Name);
+        node.SyncPorts();
         Canvas.AddNodeFromSearch(node, this.position.position + position, null);
+        RedrawGraphIO();
+        return node;
     }
 
+    private T NewNode<T>() where T : Node => (T)NodeReflection.GetNodeTypes()[typeof(T).Name].CreateInstance();
+
+    private Node CreateInvokeNode(SignalData signalAsset, Vector2 position)
+    {
+        var node = NewNode<SendSignalNode>();
+        node.Signal = signalAsset;
+        node.Name = "Send " + signalAsset.name;
+        SyncSignalPorts(node, signalAsset, PortDirection.Input);
+        Canvas.AddNodeFromSearch(node, this.position.position + position, null);
+        RedrawGraphIO();
+        return node;
+    }
+
+    private Node CreateOnInvokeNode(SignalData signalAsset, Vector2 position)
+    {
+        var node = NewNode<OnSignalReceivedNode>();
+        node.Signal = signalAsset;
+        node.Name = "On " + signalAsset.name;
+        SyncSignalPorts(node, signalAsset, PortDirection.Output);
+        Canvas.AddNodeFromSearch(node, this.position.position + position, null);
+        RedrawGraphIO();
+        return node;
+    }
+
+    private Node CreateVariableNode(DockItem item, Vector2 position, bool set)
+    {
+        BehaviorNodeBase node;
+        if (set)
+        {
+            var setter = NewNode<SetBehaviorVariableNode>();
+            setter.Variable = item.Name;
+            setter.Name = "Set " + ObjectNames.NicifyVariableName(item.Name);
+            node = setter;
+        }
+        else
+        {
+            var getter = NewNode<GetBehaviorVariableNode>();
+            getter.Variable = item.Name;
+            getter.Name = "Get " + ObjectNames.NicifyVariableName(item.Name);
+            node = getter;
+        }
+        node.Target = new BehaviorTarget(item.Behavior, item.Path);
+        SyncBehaviorNodePorts(node);
+        Canvas.AddNodeFromSearch(node, this.position.position + position, null);
+        RedrawGraphIO();
+        return node;
+    }
+
+    private Node CreateBehaviorNode(DockItem item, Vector2 position)
+    {
+        var node = NewNode<BehaviorReferenceNode>();
+        node.Target = new BehaviorTarget(item.Behavior, item.Path);
+        node.Name = ObjectNames.NicifyVariableName(item.Behavior.Name);
+        node.RebuildPorts();
+        Canvas.AddNodeFromSearch(node, this.position.position + position, null);
+        RedrawGraphIO();
+        return node;
+    }
+
+    private Node CreatePrefabObjectNode(DockItem item, Vector2 position)
+    {
+        var node = NewNode<PrefabObjectNode>();
+        node.Path = item.Path;
+        node.Name = item.GameObject != null ? item.GameObject.name : "Prefab Object";
+        Canvas.AddNodeFromSearch(node, this.position.position + position, null);
+        RedrawGraphIO();
+        return node;
+    }
+
+    #region Port syncing
 
     /// <summary>
-    /// Scrolls to and highlights a specific component in the sidebar hierarchy that is focused on based on an interaction from the user.
+    /// Brings dynamic pins up to date with the code (Signal parameters, Variable types, Behavior members), so renaming
+    /// or retyping something in a Behavior doesn't leave stale pins behind.
     /// </summary>
-    /// <param name="component">The component to scroll to and highlight</param>
-    internal void ScrollToComponent(Component component)
+    private void SyncNodePorts()
     {
-        if (!_componentFieldMap.TryGetValue(component, out var field)) return;
+        if (SchematicGraph == null)
+            return;
 
-        // Open all parent foldouts
-        var parent = field.parent;
-        while (parent != null)
+        bool changed = false;
+        foreach (var node in SchematicGraph.Nodes)
         {
-            if (parent is Foldout foldout)
+            switch (node)
             {
-                foldout.value = true;
-
-                if (!flashed)
-                {
-                    var scrollView = rootVisualElement.Q<ScrollView>();
-
-                    var worldPos = field.worldBound.yMin;
-                    var containerPos = scrollView.worldBound.yMin;
-
-                    var offsetY = worldPos - containerPos;
-
-                    _ = FlashFoldout(scrollView, foldout, offsetY);
-                    flashed = true;
-                }
+                case SendSignalNode send when send.Signal != null:
+                    changed |= SyncSignalPorts(send, send.Signal, PortDirection.Input);
+                    break;
+                case OnSignalReceivedNode receive when receive.Signal != null:
+                    changed |= SyncSignalPorts(receive, receive.Signal, PortDirection.Output);
+                    break;
+                case BehaviorReferenceNode behavior:
+                    behavior.RebuildPorts();
+                    changed = true;
+                    break;
+                case BehaviorNodeBase variableNode:
+                    changed |= SyncBehaviorNodePorts(variableNode);
+                    break;
+                case GraphVariableNodeBase graphVariable:
+                    changed |= graphVariable.SyncPorts();
+                    break;
             }
-            parent = parent.parent;
         }
+
+        if (changed)
+        {
+            EditorUtility.SetDirty(SchematicGraph);
+            Canvas.Reload();
+        }
+    }
+
+    private static bool SyncSignalPorts(Node node, SignalData signal, PortDirection direction)
+    {
+        var parameters = SignalParameters(signal);
+        var wanted = new HashSet<string>();
+        bool changed = false;
+
+        // Send nodes can be aimed at another object.
+        if (node is SendSignalNode)
+        {
+            wanted.Add(SendSignalNode.ToPort);
+            var to = node.GetPort(SendSignalNode.ToPort);
+            if (to == null || to.Type != typeof(GameObject) || to.Direction != PortDirection.Input)
+            {
+                if (to != null) node.RemovePort(to);
+                node.AddPort(new Port { Type = typeof(GameObject), Name = SendSignalNode.ToPort, Capacity = PortCapacity.Single, Direction = PortDirection.Input });
+                changed = true;
+            }
+        }
+
+        foreach (var (name, type) in parameters)
+        {
+            wanted.Add(name);
+            var existing = node.GetPort(name);
+            if (existing != null && existing.Type == type && existing.Direction == direction)
+                continue;
+            if (existing != null)
+                node.RemovePort(existing);
+            node.AddPort(new Port
+            {
+                Type = type,
+                Name = name,
+                Capacity = direction == PortDirection.Input ? PortCapacity.Single : PortCapacity.Multiple,
+                Direction = direction
+            });
+            changed = true;
+        }
+
+        foreach (var port in node.Ports.Values.Where(p => p.Type != typeof(ActionPort) && !wanted.Contains(p.Name)).ToList())
+        {
+            node.RemovePort(port);
+            changed = true;
+        }
+        return changed;
+    }
+
+    private static bool SyncBehaviorNodePorts(BehaviorNodeBase node)
+    {
+        string variable = node is GetBehaviorVariableNode get ? get.Variable : node is SetBehaviorVariableNode set ? set.Variable : null;
+        if (variable == null)
+            return false;
+
+        var type = BehaviorReflection.Get(node.Target.Type)?.FindVariableType(variable) ?? typeof(object);
+        var direction = node is SetBehaviorVariableNode ? PortDirection.Input : PortDirection.Output;
+        string portName = node is SetBehaviorVariableNode ? SetBehaviorVariableNode.ValuePort : GetBehaviorVariableNode.ValuePort;
+
+        var existing = node.GetPort(portName);
+        if (existing != null && existing.Type == type && existing.Direction == direction)
+            return false;
+        node.EnsurePort(portName, type, direction);
+        node.RemovePortsExcept(new[] { portName });
+        return true;
     }
 
     /// <summary>
-    /// Highlights a foldout with a flash effect and scrolls it into view.
+    /// A Signal's parameters with their real types: from the Behavior Metadata that owns the Signal asset when there
+    /// is one, otherwise from the asset's own parameter list.
     /// </summary>
-    /// <param name="scrollView">The scroll view used to bring the target into view.</param>
-    /// <param name="target">The foldout element to highlight.</param>
-    /// <param name="position">The vertical scroll offset to center on the foldout.</param>
-    /// <returns>A task that completes when the flash animation finishes.</returns>
-    private async Task FlashFoldout(ScrollView scrollView, Foldout target, float position)
+    public static List<(string name, Type type)> SignalParameters(SignalData signal)
     {
-        var defaultBackground = target.style.backgroundColor;
-        var startPosition = scrollView.scrollOffset.y;
+        var result = new List<(string, Type)>();
+        if (signal == null)
+            return result;
 
-        for (float i = 0; i < 1f; i += 0.05f)
+        if (AssetDatabase.LoadMainAssetAtPath(AssetDatabase.GetAssetPath(signal)) is BehaviorMetadata metadata)
+            foreach (var definition in metadata.Signals)
+                if (definition.Asset == signal)
+                {
+                    foreach (var parameter in definition.Parameters)
+                        result.Add((parameter.Name, parameter.Type.Type ?? typeof(object)));
+                    return result;
+                }
+
+        if (AssetDatabase.LoadMainAssetAtPath(AssetDatabase.GetAssetPath(signal)) is SchematicGraph owner && owner.FindSignal(signal) is { } graphSignal)
         {
-            target.style.backgroundColor = Color.Lerp(Color.darkCyan, defaultBackground.value, i);
-            scrollView.scrollOffset = new Vector2(0, Mathf.Lerp(startPosition, position, i));
-
-            await Task.Delay(1);
+            foreach (var parameter in graphSignal.Parameters)
+                if (parameter != null && !string.IsNullOrEmpty(parameter.Name))
+                    result.Add((parameter.Name, parameter.Type.Type ?? typeof(object)));
+            return result;
         }
 
-        target.style.backgroundColor = defaultBackground;
-        flashed = false;
+        foreach (var parameter in signal.Parameters.Contents)
+        {
+            Union.TypeLookup.TryGetValue(parameter.Value.Type, out var type);
+            result.Add((parameter.Name, type ?? typeof(object)));
+        }
+        return result;
     }
 
-
+    #endregion
 }

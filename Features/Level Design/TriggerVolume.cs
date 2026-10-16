@@ -1,71 +1,76 @@
 using Remedy.Framework;
-//using SaintsField;
+using Remedy.Schematics;
 using UnityEngine;
-using Remedy.Common;
 
 namespace Remedy.LevelDesign
 {
     /// <summary>
-    /// Trigger Volumes are a base for any Volumes that would invoke Events related to the player's interactions with it. 
+    /// Trigger Volumes are a base for any Volumes that would invoke Events related to the player's interactions with it.
     /// </summary>
+    [SchematicDoc(@"{""name"": ""Trigger Volume"", ""kind"": ""behavior"", ""menu"": ""Level Design/Trigger Volume"", ""description"": ""Trigger Volumes are a base for any Volumes that would invoke Events related to the player's interactions with it."", ""variables"": [""ShowCollider"", ""TriggerType"", ""FilterTag""], ""signals"": [""OnTrigger""], ""use_for"": [""areas that react to the player entering or leaving""]}")]
+    [SchematicBehaviorPath("Level Design/Trigger Volume")]
     [RequireComponent(typeof(BoxCollider))]
-    public class TriggerVolume : MonoBehaviour
+    public class TriggerVolume : SchematicBehavior
     {
-        public SignalData OnTrigger;
-        public bool showCollider = true;
+        [SchematicDoc(@"{""name"": ""OnTrigger"", ""kind"": ""signal"", ""behavior"": ""Trigger Volume"", ""direction"": ""output"", ""description"": ""Sent by Trigger Volume when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
+        [OutputSignal]
+        [NetworkSync(SignalSender.Authority)]
+        public readonly SignalHandle OnTrigger;
 
-        //[Dropdown("GetTriggerVolumes")]
-        public int TriggerType;
-        public LevelDesignData.TriggerInfo TriggerInfo;
+        [SchematicDoc(@"{""name"": ""ShowCollider"", ""kind"": ""variable"", ""behavior"": ""Trigger Volume"", ""type"": ""bool"", ""default"": ""true"", ""description"": ""Show Collider (bool) of Trigger Volume.""}")]
+        public readonly VariableHandle<bool> ShowCollider = true;
 
-        private BoxCollider _boxCollider;
-/*
-        public DropdownList<int> GetTriggerVolumes()
+        [SchematicDoc(@"{""name"": ""TriggerType"", ""kind"": ""variable"", ""behavior"": ""Trigger Volume"", ""type"": ""int"", ""default"": ""0"", ""description"": ""Index into the Trigger Types defined in the Level Design Data.""}")]
+        [Tooltip("Index into the Trigger Types defined in the Level Design Data.")]
+        public readonly VariableHandle<int> TriggerType = 0;
+
+        [SchematicDoc(@"{""name"": ""FilterTag"", ""kind"": ""variable"", ""behavior"": ""Trigger Volume"", ""type"": ""IntTag"", ""default"": ""Player"", ""description"": ""Only objects with this Int Tag set it off. Untagged: anything.""}")]
+        [Tooltip("Only objects with this Int Tag set it off (the player, by default). Untagged: anything.")]
+        public readonly VariableHandle<IntTag> FilterTag = new IntTag(IntTags.Player);
+
+        protected override void OnCreate()
         {
-            var list = new DropdownList<int>();
-
-            for(int i = 0; i < LevelDesignData.Instance.Triggers.TriggerTypes.Length; i++)
-            {
-                list.Add(LevelDesignData.Instance.Triggers.TriggerTypes[i].Name, i);
-            }
-
-            return list;
-        }*/
-
-        private void OnValidate()
-        {
-            GetComponent<BoxCollider>().isTrigger = true;
+            var collider = Self.GetComponent<BoxCollider>();
+            if (collider != null)
+                collider.isTrigger = true;
         }
 
-        public virtual void OnTriggerEnter(Collider other)
+        protected override void OnTriggerEnter(Collider other)
         {
-            if (other.CompareTag(GlobalSubsystem.PlayerTag))
-            {
-                OnTrigger?.Invoke();
-            }
+            var tag = FilterTag.Value;
+            if (!tag.IsTagged || HasTag(other, tag))
+                OnTrigger.Invoke();
         }
 
-
-        void OnDrawGizmos()
+        // The collider's own object, its body, or the Schematic Object it belongs to (tags usually live on the root).
+        private static bool HasTag(Collider other, IntTag tag)
         {
-            TriggerInfo = LevelDesignData.Instance.Triggers;
-            if (showCollider)
-            {
-                if(_boxCollider == null)
-                    _boxCollider = GetComponent<BoxCollider>();
+            if (other.gameObject.HasIntTag(tag))
+                return true;
+            var body = other.attachedRigidbody;
+            if (body != null && body.gameObject != other.gameObject && body.gameObject.HasIntTag(tag))
+                return true;
+            var owner = other.GetComponentInParent<SchematicObject>();
+            return owner != null && owner.gameObject != other.gameObject && owner.gameObject.HasIntTag(tag);
+        }
 
-                if (LevelDesignData.Instance.Triggers.TriggerTypes.Length == 0) return;
+        protected override void OnDrawGizmos(BehaviorGizmoContext context)
+        {
+            if (!context.Get(ShowCollider))
+                return;
 
-                Gizmos.color = LevelDesignData.Instance.Triggers.TriggerTypes[TriggerType].Color;
+            var collider = context.GetComponent<BoxCollider>();
+            var triggerTypes = LevelDesignData.Instance.Triggers?.TriggerTypes;
+            int triggerType = context.Get(TriggerType);
+            if (collider == null || triggerTypes == null || triggerType < 0 || triggerType >= triggerTypes.Length)
+                return;
 
-                if (LevelDesignData.Instance.Triggers.TriggerTypes[TriggerType].Filled)
-                {
-                    Gizmos.DrawCube(transform.position + _boxCollider.center, _boxCollider.size);
-                    Gizmos.DrawWireCube(transform.position + _boxCollider.center, _boxCollider.size);
-                }
-                else
-                    Gizmos.DrawWireCube(transform.position + _boxCollider.center, _boxCollider.size);
-            }
+            var definition = triggerTypes[triggerType];
+            var center = context.Transform.position + collider.center;
+            Gizmos.color = definition.Color;
+            if (definition.Filled)
+                Gizmos.DrawCube(center, collider.size);
+            Gizmos.DrawWireCube(center, collider.size);
         }
     }
 }

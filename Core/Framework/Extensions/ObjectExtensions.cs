@@ -147,6 +147,7 @@ namespace Remedy.Framework
             }
         }
 
+#if UNITY_EDITOR
         public static object GetValueFromSerializedProperty(this SerializedProperty property, object root)
         {
             string[] path = property.propertyPath.Replace(".Array.data[", "[").Split('.');
@@ -190,7 +191,6 @@ namespace Remedy.Framework
 
 
 
-#if UNITY_EDITOR
         /// <summary>
         /// Get's all the references to the given object in the Editor.
         /// </summary>

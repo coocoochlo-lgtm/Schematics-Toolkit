@@ -1,0 +1,20 @@
+{
+    "name": "Remedy.Core.IntTags.Editor",
+    "rootNamespace": "",
+    "references": [
+        "GUID:9cef1c0784dad074282847b193c0d47b",
+        "GUID:c61f7966d20e38f45989bde55b098f00",
+        "GUID:6ad709935d36ecb428b55e673bc2ab83"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

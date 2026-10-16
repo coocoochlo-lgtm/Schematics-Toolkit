@@ -1,30 +1,35 @@
-//using SaintsField;
-using System.Collections.Generic;
 using UnityEngine;
 
 namespace Remedy.UI
 {
-    public class UIComponent : MonoBehaviour
+    /// <summary>
+    /// A UI element rendered on the UI layer at a depth set by its Layer. Extend it for specific UI elements and
+    /// override <see cref="InitiateAndSubscribeEvents"/>/<see cref="UnSubscribeEvents"/> for their setup.
+    /// </summary>
+    [SchematicDoc(@"{""name"": ""UI Component"", ""kind"": ""behavior"", ""menu"": ""UI/UI Component"", ""description"": ""A UI element rendered on the UI layer at a depth set by its Layer. Extend it for specific UI elements and override InitiateAndSubscribeEvents/UnSubscribeEvents for their setup."", ""variables"": [""Layer""], ""use_for"": [""custom UI elements""], ""notes"": ""Usually extended rather than used directly.""}")]
+    [SchematicBehaviorPath("UI/UI Component")]
+    public class UIComponent : SchematicBehavior
     {
+        [SchematicDoc(@"{""name"": ""Layer"", ""kind"": ""variable"", ""behavior"": ""UI Component"", ""type"": ""int"", ""default"": ""0"", ""description"": ""The UI Layer to render this Prefab's Canvas on.""}")]
         [Tooltip("The UI Layer to render this Prefab's Canvas on.")]
-        public int Layer;
+        public readonly VariableHandle<int> Layer = 0;
 
-        private void Start()
+        protected override void OnStart()
         {
-            UIManager.AddUIComponent(this);
-            InitiateAndSubscribeEvents();
+            UIManager.AddUIComponent(Self, Layer.Value);
+            InitiateAndSubscribeEvents(Self);
         }
 
-        private void OnDisable()
+        protected override void OnDisable()
         {
-            UIManager.RemoveUIComponent(this);
-            UnSubscribeEvents();
+            UIManager.RemoveUIComponent(Self, Layer.Value);
+            UnSubscribeEvents(Self);
         }
 
-        protected virtual void InitiateAndSubscribeEvents()
+        protected virtual void InitiateAndSubscribeEvents(BehaviorInstance instance)
         { }
 
-        protected virtual void UnSubscribeEvents()
+        protected virtual void UnSubscribeEvents(BehaviorInstance instance)
         { }
     }
 }

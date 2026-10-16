@@ -7,15 +7,16 @@ namespace Remedy.Cameras
     [ExecuteAlways]
     public class CameraManager : Singleton<CameraManager>
     {
-        //[Dropdown("GetOperators")]
-        public static CameraOperator CurrentOperator;
+        /// <summary>The active Camera Operator instance.</summary>
+        public static BehaviorInstance CurrentOperator;
         public Transform _cameraTransform;
 
         private Camera _camera;
         public static Camera Camera => Instance._camera ??= CameraTransform.GetCachedComponent<Camera>();
         public static Transform CameraTransform => Instance._cameraTransform ?? null;
 
-        private CameraOperator[] _operators;
+        // Every enabled Camera Operator, kept in step with the active one.
+        private readonly System.Collections.Generic.List<BehaviorInstance> _operators = new();
 
         private float _currentTransitionTime = 0f;
         private float _referenceCamTransitionTime = 0f;
@@ -37,86 +38,114 @@ namespace Remedy.Cameras
 
         void Start()
         {
-            _operators = FindObjectsByType<CameraOperator>(FindObjectsSortMode.None);
-
             if(Camera != null)
                 CameraSubsystem.SetMainCamera(Camera);
         }
 
         private void Update()
         {
-            if (CurrentOperator == null) return;
+            if (CurrentOperator == null || !CurrentOperator.IsSpawned) return;
 
-            if (_currentTransitionTime < CurrentOperator.Properties.TransitionTime)
+            var op = (CameraOperator)CurrentOperator.Behavior;
+            var operatorCamera = op.Camera[CurrentOperator];
+            var properties = op.Properties[CurrentOperator];
+            if (operatorCamera == null || _cameraTransform == null) return;
+
+            float transitionTime = properties != null ? properties.TransitionTime : 0f;
+            if (_currentTransitionTime < transitionTime)
             {
                 _currentTransitionTime += Time.deltaTime;
 
-                _cameraTransform.position = Vector3.Lerp(_cameraTransform.position, CurrentOperator.Camera.position, _currentTransitionTime / CurrentOperator.Properties.TransitionTime);
-                _cameraTransform.rotation = Quaternion.Slerp(_cameraTransform.rotation, CurrentOperator.Camera.rotation, _currentTransitionTime / CurrentOperator.Properties.TransitionTime);
+                _cameraTransform.position = Vector3.Lerp(_cameraTransform.position, operatorCamera.position, _currentTransitionTime / transitionTime);
+                _cameraTransform.rotation = Quaternion.Slerp(_cameraTransform.rotation, operatorCamera.rotation, _currentTransitionTime / transitionTime);
             }
             else
             {
-                var currentVolume = CurrentOperator.CurrentVolume;
-                if (CurrentOperator.UseVolumes && currentVolume != null && currentVolume.UseReferenceCam && currentVolume.ReferenceCamera != null)
+                var volumeInstance = op.CurrentVolume[CurrentOperator];
+                var volume = volumeInstance != null && volumeInstance.IsSpawned ? (CameraPropertiesVolume)volumeInstance.Behavior : null;
+                bool useVolumes = properties != null && properties.UseVolumes;
+                var referenceCamera = volume != null ? volume.ReferenceCamera[volumeInstance] : null;
+
+                if (useVolumes && volume != null && volume.UseReferenceCam[volumeInstance] && referenceCamera != null)
                 {
-                    var refEuler = currentVolume.ReferenceCamera.eulerAngles;
-                    var refPos = currentVolume.ReferenceCamera.position;
+                    var refEuler = referenceCamera.eulerAngles;
+                    var refPos = referenceCamera.position;
+                    var angleMask = volume.ReferenceCamAngleMask[volumeInstance];
+                    var positionMask = volume.ReferenceCamPositionMask[volumeInstance];
+                    float speed = volume.ReferenceCameraSpeed[volumeInstance];
 
-                    var goalEuler = refEuler * currentVolume.ReferenceCamAngleMask + _cameraTransform.eulerAngles * !currentVolume.ReferenceCamAngleMask;
-                    var goalPos = refPos * currentVolume.ReferenceCamPositionMask + _cameraTransform.position * !currentVolume.ReferenceCamPositionMask;
+                    var goalEuler = refEuler * angleMask + _cameraTransform.eulerAngles * !angleMask;
+                    var goalPos = refPos * positionMask + _cameraTransform.position * !positionMask;
 
-                    _cameraTransform.rotation = Quaternion.Slerp(_cameraTransform.rotation, Quaternion.Euler(goalEuler), currentVolume.ReferenceCameraSpeed * Time.deltaTime);
-                    _cameraTransform.position = Vector3.Lerp(_cameraTransform.position, goalPos, currentVolume.ReferenceCameraSpeed * Time.deltaTime);
+                    _cameraTransform.rotation = Quaternion.Slerp(_cameraTransform.rotation, Quaternion.Euler(goalEuler), speed * Time.deltaTime);
+                    _cameraTransform.position = Vector3.Lerp(_cameraTransform.position, goalPos, speed * Time.deltaTime);
 
-                    CurrentOperator.ForceAxis(_cameraTransform.eulerAngles.y, 0);
+                    op.ForceAxis(CurrentOperator, _cameraTransform.eulerAngles.y, 0);
 
                     _wasUsingReferenceCam = true;
                     _referenceCamTransitionTime = 0f;
-                    _referenceCamTransitionDuration = currentVolume.ReferenceCameraSpeed;
+                    _referenceCamTransitionDuration = speed;
                 }
-                else
+                else if (_wasUsingReferenceCam)
                 {
-                    if (_wasUsingReferenceCam)
+                    if (_referenceCamTransitionTime < _referenceCamTransitionDuration)
                     {
-                        if (_referenceCamTransitionTime < _referenceCamTransitionDuration)
-                        {
-                            _cameraTransform.position = Vector3.Lerp(_cameraTransform.position, CurrentOperator.Camera.position, _referenceCamTransitionTime / _referenceCamTransitionDuration);
-                            _cameraTransform.rotation = Quaternion.Slerp(_cameraTransform.rotation, CurrentOperator.Camera.rotation, _referenceCamTransitionTime / _referenceCamTransitionDuration);
-                            _referenceCamTransitionTime += Time.deltaTime;
-                        }
-                        else
-                        {
-                            _wasUsingReferenceCam = false;
-                        }
+                        _cameraTransform.position = Vector3.Lerp(_cameraTransform.position, operatorCamera.position, _referenceCamTransitionTime / _referenceCamTransitionDuration);
+                        _cameraTransform.rotation = Quaternion.Slerp(_cameraTransform.rotation, operatorCamera.rotation, _referenceCamTransitionTime / _referenceCamTransitionDuration);
+                        _referenceCamTransitionTime += Time.deltaTime;
                     }
                     else
                     {
-                        _cameraTransform.position = CurrentOperator.Camera.position;
-                        _cameraTransform.rotation = CurrentOperator.Camera.rotation;
+                        _wasUsingReferenceCam = false;
                     }
+                }
+                else
+                {
+                    _cameraTransform.position = operatorCamera.position;
+                    _cameraTransform.rotation = operatorCamera.rotation;
                 }
             }
 
-
-            foreach (var op in _operators)
+            // Inactive Operators follow the active one so switching is seamless.
+            var root = op.Root[CurrentOperator];
+            foreach (var other in _operators)
             {
-                if (op == CurrentOperator) continue;
+                if (other == CurrentOperator || !other.IsSpawned || root == null) continue;
 
-                op.Root.position = CurrentOperator.Root.position;
-                op.Root.rotation = CurrentOperator.Root.rotation;
-                op.ForceAxis(CurrentOperator._actualXAxis, CurrentOperator._actualYAxis);
+                var otherOperator = (CameraOperator)other.Behavior;
+                var otherRoot = otherOperator.Root[other];
+                if (otherRoot == null) continue;
+
+                otherRoot.position = root.position;
+                otherRoot.rotation = root.rotation;
+                otherOperator.ForceAxis(other, op.ActualXAxis[CurrentOperator], op.ActualYAxis[CurrentOperator]);
             }
-
         }
 
-        public static void SetCameraOperator(CameraOperator op)
+        /// <summary>Called by Camera Operators when they become enabled.</summary>
+        public static void AddOperator(BehaviorInstance op)
         {
-            if (Instance._cameraTransform == null) return;
+            if (!Instance._operators.Contains(op))
+                Instance._operators.Add(op);
+        }
 
-            if (CurrentOperator == null)
+        /// <summary>Called by Camera Operators when they become disabled or despawn.</summary>
+        public static void RemoveOperator(BehaviorInstance op)
+        {
+            Instance._operators.Remove(op);
+            if (CurrentOperator == op)
+                CurrentOperator = null;
+        }
+
+        public static void SetCameraOperator(BehaviorInstance op)
+        {
+            if (Instance._cameraTransform == null || op == null) return;
+
+            var operatorCamera = ((CameraOperator)op.Behavior).Camera[op];
+            if (CurrentOperator == null && operatorCamera != null)
             {
-                Instance._cameraTransform.position = op.Camera.position;
-                Instance._cameraTransform.rotation = op.Camera.rotation;
+                Instance._cameraTransform.position = operatorCamera.position;
+                Instance._cameraTransform.rotation = operatorCamera.rotation;
             }
 
             CurrentOperator = op;

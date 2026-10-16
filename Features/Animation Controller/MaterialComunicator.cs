@@ -1,71 +1,52 @@
-using Remedy.Framework;
-//using SaintsField;
-using System;
-using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.Rendering;
 
-//Enable SaintsEditor and Change Mono to SaintsMonoBehaviour
 namespace Remedy.Materials
 {
-    public class MaterialComunicator : MonoBehaviour
+    /// <summary>
+    /// Drives material properties from Signals: each entry of its Properties maps a Signal to a shader property.
+    /// Uses the Renderer's shared material unless the Properties name one.
+    /// </summary>
+    [SchematicDoc(@"{""name"": ""Material Comunicator"", ""kind"": ""behavior"", ""menu"": ""Rendering/Material Communicator"", ""description"": ""Drives material properties from Signals: each entry of its Properties maps a Signal to a shader property. Uses the Renderer's shared material unless the Properties name one."", ""variables"": [""Properties""], ""use_for"": [""flashing on damage"", ""glow when powered up"", ""changing colors from gameplay""]}")]
+    [SchematicBehaviorPath("Rendering/Material Communicator")]
+    public class MaterialComunicator : SchematicBehavior
     {
-        public Material Material;
-        public List<FloatEvent> FloatValues = new();
-        public List<Vector2Event> Vector2Values = new();
+        /// <summary>The Signal-to-shader-property mappings, assigned per object.</summary>
+        [SchematicDoc(@"{""name"": ""Properties"", ""kind"": ""variable"", ""behavior"": ""Material Comunicator"", ""type"": ""MaterialComunicatorProperties"", ""default"": ""null"", ""description"": ""The Signal-to-shader-property mappings, assigned per object.""}")]
+        public readonly VariableHandle<MaterialComunicatorProperties> Properties = (MaterialComunicatorProperties)null;
 
-        private void Awake()
+        protected override void OnStart()
         {
-            foreach (var bEvent in FloatValues)
-            {
-                bEvent.OnEvent.Subscribe(this, (float value) => {
-                    if (bEvent.ParameterName == "") return;
+            var instance = Self;
+            var properties = Properties.Value;
+            if (properties == null)
+                return;
 
-                    Material.SetFloat(bEvent.ParameterName, value);
-                });
-            }
-            foreach (var v2Event in Vector2Values)
+            var material = properties.Material;
+            if (material == null)
             {
-                v2Event.OnEvent.Subscribe(this, (Vector2 value) =>
+                var renderer = instance.GetComponent<Renderer>();
+                material = renderer != null ? renderer.sharedMaterial : null;
+            }
+            if (material == null)
+                return;
+
+            foreach (var entry in properties.FloatValues)
+            {
+                if (string.IsNullOrEmpty(entry.ParameterName)) continue;
+                var parameter = entry.ParameterName;
+                entry.OnEvent?.Subscribe(instance, (float value) => material.SetFloat(parameter, value));
+            }
+
+            foreach (var entry in properties.Vector2Values)
+            {
+                var mapping = entry;
+                mapping.OnEvent?.Subscribe(instance, (Vector2 value) =>
                 {
-                    if (v2Event.XParameter != "") Material.SetFloat(v2Event.XParameter, value.x);
-                    if (v2Event.YParameter != "") Material.SetFloat(v2Event.YParameter, value.y);
-                    if (v2Event.MagnitudeParameter != "") Material.SetFloat(v2Event.MagnitudeParameter, value.magnitude);
+                    if (!string.IsNullOrEmpty(mapping.XParameter)) material.SetFloat(mapping.XParameter, value.x);
+                    if (!string.IsNullOrEmpty(mapping.YParameter)) material.SetFloat(mapping.YParameter, value.y);
+                    if (!string.IsNullOrEmpty(mapping.MagnitudeParameter)) material.SetFloat(mapping.MagnitudeParameter, value.magnitude);
                 });
             }
-        }
-
-        private void OnValidate()
-        {
-            if (Material == null)
-            {
-                Material = GetComponent<Renderer>().sharedMaterial;
-            }
-        }
-
-        [Serializable]
-        public class FloatEvent
-        {
-            public SignalData OnEvent;
-            //[ShaderParam(ShaderPropertyType.Float)]
-            public string ParameterName;
-        }
-        [Serializable]
-        public class Vector2Event
-        {
-            public SignalData OnEvent;
-            //[ShaderParam(ShaderPropertyType.Float)]
-            [Tooltip("The Parameter that is set to the X axis value of the Vector2 passed from the Event")]
-            public string XParameter;
-            //[ShaderParam(ShaderPropertyType.Float)]
-            [Tooltip("The Parameter that is set to the Y axis value of the Vector2 passed from the Event")]
-            public string YParameter;
-            //[ShaderParam(ShaderPropertyType.Float)]
-            [Tooltip("The Parameter that is set to the Magnitude value of the Vector2 passed from the Event")]
-            public string MagnitudeParameter;
-            //[ShaderParam(ShaderPropertyType.Vector)]
-            [Tooltip("The Parameter that is set to the Magnitude value of the Vector2 passed from the Event")]
-            public string Value;
         }
     }
 }

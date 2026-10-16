@@ -1,0 +1,441 @@
+/*
+ * Shared look of every Schematics browser window (Template Browser, Schematic Objects, and any you add by deriving
+ * from SchematicBrowserWindow). Change it here and every browser follows.
+ *
+ * The grid (SchematicTemplateGrid) sets its sizes and spacing inline, and inline styles beat stylesheet rules, so
+ * use the classes below for anything the grid doesn't set (fonts, borders, transitions, extra colors) and change
+ * the grid's built-in sizes in SchematicTemplateGrid.cs itself.
+ *
+ *   .schematic-browser                  the window's root (+ --dark / --light for the editor skin)
+ *   .schematic-browser__header          the row above the grid
+ *   .schematic-browser__hint            the hint at its left
+ *   .schematic-browser__controls        the window's own toggles and dropdowns
+ *   .schematic-browser__nav             the buttons to the other browsers (+ __nav-button, --current, __nav-icon, __nav-label)
+ *   .schematic-grid__toolbar / __chips / __chip / __chip--selected / __content / __tile / __tile--selected /
+ *   __tile--create / __thumbnail / __label / __details / __empty
+ */
+
+.schematic-browser {
+    flex-direction: column;
+    flex-grow: 1;
+}
+
+.schematic-browser--dark {
+    --schematic-header-background: #2b2b2b;
+    --schematic-border: rgba(0, 0, 0, 0.35);
+    --schematic-accent: #2c5d87;
+    --schematic-nav-hover: rgba(255, 255, 255, 0.08);
+}
+
+.schematic-browser--light {
+    --schematic-header-background: #d6d6d6;
+    --schematic-border: rgba(0, 0, 0, 0.2);
+    --schematic-accent: #3a72b0;
+    --schematic-nav-hover: rgba(0, 0, 0, 0.08);
+}
+
+.schematic-browser__header {
+    flex-direction: row;
+    align-items: center;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+    min-height: 26px;
+    padding: 2px 6px;
+    background-color: var(--schematic-header-background);
+    border-bottom-width: 1px;
+    border-bottom-color: var(--schematic-border);
+}
+
+.schematic-browser__hint {
+    flex-grow: 1;
+    flex-shrink: 1;
+    opacity: 0.7;
+    white-space: normal;
+    -unity-text-align: middle-left;
+    margin-right: 6px;
+}
+
+.schematic-browser__controls {
+    flex-direction: row;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.schematic-browser__controls > * {
+    margin-left: 6px;
+}
+
+.schematic-browser__button,
+.project-manager__tab,
+.schematic-grid__chip,
+.project-manager__tag,
+.audio-browser__tag-filter {
+    background-image: url("../Styling/Resources/Textures/button-gradient.png");
+    background-size: 100% 100%;
+    transition-property: background-color, border-color;
+    transition-duration: 0.12s;
+}
+
+.schematic-browser__button,
+.project-manager__tab,
+.schematic-grid__chip,
+.audio-browser__tag-filter {
+    background-color: rgba(44, 93, 135, 0.72);
+    color: #ffffff;
+}
+
+.schematic-browser__button:hover,
+.project-manager__tab:hover,
+.schematic-grid__chip:hover,
+.audio-browser__tag-filter:hover {
+    background-color: rgba(54, 119, 173, 0.92);
+}
+
+.project-manager__tab:checked,
+.schematic-grid__chip--selected,
+.audio-browser__tag-filter--selected {
+    background-color: #2c5d87;
+    border-color: rgba(255, 255, 255, 0.65);
+}
+
+.schematic-browser__toggle > Label {
+    min-width: 0;
+    margin-right: 4px;
+}
+
+.schematic-browser__nav {
+    flex-direction: row;
+    align-items: center;
+    flex-shrink: 0;
+    margin-left: 10px;
+    padding-left: 8px;
+    border-left-width: 1px;
+    border-left-color: var(--schematic-border);
+}
+
+.schematic-browser__nav-button {
+    flex-direction: row;
+    align-items: center;
+    height: 20px;
+    margin: 0 0 0 2px;
+    padding: 0 6px;
+    border-width: 0;
+    border-radius: 3px;
+    background-color: rgba(0, 0, 0, 0);
+}
+
+.schematic-browser__nav-button:hover {
+    background-color: var(--schematic-nav-hover);
+}
+
+.schematic-browser__nav-button--current {
+    background-color: var(--schematic-accent);
+    color: #ffffff;
+}
+
+.schematic-browser__nav-button--current:hover {
+    background-color: var(--schematic-accent);
+}
+
+.schematic-browser__nav-icon {
+    width: 16px;
+    height: 16px;
+    margin-right: 3px;
+}
+
+.schematic-browser__nav-label {
+    -unity-text-align: middle-left;
+}
+
+.schematic-grid__tile {
+    transition-property: background-color, scale;
+    transition-duration: 0.08s;
+}
+
+.schematic-grid__tile:hover {
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-left-color: rgba(100, 170, 255, 0.65);
+    border-right-color: rgba(100, 170, 255, 0.65);
+    border-top-color: rgba(100, 170, 255, 0.65);
+    border-bottom-color: rgba(100, 170, 255, 0.65);
+}
+
+.schematic-grid__tile--create {
+    background-image: url("../Styling/Resources/Textures/button-gradient.png");
+    background-size: 100% 100%;
+    background-color: rgba(44, 93, 135, 0.46);
+    border-width: 1px;
+    border-color: rgba(120, 180, 235, 0.65);
+}
+
+.schematic-grid__tile--create:hover {
+    background-color: rgba(54, 119, 173, 0.78);
+}
+
+.level-designer__card-frame {
+    position: relative;
+    overflow: hidden;
+    background-image: url("../Styling/Resources/Textures/button-gradient.png");
+    background-size: 100% 100%;
+    transition-property: background-color, border-color, scale;
+    transition-duration: 0.12s;
+}
+
+.level-designer__card-gloss {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    opacity: 0.24;
+}
+
+.project-manager {
+    flex-direction: column;
+    flex-grow: 1;
+    min-width: 0;
+    min-height: 0;
+}
+
+.project-manager__tabs {
+    flex-shrink: 0;
+    padding-left: 5px;
+    padding-right: 5px;
+}
+
+.project-manager__tab {
+    flex-direction: row;
+    align-items: center;
+    margin-right: 3px;
+}
+
+.project-manager__tab Image {
+    width: 16px;
+    height: 16px;
+    margin-right: 4px;
+}
+
+.project-manager__content {
+    flex-grow: 1;
+    min-width: 0;
+    min-height: 0;
+}
+
+.project-manager__page {
+    flex-grow: 1;
+    min-width: 0;
+    min-height: 0;
+    flex-direction: column;
+}
+
+.project-manager__empty {
+    margin: 20px;
+    opacity: 0.7;
+    white-space: normal;
+}
+
+.project-manager__tag-row {
+    margin: 2px 4px 5px;
+}
+
+.project-manager__tag {
+    min-height: 18px;
+    margin: 1px 3px 1px 0;
+    padding: 1px 6px;
+    border-radius: 8px;
+}
+
+.schematic-browser__button {
+    margin-left: 4px;
+}
+
+.audio-browser {
+    flex-direction: row;
+    flex-grow: 1;
+    min-height: 0;
+}
+
+.audio-browser__folders {
+    width: 175px;
+    min-width: 125px;
+    flex-shrink: 0;
+    padding: 6px 4px;
+    border-right-width: 1px;
+    border-right-color: var(--schematic-border);
+}
+
+.audio-browser__folder {
+    height: 24px;
+    margin: 1px 0;
+    padding: 2px 6px;
+    border-width: 0;
+    background-color: rgba(0, 0, 0, 0);
+    -unity-text-align: middle-left;
+}
+
+.audio-browser__folder:hover,
+.audio-browser__folder--selected {
+    background-color: var(--schematic-accent);
+    color: #ffffff;
+}
+
+.audio-browser__main {
+    flex-grow: 1;
+    min-width: 0;
+    flex-direction: column;
+}
+
+.audio-browser__toolbar,
+.audio-browser__tags {
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+    padding: 4px 6px;
+    border-bottom-width: 1px;
+    border-bottom-color: var(--schematic-border);
+}
+
+.audio-browser__folder-name {
+    width: 170px;
+    margin-right: 4px;
+}
+
+.audio-browser__size {
+    width: 180px;
+    margin-left: 10px;
+}
+
+.audio-browser__tag-filter {
+    min-height: 20px;
+    margin: 2px 4px 2px 0;
+    padding: 2px 7px;
+    border-width: 0;
+    border-radius: 8px;
+}
+
+.audio-browser__tag-filter--selected {
+    border-width: 1px;
+    border-color: var(--schematic-accent);
+}
+
+.audio-browser__scroll {
+    flex-grow: 1;
+    min-height: 0;
+}
+
+.audio-browser__grid {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    padding: 8px;
+}
+
+.audio-browser__card {
+    position: relative;
+    margin: 5px;
+    padding: 3px;
+    border-width: 1px;
+    border-color: var(--schematic-border);
+    border-radius: 4px;
+    overflow: hidden;
+    transition-property: border-color, scale;
+    transition-duration: 0.12s;
+}
+
+.audio-browser__card:hover {
+    scale: 1.015 1.015;
+}
+
+.audio-browser__gloss {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    opacity: 0.28;
+}
+
+.audio-browser__flash {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(255, 255, 255, 0.75);
+    opacity: 0;
+    transition-property: opacity;
+    transition-duration: 0.38s;
+}
+
+.audio-browser__card--flash .audio-browser__flash {
+    opacity: 0.2;
+}
+
+.audio-browser__play-cue {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 35%;
+    height: 30%;
+    color: white;
+    font-size: 30px;
+    -unity-text-align: middle-center;
+    opacity: 0;
+    transition-property: opacity;
+    transition-duration: 0.6s;
+}
+
+.audio-browser__play-cue--visible {
+    opacity: 0.9;
+}
+
+.audio-browser__waveform {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    opacity: 0.34;
+}
+
+.audio-browser__clip-name {
+    margin: 2px 2px 0;
+    overflow: hidden;
+    -unity-font-style: bold;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.audio-browser__card-tag {
+    margin: 1px 2px 0;
+    font-size: 10px;
+    opacity: 0.85;
+}
+
+.audio-browser__timeline {
+    flex-direction: column;
+    align-items: stretch;
+    margin: 2px 2px 3px;
+}
+
+.audio-browser__timeline-slider {
+    width: 100%;
+    min-width: 30px;
+    margin: 0;
+}
+
+.audio-browser__time {
+    align-self: flex-end;
+    font-size: 10px;
+    -unity-text-align: middle-right;
+}
+
+.audio-browser__status {
+    flex-shrink: 0;
+    padding: 3px 8px;
+    opacity: 0.65;
+}

@@ -1,0 +1,26 @@
+{
+    "name": "Remedy.ManifoldNet.Schematics",
+    "rootNamespace": "Remedy.ManifoldNetwork.Schematics",
+    "references": [
+        "GUID:abe2c7b7f0b34dfc81810eb51cc3173d",
+        "GUID:9cef1c0784dad074282847b193c0d47b",
+        "GUID:f51ebe6a0ceec4240a699833d6309b23",
+        "GUID:0a22d72520a82174ab746de6d8876564",
+        "GUID:6082862122ef11a49bf208ee4ec62519",
+        "GUID:46b677238cf420e4e907fafa51cfa04e",
+        "GUID:c61f7966d20e38f45989bde55b098f00",
+        "GUID:2c3472ea9a5b43d3ae42d904816ba305",
+        "GUID:dff8ecec7c9808447ae4528f8a364918",
+        "GUID:8a4abcc8263c46c4a9aaeaa2747ac62c",
+        "Unity.Mathematics"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

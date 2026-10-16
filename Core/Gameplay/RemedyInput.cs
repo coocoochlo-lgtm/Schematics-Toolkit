@@ -1,5 +1,4 @@
 using Remedy.Framework;
-using Remedy.Schematics.Utils;
 //using SaintsField;
 using System;
 using System.Collections.Generic;
@@ -36,108 +35,155 @@ public class RemedyInput : SingletonData<RemedyInput>
     /// </summary>
     public static UnityEvent<InputAction.CallbackContext> OnInputUp => Instance._onInputUp;
 
-    private static SerializableDictionary<SignalData, Union> _currentInput = new();
+    // The latest value of each held input, resent every frame by UpdateInputs.
+    private static readonly Dictionary<SignalData, object> _currentInput = new();
 
-    [IdentityListRenderer(identifierType: ListIdentifierType.Name, identifierField: "Name", depth: 0, foldoutTitle: "Input Maps", itemLabel: "Map")]
+    [IdentityListRenderer(identifierType: ListIdentifierType.Name, identifierField: "Name", depth: 0, foldoutTitle: "Input Maps", itemLabel: "Map", renamable: true)]
     public InputActionMap[] InputMaps = new InputActionMap[0];
     [SerializeField]
     //[Dropdown("GetInputMaps")]
     private InputActionMap _currentActionMap;
     private Dictionary<InputAction, List<InputActionEvent>> _actionsToUpdate = new();
 
+    // The handlers attached to each Input Action of the current map, kept so they can be removed again. Without this,
+    // every call to SetInputMap stacked another set of handlers and inputs fired once more each time.
+    private readonly Dictionary<InputAction, (Action<InputAction.CallbackContext> started, Action<InputAction.CallbackContext> performed, Action<InputAction.CallbackContext> canceled)> _boundHandlers = new();
+
 
     public void InitializeInput()
     {
-        if (InputMaps.Length > 0)
+        if (InputMaps != null && InputMaps.Length > 0 && InputMaps[0] != null)
         {
             SetInputMap(InputMaps[0].Name);
         }
+        else
+            Debug.LogWarning("Remedy Input: there are no Input Maps, so no input is read. Add one in the Schematic window's Global tab (Input System).");
     }
 
     public void SetInputMap(string mapName)
     {
-        foreach(var map in InputMaps)
-            if (map.Name == mapName)
-                _currentActionMap = map;
-            else
-            {
-                Debug.LogError("The Requested Input Map does not exist: " + mapName);
-                return;
-            }
+        InputActionMap map = null;
+        foreach (var candidate in InputMaps)
+            if (candidate.Name == mapName)
+                map = candidate;
+
+        if (map == null)
+        {
+            Debug.LogError("The Requested Input Map does not exist: " + mapName);
+            return;
+        }
+        UnbindCurrentMap();
+        _currentActionMap = map;
 
         foreach (var inputEventCollection in _currentActionMap.Inputs)
         {
-            inputEventCollection.Input.Enable();
+            var action = inputEventCollection.Input;
+            if (action == null || _boundHandlers.ContainsKey(action))
+                continue;
 
-            inputEventCollection.Input.started += (InputAction.CallbackContext context) =>
+            if (action.bindings.Count == 0)
+                Debug.LogWarning($"Remedy Input: the input \"{inputEventCollection.Name}\" of map \"{map.Name}\" has no bindings, so it can't be pressed. Add one in the Schematic window's Global tab (Input System).");
+
+            if (inputEventCollection.Output == null)
+                Debug.LogWarning($"Remedy Input: the input \"{inputEventCollection.Name}\" of map \"{map.Name}\" has no Signal, so nothing hears it. Open it in the Schematic window's Global tab (Input System) to create one.");
+
+            Action<InputAction.CallbackContext> started = context =>
             {
-                switch (inputEventCollection.Output.Parameters[0].Type)
-                {
-                    case Union.ValueType.Bool:
-                        inputEventCollection.Output.Invoke(context.ReadValue<bool>());
-                        break;
-                    case Union.ValueType.Float:
-                        inputEventCollection.Output.Invoke(context.ReadValue<float>());
-                        break;
-                    case Union.ValueType.Vector2:
-                        inputEventCollection.Output.Invoke(context.ReadValue<Vector2>());
-                        break;
-                    default:
-                        inputEventCollection.Output.Invoke(context.ReadValueAsObject());
-                        break;
-                }
+                Send(inputEventCollection, context);
 
                 if (!inputEventCollection.OneShot)
                 {
-                    if (!_actionsToUpdate.ContainsKey(inputEventCollection.Input))
-                        _actionsToUpdate.Add(inputEventCollection.Input, new());
-                    _actionsToUpdate[inputEventCollection.Input].Add(inputEventCollection);
+                    if (!_actionsToUpdate.TryGetValue(action, out var held))
+                        _actionsToUpdate.Add(action, held = new());
+                    if (!held.Contains(inputEventCollection))
+                        held.Add(inputEventCollection);
                 }
             };
 
-            inputEventCollection.Input.performed += (InputAction.CallbackContext context) =>
+            Action<InputAction.CallbackContext> performed = context => Send(inputEventCollection, context);
+
+            Action<InputAction.CallbackContext> canceled = context =>
             {
-                switch (inputEventCollection.Output.Parameters[0].Type)
-                {
-                    case Union.ValueType.Bool:
-                        inputEventCollection.Output.Invoke(context.ReadValue<bool>());
-                        break;
-                    case Union.ValueType.Float:
-                        inputEventCollection.Output.Invoke(context.ReadValue<float>());
-                        break;
-                    case Union.ValueType.Vector2:
-                        inputEventCollection.Output.Invoke(context.ReadValue<Vector2>());
-                        break;
-                    default:
-                        inputEventCollection.Output.Invoke(context.ReadValueAsObject());
-                        break;
-                }
-            };
-            inputEventCollection.Input.canceled += (InputAction.CallbackContext context) =>
-            {
-                _actionsToUpdate.Remove(inputEventCollection.Input);
+                _actionsToUpdate.Remove(action);
+                Release(inputEventCollection);
             };
 
+            action.started += started;
+            action.performed += performed;
+            action.canceled += canceled;
+            _boundHandlers[action] = (started, performed, canceled);
+            action.Enable();
+        }
+    }
 
-            inputEventCollection.Input.canceled += (InputAction.CallbackContext context) =>
+    /// <summary>
+    /// Detaches the current map's inputs: removes their handlers, disables them, and releases any that are held
+    /// (their Signals get defaults), so nothing stays "pressed" after switching maps.
+    /// </summary>
+    private void UnbindCurrentMap()
+    {
+        foreach (var entry in _boundHandlers)
+        {
+            var action = entry.Key;
+            action.started -= entry.Value.started;
+            action.performed -= entry.Value.performed;
+            action.canceled -= entry.Value.canceled;
+            action.Disable();
+        }
+        _boundHandlers.Clear();
+
+        foreach (var held in _actionsToUpdate.Values)
+            foreach (var inputEvent in held)
+                Release(inputEvent);
+        _actionsToUpdate.Clear();
+    }
+
+    private static void Release(InputActionEvent inputEvent)
+    {
+        var output = inputEvent.Output;
+        if (output == null) return;
+        _currentInput.Remove(output);
+        // Released: every listener gets its parameter's default (false, 0, Vector2.zero...).
+        output.BroadcastDefault();
+    }
+
+    /// <summary>
+    /// Sends an input's value through its Signal, read as the Signal's parameter type. Signals carry any value, so
+    /// types without a case of their own are sent as whatever the Input System reads.
+    /// </summary>
+    private static void Send(InputActionEvent inputEvent, InputAction.CallbackContext context)
+    {
+        var output = inputEvent.Output;
+        if (output == null)
+            return;
+
+        if (output.Parameters.Contents.Count == 0)
+        {
+            output.Broadcast();
+            return;
+        }
+
+        object value;
+        try
+        {
+            value = output.Parameters[0].Type switch
             {
-                switch (inputEventCollection.Output.Parameters[0].Type)
-                {
-                    case Union.ValueType.Bool:
-                        inputEventCollection.Output.FinalInvoke(default);
-                        break;
-                    case Union.ValueType.Float:
-                        inputEventCollection.Output.FinalInvoke(default);
-                        break;
-                    case Union.ValueType.Vector2:
-                        inputEventCollection.Output.FinalInvoke(default);
-                        break;
-                    default:
-                        inputEventCollection.Output.FinalInvoke(default);
-                        break;
-                }
+                Union.ValueType.Bool => context.ReadValueAsButton(),
+                Union.ValueType.Float => context.ReadValue<float>(),
+                Union.ValueType.Vector2 => context.ReadValue<Vector2>(),
+                Union.ValueType.Vector3 => context.ReadValue<Vector3>(),
+                _ => context.ReadValueAsObject(),
             };
         }
+        catch (InvalidOperationException)
+        {
+            // The binding gives another type than the Signal's parameter (e.g. a stick into a float): send what it
+            // reads instead of throwing inside the Input System's callback, and listeners convert it.
+            value = context.ReadValueAsObject();
+        }
+
+        _currentInput[output] = value;
+        output.Broadcast(value);
     }
 
     public void UpdateInputs()
@@ -148,7 +194,9 @@ public class RemedyInput : SingletonData<RemedyInput>
         {
             foreach (var inputEvent in inputEvents)
             {
-                inputEvent.Output?.Invoke(_currentInput);
+                var output = inputEvent.Output;
+                if (output != null && _currentInput.TryGetValue(output, out var value))
+                    output.Broadcast(value);
             }
         }
 
@@ -168,7 +216,7 @@ public class RemedyInput : SingletonData<RemedyInput>
     public class InputActionMap 
     {
         public string Name;
-        [IdentityListRenderer(identifierType: ListIdentifierType.Name, identifierField: "Name", depth: 1, foldoutTitle: "Inputs", itemLabel: "Input")]
+        [IdentityListRenderer(identifierType: ListIdentifierType.Name, identifierField: "Name", depth: 1, foldoutTitle: "Inputs", itemLabel: "Input", renamable: true)]
         public InputActionEvent[] Inputs = new InputActionEvent[0];
 
         public InputActionMap() { }
@@ -203,9 +251,16 @@ public class RemedyInput : SingletonData<RemedyInput>
         [Tooltip("The Input Action, with it's binds.")]
         public InputAction Input= new();
 
-        [SignalContainerRenderer(typeof(SignalData), "EventName", false)]
+        /// <summary>
+        /// The Signal this input sends. Its name and its parameter (the value read from the input: pick bool for
+        /// buttons, float for triggers and axes, Vector2 for sticks and WASD...) are edited in the Schematic window's
+        /// Global tab. Graphs react to it with On Received.
+        /// </summary>
+        [SignalContainerRenderer(typeof(SignalData), nameof(EventName), parametersEditable: true, paramTypeModifiable: true, paramNameModifiable: true,
+            Outgoing = true, MaxParameters = 1)]
         public SignalData Output;
 
+        [IMGUIContainerRenderer]
         [Tooltip("If true, the Output Event is not called again on update, although it will be called if the value for the Input has been updated (InputActionPhase.Performed).")]
         public bool OneShot = false;
 

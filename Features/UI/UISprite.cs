@@ -1,61 +1,70 @@
 using Remedy.Framework;
+using Remedy.Schematics;
 using UnityEngine;
 
 namespace Remedy.UI
 {
+    /// <summary>
+    /// A textured quad on the UI layer. Create one in code with <see cref="New"/>.
+    /// Its methods act on the selected instance, as returned by <see cref="New"/> or <c>GetSchematicBehavior&lt;UISprite&gt;()</c>.
+    /// </summary>
+    [SchematicDoc(@"{""name"": ""UI Sprite"", ""kind"": ""behavior"", ""menu"": ""UI/UI Sprite"", ""description"": ""A textured quad on the UI layer. Create one in code with New. Its methods act on the selected instance, as returned by New or GetSchematicBehavior<UISprite>()."", ""use_for"": [""HUD icons"", ""on-screen images""]}")]
+    [SchematicBehaviorPath("UI/UI Sprite")]
     public class UISprite : UIComponent
     {
-        MeshRenderer Renderer;
-
+        /// <summary>
+        /// Creates a quad GameObject with a UI Sprite attached, returned with that sprite selected.
+        /// </summary>
         public static UISprite New(string name, Transform parent = null, int layer = 0)
         {
             GameObject quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
-            quad.name = "SelectionWheelQuad";
+            quad.name = name;
             quad.transform.localPosition = Vector3.zero;
             quad.transform.localScale = Vector3.one;
-            quad.name = name;
-            var sprite = quad.AddComponent<UISprite>();
 
-            sprite.Renderer = quad.GetComponent<MeshRenderer>();
-            if (sprite.Renderer != null)
+            var renderer = quad.GetComponent<MeshRenderer>();
+            if (renderer != null)
             {
-                sprite.Renderer.sharedMaterial = new Material(Shader.Find("Universal Render Pipeline/Unlit"))
+                renderer.sharedMaterial = new Material(Shader.Find("Universal Render Pipeline/Unlit"))
                 {
                     color = Color.white
                 };
             }
 
-            sprite.Layer = layer;
+            if (parent != null) quad.transform.parent = parent;
 
-            if (parent != null) sprite.transform.parent = parent;
+            // Adding the Schematic Object spawns it, so the sprite spawns as soon as it is attached.
+            var schematicObject = quad.AddComponent<SchematicObject>();
+            var instance = schematicObject.AddBehavior<UISprite>();
+            var sprite = (UISprite)instance.Behavior;
+            sprite.Layer[instance] = layer;
+            sprite.Select(instance);
             return sprite;
         }
 
         /// <summary>
-        /// Sets the Material of the Sprite
+        /// Sets the Material of the selected Sprite.
         /// </summary>
-        /// <param name="material"></param>
         public void SetMaterial(Material material)
         {
-            Renderer.sharedMaterial = material;
+            var renderer = Selected?.GetComponent<MeshRenderer>();
+            if (renderer != null)
+                renderer.sharedMaterial = material;
         }
 
         /// <summary>
-        /// Sets the Main Texture value of the Material.
+        /// Sets the Main Texture of the selected Sprite's Material.
         /// </summary>
-        /// <param name="texture"></param>
         public void SetTexture(Texture texture)
         {
-            if (Renderer != null && Renderer.sharedMaterial != null)
-            {
-                Renderer.sharedMaterial.SetTexture("_BaseMap", texture);
-            }
+            var renderer = Selected?.GetComponent<MeshRenderer>();
+            if (renderer != null && renderer.sharedMaterial != null)
+                renderer.sharedMaterial.SetTexture("_BaseMap", texture);
         }
 
         /// <summary>
-        /// Extracts the Texture from a Sprite and assigns this UI Sprite's Texture to that.
+        /// Extracts the Texture from a Sprite and assigns it to the selected UI Sprite.
         /// </summary>
-        /// <param name="sprite"></param>
         public void SetSprite(Sprite sprite)
         {
             SetTexture(sprite.ToTexture());
