@@ -24,7 +24,7 @@ namespace Remedy.Schematics.Browsers
         private static Type _levelDesignerType;
         private static bool _levelDesignerLooked;
 
-        /// <summary>Opens Project Manager on the Template Browser section.</summary>
+        /// <summary>Opens the non-dockable template chooser to create a Schematic Object prefab.</summary>
         public static void OpenTemplates() => TemplateBrowserWindow.Open();
 
         /// <summary>Opens Project Manager on the Schematic Objects section.</summary>

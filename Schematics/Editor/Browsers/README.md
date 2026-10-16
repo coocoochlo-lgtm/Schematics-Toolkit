@@ -1,11 +1,13 @@
 # Project Manager
 
-Project Manager is a dockable window containing tabs for **Templates**, **Schematic Objects**, **Audio**, and (when
-installed) the **Level Designer**. The existing Window/Tools menu commands and main-toolbar buttons remain usable and
-open Project Manager at their corresponding section.
+Project Manager is a dockable window containing tabs for **Schematic Objects**, **Audio**, and (when installed) the
+**Level Designer**. The Templates shortcut opens a focused, non-dockable creation window instead of a browser tab.
+Choose an existing template, or use the plus tile to create an empty template, add a template from a selected scene
+object, or load an existing prefab as a template. Select a template and press **Okay** to create a new Schematic Object
+prefab in the selected Project window folder.
 
-The Template and Schematic Objects sections retain their existing grid behaviors. Tiles highlight on hover and briefly
-flash on activation. Each section's tag definitions are stored in the project asset at
+Schematic Objects retains the asset grid, with a plus tile that opens the template chooser to create a new object.
+Tiles highlight on hover and briefly flash on activation. Tag definitions are stored in the project asset at
 `Assets/Project Manager/ProjectManagerTags.asset`, while assignments remain asset labels. Legacy per-user tag names
 are migrated into that asset when a section is next opened. Tags can be assigned from a tile's context menu and are
 also available as grid chips. Audio retains its separate `AudioClipTag` assets,

@@ -125,7 +125,7 @@ namespace Remedy.Schematics.Browsers
             createFolder.tooltip = "Create a subfolder here; All Audio defaults to the SFX folder.";
             createFolder.AddToClassList("schematic-browser__button");
             toolbar.Add(createFolder);
-            _tileSizeSlider = new Slider("Tile size", 120f, 240f)
+            _tileSizeSlider = new Slider("Tile size", 72f, 240f)
             {
                 value = EditorPrefs.GetFloat(AudioPrefs + ".TileSize", 168f)
             };
