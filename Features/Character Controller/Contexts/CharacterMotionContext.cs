@@ -429,7 +429,9 @@ public class CharacterMotionContext : SchematicBehavior
         var instance = Selected;
         ref var moveInput = ref _moveInput.Ref;
         moveInput = TransformInputDirection(moveInput);
-        instance.GetSchematicBehavior<CharacterRaycastContext>()?.PerformWallCast(instance, moveInput);
+        // The Raycast Context's own row for this object (GetSchematicBehavior selects it there): this Behavior's instance is
+        // a row of the Motion Context, not of the Raycast Context.
+        instance.GetSchematicBehavior<CharacterRaycastContext>()?.PerformWallCast(moveInput);
     }
 
     // internals
@@ -439,16 +441,21 @@ public class CharacterMotionContext : SchematicBehavior
 
         WallCheckInMoveDirection();
 
+        // The Raycast Context's Variables are read for this object through its own selection, not with this Behavior's
+        // instance (which is a row of the Motion Context).
+        raycast = instance.GetSchematicBehavior<CharacterRaycastContext>();
+        if (raycast == null) return;
+
         ref var wallProjectedVelocity = ref _wallProjectedVelocity.Ref;
-        if (raycast.WallCastResult[instance].TryGetClosestHit(out var closestWallHit))
+        if (raycast.WallCastResult.Value.TryGetClosestHit(out var closestWallHit))
         {
             _wallHitPoint.Value = closestWallHit.point;
             wallProjectedVelocity = Vector3.ProjectOnPlane(HorizontalVelocity, -closestWallHit.normal);
 
             if (wallProjectedVelocity.magnitude > 0.01f)
             {
-                raycast.PerformWallCast(instance, wallProjectedVelocity.normalized);
-                if (raycast.WallCastResult[instance].HasHit)
+                raycast.PerformWallCast(wallProjectedVelocity.normalized);
+                if (raycast.WallCastResult.Value.HasHit)
                     wallProjectedVelocity = Vector3.zero;
             }
         }
@@ -496,9 +503,9 @@ public class CharacterMotionContext : SchematicBehavior
 
         var properties = Properties[instance];
         var raycast = instance.GetSchematicBehavior<CharacterRaycastContext>();
-        if (properties != null && properties.SlideOnWall && raycast != null && raycast.WallCastResult[instance].TryGetClosestHit(out _))
+        if (properties != null && properties.SlideOnWall && raycast != null && raycast.WallCastResult.Value.TryGetClosestHit(out _))
         {
-            var wallPosition = raycast.WallPosition[instance];
+            var wallPosition = raycast.WallPosition.Value;
             Gizmos.color = Color.green;
             Gizmos.DrawLine(position, wallPosition);
             CustomGizmos.DrawArrow(wallPosition, _wallProjectedVelocity[instance], bodyVelocity.magnitude, new Color(0, 1f, 0, 0.5f));
