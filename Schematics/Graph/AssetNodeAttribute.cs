@@ -9,8 +9,7 @@ namespace Remedy.Schematics
     /// </summary>
     /// <example>
     /// <code>[AssetNode(typeof(AudioClip), Tags = new[] { "SFX" }, Title = "Play SFX: {0}")]
-    /// [AssetNode(typeof(AudioClip), Tags = new[] { "Music" }, Title = "Play Music: {0}")]
-    /// public class PlaySound : SchematicActionNode { [Input("Clip")] public AudioClip Clip; ... }</code>
+    /// public class PlaySFX : SchematicActionNode { [Input("Clip")] public AudioClip Clip; ... }</code>
     /// </example>
     [AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
     public sealed class AssetNodeAttribute : Attribute

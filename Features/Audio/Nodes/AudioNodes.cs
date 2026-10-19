@@ -5,12 +5,12 @@ using UnityEngine;
 
 namespace Remedy.Audio
 {
+    /// <summary>
+    /// What every Play node shares: the clip, where it plays (Target, else the object running the graph), volume,
+    /// pitch, how 3D it is, and looping. Each node says what kind of audio it plays.
+    /// </summary>
     [Serializable]
-    [Node(Name = "Play Sound", Path = "Audio"), Tags("Default")]
-    // Dropping a clip into a graph makes one of these (SFX or Music by the clip's folder: those are editor tags).
-    [AssetNode(typeof(AudioClip), Tags = new[] { "SFX" }, Title = "Play SFX: {0}")]
-    [AssetNode(typeof(AudioClip), Tags = new[] { "Music" }, Title = "Play Music: {0}")]
-    public class PlaySound : SchematicActionNode
+    public abstract class PlayClipNode : SchematicActionNode
     {
         [Input("Clip")]
         public AudioClip Clip;
@@ -33,18 +33,15 @@ namespace Remedy.Audio
         [Editable]
         public bool Loop;
 
-        [Editable]
-        public bool UseClipTagType = true;
-
-        [Editable]
-        public AudioType Type = AudioType.SoundEffect;
+        /// <summary>The kind of audio this plays (its mixer group and volume settings).</summary>
+        protected abstract AudioType TypeFor(AudioClip clip);
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
         {
             var clip = GetInputValue(nameof(Clip), Clip);
             if (clip == null)
             {
-                Debug.LogWarning("[Play Sound] No AudioClip is assigned or connected.", instance);
+                Debug.LogWarning($"[{Name}] No AudioClip is assigned or connected.", instance);
                 return;
             }
 
@@ -52,16 +49,56 @@ namespace Remedy.Audio
             if (target == null)
                 target = instance;
 
-            var type = UseClipTagType ? AudioData.TypeOf(clip) : Type;
             AudioManager.Play(
                 clip,
-                type,
+                TypeFor(clip),
                 target,
                 volume: GetInputValue(nameof(Volume), Volume),
                 pitch: GetInputValue(nameof(Pitch), Pitch),
                 spatialBlend: GetInputValue(nameof(SpatialBlend), SpatialBlend),
                 loop: Loop);
         }
+    }
+
+    /// <summary>Plays a clip as a sound effect. Dropping an SFX clip into a graph makes one.</summary>
+    [Serializable]
+    [Node(Name = "Play SFX", Path = "Audio"), Tags("Default")]
+    [AssetNode(typeof(AudioClip), Tags = new[] { "SFX" }, Title = "Play SFX: {0}")]
+    public class PlaySFX : PlayClipNode
+    {
+        protected override AudioType TypeFor(AudioClip clip) => AudioType.SoundEffect;
+    }
+
+    /// <summary>Plays a clip as music (looping and not 3D to start with). Dropping a Music clip into a graph makes one.</summary>
+    [Serializable]
+    [Node(Name = "Play Music", Path = "Audio"), Tags("Default")]
+    [AssetNode(typeof(AudioClip), Tags = new[] { "Music" }, Title = "Play Music: {0}")]
+    public class PlayMusic : PlayClipNode
+    {
+        public PlayMusic()
+        {
+            Loop = true;
+            SpatialBlend = 0f;
+        }
+
+        protected override AudioType TypeFor(AudioClip clip) => AudioType.Music;
+    }
+
+    /// <summary>
+    /// Plays a clip as whichever kind it is (Music or SFX, by its folder), or a kind picked here. Play SFX and Play
+    /// Music are the usual choices; this one is kept for graphs that use it.
+    /// </summary>
+    [Serializable]
+    [Node(Name = "Play Sound", Path = "Audio"), Tags("Default")]
+    public class PlaySound : PlayClipNode
+    {
+        [Editable]
+        public bool UseClipTagType = true;
+
+        [Editable]
+        public AudioType Type = AudioType.SoundEffect;
+
+        protected override AudioType TypeFor(AudioClip clip) => UseClipTagType ? AudioData.TypeOf(clip) : Type;
     }
 
     [Serializable]
