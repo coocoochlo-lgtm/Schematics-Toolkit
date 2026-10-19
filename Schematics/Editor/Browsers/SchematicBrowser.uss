@@ -522,3 +522,25 @@
 .audio-browser__rename {
     margin: 2px 4px;
 }
+
+/* Dropping assets or folders onto a folder (tree row, folder tile or card, or the open folder's grid). */
+.folder-tree__row--drop,
+.schematic-grid__tile--drop,
+.audio-browser__card--drop {
+    background-color: rgba(70, 140, 220, 0.35);
+    border-color: rgba(120, 180, 255, 0.9);
+}
+
+.schematic-grid--drop,
+.audio-browser__scroll--drop {
+    background-color: rgba(70, 140, 220, 0.08);
+}
+
+.audio-browser__folder-card {
+    background-color: rgba(127, 127, 127, 0.12);
+}
+
+.inline-rename {
+    margin: 0;
+    min-width: 40px;
+}

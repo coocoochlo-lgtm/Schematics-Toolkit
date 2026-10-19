@@ -29,6 +29,7 @@ namespace Remedy.Schematics.Browsers
         private readonly Dictionary<string, SchematicTemplate> _graphEntries = new(StringComparer.Ordinal);
         private ProjectFolderTree _tree;
         private Toggle _levelDesignOnly;
+        private Toggle _folderView;
         private string _renameWhenListed;
 
         /// <summary>Opens Project Manager on the Schematics section.</summary>
@@ -62,8 +63,14 @@ namespace Remedy.Schematics.Browsers
             RenamePending();
         });
 
+        // Folders: the grid shows the open folder's subfolders and the assets right in it. Off: everything in the
+        // selected kind (and folder, and the folders below it), without opening folders.
+        private bool FolderView => EditorPrefs.GetBool($"{PrefsKey}.FolderView", true);
+
         protected override void BuildHeader(VisualElement header)
         {
+            _folderView = HeaderToggle("Folders", "On: browse folder by folder. Off: show everything in the selection at once.", "FolderView", true, _ => Grid?.Refresh());
+            header.Add(_folderView);
             _levelDesignOnly = HeaderToggle("Level Design only", "Only show objects tagged Level Design.", "LevelDesignOnly", false, _ => ApplyFilter());
             header.Add(_levelDesignOnly);
 
@@ -116,6 +123,12 @@ namespace Remedy.Schematics.Browsers
             grid.ThumbnailOf = entry => entry.Prefab != null ? null : ThumbnailOf(entry);
             grid.DragAssetOf = entry => entry.Prefab != null ? null : AssetOf(entry);
             grid.Rename = RenameEntry;
+            grid.FoldersSource = () => FolderView && _tree != null ? _tree.VisibleChildren(_tree.SelectedGroup, _tree.SelectedFolder) : null;
+            grid.FolderOpened += folder => _tree?.Select(_tree.SelectedGroup?.Key, folder);
+            grid.FolderMenu = BuildFolderMenu;
+            grid.Moved += _ => OnAssetsChanged();
+            // Dropping on the grid itself moves things into the open folder.
+            ProjectAssetOps.MakeDropTarget(grid, () => _tree?.TargetFolder, _ => OnAssetsChanged(), "schematic-grid--drop");
             ApplyFilter();
         }
 
@@ -152,6 +165,12 @@ namespace Remedy.Schematics.Browsers
                 return Enumerable.Empty<SchematicTemplate>();
             IEnumerable<SchematicTemplate> entries = kind.ListsPrefabs ? PrefabsOf(kind) : GraphsOf(kind);
             string folder = _tree?.SelectedFolder;
+            if (FolderView)
+            {
+                // Only what's right in the open folder; its subfolders are tiles of their own.
+                string open = folder ?? (_tree?.SelectedGroup != null ? ProjectFolderTree.BaseFolder(_tree.SelectedGroup) : "Assets");
+                return entries.Where(e => string.Equals(Path.GetDirectoryName(PathOf(e))?.Replace('\\', '/'), open, StringComparison.Ordinal));
+            }
             if (string.IsNullOrEmpty(folder))
                 return entries;
             return entries.Where(e => PathOf(e).StartsWith(folder + "/", StringComparison.Ordinal));
@@ -322,7 +341,10 @@ namespace Remedy.Schematics.Browsers
                 if (asset == null) return;
                 menu.AppendAction("Open Graph", _ => AssetDatabase.OpenAsset(asset));
                 menu.AppendAction("Rename", _ => Grid?.BeginRename(entry));
+                menu.AppendAction("Show in Folder Tree", _ => Reveal(entry));
                 menu.AppendAction("Ping in Project", _ => Ping(asset));
+                menu.AppendSeparator();
+                menu.AppendAction("Delete", _ => DeleteEntry(entry));
                 return;
             }
 
@@ -330,6 +352,7 @@ namespace Remedy.Schematics.Browsers
             menu.AppendAction("Open Schematic Graph", _ => SchematicObjectFactory.OpenGraph(prefab),
                 SchematicObjectFactory.GraphOf(prefab) != null ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
             menu.AppendAction("Rename", _ => Grid?.BeginRename(entry));
+            menu.AppendAction("Show in Folder Tree", _ => Reveal(entry));
             menu.AppendAction("Ping in Project", _ => Ping(prefab));
             menu.AppendAction("Place in Scene", _ => SchematicObjectFactory.InstantiateInScene(entry));
             menu.AppendSeparator();
@@ -344,6 +367,42 @@ namespace Remedy.Schematics.Browsers
             menu.AppendAction("Level Design", _ => SetLevelDesign(prefab, !levelDesign),
                 levelDesign ? DropdownMenuAction.Status.Checked : DropdownMenuAction.Status.Normal);
             menu.AppendAction("Refresh Thumbnail", _ => SchematicTemplateThumbnails.Invalidate(prefab));
+            menu.AppendSeparator();
+            menu.AppendAction("Delete", _ => DeleteEntry(entry));
+        }
+
+        // Selects the entry's folder in the sidebar, so it's easy to see where it lives.
+        private void Reveal(SchematicTemplate entry)
+        {
+            var kind = Kind;
+            if (kind == null || _tree == null) return;
+            _tree.Reveal(kind.Key, PathOf(entry));
+            Grid?.Select(entry);
+        }
+
+        private void DeleteEntry(SchematicTemplate entry)
+        {
+            string path = PathOf(entry);
+            if (ProjectAssetOps.Delete(new[] { path }))
+            {
+                _graphEntries.Remove(path);
+                OnAssetsChanged();
+            }
+        }
+
+        private void BuildFolderMenu(DropdownMenu menu, string folder)
+        {
+            var group = _tree?.SelectedGroup;
+            menu.AppendAction("Open", _ => _tree?.Select(group?.Key, folder));
+            menu.AppendAction("Rename", _ => Grid?.BeginRenameFolder(folder));
+            menu.AppendAction("Show in Folder Tree", _ => { if (group != null) _tree.Reveal(group.Key, folder); });
+            menu.AppendAction("Show in Project", _ => Ping(AssetDatabase.LoadMainAssetAtPath(folder)));
+            menu.AppendSeparator();
+            menu.AppendAction("Delete", _ =>
+            {
+                if (ProjectAssetOps.Delete(new[] { folder }))
+                    OnAssetsChanged();
+            });
         }
 
         // Lists the prefab in the default catalog (under the default category), so it shows up in the Template Browser.

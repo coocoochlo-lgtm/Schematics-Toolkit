@@ -197,6 +197,28 @@ namespace Remedy.Schematics.Templates
         /// </summary>
         public Func<SchematicTemplate, string, bool> Rename { get; set; }
 
+        /// <summary>
+        /// Folders shown as tiles before the assets (the folder view). Null: no folder tiles. Folder tiles open on
+        /// double-click (<see cref="FolderOpened"/>), rename on double-clicking their name, take dropped assets and
+        /// folders (moving them in), and can be dragged onto other folders.
+        /// </summary>
+        public Func<IEnumerable<string>> FoldersSource { get; set; }
+
+        /// <summary>A folder tile was double-clicked.</summary>
+        public event Action<string> FolderOpened;
+
+        /// <summary>Fills a folder tile's right-click menu.</summary>
+        public Action<DropdownMenu, string> FolderMenu { get; set; }
+
+        /// <summary>Assets or folders were moved by dropping them on a folder tile (their new paths).</summary>
+        public event Action<List<string>> Moved;
+
+        /// <summary>Starts renaming a folder tile in place.</summary>
+        public void BeginRenameFolder(string folder)
+            => _folderTiles.FirstOrDefault(t => t.Folder == folder)?.BeginRename();
+
+        private readonly List<FolderTile> _folderTiles = new();
+
         /// <summary>Starts renaming a tile in place (when <see cref="Rename"/> is set and the tile is shown).</summary>
         public void BeginRename(SchematicTemplate template)
         {
@@ -350,10 +372,23 @@ namespace Remedy.Schematics.Templates
 
             _content.Clear();
             _tiles.Clear();
+            _folderTiles.Clear();
 
             string search = _search.value?.Trim() ?? "";
             if (_showCreateTile && CreateTileFirst)
                 AddCreateTile();
+
+            if (FoldersSource != null)
+            {
+                foreach (var folder in FoldersSource() ?? Enumerable.Empty<string>())
+                {
+                    if (search.Length > 0 && Path.GetFileName(folder).IndexOf(search, StringComparison.OrdinalIgnoreCase) < 0)
+                        continue;
+                    var folderTile = new FolderTile(this, folder);
+                    _folderTiles.Add(folderTile);
+                    _content.Add(folderTile);
+                }
+            }
 
             foreach (var template in ItemsInCategory(_category))
             {
@@ -371,7 +406,7 @@ namespace Remedy.Schematics.Templates
                 AddCreateTile();
             }
 
-            bool anyTemplates = _tiles.Any(t => t.Template != null);
+            bool anyTemplates = _tiles.Any(t => t.Template != null) || _folderTiles.Count > 0;
             if (!anyTemplates)
             {
                 _empty.text = search.Length > 0 || _category != AllCategory || _filter != null
@@ -382,6 +417,8 @@ namespace Remedy.Schematics.Templates
 
             foreach (var tile in _tiles)
                 tile.Resize(_tileSize);
+            foreach (var folderTile in _folderTiles)
+                folderTile.Resize(_tileSize);
 
             // Keep the selection if it's still shown; otherwise select the first.
             var keep = Selected != null && _tiles.Any(t => t.Template == Selected) ? Selected : _tiles.FirstOrDefault(t => t.Template != null)?.Template;
@@ -504,6 +541,8 @@ namespace Remedy.Schematics.Templates
 
         private void OnKeyDown(KeyDownEvent evt)
         {
+            if (_renaming)
+                return;
             switch (evt.keyCode)
             {
                 case KeyCode.Return:
@@ -685,6 +724,107 @@ namespace Remedy.Schematics.Templates
 
         #endregion
 
+        /// <summary>A folder in the folder view: opens, renames, takes drops and can be dragged.</summary>
+        private sealed class FolderTile : VisualElement
+        {
+            public readonly string Folder;
+            private readonly SchematicTemplateGrid _grid;
+            private readonly Image _image;
+            private readonly Label _label;
+            private Vector2 _pressPosition;
+            private bool _pressed, _renaming;
+
+            public FolderTile(SchematicTemplateGrid grid, string folder)
+            {
+                _grid = grid;
+                Folder = folder;
+                AddToClassList("schematic-grid__tile");
+                AddToClassList("schematic-grid__tile--folder");
+                style.marginLeft = style.marginRight = style.marginTop = style.marginBottom = TileMargin;
+                style.paddingLeft = style.paddingRight = 3;
+                style.paddingTop = 3;
+                style.paddingBottom = 2;
+                style.alignItems = Align.Center;
+                SetRadius(style, 4);
+                tooltip = folder;
+
+                _image = new Image { scaleMode = ScaleMode.ScaleToFit, pickingMode = PickingMode.Ignore };
+                _image.image = EditorGUIUtility.IconContent(EditorGUIUtility.isProSkin ? "d_Folder Icon" : "Folder Icon")?.image;
+                Add(_image);
+
+                _label = new Label(Path.GetFileName(folder)) { pickingMode = PickingMode.Ignore };
+                _label.AddToClassList("schematic-grid__label");
+                _label.style.unityTextAlign = TextAnchor.UpperCenter;
+                _label.style.whiteSpace = WhiteSpace.Normal;
+                _label.style.overflow = Overflow.Hidden;
+                _label.style.marginTop = 2;
+                Add(_label);
+
+                RegisterCallback<PointerDownEvent>(evt =>
+                {
+                    if (evt.button != 0) return;
+                    _pressed = true;
+                    _pressPosition = evt.position;
+                    if (evt.clickCount == 2)
+                    {
+                        _pressed = false;
+                        if (_label.ContainsPoint(_label.WorldToLocal(evt.position)))
+                            EditorApplication.delayCall += BeginRename;
+                        else
+                            _grid.FolderOpened?.Invoke(Folder);
+                    }
+                    evt.StopPropagation();
+                });
+                RegisterCallback<PointerMoveEvent>(evt =>
+                {
+                    if (!_pressed || (evt.pressedButtons & 1) == 0 || ((Vector2)evt.position - _pressPosition).sqrMagnitude < 36f)
+                        return;
+                    _pressed = false;
+                    ProjectAssetOps.StartDrag(Path.GetFileName(Folder), Folder);
+                    evt.StopPropagation();
+                });
+                RegisterCallback<PointerUpEvent>(_ => _pressed = false);
+                RegisterCallback<PointerEnterEvent>(_ => style.backgroundColor = HoverColor);
+                RegisterCallback<PointerLeaveEvent>(_ => { _pressed = false; style.backgroundColor = Color.clear; });
+                this.AddManipulator(new ContextualMenuManipulator(evt =>
+                {
+                    _grid.FolderMenu?.Invoke(evt.menu, Folder);
+                    evt.StopPropagation();
+                }));
+                ProjectAssetOps.MakeDropTarget(this, () => Folder, moved => _grid.Moved?.Invoke(moved), "schematic-grid__tile--drop");
+            }
+
+            public void BeginRename()
+            {
+                if (_renaming || panel == null) return;
+                _renaming = true;
+                _grid._renaming = true;
+                var field = InlineRename.Begin(_label, Path.GetFileName(Folder),
+                    value => InlineRename.RenameAsset(Folder, value),
+                    () =>
+                    {
+                        _renaming = false;
+                        _grid._renaming = false;
+                        _grid.Focus();
+                        _grid.schedule.Execute(_grid.Refresh);
+                    });
+                if (field == null) { _renaming = false; _grid._renaming = false; return; }
+                field.style.width = _label.style.width;
+            }
+
+            public void Resize(float size)
+            {
+                style.width = size + 6;
+                _image.style.width = size * 0.8f;
+                _image.style.height = size * 0.8f;
+                _image.style.marginTop = size * 0.1f;
+                _image.style.marginBottom = size * 0.1f;
+                _label.style.width = size + 4;
+                _label.style.height = LabelHeight;
+                _label.style.fontSize = size < 72 ? 10 : 11;
+            }
+        }
+
         /// <summary>One square in the grid: a template, or (with no template) the "+" tile.</summary>
         private sealed class Tile : VisualElement
         {
@@ -790,51 +930,38 @@ namespace Remedy.Schematics.Templates
                 _image.image = custom != null ? custom : SchematicTemplates.Thumbnail(Template.Prefab);
             }
 
-            private TextField _renameField;
+            private bool _isRenaming;
 
             public void BeginRename()
             {
-                if (Template == null || _renameField != null || _grid.Rename == null)
+                if (Template == null || _isRenaming || _grid.Rename == null)
                     return;
-                _renameField = new TextField { value = Template.DisplayName };
-                _renameField.AddToClassList("schematic-grid__rename");
-                _renameField.style.width = _label.style.width;
-                _renameField.style.marginTop = 2;
-                _label.style.display = DisplayStyle.None;
-                Add(_renameField);
+                _isRenaming = true;
                 _grid._renaming = true;
-                bool done = false;
-                void Finish(bool apply)
+                string current = Template.DisplayName;
+                var field = InlineRename.Begin(_label, current, value =>
                 {
-                    if (done) return;
-                    done = true;
-                    string value = _renameField.value?.Trim();
-                    _renameField.RemoveFromHierarchy();
-                    _renameField = null;
-                    _label.style.display = DisplayStyle.Flex;
-                    _grid._renaming = false;
-                    if (apply && !string.IsNullOrEmpty(value) && value != Template.DisplayName && _grid.Rename(Template, value))
+                    if (_grid.Rename(Template, value))
                         _label.text = value;
+                }, () =>
+                {
+                    _isRenaming = false;
+                    _grid._renaming = false;
                     _grid.Focus();
                     if (_grid._refreshAfterRename)
                     {
                         _grid._refreshAfterRename = false;
                         _grid.schedule.Execute(_grid.Refresh);
                     }
-                }
-                _renameField.RegisterCallback<KeyDownEvent>(evt =>
-                {
-                    if (evt.keyCode == KeyCode.Return || evt.keyCode == KeyCode.KeypadEnter) { Finish(true); evt.StopPropagation(); }
-                    else if (evt.keyCode == KeyCode.Escape) { Finish(false); evt.StopPropagation(); }
-                    else evt.StopPropagation(); // typing mustn't move the selection
-                }, TrickleDown.TrickleDown);
-                _renameField.RegisterCallback<FocusOutEvent>(_ => Finish(true));
-                _renameField.RegisterCallback<PointerDownEvent>(evt => evt.StopPropagation());
-                _renameField.schedule.Execute(() =>
-                {
-                    _renameField?.Focus();
-                    _renameField?.SelectAll();
                 });
+                if (field == null)
+                {
+                    _isRenaming = false;
+                    _grid._renaming = false;
+                    return;
+                }
+                field.style.width = _label.style.width;
+                field.style.marginTop = 2;
             }
 
             public void Resize(float size)

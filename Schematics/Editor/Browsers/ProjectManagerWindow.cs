@@ -80,7 +80,7 @@ namespace Remedy.Schematics.Browsers
             AddTab(toolbar, Section.SchematicObjects, "Schematics");
             AddTab(toolbar, Section.Audio, "Audio");
             if (SchematicBrowsers.HasLevelDesigner)
-                AddTab(toolbar, Section.LevelDesigner, "Level Designer");
+                AddTab(toolbar, Section.LevelDesigner, "Levels");
             root.Add(toolbar);
 
             _content = new VisualElement();

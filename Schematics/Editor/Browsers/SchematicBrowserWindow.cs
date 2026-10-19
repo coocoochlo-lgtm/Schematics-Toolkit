@@ -155,7 +155,7 @@ namespace Remedy.Schematics.Browsers
             AddNavButton(nav, "Audio", "AudioClip Icon", "Audio Clips: organize, tag and preview audio.",
                 typeof(AudioClipBrowserWindow), AudioClipBrowserWindow.Open);
             if (SchematicBrowsers.HasLevelDesigner)
-                AddNavButton(nav, "Level Designer", "SceneAsset Icon", "The Level Designer window: blockouts, art designs and character metrics.",
+                AddNavButton(nav, "Levels", "SceneAsset Icon", "The Level Designer window: blockouts, art designs and character metrics.",
                     SchematicBrowsers.LevelDesignerType, SchematicBrowsers.OpenLevelDesigner);
             return nav;
         }

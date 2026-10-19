@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Remedy.Schematics.Templates;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -41,6 +42,7 @@ namespace Remedy.Schematics.Browsers
         private readonly ScrollView _scroll;
         private readonly List<Group> _groups = new();
         private readonly Dictionary<string, Row> _rows = new();
+        private readonly Dictionary<string, HashSet<string>> _visible = new();
         private string _selectedGroup;
         private string _selectedFolder;
         private string _allLabel;
@@ -107,6 +109,9 @@ namespace Remedy.Schematics.Browsers
         /// <summary>Selects a group (and a folder in it, or null for the whole group).</summary>
         public void Select(string groupKey, string folder)
         {
+            var selectedGroup = _groups.FirstOrDefault(g => g.Key == groupKey);
+            if (selectedGroup != null && folder == Base(selectedGroup))
+                folder = null;
             _selectedGroup = groupKey;
             _selectedFolder = string.IsNullOrEmpty(folder) ? null : folder;
             EditorPrefs.SetString(_prefsKey + ".Group", _selectedGroup ?? "");
@@ -132,9 +137,11 @@ namespace Remedy.Schematics.Browsers
                 _scroll.Add(all);
             }
 
+            _visible.Clear();
             foreach (var group in _groups)
             {
                 var folders = VisibleFolders(group);
+                _visible[group.Key] = folders;
                 var groupRow = new Row(this, group, null, group.Label, group.Icon ?? "Folder Icon", 0, ChildrenOf(group, folders, Base(group)).Any());
                 _rows[Key(group.Key, null)] = groupRow;
                 _scroll.Add(groupRow);
@@ -146,6 +153,40 @@ namespace Remedy.Schematics.Browsers
                 _selectedFolder = null;
             foreach (var row in _rows.Values)
                 row.SetSelected(row.IsAll ? _selectedGroup == null : row.GroupKey == _selectedGroup && row.Folder == _selectedFolder);
+        }
+
+        /// <summary>
+        /// The folders shown directly inside a folder of a group (or inside the group itself when folder is null): what
+        /// the folder view shows as folder tiles.
+        /// </summary>
+        public IEnumerable<string> VisibleChildren(Group group, string folder)
+        {
+            if (group == null)
+                return Enumerable.Empty<string>();
+            if (!_visible.TryGetValue(group.Key, out var folders))
+                _visible[group.Key] = folders = VisibleFolders(group);
+            return ChildrenOf(group, folders, string.IsNullOrEmpty(folder) ? Base(group) : folder).ToList();
+        }
+
+        /// <summary>The folder a group's tree starts at (its root, or Assets).</summary>
+        public static string BaseFolder(Group group) => Base(group);
+
+        /// <summary>Selects an asset's folder in a group, opening the tree down to it and scrolling it into view.</summary>
+        public void Reveal(string groupKey, string assetPath)
+        {
+            var group = _groups.FirstOrDefault(g => g.Key == groupKey);
+            if (group == null)
+                return;
+            string folder = AssetDatabase.IsValidFolder(assetPath) ? assetPath : ParentOf(assetPath);
+            if (folder == Base(group))
+                folder = null;
+            // Make sure it's listed (it holds the asset, so it shows once the tree has caught up).
+            Rebuild();
+            if (folder != null && !_rows.ContainsKey(Key(groupKey, folder)))
+                folder = null;
+            Select(groupKey, folder);
+            if (_rows.TryGetValue(Key(groupKey, folder), out var row))
+                schedule.Execute(() => _scroll.ScrollTo(row));
         }
 
         private void AddChildren(Row parent, Group group, HashSet<string> folders, string under, int depth)
@@ -232,6 +273,16 @@ namespace Remedy.Schematics.Browsers
             {
                 menu.AddItem(new GUIContent("Rename"), false, row.BeginRename);
                 menu.AddItem(new GUIContent("Show in Project"), false, () => Ping(row.Folder));
+                menu.AddSeparator("");
+                menu.AddItem(new GUIContent("Delete"), false, () =>
+                {
+                    if (!ProjectAssetOps.Delete(new[] { row.Folder }))
+                        return;
+                    if (_selectedFolder != null && (_selectedFolder == row.Folder || _selectedFolder.StartsWith(row.Folder + "/", StringComparison.Ordinal)))
+                        Select(_selectedGroup, ParentOf(row.Folder));
+                    Rebuild();
+                    FoldersChanged?.Invoke();
+                });
             }
             else if (!string.IsNullOrEmpty(row.Group.Root) && AssetDatabase.IsValidFolder(row.Group.Root))
                 menu.AddItem(new GUIContent("Show in Project"), false, () => Ping(row.Group.Root));
@@ -285,19 +336,30 @@ namespace Remedy.Schematics.Browsers
             string old = row.Folder;
             if (old == null || string.IsNullOrEmpty(newName) || newName == Path.GetFileName(old))
                 return;
-            string error = AssetDatabase.RenameAsset(old, newName);
-            if (!string.IsNullOrEmpty(error))
-            {
-                Debug.LogWarning($"[Project Manager] Couldn't rename '{old}': {error}");
+            if (!InlineRename.RenameAsset(old, newName))
                 return;
-            }
-            string renamed = ParentOf(old) + "/" + newName;
+            string renamed = ParentOf(old) + "/" + InlineRename.SafeFileName(newName);
             if (_selectedFolder != null && (_selectedFolder == old || _selectedFolder.StartsWith(old + "/", StringComparison.Ordinal)))
                 _selectedFolder = renamed + _selectedFolder.Substring(old.Length);
             EditorPrefs.SetString(_prefsKey + ".Folder", _selectedFolder ?? "");
             Rebuild();
             FoldersChanged?.Invoke();
             SelectionChanged?.Invoke();
+        }
+
+        // Something was dropped on a row and moved: the tree and its page catch up.
+        private void OnMoved(List<string> moved)
+        {
+            Rebuild();
+            FoldersChanged?.Invoke();
+        }
+
+        private static bool InRenameField(IEventHandler target)
+        {
+            for (var element = target as VisualElement; element != null; element = element.parent)
+                if (element.ClassListContains("inline-rename"))
+                    return true;
+            return false;
         }
 
         private static void Ping(string path)
@@ -324,7 +386,9 @@ namespace Remedy.Schematics.Browsers
             private readonly Label _arrow;
             private readonly Label _label;
             private readonly bool _hasChildren;
-            private TextField _renameField;
+            private bool _renaming;
+            private Vector2 _pressPosition;
+            private bool _pressed;
 
             public Row(ProjectFolderTree tree, Group group, string folder, string text, string icon, int depth, bool hasChildren)
             {
@@ -367,10 +431,12 @@ namespace Remedy.Schematics.Browsers
 
                 _line.RegisterCallback<PointerDownEvent>(evt =>
                 {
-                    if (evt.target == _arrow || evt.target == _renameField || (evt.target as VisualElement)?.parent == _renameField)
+                    if (evt.target == _arrow || InRenameField(evt.target))
                         return; // the arrow toggles itself; clicks in the rename field are the field's
                     if (evt.button == 0)
                     {
+                        _pressed = Folder != null;
+                        _pressPosition = evt.position;
                         if (evt.clickCount == 2 && Folder != null && evt.target == _label)
                         {
                             // Applied after the click finishes, so the click doesn't steal focus from the field.
@@ -388,6 +454,20 @@ namespace Remedy.Schematics.Browsers
                         evt.StopPropagation();
                     }
                 }, TrickleDown.TrickleDown);
+
+                // Folder rows drag (onto other rows or folder tiles) to move the folder.
+                _line.RegisterCallback<PointerMoveEvent>(evt =>
+                {
+                    if (!_pressed || (evt.pressedButtons & 1) == 0 || ((Vector2)evt.position - _pressPosition).sqrMagnitude < 36f)
+                        return;
+                    _pressed = false;
+                    ProjectAssetOps.StartDrag(Path.GetFileName(Folder), Folder);
+                });
+                _line.RegisterCallback<PointerUpEvent>(_ => _pressed = false);
+                _line.RegisterCallback<PointerLeaveEvent>(_ => _pressed = false);
+                // Any row but "all" takes dropped assets and folders: into its folder, or into its group's root or default folder.
+                if (group != null)
+                    ProjectAssetOps.MakeDropTarget(_line, () => Folder ?? group.Root ?? group.DefaultFolder, tree.OnMoved, "folder-tree__row--drop");
 
                 Children = new VisualElement();
                 Children.AddToClassList("folder-tree__children");
@@ -414,35 +494,14 @@ namespace Remedy.Schematics.Browsers
 
             public void BeginRename()
             {
-                if (Folder == null || _renameField != null || panel == null)
+                if (Folder == null || _renaming || panel == null)
                     return;
-                _renameField = new TextField { value = Path.GetFileName(Folder) };
-                _renameField.AddToClassList("folder-tree__rename");
-                _label.style.display = DisplayStyle.None;
-                _line.Add(_renameField);
-                bool done = false;
-                void Finish(bool apply)
-                {
-                    if (done) return;
-                    done = true;
-                    string value = _renameField.value;
-                    _renameField.RemoveFromHierarchy();
-                    _renameField = null;
-                    _label.style.display = DisplayStyle.Flex;
-                    if (apply)
-                        _tree.Rename(this, value);
-                }
-                _renameField.RegisterCallback<KeyDownEvent>(evt =>
-                {
-                    if (evt.keyCode == KeyCode.Return || evt.keyCode == KeyCode.KeypadEnter) { Finish(true); evt.StopPropagation(); }
-                    else if (evt.keyCode == KeyCode.Escape) { Finish(false); evt.StopPropagation(); }
-                }, TrickleDown.TrickleDown);
-                _renameField.RegisterCallback<FocusOutEvent>(_ => Finish(true));
-                _renameField.schedule.Execute(() =>
-                {
-                    _renameField?.Focus();
-                    _renameField?.SelectAll();
-                });
+                _renaming = true;
+                var field = InlineRename.Begin(_label, Path.GetFileName(Folder), value => _tree.Rename(this, value), () => _renaming = false);
+                if (field == null)
+                    _renaming = false;
+                else
+                    field.AddToClassList("folder-tree__rename");
             }
         }
     }
