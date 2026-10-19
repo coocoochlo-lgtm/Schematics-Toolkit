@@ -115,10 +115,13 @@ namespace Remedy.Schematics
         // Started from a replicated node: it mustn't be sent back out.
         private bool _remote;
 
-        /// <summary>Runs a node's children (and everything after them), e.g. once a Wait is over.</summary>
-        public static void StartChildren(SchematicGraphNode node, GameObject instance, FlowScope scope = null)
+        /// <summary>
+        /// Runs a node's children (and everything after them), e.g. once a Wait is over: those on its main flow output,
+        /// or on the named one.
+        /// </summary>
+        public static void StartChildren(SchematicGraphNode node, GameObject instance, FlowScope scope = null, string port = null)
         {
-            var children = node.FlowChildren;
+            var children = node.FlowChildrenOf(port);
             if (children.Count == 0)
                 return;
             var flow = Rent(node, instance);
@@ -259,9 +262,9 @@ namespace Remedy.Schematics
         /// themselves (a loop calling ProcessChildren per item): those get a snapshot of the node's outputs as they are
         /// at that moment, so each item's children see their own item.
         /// </summary>
-        internal void Schedule(SchematicGraphNode node, FlowScope scope, bool fork)
+        internal void Schedule(SchematicGraphNode node, FlowScope scope, bool fork, string port = null)
         {
-            var children = node.FlowChildren;
+            var children = node.FlowChildrenOf(port);
             if (children.Count == 0)
                 return;
 
@@ -300,7 +303,7 @@ namespace Remedy.Schematics
         /// </summary>
         public static event Action<GameObject, SchematicGraphNode, SchematicGraphNode> EditorEdgeTraversed;
 
-        private static void ReportTraversed(GameObject instance, SchematicGraphNode from, List<SchematicActionNode> children)
+        private static void ReportTraversed(GameObject instance, SchematicGraphNode from, List<SchematicActionNodeBase> children)
         {
             var handler = EditorEdgeTraversed;
             if (handler == null)

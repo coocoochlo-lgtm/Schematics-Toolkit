@@ -59,6 +59,27 @@ namespace Remedy.Schematics
         }
 
         /// <summary>
+        /// Runs the nodes on one of this node's flow outputs now (an If's Else, a Random's pin...), with this node's
+        /// outputs as they are at this moment. Like <see cref="ProcessChildren"/>, call it several times to run several
+        /// outputs (in that order); it doesn't stop the main output running too, so clear _processChildren for that.
+        /// </summary>
+        protected void ContinueFrom(GameObject instance, string port)
+        {
+            var flow = Flow.Current;
+            if (flow != null && flow.IsExecuting(this))
+                flow.Schedule(this, flow.ExecutingScope, fork: true, port);
+            else
+                Flow.StartChildren(this, instance, null, port);
+        }
+
+        /// <summary>
+        /// Runs the nodes on one of this node's flow outputs with the given values (a timer's tick count, for
+        /// example), from outside a flow: after a delay, or from a callback.
+        /// </summary>
+        protected void ContinueFrom(GameObject instance, string port, FlowScope scope)
+            => Flow.StartChildren(this, instance, scope, port);
+
+        /// <summary>
         /// Runs the nodes after this one once the given number of seconds (game time) has passed, with the values they'd
         /// have seen now. Skipped if the object is destroyed in the meantime.
         /// </summary>

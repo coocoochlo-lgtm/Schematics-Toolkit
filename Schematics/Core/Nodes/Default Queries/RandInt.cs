@@ -8,7 +8,7 @@ using UnityEngine;
 
 namespace Remedy.Schematics
 {
-    [SchematicDoc(@"{""name"": ""Rand Int"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Random"", ""description"": ""A random whole number from Lower Bound up to (not including) Upper Bound."", ""inputs"": [{""name"": ""LowerBound"", ""type"": ""int""}, {""name"": ""UpperBound"", ""type"": ""int""}], ""outputs"": [{""name"": ""Value"", ""type"": ""int""}], ""use_for"": [""random choices"", ""loot rolls"", ""random spawn points""], ""notes"": ""A value node: no flow arrows; connect its outputs to other nodes' inputs.""}")]
+    [SchematicDoc(@"{""name"": ""Rand Int"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Random"", ""description"": ""A random whole number from Lower Bound up to (not including) Upper Bound; tick Include Upper to allow Upper Bound too."", ""inputs"": [{""name"": ""LowerBound"", ""type"": ""int""}, {""name"": ""UpperBound"", ""type"": ""int""}], ""outputs"": [{""name"": ""Value"", ""type"": ""int""}], ""use_for"": [""random choices"", ""loot rolls"", ""random spawn points""], ""notes"": ""A value node: no flow arrows; connect its outputs to other nodes' inputs.""}")]
     [Serializable]
     [Node(Path = "Random"), Tags("Default")]
     public class RandInt : SchematicGraphNode
@@ -18,6 +18,10 @@ namespace Remedy.Schematics
         [Input("UpperBound", Editable = true)]
         public int UpperBound;
 
+        /// <summary>Upper Bound can come up too (0 and 1 both, for Lower 0 and Upper 1).</summary>
+        [Editable]
+        public bool IncludeUpper;
+
         [Output("Value")]
         public int Value;
 
@@ -26,6 +30,8 @@ namespace Remedy.Schematics
             // A new number every flow step (several inputs reading it in the same step see the same roll).
             int lower = GetInputValue("LowerBound", LowerBound);
             int upper = GetInputValue("UpperBound", UpperBound);
+            if (IncludeUpper && upper >= lower && upper < int.MaxValue)
+                upper++;
             return UnityEngine.Random.Range(lower, upper);
         }
     }

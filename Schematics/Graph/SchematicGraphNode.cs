@@ -90,7 +90,10 @@ namespace Remedy.Schematics
             public readonly Dictionary<string, int> OutputIndexByName = new();
             public readonly Dictionary<Port, int> OutputIndexByPort = new();
             public string[] OutputNames = Array.Empty<string>();
-            public readonly List<SchematicActionNode> Children = new();
+            /// <summary>The nodes on the main flow output ("▶").</summary>
+            public readonly List<SchematicActionNodeBase> Children = new();
+            /// <summary>The nodes on each flow output, by its name (a branch's If/Else, Random's pins...).</summary>
+            public readonly Dictionary<string, List<SchematicActionNodeBase>> ChildrenByPort = new();
 
             /// <summary>No flow arrows at all: a query (pure) node, evaluated on demand through OnRequestValue.</summary>
             public bool IsQuery;
@@ -155,9 +158,15 @@ namespace Remedy.Schematics
                     hasFlowPort = true;
                     if (port.Direction == PortDirection.Output)
                     {
+                        var children = new List<SchematicActionNodeBase>();
                         foreach (var connectedPort in port.ConnectedPorts)
-                            if (connectedPort?.Node is SchematicActionNode child && !relations.Children.Contains(child))
-                                relations.Children.Add(child);
+                            if (connectedPort?.Node is SchematicActionNodeBase child && !children.Contains(child))
+                                children.Add(child);
+                        relations.ChildrenByPort[port.Name] = children;
+                        if (port.Name == MainFlowPort)
+                            foreach (var child in children)
+                                if (!relations.Children.Contains(child))
+                                    relations.Children.Add(child);
                     }
                     continue;
                 }
@@ -210,8 +219,17 @@ namespace Remedy.Schematics
 
         #region Flow
 
-        /// <summary>The action nodes this node leads to.</summary>
-        internal List<SchematicActionNode> FlowChildren => Wiring.Children;
+        /// <summary>The name of the main flow output, which runs once a node is done.</summary>
+        public const string MainFlowPort = "▶";
+
+        private static readonly List<SchematicActionNodeBase> NoChildren = new();
+
+        /// <summary>The action nodes this node leads to (on its main flow output).</summary>
+        internal List<SchematicActionNodeBase> FlowChildren => Wiring.Children;
+
+        /// <summary>The action nodes on one of this node's flow outputs (none if it has no such output).</summary>
+        internal List<SchematicActionNodeBase> FlowChildrenOf(string port)
+            => port == null ? Wiring.Children : Wiring.ChildrenByPort.TryGetValue(port, out var children) ? children : NoChildren;
 
         /// <summary>
         /// Runs this node as a step of a flow. True if its children should run after it. Plain value nodes aren't steps.
