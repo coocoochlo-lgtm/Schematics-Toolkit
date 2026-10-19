@@ -439,6 +439,19 @@ namespace Remedy.Schematics.Templates
                 Picked?.Invoke(Selected);
         }
 
+        /// <summary>Selects a tile, scrolls it into view and flashes it (e.g. something just made). False if it isn't shown.</summary>
+        public bool Reveal(SchematicTemplate template)
+        {
+            var tile = _tiles.FirstOrDefault(t => t.Template == template && t.Template != null);
+            if (tile == null)
+                return false;
+            Selected = null;
+            Select(template, true);
+            schedule.Execute(() => _scroll.ScrollTo(tile)).ExecuteLater(1);
+            tile.Flash();
+            return true;
+        }
+
         /// <summary>Selects a template (if it's visible).</summary>
         public void Select(SchematicTemplate template)
         {
@@ -987,6 +1000,19 @@ namespace Remedy.Schematics.Templates
 
                 RegisterCallback<PointerEnterEvent>(_ => { _hovered = true; Paint(); });
                 RegisterCallback<PointerLeaveEvent>(_ => { _hovered = false; _pressed = false; Paint(); });
+            }
+
+            // A longer flash than a click's, to draw the eye to something just made.
+            public void Flash()
+            {
+                int pulses = 0;
+                schedule.Execute(() =>
+                {
+                    _flash = pulses % 2 == 0;
+                    Paint();
+                    pulses++;
+                }).Every(180).Until(() => pulses > 5);
+                schedule.Execute(() => { _flash = false; Paint(); }).ExecuteLater(180 * 7);
             }
 
             public void UpdateThumbnail()

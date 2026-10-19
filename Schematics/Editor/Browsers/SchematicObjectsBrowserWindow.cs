@@ -32,7 +32,15 @@ namespace Remedy.Schematics.Browsers
         private ProjectFolderTree _tree;
         private Toggle _levelDesignOnly;
         private Toggle _folderView;
-        private string _renameWhenListed;
+        // A just-made Schematic to show (open its kind and folder, select, flash and ping it) once it's listed, and
+        // whether to start renaming it then.
+        private string _revealWhenListed;
+        private bool _renameAfterReveal;
+        private int _revealTries;
+        // Objects made with the template window opened from this page: the paths there were before, so the new one
+        // can be found (and revealed) when it appears.
+        private HashSet<string> _knownBeforeTemplate;
+        private double _templateOpenedAt;
 
         /// <summary>Opens Project Manager on the Schematics section.</summary>
         public static SchematicObjectsBrowserWindow Open() => ProjectManagerWindow.Open(ProjectManagerWindow.Section.SchematicObjects).ObjectsPage;
@@ -289,11 +297,7 @@ namespace Remedy.Schematics.Browsers
             }
             var menu = new GenericMenu();
             menu.AddItem(new GUIContent("Empty Schematic Object"), false, () => CreateIn(kind, folder));
-            menu.AddItem(new GUIContent("From Template…"), false, () =>
-            {
-                ProjectFolderTree.CreateFolderPath(folder);
-                CreateSchematicObjectWindow.ShowForProject(folder);
-            });
+            menu.AddItem(new GUIContent("From Template…"), false, () => CreateFromTemplate(folder));
             menu.ShowAsContext();
         }
 
@@ -306,20 +310,96 @@ namespace Remedy.Schematics.Browsers
                 return;
             if (isDefault)
                 ProjectFolderMarks.Mark(Section, kind.Key, kind.DefaultFolder);
-            _renameWhenListed = AssetDatabase.GetAssetPath(asset);
+            Navigate(AssetDatabase.GetAssetPath(asset), rename: true);
+        }
+
+        /// <summary>
+        /// Shows a Schematic that was just made: opens its kind and folder in the sidebar, then (once the grid lists it)
+        /// selects, scrolls to and flashes its tile and pings it in the Project window; optionally starts renaming it.
+        /// </summary>
+        private void Navigate(string path, bool rename)
+        {
+            if (string.IsNullOrEmpty(path)) return;
+            _revealWhenListed = path;
+            _renameAfterReveal = rename;
+            _revealTries = 0;
+            var kind = KindOfPath(path);
+            if (kind != null)
+                _tree?.Reveal(kind.Key, path);
             OnAssetsChanged();
         }
 
-        // Starts renaming a just-made Schematic once the index lists it (prefabs are listed on the next editor tick).
+        private static SchematicTypes.Info KindOfPath(string path)
+        {
+            var type = AssetDatabase.GetMainAssetTypeAtPath(path);
+            if (type == typeof(GameObject))
+            {
+                var graph = SchematicObjectFactory.GraphOf(AssetDatabase.LoadAssetAtPath<GameObject>(path));
+                var own = graph != null ? SchematicTypes.Of(graph.GetType()) : null;
+                return own != null && own.ListsPrefabs ? own : SchematicTypes.All.FirstOrDefault(k => k.ListsPrefabs);
+            }
+            return type != null ? SchematicTypes.Of(type) : null;
+        }
+
+        // Called after every refresh: reveals a just-made Schematic once the grid lists it (prefabs are listed on the
+        // next editor tick), and spots one the template window just made.
         private void RenamePending()
         {
-            if (string.IsNullOrEmpty(_renameWhenListed) || Grid == null)
+            if (Grid == null)
                 return;
-            var entry = Grid.Visible.FirstOrDefault(e => PathOf(e) == _renameWhenListed);
+            if (_knownBeforeTemplate != null && string.IsNullOrEmpty(_revealWhenListed))
+            {
+                if (EditorApplication.timeSinceStartup - _templateOpenedAt > 600)
+                    _knownBeforeTemplate = null;
+                else
+                {
+                    var made = SchematicObjectIndex.All.Select(PathOf).FirstOrDefault(p => !_knownBeforeTemplate.Contains(p));
+                    if (made != null)
+                    {
+                        _knownBeforeTemplate = null;
+                        // The template window starts the Project window's rename itself; just show it here.
+                        Navigate(made, rename: false);
+                        return;
+                    }
+                }
+            }
+            if (string.IsNullOrEmpty(_revealWhenListed))
+                return;
+            var entry = Grid.Visible.FirstOrDefault(e => PathOf(e) == _revealWhenListed);
             if (entry == null)
+            {
+                // Listed now but in a folder the sidebar didn't know yet: open that folder (a few tries at most).
+                if (_revealTries++ < 3)
+                {
+                    var kind = KindOfPath(_revealWhenListed);
+                    if (kind != null)
+                    {
+                        string path = _revealWhenListed;
+                        Grid.schedule.Execute(() =>
+                        {
+                            _tree?.Reveal(kind.Key, path);
+                            OnAssetsChanged();
+                        }).ExecuteLater(100);
+                    }
+                }
                 return;
-            _renameWhenListed = null;
-            Grid.BeginRename(entry);
+            }
+            _revealTries = 0;
+            _revealWhenListed = null;
+            Grid.Reveal(entry);
+            if (AssetOf(entry) is { } asset)
+                EditorGUIUtility.PingObject(asset);
+            if (_renameAfterReveal)
+                Grid.schedule.Execute(() => Grid.BeginRename(entry)).ExecuteLater(50);
+        }
+
+        // Opens the template window to make an object in a folder, watching for the object it makes.
+        private void CreateFromTemplate(string folder)
+        {
+            ProjectFolderTree.CreateFolderPath(folder);
+            _knownBeforeTemplate = new HashSet<string>(SchematicObjectIndex.All.Select(PathOf));
+            _templateOpenedAt = EditorApplication.timeSinceStartup;
+            CreateSchematicObjectWindow.ShowForProject(folder);
         }
 
         private bool RenameEntry(SchematicTemplate entry, string name)
@@ -364,11 +444,7 @@ namespace Remedy.Schematics.Browsers
                 CreateIn(kind, target);
             });
             if (kind.ListsPrefabs)
-                menu.AddItem(new GUIContent("New Schematic Object From Template…"), false, () =>
-                {
-                    ProjectFolderTree.CreateFolderPath(target);
-                    CreateSchematicObjectWindow.ShowForProject(target);
-                });
+                menu.AddItem(new GUIContent("New Schematic Object From Template…"), false, () => CreateFromTemplate(target));
         }
 
         #endregion
@@ -432,11 +508,7 @@ namespace Remedy.Schematics.Browsers
             if (kind.ListsPrefabs)
             {
                 menu.AppendAction("Create/Empty Schematic Object", _ => CreateIn(kind, folder));
-                menu.AppendAction("Create/Schematic Object From Template…", _ =>
-                {
-                    ProjectFolderTree.CreateFolderPath(folder);
-                    CreateSchematicObjectWindow.ShowForProject(folder);
-                });
+                menu.AppendAction("Create/Schematic Object From Template…", _ => CreateFromTemplate(folder));
             }
             else
                 menu.AppendAction($"Create/{kind.NewAssetName.Replace("New ", "")}", _ => CreateIn(kind, folder));

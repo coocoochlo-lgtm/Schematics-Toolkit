@@ -37,6 +37,7 @@ namespace Remedy.Schematics.Browsers
         private ProjectFolderTree _folderTree;
         private VisualElement _page;
         private TagBar _tagBar;
+        private ScrollView _clipScroll;
         private const string TagSection = "Audio";
         // Card colours by kind (tags have their own colours, shown as dots).
         private static readonly Color MusicColor = new(0.48f, 0.34f, 0.82f);
@@ -201,6 +202,7 @@ namespace Remedy.Schematics.Browsers
             main.Add(_tagBar);
 
             var scroll = new ScrollView();
+            _clipScroll = scroll;
             scroll.AddToClassList("audio-browser__scroll");
             main.Add(scroll);
             _clipGrid = new VisualElement();
@@ -353,6 +355,28 @@ namespace Remedy.Schematics.Browsers
             return AssetDatabase.IsValidFolder(_selectedFolder)
                 ? AssetDatabase.GetSubFolders(_selectedFolder).OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
                 : Enumerable.Empty<string>();
+        }
+
+        /// <summary>
+        /// Shows a clip that was just added: opens its folder in the sidebar, then scrolls to, flashes and pings its card.
+        /// </summary>
+        private void RevealClip(string path)
+        {
+            var clip = AssetDatabase.LoadAssetAtPath<AudioClip>(path);
+            if (clip == null)
+                return;
+            _folderTree?.Reveal(GroupOf(path), path);
+            ReloadAssets();
+            _page?.schedule.Execute(() =>
+            {
+                if (!_nameLabels.TryGetValue(clip, out var label) || label.parent == null)
+                    return;
+                var card = label.parent;
+                _clipScroll?.ScrollTo(card);
+                FlashCard(card);
+                card.schedule.Execute(() => FlashCard(card)).ExecuteLater(450);
+            }).ExecuteLater(30);
+            EditorGUIUtility.PingObject(clip);
         }
 
         private static string GroupOf(string path)
@@ -1079,6 +1103,11 @@ namespace Remedy.Schematics.Browsers
                     AudioCredits.SetCreator(path, item.Creator.Trim());
             }
             ReloadAssets();
+            if (imported.Count > 0)
+            {
+                string first = imported[0].path;
+                EditorApplication.delayCall += () => RevealClip(first);
+            }
         }
 
         private string CopyAudioFile(string source, string destination)
