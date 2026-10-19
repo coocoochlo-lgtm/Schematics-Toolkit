@@ -123,6 +123,7 @@ namespace Remedy.Schematics.Browsers
             grid.ThumbnailOf = entry => entry.Prefab != null ? null : ThumbnailOf(entry);
             grid.DragAssetOf = entry => entry.Prefab != null ? null : AssetOf(entry);
             grid.Rename = RenameEntry;
+            grid.ShareTileSize = true; // the same tile size as the Audio page
             grid.FoldersSource = () => FolderView && _tree != null ? _tree.VisibleChildren(_tree.SelectedGroup, _tree.SelectedFolder) : null;
             grid.FolderOpened += folder => _tree?.Select(_tree.SelectedGroup?.Key, folder);
             grid.FolderMenu = BuildFolderMenu;

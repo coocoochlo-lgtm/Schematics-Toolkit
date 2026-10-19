@@ -36,11 +36,11 @@ namespace Remedy.Schematics.Browsers
         private int _previewSamplePosition;
         private bool _previewPaused;
         private Slider _tileSizeSlider;
+        private ToolbarSearchField _search;
         private ProjectFolderTree _folderTree;
         private VisualElement _tagFilters;
         private VisualElement _clipGrid;
         private Label _status;
-        private TextField _folderName;
         private bool _rebuilding;
 
         protected override string PrefsKey => AudioPrefs;
@@ -58,6 +58,7 @@ namespace Remedy.Schematics.Browsers
             EditorApplication.projectChanged += OnProjectChanged;
             EditorApplication.update += UpdatePreview;
             EditorApplication.focusChanged += OnEditorFocusChanged;
+            SchematicTemplateGrid.SharedTileSizeChanged += OnSharedTileSizeChanged;
             EnsureFolders();
             EnsureDefaultTags();
             ReloadAssets();
@@ -68,6 +69,7 @@ namespace Remedy.Schematics.Browsers
             EditorApplication.projectChanged -= OnProjectChanged;
             EditorApplication.update -= UpdatePreview;
             EditorApplication.focusChanged -= OnEditorFocusChanged;
+            SchematicTemplateGrid.SharedTileSizeChanged -= OnSharedTileSizeChanged;
             StopPreview();
             foreach (var waveform in _ownedWaveforms)
                 DestroyImmediate(waveform);
@@ -78,6 +80,36 @@ namespace Remedy.Schematics.Browsers
         }
 
         private void OnLostFocus() => StopPreview();
+
+        private float TileSize => _tileSizeSlider?.value ?? SchematicTemplateGrid.SharedTileSize;
+
+        // The Schematics page (or another Audio page) changed the shared size.
+        private void OnSharedTileSizeChanged(float size)
+        {
+            if (_tileSizeSlider == null)
+                return;
+            _tileSizeSlider.SetValueWithoutNotify(size);
+            RebuildCards();
+        }
+
+        // Cards are sized like the Schematics page's tiles (same width and height for the same tile size).
+        private static void SizeCard(VisualElement card, float size)
+        {
+            card.style.width = SchematicTemplateGrid.TileWidth(size);
+            card.style.height = SchematicTemplateGrid.TileHeight(size);
+            card.style.marginLeft = card.style.marginRight = card.style.marginTop = card.style.marginBottom = SchematicTemplateGrid.TileSpacing;
+        }
+
+        private bool MatchesSearch(string name)
+        {
+            string search = _search?.value?.Trim();
+            if (string.IsNullOrEmpty(search))
+                return true;
+            foreach (var word in search.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries))
+                if (name.IndexOf(word, StringComparison.OrdinalIgnoreCase) < 0)
+                    return false;
+            return true;
+        }
 
         private void OnEditorFocusChanged(bool focused)
         {
@@ -101,6 +133,10 @@ namespace Remedy.Schematics.Browsers
             importFolder.tooltip = "Copy an audio folder and its subfolders into the selected folder.";
             importFolder.AddToClassList("schematic-browser__button");
             header.Add(importFolder);
+
+            var newFolder = new Button(CreateFolder) { text = "New Folder", tooltip = "A new folder in the open folder (in SFX when All Audio is open)." };
+            newFolder.AddToClassList("schematic-browser__button");
+            header.Add(newFolder);
 
             var newTag = new Button(CreateTag) { text = "New Tag" };
             newTag.AddToClassList("schematic-browser__button");
@@ -140,23 +176,12 @@ namespace Remedy.Schematics.Browsers
             main.AddToClassList("audio-browser__main");
             body.Add(main);
 
-            var toolbar = new VisualElement();
-            toolbar.AddToClassList("audio-browser__toolbar");
+            // The same top bar as the Schematics page (search and tile size), and the same shared tile size.
+            var toolbar = SchematicTemplateGrid.CreateToolbar(out _search, out _tileSizeSlider);
+            _search.RegisterValueChangedCallback(_ => RebuildCards());
+            _tileSizeSlider.SetValueWithoutNotify(SchematicTemplateGrid.SharedTileSize);
+            _tileSizeSlider.RegisterValueChangedCallback(evt => SchematicTemplateGrid.SharedTileSize = evt.newValue);
             main.Add(toolbar);
-            _folderName = new TextField { label = "Folder name" };
-            _folderName.AddToClassList("audio-browser__folder-name");
-            toolbar.Add(_folderName);
-            var createFolder = new Button(CreateFolder) { text = "Create Folder" };
-            createFolder.tooltip = "Create a subfolder here; All Audio defaults to the SFX folder.";
-            createFolder.AddToClassList("schematic-browser__button");
-            toolbar.Add(createFolder);
-            _tileSizeSlider = new Slider("Tile size", 72f, 240f)
-            {
-                value = EditorPrefs.GetFloat(AudioPrefs + ".TileSize", 168f)
-            };
-            _tileSizeSlider.AddToClassList("audio-browser__size");
-            _tileSizeSlider.RegisterValueChangedCallback(_ => RebuildCards());
-            toolbar.Add(_tileSizeSlider);
 
             _tagFilters = new VisualElement();
             _tagFilters.AddToClassList("audio-browser__tags");
@@ -293,11 +318,10 @@ namespace Remedy.Schematics.Browsers
             _rebuilding = true;
             try
             {
-                EditorPrefs.SetFloat(AudioPrefs + ".TileSize", _tileSizeSlider?.value ?? 168f);
                 _clipGrid.Clear();
                 _players.Clear();
                 _nameLabels.Clear();
-                var folders = FolderView ? FoldersInView().ToList() : new List<string>();
+                var folders = FolderView ? FoldersInView().Where(f => MatchesSearch(Path.GetFileName(f))).ToList() : new List<string>();
                 foreach (var folder in folders)
                     _clipGrid.Add(BuildFolderCard(folder));
                 var visible = _clips.Where(IsVisible).ToList();
@@ -330,12 +354,11 @@ namespace Remedy.Schematics.Browsers
 
         private VisualElement BuildFolderCard(string folder)
         {
-            float size = _tileSizeSlider?.value ?? 168f;
+            float size = TileSize;
             var card = new VisualElement { tooltip = folder };
             card.AddToClassList("audio-browser__card");
             card.AddToClassList("audio-browser__folder-card");
-            card.style.width = size;
-            card.style.height = size;
+            SizeCard(card, size);
             card.style.alignItems = Align.Center;
             card.style.justifyContent = Justify.Center;
 
@@ -412,6 +435,8 @@ namespace Remedy.Schematics.Browsers
 
         private bool IsVisible(AudioClip clip)
         {
+            if (!MatchesSearch(clip.name) && !GetTags(clip).Any(t => MatchesSearch(t.TagName)))
+                return false;
             var path = AssetDatabase.GetAssetPath(clip);
             if (FolderView)
                 return _selectedFolder != AudioRoot
@@ -425,12 +450,11 @@ namespace Remedy.Schematics.Browsers
 
         private VisualElement BuildCard(AudioClip clip)
         {
-            float size = _tileSizeSlider?.value ?? 168f;
+            float size = TileSize;
             var card = new VisualElement();
             card.AddToClassList("audio-browser__card");
             card.AddToClassList("audio-preview-surface");
-            card.style.width = size;
-            card.style.height = size;
+            SizeCard(card, size);
             card.style.flexDirection = FlexDirection.Column;
             card.style.borderTopColor = card.style.borderRightColor = card.style.borderBottomColor = card.style.borderLeftColor =
                 EditorGUIUtility.isProSkin ? new Color(1f, 1f, 1f, 0.35f) : new Color(0f, 0f, 0f, 0.35f);
@@ -969,23 +993,12 @@ namespace Remedy.Schematics.Browsers
             ReloadAssets();
         }
 
+        // A new folder in the open folder (SFX when All Audio is open), selected and ready to rename.
         private void CreateFolder()
         {
-            string name = _folderName?.value?.Trim();
-            if (string.IsNullOrEmpty(name) || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-            {
-                Debug.LogWarning("Enter a valid folder name.");
-                return;
-            }
             string parent = _selectedFolder == AudioRoot ? SfxRoot : _selectedFolder;
-            string result = AssetDatabase.CreateFolder(parent, name);
-            if (string.IsNullOrEmpty(result))
-            {
-                Debug.LogError($"Could not create audio folder '{name}' under '{parent}'.");
-                return;
-            }
-            _folderName.value = "";
-            ReloadAssets();
+            var group = new ProjectFolderTree.Group { Key = GroupOf(parent), Root = GroupOf(parent) == "Music" ? MusicRoot : SfxRoot };
+            _folderTree?.CreateFolder(group, parent);
         }
 
         private void ImportFiles()

@@ -33,8 +33,78 @@ namespace Remedy.Schematics.Templates
         public const string DragDataKey = "Remedy.SchematicTemplate";
 
         private const string AllCategory = "All";
-        private const float MinTileSize = 48f, MaxTileSize = 192f;
+        public const float MinTileSize = 48f, MaxTileSize = 192f;
         private const float LabelHeight = 30f, TileMargin = 4f;
+
+        /// <summary>A tile's outer width for a thumbnail size (so other grids, like Audio's, can match it).</summary>
+        public static float TileWidth(float size) => size + 6f;
+
+        /// <summary>A tile's outer height for a thumbnail size (thumbnail, name, padding).</summary>
+        public static float TileHeight(float size) => size + LabelHeight + 7f;
+
+        /// <summary>The space around each tile.</summary>
+        public const float TileSpacing = TileMargin;
+
+        private const string SharedTileSizeKey = "Remedy.ProjectManager.TileSize";
+
+        /// <summary>The tile size the Project Manager's pages share (Schematics, Audio).</summary>
+        public static float SharedTileSize
+        {
+            get => Mathf.Clamp(EditorPrefs.GetFloat(SharedTileSizeKey, 96f), MinTileSize, MaxTileSize);
+            set
+            {
+                value = Mathf.Clamp(value, MinTileSize, MaxTileSize);
+                if (Mathf.Approximately(value, EditorPrefs.GetFloat(SharedTileSizeKey, 96f)))
+                    return;
+                EditorPrefs.SetFloat(SharedTileSizeKey, value);
+                SharedTileSizeChanged?.Invoke(value);
+            }
+        }
+
+        /// <summary>Raised when <see cref="SharedTileSize"/> changes, so every page sharing it follows.</summary>
+        public static event Action<float> SharedTileSizeChanged;
+
+        /// <summary>
+        /// The grid toolbar (search field, size slider), also used by pages that draw their own tiles so every page
+        /// has the same top bar.
+        /// </summary>
+        public static Toolbar CreateToolbar(out ToolbarSearchField search, out Slider sizeSlider)
+        {
+            var toolbar = new Toolbar();
+            toolbar.AddToClassList("schematic-grid__toolbar");
+            toolbar.style.flexShrink = 0;
+            search = new ToolbarSearchField();
+            search.style.flexGrow = 1;
+            search.style.width = StyleKeyword.Auto;
+            toolbar.Add(search);
+
+            sizeSlider = new Slider(MinTileSize, MaxTileSize) { tooltip = "Thumbnail size" };
+            sizeSlider.style.width = 90;
+            sizeSlider.style.marginLeft = 6;
+            sizeSlider.style.marginRight = 4;
+            toolbar.Add(sizeSlider);
+            return toolbar;
+        }
+
+        private bool _shareTileSize;
+
+        /// <summary>Use (and change) <see cref="SharedTileSize"/> instead of this grid's own saved size.</summary>
+        public bool ShareTileSize
+        {
+            get => _shareTileSize;
+            set
+            {
+                _shareTileSize = value;
+                if (value)
+                    TileSize = SharedTileSize;
+            }
+        }
+
+        private void OnSharedTileSizeChanged(float size)
+        {
+            if (_shareTileSize && !Mathf.Approximately(size, _tileSize))
+                TileSize = size;
+        }
 
         private static readonly Color HoverColor = new(1f, 1f, 1f, 0.07f);
         private static Color SelectedColor => EditorGUIUtility.isProSkin ? new Color(0.17f, 0.36f, 0.53f, 1f) : new Color(0.23f, 0.45f, 0.69f, 1f);
@@ -99,8 +169,12 @@ namespace Remedy.Schematics.Templates
             {
                 _tileSize = Mathf.Clamp(value, MinTileSize, MaxTileSize);
                 _sizeSlider.SetValueWithoutNotify(_tileSize);
-                Save("TileSize", _tileSize.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                if (_shareTileSize)
+                    SharedTileSize = _tileSize;
+                else
+                    Save("TileSize", _tileSize.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 foreach (var tile in _tiles) tile.Resize(_tileSize);
+                foreach (var folderTile in _folderTiles) folderTile.Resize(_tileSize);
             }
         }
 
@@ -241,22 +315,10 @@ namespace Remedy.Schematics.Templates
             style.flexDirection = FlexDirection.Column;
 
             // Toolbar: search + size.
-            var toolbar = new Toolbar();
-            toolbar.AddToClassList("schematic-grid__toolbar");
-            toolbar.style.flexShrink = 0;
-            _search = new ToolbarSearchField();
-            _search.style.flexGrow = 1;
-            _search.style.width = StyleKeyword.Auto;
+            var toolbar = CreateToolbar(out _search, out _sizeSlider);
             _search.RegisterValueChangedCallback(_ => Refresh());
             _search.RegisterCallback<KeyDownEvent>(OnSearchKeyDown, TrickleDown.TrickleDown);
-            toolbar.Add(_search);
-
-            _sizeSlider = new Slider(MinTileSize, MaxTileSize) { tooltip = "Thumbnail size" };
-            _sizeSlider.style.width = 90;
-            _sizeSlider.style.marginLeft = 6;
-            _sizeSlider.style.marginRight = 4;
             _sizeSlider.RegisterValueChangedCallback(evt => TileSize = evt.newValue);
-            toolbar.Add(_sizeSlider);
             Add(toolbar);
 
             // Category chips.
@@ -319,12 +381,16 @@ namespace Remedy.Schematics.Templates
             {
                 SchematicTemplates.Changed += OnTemplatesChanged;
                 SchematicTemplateThumbnails.Updated += OnThumbnailUpdated;
+                SharedTileSizeChanged += OnSharedTileSizeChanged;
+                if (_shareTileSize && !Mathf.Approximately(SharedTileSize, _tileSize))
+                    TileSize = SharedTileSize;
                 Refresh();
             });
             RegisterCallback<DetachFromPanelEvent>(_ =>
             {
                 SchematicTemplates.Changed -= OnTemplatesChanged;
                 SchematicTemplateThumbnails.Updated -= OnThumbnailUpdated;
+                SharedTileSizeChanged -= OnSharedTileSizeChanged;
             });
         }
 
