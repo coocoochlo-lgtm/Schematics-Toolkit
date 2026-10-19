@@ -36,6 +36,9 @@ namespace Remedy.Schematics.Browsers
         private static List<Info> _all;
         private static Dictionary<string, List<string>> _assetsByType;
 
+        /// <summary>Forgets the graph asset lists (they're found again when next asked for).</summary>
+        public static void Invalidate() => _assetsByType = null;
+
         /// <summary>Raised when graph assets were added, removed or moved.</summary>
         public static event Action Changed;
 

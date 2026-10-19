@@ -175,6 +175,7 @@ namespace Remedy.Schematics.Templates
                     Save("TileSize", _tileSize.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 foreach (var tile in _tiles) tile.Resize(_tileSize);
                 foreach (var folderTile in _folderTiles) folderTile.Resize(_tileSize);
+                _createTile?.Resize(_tileSize);
             }
         }
 
@@ -467,6 +468,7 @@ namespace Remedy.Schematics.Templates
             _content.Clear();
             _tiles.Clear();
             _folderTiles.Clear();
+            _createTile = null;
 
             string search = _search.value?.Trim() ?? "";
             if (_showCreateTile && CreateTileFirst)
@@ -478,7 +480,18 @@ namespace Remedy.Schematics.Templates
                 {
                     if (search.Length > 0 && Path.GetFileName(folder).IndexOf(search, StringComparison.OrdinalIgnoreCase) < 0)
                         continue;
-                    var folderTile = new FolderTile(this, folder);
+                    var folderTile = new FolderTile(folder)
+                    {
+                        Opened = f => FolderOpened?.Invoke(f),
+                        Menu = (menu, f) => FolderMenu?.Invoke(menu, f),
+                        Moved = moved => Moved?.Invoke(moved),
+                        RenamingChanged = renaming => _renaming = renaming,
+                        Renamed = () =>
+                        {
+                            Focus();
+                            schedule.Execute(Refresh);
+                        },
+                    };
                     _folderTiles.Add(folderTile);
                     _content.Add(folderTile);
                 }
@@ -513,6 +526,7 @@ namespace Remedy.Schematics.Templates
                 tile.Resize(_tileSize);
             foreach (var folderTile in _folderTiles)
                 folderTile.Resize(_tileSize);
+            _createTile?.Resize(_tileSize);
 
             // Keep the selection if it's still shown; otherwise select the first.
             var keep = Selected != null && _tiles.Any(t => t.Template == Selected) ? Selected : _tiles.FirstOrDefault(t => t.Template != null)?.Template;
@@ -522,11 +536,20 @@ namespace Remedy.Schematics.Templates
                 UpdateDetails();
         }
 
+        private ActionTile _createTile;
+
         private void AddCreateTile()
         {
-            var tile = new Tile(this, null);
-            _tiles.Add(tile);
-            _content.Add(tile);
+            _createTile = new ActionTile(CreateTileLabel ?? "New Template…",
+                CreateTileTooltip ?? "Make a new template: empty, from the selected scene object, or from an existing prefab.",
+                () =>
+                {
+                    if (CreateTileAction != null)
+                        CreateTileAction();
+                    else
+                        ShowCreateMenu();
+                });
+            _content.Add(_createTile);
         }
 
         private IEnumerable<SchematicTemplate> Items
@@ -642,7 +665,7 @@ namespace Remedy.Schematics.Templates
         {
             if (Selected == null)
             {
-                _details.text = _tiles.Count > 0 && _tiles.All(t => t.Template == null) ? "Click + to make a template." : "";
+                _details.text = _tiles.Count == 0 && _createTile != null ? "Click + to make a template." : "";
                 return;
             }
             string text = $"<b>{Selected.DisplayName}</b>  <color=#888888>{string.Join(", ", CategoriesFor(Selected))}</color>";
@@ -864,115 +887,13 @@ namespace Remedy.Schematics.Templates
 
         #endregion
 
-        /// <summary>A folder in the folder view: opens, renames, takes drops and can be dragged.</summary>
-        private sealed class FolderTile : VisualElement
-        {
-            public readonly string Folder;
-            private readonly SchematicTemplateGrid _grid;
-            private readonly Image _image;
-            private readonly Label _label;
-            private Vector2 _pressPosition;
-            private bool _pressed, _renaming;
-
-            public FolderTile(SchematicTemplateGrid grid, string folder)
-            {
-                _grid = grid;
-                Folder = folder;
-                AddToClassList("schematic-grid__tile");
-                AddToClassList("schematic-grid__tile--folder");
-                style.marginLeft = style.marginRight = style.marginTop = style.marginBottom = TileMargin;
-                style.paddingLeft = style.paddingRight = 3;
-                style.paddingTop = 3;
-                style.paddingBottom = 2;
-                style.alignItems = Align.Center;
-                SetRadius(style, 4);
-                tooltip = folder;
-
-                _image = new Image { scaleMode = ScaleMode.ScaleToFit, pickingMode = PickingMode.Ignore };
-                _image.image = EditorGUIUtility.IconContent(EditorGUIUtility.isProSkin ? "d_Folder Icon" : "Folder Icon")?.image;
-                Add(_image);
-
-                _label = new Label(Path.GetFileName(folder)) { pickingMode = PickingMode.Ignore };
-                _label.AddToClassList("schematic-grid__label");
-                _label.style.unityTextAlign = TextAnchor.UpperCenter;
-                _label.style.whiteSpace = WhiteSpace.Normal;
-                _label.style.overflow = Overflow.Hidden;
-                _label.style.marginTop = 2;
-                Add(_label);
-
-                RegisterCallback<PointerDownEvent>(evt =>
-                {
-                    if (evt.button != 0) return;
-                    _pressed = true;
-                    _pressPosition = evt.position;
-                    if (evt.clickCount == 2)
-                    {
-                        _pressed = false;
-                        if (_label.ContainsPoint(_label.WorldToLocal(evt.position)))
-                            EditorApplication.delayCall += BeginRename;
-                        else
-                            _grid.FolderOpened?.Invoke(Folder);
-                    }
-                    evt.StopPropagation();
-                });
-                RegisterCallback<PointerMoveEvent>(evt =>
-                {
-                    if (!_pressed || (evt.pressedButtons & 1) == 0 || ((Vector2)evt.position - _pressPosition).sqrMagnitude < 36f)
-                        return;
-                    _pressed = false;
-                    ProjectAssetOps.StartDrag(Path.GetFileName(Folder), Folder);
-                    evt.StopPropagation();
-                });
-                RegisterCallback<PointerUpEvent>(_ => _pressed = false);
-                RegisterCallback<PointerEnterEvent>(_ => style.backgroundColor = HoverColor);
-                RegisterCallback<PointerLeaveEvent>(_ => { _pressed = false; style.backgroundColor = Color.clear; });
-                this.AddManipulator(new ContextualMenuManipulator(evt =>
-                {
-                    _grid.FolderMenu?.Invoke(evt.menu, Folder);
-                    evt.StopPropagation();
-                }));
-                ProjectAssetOps.MakeDropTarget(this, () => Folder, moved => _grid.Moved?.Invoke(moved), "schematic-grid__tile--drop");
-            }
-
-            public void BeginRename()
-            {
-                if (_renaming || panel == null) return;
-                _renaming = true;
-                _grid._renaming = true;
-                var field = InlineRename.Begin(_label, Path.GetFileName(Folder),
-                    value => InlineRename.RenameAsset(Folder, value),
-                    () =>
-                    {
-                        _renaming = false;
-                        _grid._renaming = false;
-                        _grid.Focus();
-                        _grid.schedule.Execute(_grid.Refresh);
-                    });
-                if (field == null) { _renaming = false; _grid._renaming = false; return; }
-                field.style.width = _label.style.width;
-            }
-
-            public void Resize(float size)
-            {
-                style.width = size + 6;
-                _image.style.width = size * 0.8f;
-                _image.style.height = size * 0.8f;
-                _image.style.marginTop = size * 0.1f;
-                _image.style.marginBottom = size * 0.1f;
-                _label.style.width = size + 4;
-                _label.style.height = LabelHeight;
-                _label.style.fontSize = size < 72 ? 10 : 11;
-            }
-        }
-
-        /// <summary>One square in the grid: a template, or (with no template) the "+" tile.</summary>
+        /// <summary>One square in the grid: a template (the "+" tile is an <see cref="ActionTile"/>).</summary>
         private sealed class Tile : VisualElement
         {
             public readonly SchematicTemplate Template;
             private readonly SchematicTemplateGrid _grid;
             private readonly Image _image;
             private readonly Label _label;
-            private readonly Label _plus;
             private bool _selected, _hovered, _flash;
             private Vector2 _pressPosition;
             private bool _pressed;
@@ -982,7 +903,6 @@ namespace Remedy.Schematics.Templates
                 _grid = grid;
                 Template = template;
                 AddToClassList("schematic-grid__tile");
-                if (template == null) AddToClassList("schematic-grid__tile--create");
                 style.marginLeft = TileMargin;
                 style.marginRight = TileMargin;
                 style.marginTop = TileMargin;
@@ -1011,38 +931,6 @@ namespace Remedy.Schematics.Templates
                 SetRadius(_label.style, 3);
                 Add(_label);
 
-                if (template == null)
-                {
-                    _label.text = grid.CreateTileLabel ?? "New Template…";
-                    tooltip = grid.CreateTileTooltip ?? "Make a new template: empty, from the selected scene object, or from an existing prefab.";
-                    _image.image = Resources.Load<Texture2D>("Textures/button-gradient");
-                    _image.scaleMode = ScaleMode.StretchToFill;
-                    _image.style.backgroundColor = new Color(0.18f, 0.36f, 0.55f, 0.55f);
-                    _image.style.opacity = 0.72f;
-                    _plus = new Label("+") { pickingMode = PickingMode.Ignore };
-                    _plus.style.position = Position.Absolute;
-                    _plus.style.left = 0;
-                    _plus.style.right = 0;
-                    _plus.style.top = 0;
-                    _plus.style.unityTextAlign = TextAnchor.MiddleCenter;
-                    _plus.style.opacity = 0.92f;
-                    _plus.style.color = Color.white;
-                    _plus.style.unityFontStyleAndWeight = FontStyle.Bold;
-                    _image.Add(_plus);
-                    _image.style.borderTopWidth = _image.style.borderBottomWidth = _image.style.borderLeftWidth = _image.style.borderRightWidth = 1;
-                    var dashed = new Color(0.5f, 0.5f, 0.5f, 0.5f);
-                    _image.style.borderTopColor = _image.style.borderBottomColor = _image.style.borderLeftColor = _image.style.borderRightColor = dashed;
-                    RegisterCallback<PointerDownEvent>(evt =>
-                    {
-                        if (evt.button != 0) return;
-                        if (_grid.CreateTileAction != null)
-                            _grid.CreateTileAction();
-                        else
-                            _grid.ShowCreateMenu();
-                        evt.StopPropagation();
-                    });
-                }
-                else
                 {
                     _label.text = template.DisplayName;
                     string path = AssetDatabase.GetAssetPath(template.Prefab);
@@ -1132,11 +1020,6 @@ namespace Remedy.Schematics.Templates
                 _label.style.width = size + 4;
                 _label.style.height = LabelHeight;
                 _label.style.fontSize = size < 72 ? 10 : 11;
-                if (_plus != null)
-                {
-                    _plus.style.height = size;
-                    _plus.style.fontSize = Mathf.Round(size * 0.4f);
-                }
             }
 
             public void SetSelected(bool selected)
@@ -1153,7 +1036,7 @@ namespace Remedy.Schematics.Templates
                     : _hovered && !_selected ? HoverColor : Color.clear;
                 _label.style.backgroundColor = _selected ? SelectedColor : Color.clear;
                 _label.style.color = _selected ? new StyleColor(SelectedTextColor) : new StyleColor(StyleKeyword.Null);
-                _image.style.opacity = Template == null && !_hovered ? 0.7f : 1f;
+                _image.style.opacity = 1f;
             }
 
             private void OnPointerDown(PointerDownEvent evt)

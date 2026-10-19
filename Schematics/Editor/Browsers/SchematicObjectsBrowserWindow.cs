@@ -47,17 +47,39 @@ namespace Remedy.Schematics.Browsers
             base.OnEnable();
             SchematicObjectIndex.Changed += OnAssetsChanged;
             SchematicTypes.Changed += OnAssetsChanged;
+            EditorApplication.projectChanged += OnProjectChanged;
+        }
+
+        // Any change in the project (imports, labels, folders, edits): the page catches up once things settle.
+        private bool _projectRefreshQueued;
+        private void OnProjectChanged()
+        {
+            if (_projectRefreshQueued) return;
+            _projectRefreshQueued = true;
+            EditorApplication.delayCall += () =>
+            {
+                _projectRefreshQueued = false;
+                SchematicTypes.Invalidate();
+                OnAssetsChanged();
+            };
         }
 
         protected override void OnDisable()
         {
             SchematicObjectIndex.Changed -= OnAssetsChanged;
             SchematicTypes.Changed -= OnAssetsChanged;
+            EditorApplication.projectChanged -= OnProjectChanged;
             base.OnDisable();
         }
 
         private void OnAssetsChanged() => Grid?.schedule.Execute(() =>
         {
+            // Rebuilding would throw away a name being typed: wait for it.
+            if (_tree?.Q(className: "inline-rename") != null || Grid?.Q(className: "inline-rename") != null)
+            {
+                Grid?.schedule.Execute(OnAssetsChanged).ExecuteLater(300);
+                return;
+            }
             _tree?.Rebuild();
             Grid?.Refresh();
             RenamePending();

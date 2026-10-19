@@ -38,6 +38,7 @@ namespace Remedy.Schematics.Browsers
         private Slider _tileSizeSlider;
         private ToolbarSearchField _search;
         private ProjectFolderTree _folderTree;
+        private VisualElement _page;
         private VisualElement _tagFilters;
         private VisualElement _clipGrid;
         private Label _status;
@@ -156,6 +157,7 @@ namespace Remedy.Schematics.Browsers
             // The sidebar beside the clips, at the width all Project Manager pages share.
             var body = ProjectManagerLayout.Split(_folderTree, main);
             body.AddToClassList("audio-browser");
+            _page = body;
             body.RegisterCallback<PointerUpEvent>(OnEditorClick, TrickleDown.TrickleDown);
 
             // The same top bar as the Schematics page (search and tile size), and the same shared tile size.
@@ -205,6 +207,13 @@ namespace Remedy.Schematics.Browsers
 
         private void ReloadAssets()
         {
+            // Rebuilding would throw away a name being typed: wait for it.
+            var busy = _page?.Q(className: "inline-rename");
+            if (busy != null)
+            {
+                _page.schedule.Execute(ReloadAssets).ExecuteLater(300);
+                return;
+            }
             EnsureFolders();
             _tags.Clear();
             foreach (var guid in AssetDatabase.FindAssets("t:AudioClipTag", new[] { TagRoot }))
@@ -384,27 +393,10 @@ namespace Remedy.Schematics.Browsers
         // The "+" card, first like the Schematics page's: imports audio files into the open folder.
         private VisualElement BuildImportCard()
         {
-            float size = TileSize;
-            var card = new VisualElement { tooltip = $"Import audio files into {ImportTarget}. Right-click the grid for folders and more." };
-            card.AddToClassList("audio-browser__card");
-            card.AddToClassList("audio-browser__import-card");
-            SizeCard(card, size);
-            card.style.alignItems = Align.Center;
-            card.style.justifyContent = Justify.Center;
-            var plus = new Label("+") { pickingMode = PickingMode.Ignore };
-            plus.AddToClassList("audio-browser__import-plus");
-            plus.style.fontSize = Mathf.Round(size * 0.4f);
-            card.Add(plus);
-            var label = new Label("Import Audio…") { pickingMode = PickingMode.Ignore };
-            label.AddToClassList("audio-browser__clip-name");
-            card.Add(label);
-            card.RegisterCallback<PointerDownEvent>(evt =>
-            {
-                if (evt.button != 0) return;
-                evt.StopPropagation();
-                EditorApplication.delayCall += ImportFiles;
-            });
-            return card;
+            var tile = new ActionTile("Import Audio…", $"Import audio files into {ImportTarget}. Right-click the grid for folders and more.",
+                () => EditorApplication.delayCall += ImportFiles);
+            tile.Resize(TileSize);
+            return tile;
         }
 
         // Right-clicking the grid's empty space: what the Project window offers there, for audio.
@@ -449,85 +441,34 @@ namespace Remedy.Schematics.Browsers
 
         private VisualElement BuildFolderCard(string folder)
         {
-            float size = TileSize;
-            var card = new VisualElement { tooltip = folder };
-            card.AddToClassList("audio-browser__card");
-            card.AddToClassList("audio-browser__folder-card");
-            SizeCard(card, size);
-            card.style.alignItems = Align.Center;
-            card.style.justifyContent = Justify.Center;
-
-            var icon = new Image
-            {
-                image = EditorGUIUtility.IconContent(EditorGUIUtility.isProSkin ? "d_Folder Icon" : "Folder Icon")?.image,
-                scaleMode = ScaleMode.ScaleToFit,
-                pickingMode = PickingMode.Ignore
-            };
-            icon.style.width = size * 0.5f;
-            icon.style.height = size * 0.5f;
-            card.Add(icon);
-
-            var name = new Label(Path.GetFileName(folder));
-            name.AddToClassList("audio-browser__clip-name");
-            card.Add(name);
-
             bool fixedFolder = folder == MusicRoot || folder == SfxRoot; // the type roots stay put
-            Vector2 press = default;
-            bool pressed = false;
-            card.RegisterCallback<PointerDownEvent>(evt =>
+            var tile = new FolderTile(folder, locked: fixedFolder)
             {
-                if (evt.button != 0) return;
-                pressed = !fixedFolder;
-                press = evt.position;
-                if (evt.clickCount == 2)
+                Opened = OpenFolder,
+                Moved = _ => ReloadAssets(),
+                Renamed = ReloadAssets,
+                Menu = (menu, f) =>
                 {
-                    pressed = false;
-                    if (!fixedFolder && name.ContainsPoint(name.WorldToLocal(evt.position)))
-                        EditorApplication.delayCall += () => RenameFolder(name, folder);
-                    else
-                        OpenFolder(folder);
-                }
-                evt.StopPropagation();
-            });
-            card.RegisterCallback<PointerMoveEvent>(evt =>
-            {
-                if (!pressed || (evt.pressedButtons & 1) == 0 || ((Vector2)evt.position - press).sqrMagnitude < 36f)
-                    return;
-                pressed = false;
-                ProjectAssetOps.StartDrag(Path.GetFileName(folder), folder);
-            });
-            card.RegisterCallback<PointerUpEvent>(_ => pressed = false);
-            card.RegisterCallback<ContextClickEvent>(evt =>
-            {
-                var menu = new GenericMenu();
-                menu.AddItem(new GUIContent("Open"), false, () => OpenFolder(folder));
-                if (!fixedFolder)
-                    menu.AddItem(new GUIContent("Rename"), false, () => RenameFolder(name, folder));
-                menu.AddItem(new GUIContent("Show in Folder Tree"), false, () => _folderTree?.Reveal(GroupOf(folder), folder));
-                menu.AddItem(new GUIContent("Show in Project"), false, () => Ping(AssetDatabase.LoadMainAssetAtPath(folder)));
-                menu.AddItem(new GUIContent(SchematicObjectsBrowserWindow.RevealLabel), false, () => EditorUtility.RevealInFinder(folder));
-                if (!fixedFolder)
-                {
-                    menu.AddSeparator("");
-                    menu.AddItem(new GUIContent("Delete"), false, () =>
+                    menu.AppendAction("Open", _ => OpenFolder(f));
+                    if (!fixedFolder)
+                        menu.AppendAction("Rename", _ => (_clipGrid.Query<FolderTile>().Where(t => t.Folder == f).First())?.BeginRename());
+                    menu.AppendAction("Show in Folder Tree", _ => _folderTree?.Reveal(GroupOf(f), f));
+                    menu.AppendAction("Show in Project", _ => Ping(AssetDatabase.LoadMainAssetAtPath(f)));
+                    menu.AppendAction(SchematicObjectsBrowserWindow.RevealLabel, _ => EditorUtility.RevealInFinder(f));
+                    if (!fixedFolder)
                     {
-                        if (ProjectAssetOps.Delete(new[] { folder }))
-                            ReloadAssets();
-                    });
-                }
-                menu.ShowAsContext();
-                evt.StopPropagation();
-            });
-            ProjectAssetOps.MakeDropTarget(card, () => folder, _ => ReloadAssets(), "audio-browser__card--drop");
-            return card;
+                        menu.AppendSeparator();
+                        menu.AppendAction("Delete", _ =>
+                        {
+                            if (ProjectAssetOps.Delete(new[] { f }))
+                                ReloadAssets();
+                        });
+                    }
+                },
+            };
+            tile.Resize(TileSize);
+            return tile;
         }
-
-        private void RenameFolder(Label label, string folder)
-            => InlineRename.Begin(label, Path.GetFileName(folder), value =>
-            {
-                if (InlineRename.RenameAsset(folder, value))
-                    ReloadAssets();
-            });
 
         private bool IsVisible(AudioClip clip)
         {

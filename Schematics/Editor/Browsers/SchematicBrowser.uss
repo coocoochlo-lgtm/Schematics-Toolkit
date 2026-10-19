@@ -329,7 +329,7 @@
     flex-direction: row;
     flex-wrap: wrap;
     align-content: flex-start;
-    padding: 8px;
+    padding: 4px;
 }
 
 .audio-browser__card {
@@ -532,9 +532,6 @@
     background-color: rgba(70, 140, 220, 0.08);
 }
 
-.audio-browser__folder-card {
-    background-color: rgba(127, 127, 127, 0.12);
-}
 
 .inline-rename {
     margin: 0;
