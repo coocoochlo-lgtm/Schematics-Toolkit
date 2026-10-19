@@ -292,7 +292,7 @@ namespace BlueGraph.Editor
                         {
                             Name = input.Name ?? Fields[i].Name,
                             Field = Fields[i],
-                            Type = Fields[i].FieldType,
+                            Type = input.Type ?? Fields[i].FieldType,
                             Direction = PortDirection.Input,
                             Capacity = input.Multiple ? PortCapacity.Multiple : PortCapacity.Single,
                             HasControlElement = input.Editable,
