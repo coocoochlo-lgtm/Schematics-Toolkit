@@ -324,7 +324,7 @@ namespace Remedy.Schematics.Browsers
         private void BuildBackgroundMenu(ContextualMenuPopulateEvent evt)
         {
             // Cards have their own menus; this one is only for the space around them.
-            if (IsWithin(evt.target as VisualElement, "audio-browser__card"))
+            if (IsWithin(evt.triggerEvent?.target as VisualElement ?? evt.target as VisualElement, "audio-browser__card"))
                 return;
             var menu = evt.menu;
             menu.AppendAction("Import Audio…", _ => ImportFiles());
@@ -570,11 +570,12 @@ namespace Remedy.Schematics.Browsers
 
             timeline.PlayCue = playCue;
             _players.Add(timeline);
-            card.RegisterCallback<ContextClickEvent>(evt =>
+            // The same menu mechanism as the grid's, so it opens on every platform and the grid's own menu doesn't.
+            card.AddManipulator(new ContextualMenuManipulator(evt =>
             {
-                ShowClipMenu(clip);
-                evt.StopPropagation(); // not the grid's own menu as well
-            });
+                BuildClipMenu(evt.menu, clip);
+                evt.StopPropagation();
+            }));
             AssetTags.MakeDropTarget(card, () => clip, "audio-browser__card--drop");
             return card;
         }
@@ -902,37 +903,36 @@ namespace Remedy.Schematics.Browsers
 
         private static List<AssetTag> GetTags(AudioClip clip) => AssetTags.Of(clip, TagSection);
 
-        private void ShowClipMenu(AudioClip clip)
+        private void BuildClipMenu(DropdownMenu menu, AudioClip clip)
         {
-            var menu = new GenericMenu();
-            menu.AddItem(new GUIContent("Select in Project"), false, () => Ping(clip));
-            menu.AddItem(new GUIContent(SchematicObjectsBrowserWindow.RevealLabel), false, () => EditorUtility.RevealInFinder(AssetDatabase.GetAssetPath(clip)));
-            menu.AddItem(new GUIContent("Rename"), false, () => BeginRenameClip(clip));
-            menu.AddItem(new GUIContent("Edit Creator…"), false, () => AudioCredits.Edit(AssetDatabase.GetAssetPath(clip), RebuildCards));
-            menu.AddItem(new GUIContent("Show in Folder Tree"), false, () =>
-            {
-                string path = AssetDatabase.GetAssetPath(clip);
-                _folderTree?.Reveal(GroupOf(path), path);
-            });
-            menu.AddSeparator("");
-            foreach (var tag in AssetTags.In(TagSection))
+            string path = AssetDatabase.GetAssetPath(clip);
+            menu.AppendAction("Select in Project", _ => Ping(clip));
+            menu.AppendAction(SchematicObjectsBrowserWindow.RevealLabel, _ => EditorUtility.RevealInFinder(path));
+            menu.AppendAction("Rename", _ => BeginRenameClip(clip));
+            menu.AppendAction("Edit Creator…", _ => AudioCredits.Edit(path, RebuildCards));
+            menu.AppendAction("Show in Folder Tree", _ => _folderTree?.Reveal(GroupOf(path), path));
+            menu.AppendSeparator();
+            var tags = AssetTags.In(TagSection);
+            if (tags.Count == 0)
+                menu.AppendAction("Tags/(no tags yet: use + New Tag)", _ => { }, DropdownMenuAction.Status.Disabled);
+            foreach (var tag in tags)
             {
                 var t = tag;
-                menu.AddItem(new GUIContent("Tags/" + t.TagName), AssetTags.Has(clip, t), () => AssetTags.Toggle(clip, t));
+                menu.AppendAction("Tags/" + t.TagName, _ => AssetTags.Toggle(clip, t),
+                    AssetTags.Has(clip, t) ? DropdownMenuAction.Status.Checked : DropdownMenuAction.Status.Normal);
             }
-            menu.AddSeparator("");
+            menu.AppendSeparator();
             AddMoveMenus(menu, clip, MusicRoot);
             AddMoveMenus(menu, clip, SfxRoot);
-            menu.AddSeparator("");
+            menu.AppendSeparator();
             // Asks first; the file goes to the system trash, so it can be restored from there.
-            menu.AddItem(new GUIContent("Delete Audio File…"), false, () =>
+            menu.AppendAction("Delete Audio File…", _ =>
             {
                 if (_previewClip == clip)
                     StopPreview();
-                if (ProjectAssetOps.Delete(new[] { AssetDatabase.GetAssetPath(clip) }))
+                if (ProjectAssetOps.Delete(new[] { path }))
                     ReloadAssets();
             });
-            menu.ShowAsContext();
         }
 
         // Swaps the clip's name for a text field; Enter (or clicking away) renames the file, Escape cancels.
@@ -950,13 +950,13 @@ namespace Remedy.Schematics.Browsers
             field?.AddToClassList("audio-browser__rename");
         }
 
-        private void AddMoveMenus(GenericMenu menu, AudioClip clip, string root)
+        private void AddMoveMenus(DropdownMenu menu, AudioClip clip, string root)
         {
             AddMoveMenuItem(menu, clip, root, Path.GetFileName(root), true);
             AddChildMoveMenus(menu, clip, root, root, Path.GetFileName(root));
         }
 
-        private void AddChildMoveMenus(GenericMenu menu, AudioClip clip, string root, string parent, string label)
+        private void AddChildMoveMenus(DropdownMenu menu, AudioClip clip, string root, string parent, string label)
         {
             foreach (var folder in AssetDatabase.GetSubFolders(parent).OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
             {
@@ -966,18 +966,16 @@ namespace Remedy.Schematics.Browsers
             }
         }
 
-        private void AddMoveMenuItem(GenericMenu menu, AudioClip clip, string folder, string label, bool preserveFolders)
+        private void AddMoveMenuItem(DropdownMenu menu, AudioClip clip, string folder, string label, bool preserveFolders)
         {
             string source = AssetDatabase.GetAssetPath(clip);
             string sourceFolder = Path.GetDirectoryName(source)?.Replace("\\", "/");
-            if (string.Equals(sourceFolder, folder, StringComparison.OrdinalIgnoreCase))
-                menu.AddDisabledItem(new GUIContent("Move To/" + label));
-            else
-                menu.AddItem(new GUIContent("Move To/" + label), false, () =>
-                {
-                    MoveClip(clip, folder, preserveFolders);
-                    ReloadAssets();
-                });
+            bool here = string.Equals(sourceFolder, folder, StringComparison.OrdinalIgnoreCase);
+            menu.AppendAction("Move To/" + label, _ =>
+            {
+                MoveClip(clip, folder, preserveFolders);
+                ReloadAssets();
+            }, here ? DropdownMenuAction.Status.Disabled : DropdownMenuAction.Status.Normal);
         }
 
         private void CreateFolder()
