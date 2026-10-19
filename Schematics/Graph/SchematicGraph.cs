@@ -86,15 +86,55 @@ namespace Remedy.Schematics
         [HideInInspector]
         [SerializeField]
         private SerializableDictionary<SerializableType, SchematicEventNode[]> _eventNodesByType;
-        public SerializableDictionary<SerializableType, SchematicEventNode[]> EventNodesByType => _eventNodesByType ??= new(); 
+        public SerializableDictionary<SerializableType, SchematicEventNode[]> EventNodesByType
+        {
+            get
+            {
+                EnsureRuntimeCaches();
+                return _eventNodesByType ??= new();
+            }
+        }
         [HideInInspector]
         [SerializeField]
         private SendSignalNode[] _flowInvokeNodesCache = new SendSignalNode[0];
-        public SendSignalNode[] FlowInvokeNodesCache => _flowInvokeNodesCache;
+        public SendSignalNode[] FlowInvokeNodesCache
+        {
+            get
+            {
+                EnsureRuntimeCaches();
+                return _flowInvokeNodesCache;
+            }
+        }
         [HideInInspector]
         [SerializeField]
         private OnSignalReceivedNode[] _flowOnInvokeNodesCache = new OnSignalReceivedNode[0];
-        public OnSignalReceivedNode[] FlowOnInvokeCache => _flowOnInvokeNodesCache;
+        public OnSignalReceivedNode[] FlowOnInvokeCache
+        {
+            get
+            {
+                EnsureRuntimeCaches();
+                return _flowOnInvokeNodesCache;
+            }
+        }
+
+        // The event and Signal node caches above are saved with the graph, but saved as copies of the nodes (they're
+        // plain serialized fields, not references), and the editor only rebuilds them in edit mode when the graph is
+        // validated. A copy can therefore be stale (an On Start still wired to a node that was replaced), and copies
+        // don't get the real nodes' connections. So the first time a playing game (or a build) asks for them, they're
+        // rebuilt from the graph's real nodes, once per play session.
+        private static int _cacheSession;
+        [NonSerialized] private int _builtForSession;
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void NewCacheSession() => _cacheSession++;
+
+        private void EnsureRuntimeCaches()
+        {
+            if (!Application.isPlaying || _builtForSession == _cacheSession)
+                return;
+            _builtForSession = _cacheSession; // first, so the rebuild's own use of the caches doesn't come back here
+            CacheNodesByType();
+        }
 
 //        [ReadOnly]
         [Tooltip("A Dictionary pairing the Prefab's original Children to the Instantiated copies of them.")]
