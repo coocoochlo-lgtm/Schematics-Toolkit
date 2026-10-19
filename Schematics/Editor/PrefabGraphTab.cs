@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using UnityEditor;
-using UnityEditor.Overlays;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -10,7 +9,8 @@ namespace Remedy.Schematics
     /// <summary>
     /// Opening a Schematic Object in Prefab Mode also opens its Schematic Graph, as a tab docked beside the Scene view,
     /// so the prefab and its graph are one click apart. Leaving Prefab Mode closes the tab again (only tabs opened this
-    /// way; a graph window you opened yourself stays). Turn it off under Tools > Remedy > Schematics > Open Graph with Prefab.
+    /// way; a graph window you opened yourself stays). The Hierarchy's Scene | Graph bar switches between them. Turn the
+    /// automatic tab off under Tools > Remedy > Schematics > Open Graph with Prefab.
     /// </summary>
     [InitializeOnLoad]
     public static class PrefabGraphTab
@@ -117,33 +117,113 @@ namespace Remedy.Schematics
     }
 
     /// <summary>
-    /// "Scene | Graph" in the Scene view while a Schematic Object is open in Prefab Mode: switches between the prefab and
-    /// its graph's tab.
+    /// A "Scene | Graph" bar in the Hierarchy window, between the Prefab Mode header and the object list, while a
+    /// Schematic Object is open in Prefab Mode. Unity has no public way to add to the Hierarchy, so the bar is placed by
+    /// finding the Hierarchy's own list element (Unity 6's UI Toolkit Hierarchy); where that isn't found (an older or
+    /// changed Hierarchy) there's no bar, and the graph button on the object's row still opens the graph.
     /// </summary>
-    [Overlay(typeof(SceneView), "schematics-prefab-graph", "Schematic Prefab", true)]
-    public sealed class PrefabGraphOverlay : Overlay, ITransientOverlay
+    [InitializeOnLoad]
+    public static class PrefabGraphHierarchyBar
     {
-        public bool visible => PrefabGraphTab.CurrentGraph != null;
+        private const string BarName = "schematics-prefab-graph-bar";
+        private static readonly System.Type HierarchyWindowType = typeof(EditorWindow).Assembly.GetType("UnityEditor.SceneHierarchyWindow");
+        private static double _nextCheck;
+        private static bool _graphChosen;
 
-        public override VisualElement CreatePanelContent()
+        static PrefabGraphHierarchyBar()
         {
-            var root = new VisualElement();
-            root.style.flexDirection = FlexDirection.Row;
+            EditorApplication.update += Update;
+            PrefabStage.prefabStageOpened += _ => { _graphChosen = false; _nextCheck = 0; };
+            PrefabStage.prefabStageClosing += _ => _nextCheck = 0;
+        }
 
-            var scene = new Button(() => SceneView.lastActiveSceneView?.Focus())
-            {
-                text = "Scene",
-                tooltip = "The prefab (you're here).",
-            };
-            scene.style.unityFontStyleAndWeight = FontStyle.Bold;
-            root.Add(scene);
+        /// <summary>Whether a bar is showing in some Hierarchy window right now.</summary>
+        public static bool Showing { get; private set; }
 
-            root.Add(new Button(() => PrefabGraphTab.Show(PrefabGraphTab.CurrentGraph))
+        // Hierarchy windows can open, close or rebuild their UI at any time, so this checks a few times a second.
+        private static void Update()
+        {
+            if (EditorApplication.timeSinceStartup < _nextCheck || HierarchyWindowType == null)
+                return;
+            _nextCheck = EditorApplication.timeSinceStartup + 0.4;
+
+            var graph = PrefabGraphTab.CurrentGraph;
+            // Follow the tab actually in use (clicking the tabs themselves counts too).
+            var focused = EditorWindow.focusedWindow;
+            if (focused is SceneView)
+                _graphChosen = false;
+            else if (focused is SchematicGraphEditorWindow graphWindow && graph != null && graphWindow.SchematicGraph == graph)
+                _graphChosen = true;
+            bool showing = false;
+            foreach (var window in Resources.FindObjectsOfTypeAll(HierarchyWindowType))
             {
-                text = "Graph",
-                tooltip = "This prefab's Schematic Graph (opens it as a tab beside the Scene view).",
-            });
-            return root;
+                var root = (window as EditorWindow)?.rootVisualElement;
+                if (root == null)
+                    continue;
+                var bar = root.Q(BarName);
+                if (graph == null)
+                {
+                    bar?.RemoveFromHierarchy();
+                    continue;
+                }
+                if (bar == null)
+                {
+                    var list = root.Q(className: "hierarchy");
+                    if (list?.parent == null)
+                        continue;
+                    bar = Build();
+                    list.parent.Insert(list.parent.IndexOf(list), bar);
+                }
+                Refresh(bar);
+                showing = true;
+            }
+            Showing = showing;
+        }
+
+        private static VisualElement Build()
+        {
+            var bar = new VisualElement { name = BarName };
+            bar.style.flexDirection = FlexDirection.Row;
+            bar.style.flexShrink = 0;
+            bar.style.height = 22;
+            bar.style.paddingLeft = bar.style.paddingRight = 4;
+            bar.style.paddingTop = bar.style.paddingBottom = 2;
+            bar.style.borderBottomWidth = 1;
+            bar.style.borderBottomColor = new Color(0f, 0f, 0f, 0.3f);
+
+            bar.Add(Segment("scene", "Scene", "Edit the prefab in the Scene view.", () =>
+            {
+                _graphChosen = false;
+                SceneView.lastActiveSceneView?.Focus();
+            }));
+            bar.Add(Segment("graph", "Graph", "Edit this prefab's Schematic Graph (a tab beside the Scene view).", () =>
+            {
+                _graphChosen = true;
+                PrefabGraphTab.Show(PrefabGraphTab.CurrentGraph);
+            }));
+            return bar;
+        }
+
+        private static Button Segment(string name, string text, string tooltip, System.Action click)
+        {
+            var button = new Button(click) { name = name, text = text, tooltip = tooltip };
+            button.style.flexGrow = 1;
+            button.style.marginLeft = button.style.marginRight = 0;
+            button.style.marginTop = button.style.marginBottom = 0;
+            return button;
+        }
+
+        // The chosen side is highlighted (a graph window that's open but not chosen stays a tab away).
+        private static void Refresh(VisualElement bar)
+        {
+            var accent = EditorGUIUtility.isProSkin ? new Color(0.17f, 0.36f, 0.53f) : new Color(0.23f, 0.45f, 0.69f);
+            foreach (var button in bar.Query<Button>().ToList())
+            {
+                bool on = button.name == "graph" ? _graphChosen : !_graphChosen;
+                button.style.backgroundColor = on ? accent : new StyleColor(StyleKeyword.Null);
+                button.style.color = on ? Color.white : new StyleColor(StyleKeyword.Null);
+                button.style.unityFontStyleAndWeight = on ? FontStyle.Bold : FontStyle.Normal;
+            }
         }
     }
 }
