@@ -328,7 +328,8 @@ namespace Remedy.Schematics.Browsers
             name.style.paddingTop = name.style.paddingBottom = 0;
             name.style.marginLeft = name.style.marginRight = name.style.marginTop = name.style.marginBottom = 0;
             name.style.unityTextAlign = TextAnchor.MiddleCenter;
-            name.style.color = tag.Color.r * 0.299f + tag.Color.g * 0.587f + tag.Color.b * 0.114f > 0.6f ? Color.black : Color.white;
+            name.style.color = Color.white;
+            name.AddToClassList("asset-tag__text");
             pill.Add(name);
 
             pill.RegisterCallback<PointerEnterEvent>(_ => name.style.display = DisplayStyle.Flex);
@@ -478,7 +479,8 @@ namespace Remedy.Schematics.Browsers
                 var t = tag;
                 var chip = Chip(t.TagName, t, () => { if (_filterEnabled) Select(Selected == t ? null : t); });
                 chip.style.backgroundColor = t.Color;
-                chip.style.color = ReadableOn(t.Color);
+                chip.style.color = Color.white;
+                chip.AddToClassList("asset-tag__text");
                 chip.EnableInClassList("audio-browser__tag-filter--selected", Selected == t);
                 chip.tooltip = _filterEnabled ? "Click to filter; drag onto an asset to tag it." : "Drag onto an asset to tag it.";
                 chip.AddManipulator(new ContextualMenuManipulator(evt =>
@@ -515,8 +517,6 @@ namespace Remedy.Schematics.Browsers
             return chip;
         }
 
-        private static Color ReadableOn(Color background)
-            => background.r * 0.299f + background.g * 0.587f + background.b * 0.114f > 0.6f ? Color.black : Color.white;
 
         // Press and release without moving: the chip's click. Press and move a few pixels: a tag chip starts a drag
         // carrying its tag. Nothing captures the pointer, so the drag's events go to what's under the cursor.
