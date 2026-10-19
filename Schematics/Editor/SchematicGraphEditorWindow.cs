@@ -925,7 +925,8 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
     /// </summary>
     private void OnDragUpdated(DragUpdatedEvent evt)
     {
-        if (DragAndDrop.GetGenericData(DockItem.DragKey) is DockItem || DragAndDrop.objectReferences.Any(o => o is SignalData))
+        if (DragAndDrop.GetGenericData(DockItem.DragKey) is DockItem || DragAndDrop.objectReferences.Any(o => o is SignalData)
+            || DragAndDrop.objectReferences.Any(o => !(o is SignalData) && AssetNodes.For(o).Count > 0))
         {
             DragAndDrop.visualMode = DragAndDropVisualMode.Copy;
             evt.StopPropagation();
@@ -957,12 +958,19 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
         }
 
         bool accepted = false;
+        var offset = Vector2.zero;
         foreach (var obj in DragAndDrop.objectReferences)
         {
             if (obj is SignalData signal)
             {
                 DropSignal(signal, DirectionFor(SchematicGraph, signal), dropPosition);
                 accepted = true;
+            }
+            // Assets a node says it takes ([AssetNode]): an Audio Clip becomes Play SFX / Play Music, say.
+            else if (DropAsset(obj, dropPosition + offset))
+            {
+                accepted = true;
+                offset += new Vector2(24f, 24f);
             }
         }
 
@@ -971,6 +979,37 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
             DragAndDrop.AcceptDrag();
             evt.StopPropagation();
         }
+    }
+
+    /// <summary>
+    /// Makes the node an asset becomes ([AssetNode] on the node class), with the asset filled in. When several nodes
+    /// fit, a menu asks which. False when no node takes it.
+    /// </summary>
+    private bool DropAsset(UnityEngine.Object asset, Vector2 position)
+    {
+        var matches = AssetNodes.For(asset);
+        if (matches.Count == 0)
+            return false;
+        if (matches.Count == 1)
+        {
+            AddAssetNode(matches[0], asset, position);
+            return true;
+        }
+        var menu = new GenericMenu();
+        foreach (var match in matches)
+        {
+            var m = match;
+            menu.AddItem(new GUIContent(m.Title(asset)), false, () => AddAssetNode(m, asset, position));
+        }
+        menu.ShowAsContext();
+        return true;
+    }
+
+    private void AddAssetNode(AssetNodes.Match match, UnityEngine.Object asset, Vector2 position)
+    {
+        var node = AssetNodes.Create(match, asset);
+        if (node != null)
+            Canvas.AddNodeFromSearch(node, this.position.position + position, null);
     }
 
     /// <summary>

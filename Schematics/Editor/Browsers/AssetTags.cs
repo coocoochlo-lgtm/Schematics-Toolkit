@@ -82,6 +82,13 @@ namespace Remedy.Schematics.Browsers
             }
         }
 
+        /// <summary>Every user tag an asset has, in any section.</summary>
+        public static IEnumerable<AssetTag> AllOf(UnityEngine.Object asset)
+        {
+            string guid = GuidOf(asset);
+            return guid != null && ByAsset.TryGetValue(guid, out var tags) ? tags.Where(t => t != null) : Enumerable.Empty<AssetTag>();
+        }
+
         /// <summary>The section's tags an asset has, A to Z.</summary>
         public static List<AssetTag> Of(UnityEngine.Object asset, string section)
         {
@@ -149,14 +156,11 @@ namespace Remedy.Schematics.Browsers
             AssetDatabase.SaveAssetIfDirty(tag);
         }
 
-        // Names a section keeps for itself: Audio's Music and SFX are its two folders (a clip is one or the other by
-        // where it lives), so they aren't tags.
-        private static readonly string[] AudioReserved = { "Music", "SFX", "Sound Effect", "Sound Effects", "SoundEffect" };
-
-        /// <summary>Whether a name can't be a tag in a section (Audio: Music, SFX).</summary>
-        public static bool IsReserved(string section, string name)
-            => string.Equals(section, "Audio", StringComparison.OrdinalIgnoreCase)
-               && AudioReserved.Any(r => string.Equals(r, (name ?? "").Trim(), StringComparison.OrdinalIgnoreCase));
+        /// <summary>
+        /// Whether a name can't be a user tag: it's an editor tag's (like Audio's Music and SFX), which the editor
+        /// gives assets itself (see <see cref="EditorTagProvider"/>).
+        /// </summary>
+        public static bool IsReserved(string section, string name) => AssetTagIndex.IsEditorTag(name);
 
         /// <summary>Deletes a section's tags that use reserved names (left by older versions).</summary>
         public static void RemoveReserved(string section)
@@ -179,7 +183,7 @@ namespace Remedy.Schematics.Browsers
                 return null;
             if (IsReserved(section, name))
             {
-                EditorUtility.DisplayDialog("New Tag", $"'{name}' can't be a tag: Music and SFX are the Audio page's two folders. Move a clip between them instead.", "OK");
+                EditorUtility.DisplayDialog("New Tag", $"'{name}' is an editor tag: the editor gives it to assets itself (Music and SFX come from the Audio folder a clip is in), so it can't be made by hand.", "OK");
                 return null;
             }
             var existing = In(section).FirstOrDefault(tag => string.Equals(tag.TagName, name, StringComparison.OrdinalIgnoreCase));
@@ -348,6 +352,31 @@ namespace Remedy.Schematics.Browsers
                     EditorApplication.delayCall += RaiseChanged;
                 }
             }
+        }
+    }
+
+    /// <summary>Hands the Project Manager's tags to the editor-wide tag lookup (graph drops, for one, filter by them).</summary>
+    [InitializeOnLoad]
+    internal static class AssetTagsRegistration
+    {
+        static AssetTagsRegistration()
+            => AssetTagIndex.UserTags = asset => AssetTags.AllOf(asset).Select(tag => tag.TagName);
+    }
+
+    /// <summary>Audio's editor tags: Music or SFX, from the folder a clip is in (the Audio page's two halves).</summary>
+    internal sealed class AudioEditorTags : EditorTagProvider
+    {
+        public override IEnumerable<string> Names => new[] { "Music", "SFX", "Sound Effect", "Sound Effects", "SoundEffect" };
+
+        public override IEnumerable<string> TagsOf(UnityEngine.Object asset)
+        {
+            if (!(asset is AudioClip))
+                yield break;
+            string path = AssetDatabase.GetAssetPath(asset);
+            if (path.StartsWith(AudioClipBrowserWindow.MusicRoot + "/", StringComparison.OrdinalIgnoreCase))
+                yield return "Music";
+            else if (path.StartsWith(AudioClipBrowserWindow.SfxRoot + "/", StringComparison.OrdinalIgnoreCase))
+                yield return "SFX";
         }
     }
 

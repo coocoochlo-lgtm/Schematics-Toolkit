@@ -14,9 +14,9 @@ namespace Remedy.Schematics.Browsers
 {
     public class AudioClipBrowserWindow : SchematicBrowserWindow
     {
-        private const string AudioRoot = "Assets/Content/Audio";
-        private const string MusicRoot = AudioRoot + "/Music";
-        private const string SfxRoot = AudioRoot + "/SFX";
+        internal const string AudioRoot = "Assets/Content/Audio";
+        internal const string MusicRoot = AudioRoot + "/Music";
+        internal const string SfxRoot = AudioRoot + "/SFX";
         private const string AudioPrefs = "Remedy.AudioClipBrowser";
         private const int WaveformWidth = 512;
         private const int WaveformHeight = 128;

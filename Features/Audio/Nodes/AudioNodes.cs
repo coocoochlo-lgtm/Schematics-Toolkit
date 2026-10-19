@@ -7,6 +7,9 @@ namespace Remedy.Audio
 {
     [Serializable]
     [Node(Name = "Play Sound", Path = "Audio"), Tags("Default")]
+    // Dropping a clip into a graph makes one of these (SFX or Music by the clip's folder: those are editor tags).
+    [AssetNode(typeof(AudioClip), Tags = new[] { "SFX" }, Title = "Play SFX: {0}")]
+    [AssetNode(typeof(AudioClip), Tags = new[] { "Music" }, Title = "Play Music: {0}")]
     public class PlaySound : SchematicActionNode
     {
         [Input("Clip")]
