@@ -24,7 +24,9 @@ namespace Remedy.Schematics.Browsers
     public class SchematicObjectsBrowserWindow : SchematicBrowserWindow
     {
         private const string Section = "Schematics";
-        private const string TagSection = "SchematicObjects"; // the tag set's original name, kept so existing tags stay
+        private const string LegacyTagSection = "SchematicObjects"; // the old Project Manager tags, moved over on first open
+        private const string TagSection = "Schematics";
+        private TagBar _tagBar;
 
         private readonly Dictionary<string, SchematicTemplate> _graphEntries = new(StringComparer.Ordinal);
         private ProjectFolderTree _tree;
@@ -48,6 +50,8 @@ namespace Remedy.Schematics.Browsers
             SchematicObjectIndex.Changed += OnAssetsChanged;
             SchematicTypes.Changed += OnAssetsChanged;
             EditorApplication.projectChanged += OnProjectChanged;
+            AssetTags.Changed += OnAssetsChanged;
+            EditorApplication.delayCall += () => ProjectManagerTags.MigrateTo(LegacyTagSection, TagSection);
         }
 
         // Any change in the project (imports, labels, folders, edits): the page catches up once things settle.
@@ -69,6 +73,7 @@ namespace Remedy.Schematics.Browsers
             SchematicObjectIndex.Changed -= OnAssetsChanged;
             SchematicTypes.Changed -= OnAssetsChanged;
             EditorApplication.projectChanged -= OnProjectChanged;
+            AssetTags.Changed -= OnAssetsChanged;
             base.OnDisable();
         }
 
@@ -89,8 +94,14 @@ namespace Remedy.Schematics.Browsers
         // selected kind (and folder, and the folders below it), without opening folders.
         private bool FolderView => EditorPrefs.GetBool($"{PrefsKey}.FolderView", true);
 
+        private bool FilterByTag => EditorPrefs.GetBool($"{PrefsKey}.FilterByTag", true);
+
         protected override void BuildHeader(VisualElement header)
         {
+            header.Add(HeaderToggle("Filter by Tag", "Clicking a tag shows only what has it.", "FilterByTag", true, on =>
+            {
+                if (_tagBar != null) _tagBar.FilterEnabled = on;
+            }));
             _folderView = HeaderToggle("Folders", "On: browse folder by folder. Off: show everything in the selection at once.", "FolderView", true, _ => Grid?.Refresh());
             header.Add(_folderView);
             _levelDesignOnly = HeaderToggle("Level Design only", "Only show objects tagged Level Design.", "LevelDesignOnly", false, _ => ApplyFilter());
@@ -136,28 +147,30 @@ namespace Remedy.Schematics.Browsers
             grid.CreateTileFirst = true;
             grid.CreateTileAction = ShowCreateMenu;
             grid.TileMenu = BuildMenu;
-            grid.AdditionalTileMenu = (menu, entry) =>
-                ProjectManagerTags.AppendMenu(menu, TagSection, AssetOf(entry), () => Grid?.Refresh());
+            grid.AdditionalTileMenu = (menu, entry) => AssetTags.AppendMenu(menu, TagSection, AssetOf(entry));
             grid.Source = Entries;
-            grid.CategoriesOf = entry => ProjectManagerTags.Categories(TagSection, AssetOf(entry),
-                entry.Prefab != null ? SchematicObjectIndex.TagsOf(entry) : null);
+            // Tags are shown by the tag bar (and as dots on the tiles); the names still count for search.
+            grid.ShowCategories = false;
+            grid.CategoriesOf = entry => AssetTags.Of(AssetOf(entry), TagSection).Select(t => t.TagName);
+            grid.TileBadge = entry =>
+            {
+                var tags = AssetTags.Of(AssetOf(entry), TagSection);
+                return tags.Count > 0 ? AssetTags.Dots(tags) : null;
+            };
+            _tagBar = new TagBar(TagSection) { FilterEnabled = FilterByTag };
+            _tagBar.FilterChanged += () => { ApplyFilter(); Grid?.Refresh(); };
+            grid.InsertBelowToolbar(_tagBar);
             grid.ThumbnailOf = entry => entry.Prefab != null ? null : ThumbnailOf(entry);
             grid.DragAssetOf = entry => entry.Prefab != null ? null : AssetOf(entry);
             grid.Rename = RenameEntry;
             grid.ShareTileSize = true; // the same tile size as the Audio page
             grid.BackgroundMenu = BuildBackgroundMenu;
-            grid.NewChipLabel = "+ New Tag";
-            grid.NewChipAction = () => ProjectManagerTags.PromptNewTag(TagSection, () => Grid?.Refresh());
-            // Project Manager tags ("Tag: X" chips) drag onto tiles to tag them.
-            grid.ChipDragData = chip => chip.StartsWith("Tag: ", StringComparison.Ordinal) ? new TagDrag(chip.Substring(5)) : null;
-            grid.CanDropOnTile = entry => DragAndDrop.GetGenericData(SchematicTemplateGrid.ChipDragKey) is TagDrag && AssetOf(entry) != null;
+            // Tag chips dragged onto a tile tag it.
+            grid.CanDropOnTile = entry => DragAndDrop.GetGenericData(AssetTags.DragKey) is AssetTag && AssetOf(entry) != null;
             grid.DropOnTile = entry =>
             {
-                if (DragAndDrop.GetGenericData(SchematicTemplateGrid.ChipDragKey) is TagDrag drag && AssetOf(entry) is { } asset)
-                {
-                    ProjectManagerTags.Add(TagSection, asset, drag.Tag);
-                    Grid?.Refresh();
-                }
+                if (DragAndDrop.GetGenericData(AssetTags.DragKey) is AssetTag tag && AssetOf(entry) is { } asset)
+                    EditorApplication.delayCall += () => AssetTags.Add(asset, tag);
             };
             grid.FoldersSource = () => FolderView && _tree != null ? _tree.VisibleChildren(_tree.SelectedGroup, _tree.SelectedFolder) : null;
             grid.FolderOpened += folder => _tree?.Select(_tree.SelectedGroup?.Key, folder);
@@ -188,7 +201,8 @@ namespace Remedy.Schematics.Browsers
         {
             if (Grid == null) return;
             bool levelDesignOnly = EditorPrefs.GetBool($"{PrefsKey}.LevelDesignOnly", false) && Kind?.ListsPrefabs == true;
-            Grid.Filter = levelDesignOnly ? new Func<SchematicTemplate, bool>(entry => entry.IsLevelDesign) : null;
+            var tagBar = _tagBar;
+            Grid.Filter = entry => (!levelDesignOnly || entry.IsLevelDesign) && (tagBar == null || tagBar.Passes(AssetOf(entry)));
         }
 
         #region Entries
@@ -409,13 +423,6 @@ namespace Remedy.Schematics.Browsers
             menu.AppendAction("Delete", _ => DeleteEntry(entry));
         }
 
-        /// <summary>A tag chip being dragged onto a tile.</summary>
-        private sealed class TagDrag
-        {
-            public readonly string Tag;
-            public TagDrag(string tag) => Tag = tag;
-        }
-
         // Right-clicking the grid's empty space: what the Project window offers there, for the open kind and folder.
         private void BuildBackgroundMenu(DropdownMenu menu)
         {
@@ -438,7 +445,7 @@ namespace Remedy.Schematics.Browsers
                 var group = _tree?.SelectedGroup;
                 if (group != null) _tree.CreateFolder(group, folder);
             });
-            menu.AppendAction("Create/Tag…", _ => ProjectManagerTags.PromptNewTag(TagSection, () => Grid?.Refresh()));
+            menu.AppendAction("Create/Tag…", _ => AssetTagWindow.Open(TagSection, null));
             menu.AppendSeparator();
             bool exists = AssetDatabase.IsValidFolder(folder);
             var status = exists ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled;

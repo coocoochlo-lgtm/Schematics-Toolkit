@@ -17,12 +17,10 @@ namespace Remedy.Schematics.Browsers
         private const string AudioRoot = "Assets/Content/Audio";
         private const string MusicRoot = AudioRoot + "/Music";
         private const string SfxRoot = AudioRoot + "/SFX";
-        private const string TagRoot = AudioRoot + "/Tags";
         private const string AudioPrefs = "Remedy.AudioClipBrowser";
         private const int WaveformWidth = 512;
         private const int WaveformHeight = 128;
 
-        private readonly List<AudioClipTag> _tags = new();
         private readonly List<AudioClip> _clips = new();
         private readonly List<PlayerControls> _players = new();
         private readonly Dictionary<AudioClip, Texture2D> _waveforms = new();
@@ -31,7 +29,6 @@ namespace Remedy.Schematics.Browsers
         private readonly Dictionary<AudioClip, Label> _nameLabels = new();
         private static Texture2D _glossTexture;
         private string _selectedFolder = AudioRoot;
-        private AudioClipTag _selectedTag;
         private AudioClip _previewClip;
         private int _previewSamplePosition;
         private bool _previewPaused;
@@ -39,7 +36,11 @@ namespace Remedy.Schematics.Browsers
         private ToolbarSearchField _search;
         private ProjectFolderTree _folderTree;
         private VisualElement _page;
-        private VisualElement _tagFilters;
+        private TagBar _tagBar;
+        private const string TagSection = "Audio";
+        // Card colours by kind (tags have their own colours, shown as dots).
+        private static readonly Color MusicColor = new(0.48f, 0.34f, 0.82f);
+        private static readonly Color SfxColor = new(0.15f, 0.55f, 0.47f);
         private VisualElement _clipGrid;
         private Label _status;
         private bool _rebuilding;
@@ -61,7 +62,8 @@ namespace Remedy.Schematics.Browsers
             EditorApplication.focusChanged += OnEditorFocusChanged;
             SchematicTemplateGrid.SharedTileSizeChanged += OnSharedTileSizeChanged;
             EnsureFolders();
-            EnsureDefaultTags();
+            AssetTags.Changed += OnTagsChanged;
+            EditorApplication.delayCall += MigrateOldTags;
             ReloadAssets();
         }
 
@@ -71,6 +73,7 @@ namespace Remedy.Schematics.Browsers
             EditorApplication.update -= UpdatePreview;
             EditorApplication.focusChanged -= OnEditorFocusChanged;
             SchematicTemplateGrid.SharedTileSizeChanged -= OnSharedTileSizeChanged;
+            AssetTags.Changed -= OnTagsChanged;
             StopPreview();
             foreach (var waveform in _ownedWaveforms)
                 DestroyImmediate(waveform);
@@ -81,6 +84,28 @@ namespace Remedy.Schematics.Browsers
         }
 
         private void OnLostFocus() => StopPreview();
+
+        private void OnTagsChanged() => _page?.schedule.Execute(RebuildCards);
+
+        private bool FilterByTag => EditorPrefs.GetBool(AudioPrefs + ".FilterByTag", true);
+
+        // Audio's earlier tags (Audio Clip Tag assets, one per clip) become shared Project Manager tags: same names and
+        // colours, and every clip keeps its tag. The old tag assets go to the system trash afterwards.
+        private static void MigrateOldTags()
+        {
+            var old = AssetDatabase.FindAssets("t:AudioClipTag")
+                .Select(guid => (guid, tag: AssetDatabase.LoadAssetAtPath<AudioClipTag>(AssetDatabase.GUIDToAssetPath(guid))))
+                .Where(entry => entry.tag != null)
+                .ToList();
+            if (old.Count == 0)
+                return;
+            foreach (var (guid, tag) in old)
+                AssetTags.Migrate(TagSection, tag.TagName, tag.Color, guid);
+            foreach (var (guid, _) in old)
+                AssetDatabase.MoveAssetToTrash(AssetDatabase.GUIDToAssetPath(guid));
+            Debug.Log($"[Project Manager] Moved {old.Count} audio tag(s) into the shared tags (Assets/Project Manager/Tags/Audio). Clips keep their tags, and can now have several.");
+            AssetTags.RaiseChanged();
+        }
 
         private float TileSize => _tileSizeSlider?.value ?? SchematicTemplateGrid.SharedTileSize;
 
@@ -125,6 +150,10 @@ namespace Remedy.Schematics.Browsers
         protected override void BuildHeader(VisualElement header)
         {
             header.Add(HeaderToggle("Folders", "On: browse folder by folder. Off: show every clip in the selection at once.", "FolderView", true, _ => RebuildCards()));
+            header.Add(HeaderToggle("Filter by Tag", "Clicking a tag shows only the clips that have it.", "FilterByTag", true, on =>
+            {
+                if (_tagBar != null) _tagBar.FilterEnabled = on;
+            }));
             // Importing, folders and tags: the "+" tile, the grid's right-click menu, and the "+ New Tag" chip.
         }
 
@@ -142,8 +171,6 @@ namespace Remedy.Schematics.Browsers
             {
                 var group = _folderTree.SelectedGroup;
                 _selectedFolder = group == null ? AudioRoot : _folderTree.SelectedFolder ?? group.Root;
-                _selectedTag = null;
-                BuildTagFilters();
                 RebuildCards();
             };
             _folderTree.FoldersChanged += ReloadAssets;
@@ -167,9 +194,9 @@ namespace Remedy.Schematics.Browsers
             _tileSizeSlider.RegisterValueChangedCallback(evt => SchematicTemplateGrid.SharedTileSize = evt.newValue);
             main.Add(toolbar);
 
-            _tagFilters = new VisualElement();
-            _tagFilters.AddToClassList("audio-browser__tags");
-            main.Add(_tagFilters);
+            _tagBar = new TagBar(TagSection) { FilterEnabled = FilterByTag };
+            _tagBar.FilterChanged += RebuildCards;
+            main.Add(_tagBar);
 
             var scroll = new ScrollView();
             scroll.AddToClassList("audio-browser__scroll");
@@ -215,15 +242,6 @@ namespace Remedy.Schematics.Browsers
                 return;
             }
             EnsureFolders();
-            _tags.Clear();
-            foreach (var guid in AssetDatabase.FindAssets("t:AudioClipTag", new[] { TagRoot }))
-            {
-                var tag = AssetDatabase.LoadAssetAtPath<AudioClipTag>(AssetDatabase.GUIDToAssetPath(guid));
-                if (tag != null)
-                    _tags.Add(tag);
-            }
-            _tags.Sort((a, b) => string.Compare(a.TagName, b.TagName, StringComparison.OrdinalIgnoreCase));
-
             _clips.Clear();
             foreach (var guid in AssetDatabase.FindAssets("t:AudioClip", new[] { MusicRoot, SfxRoot }))
             {
@@ -245,9 +263,6 @@ namespace Remedy.Schematics.Browsers
 
         private Remedy.Audio.AudioType TypeOf(AudioClip clip)
         {
-            var tag = GetTags(clip).FirstOrDefault();
-            if (tag != null)
-                return tag.Type;
             var path = AssetDatabase.GetAssetPath(clip);
             return path.StartsWith(MusicRoot + "/", StringComparison.OrdinalIgnoreCase)
                 ? Remedy.Audio.AudioType.Music
@@ -259,105 +274,8 @@ namespace Remedy.Schematics.Browsers
             if (_folderTree == null)
                 return;
             _folderTree.Rebuild();
-            BuildTagFilters();
+            _tagBar?.Rebuild();
             RebuildCards();
-        }
-
-        private void BuildTagFilters()
-        {
-            if (_tagFilters == null)
-                return;
-            _tagFilters.Clear();
-            var all = new Button(() =>
-            {
-                _selectedTag = null;
-                BuildTagFilters();
-                RebuildCards();
-            }) { text = "All Tags" };
-            all.AddToClassList("audio-browser__tag-filter");
-            if (_selectedTag == null)
-                all.AddToClassList("audio-browser__tag-filter--selected");
-            _tagFilters.Add(all);
-
-            foreach (var tag in _tags)
-            {
-                var button = new Button(() =>
-                {
-                    _selectedTag = _selectedTag == tag ? null : tag;
-                    BuildTagFilters();
-                    RebuildCards();
-                }) { text = tag.TagName };
-                button.AddToClassList("audio-browser__tag-filter");
-                button.style.backgroundColor = tag.Color;
-                if (_selectedTag == tag)
-                    button.AddToClassList("audio-browser__tag-filter--selected");
-                button.RegisterCallback<ContextClickEvent>(evt =>
-                {
-                    var menu = new GenericMenu();
-                    menu.AddItem(new GUIContent("Edit Tag"), false, () => AudioClipTagEditorWindow.Open(tag, () => OnTagChanged(tag)));
-                    menu.AddItem(new GUIContent("Delete Tag"), false, () => DeleteTag(tag));
-                    menu.ShowAsContext();
-                    evt.StopPropagation();
-                });
-                button.tooltip = "Click to filter; drag onto a clip to tag it.";
-                MakeTagDraggable(button, tag);
-                _tagFilters.Add(button);
-            }
-
-            var add = new Button(CreateTag) { text = "+ New Tag", tooltip = "Make a new audio tag." };
-            add.AddToClassList("audio-browser__tag-filter");
-            add.AddToClassList("audio-browser__tag-filter--new");
-            _tagFilters.Add(add);
-        }
-
-        private const string TagDragKey = "Remedy.AudioClipTag";
-
-        // A tag chip dragged a few pixels carries the tag (a click still filters by it).
-        private static void MakeTagDraggable(VisualElement chip, AudioClipTag tag)
-        {
-            Vector2 press = default;
-            bool pressed = false;
-            chip.RegisterCallback<PointerDownEvent>(evt =>
-            {
-                if (evt.button != 0) return;
-                pressed = true;
-                press = evt.position;
-            }, TrickleDown.TrickleDown);
-            chip.RegisterCallback<PointerMoveEvent>(evt =>
-            {
-                if (!pressed || (evt.pressedButtons & 1) == 0 || ((Vector2)evt.position - press).sqrMagnitude < 36f)
-                    return;
-                pressed = false;
-                DragAndDrop.PrepareStartDrag();
-                DragAndDrop.objectReferences = Array.Empty<UnityEngine.Object>();
-                DragAndDrop.paths = Array.Empty<string>();
-                DragAndDrop.SetGenericData(TagDragKey, tag);
-                DragAndDrop.StartDrag(tag.TagName);
-            }, TrickleDown.TrickleDown);
-            chip.RegisterCallback<PointerUpEvent>(_ => pressed = false, TrickleDown.TrickleDown);
-        }
-
-        // Clip cards take a dropped tag chip (a clip has one tag: the dropped one replaces it).
-        private void MakeTagDropTarget(VisualElement card, AudioClip clip)
-        {
-            card.RegisterCallback<DragUpdatedEvent>(evt =>
-            {
-                if (!(DragAndDrop.GetGenericData(TagDragKey) is AudioClipTag)) return;
-                DragAndDrop.visualMode = DragAndDropVisualMode.Link;
-                card.AddToClassList("audio-browser__card--drop");
-                evt.StopPropagation();
-            });
-            card.RegisterCallback<DragLeaveEvent>(_ => card.RemoveFromClassList("audio-browser__card--drop"));
-            card.RegisterCallback<DragExitedEvent>(_ => card.RemoveFromClassList("audio-browser__card--drop"));
-            card.RegisterCallback<DragPerformEvent>(evt =>
-            {
-                card.RemoveFromClassList("audio-browser__card--drop");
-                if (!(DragAndDrop.GetGenericData(TagDragKey) is AudioClipTag tag)) return;
-                DragAndDrop.AcceptDrag();
-                evt.StopPropagation();
-                if (!GetTags(clip).Contains(tag))
-                    EditorApplication.delayCall += () => ToggleTag(clip, tag);
-            });
         }
 
         private void RebuildCards()
@@ -410,7 +328,7 @@ namespace Remedy.Schematics.Browsers
             menu.AppendAction("Import Folder…", _ => ImportFolder());
             menu.AppendSeparator();
             menu.AppendAction("Create/Folder", _ => CreateFolder());
-            menu.AppendAction("Create/Tag…", _ => CreateTag());
+            menu.AppendAction("Create/Tag…", _ => AssetTagWindow.Open(TagSection, null));
             menu.AppendSeparator();
             string folder = _selectedFolder;
             menu.AppendAction("Show in Project", _ => Ping(AssetDatabase.LoadMainAssetAtPath(folder)));
@@ -478,11 +396,11 @@ namespace Remedy.Schematics.Browsers
             if (FolderView)
                 return _selectedFolder != AudioRoot
                     && string.Equals(Path.GetDirectoryName(path)?.Replace('\\', '/'), _selectedFolder, StringComparison.OrdinalIgnoreCase)
-                    && (_selectedTag == null || GetTags(clip).Contains(_selectedTag));
+                    && (_tagBar == null || _tagBar.Passes(clip));
             if (_selectedFolder != AudioRoot
                 && !path.StartsWith(_selectedFolder.TrimEnd('/') + "/", StringComparison.OrdinalIgnoreCase))
                 return false;
-            return _selectedTag == null || GetTags(clip).Contains(_selectedTag);
+            return _tagBar == null || _tagBar.Passes(clip);
         }
 
         private VisualElement BuildCard(AudioClip clip)
@@ -495,8 +413,8 @@ namespace Remedy.Schematics.Browsers
             card.style.flexDirection = FlexDirection.Column;
             card.style.borderTopColor = card.style.borderRightColor = card.style.borderBottomColor = card.style.borderLeftColor =
                 EditorGUIUtility.isProSkin ? new Color(1f, 1f, 1f, 0.35f) : new Color(0f, 0f, 0f, 0.35f);
-            card.style.backgroundColor = GetTags(clip).FirstOrDefault()?.Color
-                ?? (EditorGUIUtility.isProSkin ? new Color(0.22f, 0.22f, 0.22f) : new Color(0.78f, 0.78f, 0.78f));
+            // The card's colour says Music or SFX; the clip's tags show as coloured dots.
+            card.style.backgroundColor = TypeOf(clip) == Remedy.Audio.AudioType.Music ? MusicColor : SfxColor;
             var thumbnail = new Image
             {
                 image = WaveformFor(clip),
@@ -536,11 +454,30 @@ namespace Remedy.Schematics.Browsers
                 EditorApplication.delayCall += () => BeginRenameClip(clip);
             });
 
-            var tag = GetTags(clip).FirstOrDefault();
-            var tagName = new Label(tag != null ? tag.TagName : "Untagged");
-            tagName.AddToClassList("audio-browser__card-tag");
-            tagName.style.color = TextColorFor(card.style.backgroundColor.value);
-            card.Add(tagName);
+            var tags = GetTags(clip);
+            var tagRow = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center } };
+            if (tags.Count > 0)
+                tagRow.Add(AssetTags.Dots(tags));
+            var tagNames = new Label(tags.Count > 0 ? string.Join(", ", tags.Select(t => t.TagName)) : "No tags");
+            tagNames.AddToClassList("audio-browser__card-tag");
+            tagNames.style.color = TextColorFor(card.style.backgroundColor.value);
+            tagNames.style.overflow = Overflow.Hidden;
+            tagNames.style.textOverflow = TextOverflow.Ellipsis;
+            tagNames.style.whiteSpace = WhiteSpace.NoWrap;
+            tagNames.style.flexShrink = 1;
+            tagRow.Add(tagNames);
+            tagRow.tooltip = tags.Count > 0 ? string.Join(", ", tags.Select(t => t.TagName)) : "No tags: drag a tag onto the clip";
+            card.Add(tagRow);
+
+            // "This is audio": a small speaker in the corner (Audio Graphs will show something of their own).
+            var speaker = new Image
+            {
+                image = EditorGUIUtility.IconContent(EditorGUIUtility.isProSkin ? "d_AudioSource Icon" : "AudioSource Icon")?.image,
+                pickingMode = PickingMode.Ignore,
+                tooltip = "Audio clip",
+            };
+            speaker.AddToClassList("audio-browser__kind-icon");
+            card.Add(speaker);
 
             var timeline = BuildTimeline(clip);
             timeline.Container.style.position = Position.Absolute;
@@ -613,7 +550,7 @@ namespace Remedy.Schematics.Browsers
                 ShowClipMenu(clip);
                 evt.StopPropagation(); // not the grid's own menu as well
             });
-            MakeTagDropTarget(card, clip);
+            AssetTags.MakeDropTarget(card, () => clip, "audio-browser__card--drop");
             return card;
         }
 
@@ -892,13 +829,7 @@ namespace Remedy.Schematics.Browsers
             return false;
         }
 
-        private List<AudioClipTag> GetTags(AudioClip clip)
-        {
-            if (clip == null)
-                return new List<AudioClipTag>();
-            var labels = new HashSet<string>(AssetDatabase.GetLabels(clip));
-            return _tags.Where(tag => labels.Contains(AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(tag)))).ToList();
-        }
+        private static List<AssetTag> GetTags(AudioClip clip) => AssetTags.Of(clip, TagSection);
 
         private void ShowClipMenu(AudioClip clip)
         {
@@ -917,10 +848,10 @@ namespace Remedy.Schematics.Browsers
                     ReloadAssets();
             });
             menu.AddSeparator("");
-            foreach (var tag in _tags)
+            foreach (var tag in AssetTags.In(TagSection))
             {
-                bool hasTag = GetTags(clip).Contains(tag);
-                menu.AddItem(new GUIContent("Tags/" + tag.TagName), hasTag, () => ToggleTag(clip, tag));
+                var t = tag;
+                menu.AddItem(new GUIContent("Tags/" + t.TagName), AssetTags.Has(clip, t), () => AssetTags.Toggle(clip, t));
             }
             menu.AddSeparator("");
             AddMoveMenus(menu, clip, MusicRoot);
@@ -973,70 +904,6 @@ namespace Remedy.Schematics.Browsers
                 });
         }
 
-        private void ToggleTag(AudioClip clip, AudioClipTag tag)
-        {
-            var labels = AssetDatabase.GetLabels(clip).ToList();
-            string guid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(tag));
-            bool removing = labels.Contains(guid);
-            var audioTagGuids = new HashSet<string>(_tags
-                .Select(item => AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(item))));
-            labels.RemoveAll(audioTagGuids.Contains);
-            if (!removing)
-                labels.Add(guid);
-            AssetDatabase.SetLabels(clip, labels.ToArray());
-            MoveClip(clip, tag.Type == Remedy.Audio.AudioType.Music ? MusicRoot : SfxRoot, true);
-            ReloadAssets();
-        }
-
-        private void CreateTag()
-        {
-            string path = EditorUtility.SaveFilePanelInProject("Create Audio Tag", "New Audio Tag", "asset", "Choose where to save the tag.", TagRoot);
-            if (string.IsNullOrEmpty(path))
-                return;
-            if (!path.StartsWith(TagRoot + "/", StringComparison.OrdinalIgnoreCase))
-            {
-                Debug.LogWarning($"Audio tags must be saved under '{TagRoot}'.");
-                return;
-            }
-            EnsureFolders();
-            var tag = CreateInstance<AudioClipTag>();
-            tag.TagName = Path.GetFileNameWithoutExtension(path);
-            tag.Color = Color.HSVToRGB(Mathf.Repeat(_tags.Count * 0.618034f, 1f), 0.58f, 0.92f);
-            path = AssetDatabase.GenerateUniqueAssetPath(path);
-            AssetDatabase.CreateAsset(tag, path);
-            AssetDatabase.SaveAssets();
-            ReloadAssets();
-            AudioClipTagEditorWindow.Open(tag, () => OnTagChanged(tag));
-        }
-
-        private void OnTagChanged(AudioClipTag tag)
-        {
-            if (tag != null)
-            {
-                string guid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(tag));
-                foreach (var clip in _clips.Where(clip => AssetDatabase.GetLabels(clip).Contains(guid)).ToArray())
-                    MoveClip(clip, tag.Type == Remedy.Audio.AudioType.Music ? MusicRoot : SfxRoot, true);
-            }
-            ReloadAssets();
-        }
-
-        private void DeleteTag(AudioClipTag tag)
-        {
-            if (tag == null || !EditorUtility.DisplayDialog("Delete Audio Tag", $"Delete '{tag.TagName}'? Clips will keep their audio files.", "Delete", "Cancel"))
-                return;
-            string guid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(tag));
-            foreach (var clip in _clips)
-            {
-                var labels = AssetDatabase.GetLabels(clip).Where(label => label != guid).ToArray();
-                AssetDatabase.SetLabels(clip, labels);
-            }
-            AssetDatabase.DeleteAsset(AssetDatabase.GetAssetPath(tag));
-            if (_selectedTag == tag)
-                _selectedTag = null;
-            ReloadAssets();
-        }
-
-        // A new folder in the open folder (SFX when All Audio is open), selected and ready to rename.
         private void CreateFolder()
         {
             string parent = _selectedFolder == AudioRoot ? SfxRoot : _selectedFolder;
@@ -1167,7 +1034,6 @@ namespace Remedy.Schematics.Browsers
             CreateAssetFolder(AudioRoot);
             CreateAssetFolder(MusicRoot);
             CreateAssetFolder(SfxRoot);
-            CreateAssetFolder(TagRoot);
         }
 
         private static void CreateAssetFolder(string path)
@@ -1181,29 +1047,6 @@ namespace Remedy.Schematics.Browsers
             string name = Path.GetFileName(path);
             if (string.IsNullOrEmpty(AssetDatabase.CreateFolder(parent, name)))
                 Debug.LogError($"Could not create project folder '{path}'.");
-        }
-
-        private static void EnsureDefaultTags()
-        {
-            foreach (var entry in new[]
-            {
-                (Name: "Music", Type: Remedy.Audio.AudioType.Music, Color: new Color(0.48f, 0.34f, 0.82f)),
-                (Name: "SFX", Type: Remedy.Audio.AudioType.SoundEffect, Color: new Color(0.15f, 0.65f, 0.53f))
-            })
-            {
-                bool exists = AssetDatabase.FindAssets("t:AudioClipTag", new[] { TagRoot })
-                    .Select(guid => AssetDatabase.LoadAssetAtPath<AudioClipTag>(AssetDatabase.GUIDToAssetPath(guid)))
-                    .Any(tag => tag != null && tag.Type == entry.Type);
-                if (exists)
-                    continue;
-                string path = AssetDatabase.GenerateUniqueAssetPath(TagRoot + "/" + entry.Name + ".asset");
-                var tag = CreateInstance<AudioClipTag>();
-                tag.TagName = entry.Name;
-                tag.Type = entry.Type;
-                tag.Color = entry.Color;
-                AssetDatabase.CreateAsset(tag, path);
-            }
-            AssetDatabase.SaveAssets();
         }
 
         private sealed class PlayerControls
@@ -1284,55 +1127,6 @@ namespace Remedy.Schematics.Browsers
             public static bool IsPlaying() => Call("IsPreviewClipPlaying") is bool playing && playing;
             public static float Position() => Call("GetPreviewClipPosition") is float position ? position : 0f;
             public static void SetSamplePosition(AudioClip clip, int sample) => Call("SetPreviewClipSamplePosition", clip, sample);
-        }
-    }
-
-    internal class AudioClipTagEditorWindow : EditorWindow
-    {
-        private AudioClipTag _tag;
-        private Action _changed;
-
-        public static void Open(AudioClipTag tag, Action changed)
-        {
-            var window = CreateInstance<AudioClipTagEditorWindow>();
-            window._tag = tag;
-            window._changed = changed;
-            window.titleContent = new GUIContent("Edit Audio Tag");
-            window.minSize = new Vector2(280, 140);
-            window.ShowUtility();
-        }
-
-        private void CreateGUI()
-        {
-            if (_tag == null)
-            {
-                Close();
-                return;
-            }
-            var root = rootVisualElement;
-            var name = new TextField("Name") { value = _tag.TagName };
-            root.Add(name);
-            var type = new EnumField("Category", _tag.Type);
-            root.Add(type);
-            var color = new ColorField("Color") { value = _tag.Color, showAlpha = false };
-            root.Add(color);
-            var save = new Button(() =>
-            {
-                string tagName = name.value.Trim();
-                if (string.IsNullOrEmpty(tagName))
-                {
-                    Debug.LogWarning("Audio tag names cannot be empty.");
-                    return;
-                }
-                _tag.TagName = tagName;
-                _tag.Type = (Remedy.Audio.AudioType)type.value;
-                _tag.Color = color.value;
-                EditorUtility.SetDirty(_tag);
-                AssetDatabase.SaveAssets();
-                _changed?.Invoke();
-                Close();
-            }) { text = "Save" };
-            root.Add(save);
         }
     }
 }

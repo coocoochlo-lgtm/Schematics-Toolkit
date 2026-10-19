@@ -288,6 +288,12 @@ namespace Remedy.Schematics.Templates
         /// <summary>Assets or folders were moved by dropping them on a folder tile (their new paths).</summary>
         public event Action<List<string>> Moved;
 
+        /// <summary>Something drawn in a tile's thumbnail corner (its tags, say); null for nothing.</summary>
+        public Func<SchematicTemplate, VisualElement> TileBadge { get; set; }
+
+        /// <summary>Puts an element right under the search bar (a page's own chip bar, say).</summary>
+        public void InsertBelowToolbar(VisualElement element) => Insert(1, element);
+
         /// <summary>Fills the right-click menu of the grid's empty space (not a tile).</summary>
         public Action<DropdownMenu> BackgroundMenu { get; set; }
 
@@ -939,6 +945,15 @@ namespace Remedy.Schematics.Templates
                         ? $"{template.DisplayName}\n{categories}\n{path}"
                         : $"{template.DisplayName}\n{template.Description}\n{categories} · {path}";
                     UpdateThumbnail();
+                    var badge = grid.TileBadge?.Invoke(template);
+                    if (badge != null)
+                    {
+                        badge.pickingMode = PickingMode.Ignore;
+                        badge.style.position = Position.Absolute;
+                        badge.style.left = 3;
+                        badge.style.bottom = 3;
+                        _image.Add(badge);
+                    }
 
                     RegisterCallback<PointerDownEvent>(OnPointerDown);
                     RegisterCallback<PointerMoveEvent>(OnPointerMove);

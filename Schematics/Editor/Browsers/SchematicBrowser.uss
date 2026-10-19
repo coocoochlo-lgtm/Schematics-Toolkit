@@ -553,3 +553,22 @@
 .schematic-grid__chip--new {
     -unity-font-style: italic;
 }
+
+/* The small speaker in an audio card's corner: "this is an audio clip". */
+.audio-browser__kind-icon {
+    position: absolute;
+    right: 5px;
+    top: 4px;
+    width: 14px;
+    height: 14px;
+    opacity: 0.85;
+}
+
+.asset-tag-dots {
+    flex-shrink: 0;
+    margin-right: 3px;
+}
+
+.audio-browser__card > .audio-browser__clip-name {
+    margin-right: 18px;
+}

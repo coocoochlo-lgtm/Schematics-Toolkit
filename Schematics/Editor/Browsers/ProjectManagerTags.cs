@@ -148,6 +148,28 @@ namespace Remedy.Schematics.Browsers
             changed?.Invoke();
         }
 
+        /// <summary>
+        /// Brings a section's tags from this older system into <see cref="AssetTags"/> (same names; assets keep their
+        /// tags), then forgets them here. Safe to call any time: it only does something while old tags remain.
+        /// </summary>
+        public static void MigrateTo(string section, string newSection)
+        {
+            var names = Tags(section);
+            if (names.Count == 0)
+                return;
+            foreach (var name in names)
+                AssetTags.Migrate(newSection, name, Color.HSVToRGB(Mathf.Repeat(AssetTags.In(newSection).Count * 0.618034f, 1f), 0.58f, 0.92f), Label(section, name));
+            var database = GetDatabase(section);
+            var tagSet = GetTagSet(database, section, false);
+            if (tagSet != null)
+            {
+                tagSet.Names.Clear();
+                EditorUtility.SetDirty(database);
+                AssetDatabase.SaveAssets();
+            }
+            AssetTags.RaiseChanged();
+        }
+
         private static string Label(string section, string tag)
         {
             var bytes = Encoding.UTF8.GetBytes(tag ?? "");
