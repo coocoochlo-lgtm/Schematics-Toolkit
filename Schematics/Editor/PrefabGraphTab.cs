@@ -1,8 +1,15 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.UIElements;
+
+public partial class SchematicGraphEditorWindow
+{
+    /// <summary>Opened for Prefab Mode (closed again on leaving it). Serialized, so it survives script reloads.</summary>
+    [SerializeField] internal bool OpenedForPrefabStage;
+}
 
 namespace Remedy.Schematics
 {
@@ -17,9 +24,6 @@ namespace Remedy.Schematics
     {
         private const string EnabledPref = "Remedy.Schematics.PrefabGraphTab";
         private const string MenuPath = "Tools/Remedy/Schematics/Open Graph with Prefab";
-
-        // Graph windows opened for a prefab stage, so leaving it closes only those.
-        private static readonly List<SchematicGraphEditorWindow> _opened = new();
 
         public static bool Enabled
         {
@@ -89,14 +93,17 @@ namespace Remedy.Schematics
         {
             if (graph == null)
                 return null;
-            var window = SchematicGraphEditorWindow.FindOpen(graph);
+            // Any window already on this graph, even one whose canvas a script reload dropped (it's loaded again).
+            var window = Resources.FindObjectsOfTypeAll<SchematicGraphEditorWindow>().FirstOrDefault(w => w != null && w.SchematicGraph == graph);
             if (window == null)
             {
                 window = EditorWindow.CreateWindow<SchematicGraphEditorWindow>(typeof(SceneView));
                 window.SchematicGraph = graph;
+                window.OpenedForPrefabStage = true;
                 window.Load(graph);
-                _opened.Add(window);
             }
+            else if (window.Canvas == null)
+                window.Load(graph);
             if (focus)
                 window.Focus();
             return window;
@@ -104,14 +111,13 @@ namespace Remedy.Schematics
 
         private static void CloseOpened(SchematicGraph except)
         {
-            for (int i = _opened.Count - 1; i >= 0; i--)
+            foreach (var window in Resources.FindObjectsOfTypeAll<SchematicGraphEditorWindow>())
             {
-                var window = _opened[i];
-                if (window != null && except != null && window.SchematicGraph == except)
+                if (window == null || !window.OpenedForPrefabStage)
                     continue;
-                _opened.RemoveAt(i);
-                if (window != null)
-                    window.Close();
+                if (except != null && window.SchematicGraph == except)
+                    continue;
+                window.Close();
             }
         }
     }
@@ -126,7 +132,6 @@ namespace Remedy.Schematics
     public static class PrefabGraphHierarchyBar
     {
         private const string BarName = "schematics-prefab-graph-bar";
-        private static readonly System.Type HierarchyWindowType = typeof(EditorWindow).Assembly.GetType("UnityEditor.SceneHierarchyWindow");
         private static double _nextCheck;
         private static bool _graphChosen;
 
@@ -143,7 +148,7 @@ namespace Remedy.Schematics
         // Hierarchy windows can open, close or rebuild their UI at any time, so this checks a few times a second.
         private static void Update()
         {
-            if (EditorApplication.timeSinceStartup < _nextCheck || HierarchyWindowType == null)
+            if (EditorApplication.timeSinceStartup < _nextCheck)
                 return;
             _nextCheck = EditorApplication.timeSinceStartup + 0.4;
 
@@ -155,9 +160,13 @@ namespace Remedy.Schematics
             else if (focused is SchematicGraphEditorWindow graphWindow && graph != null && graphWindow.SchematicGraph == graph)
                 _graphChosen = true;
             bool showing = false;
-            foreach (var window in Resources.FindObjectsOfTypeAll(HierarchyWindowType))
+            foreach (var window in Resources.FindObjectsOfTypeAll<EditorWindow>())
             {
-                var root = (window as EditorWindow)?.rootVisualElement;
+                // Unity 6.3's Hierarchy is "HierarchyWindow"; earlier versions call it "SceneHierarchyWindow".
+                string typeName = window != null ? window.GetType().Name : null;
+                if (typeName != "HierarchyWindow" && typeName != "SceneHierarchyWindow")
+                    continue;
+                var root = window.rootVisualElement;
                 if (root == null)
                     continue;
                 var bar = root.Q(BarName);
