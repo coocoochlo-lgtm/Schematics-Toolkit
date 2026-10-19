@@ -36,6 +36,8 @@ namespace Remedy.Schematics.Browsers
         // whether to start renaming it then.
         private string _revealWhenListed;
         private bool _renameAfterReveal;
+        // The just-made Schematic to open once its rename is done (kept as the asset: renaming changes its path).
+        private UnityEngine.Object _openAfterRename;
         private int _revealTries;
         // Objects made with the template window opened from this page: the paths there were before, so the new one
         // can be found (and revealed) when it appears.
@@ -172,6 +174,13 @@ namespace Remedy.Schematics.Browsers
             grid.DragAssetOf = entry => entry.Prefab != null ? null : AssetOf(entry);
             grid.Rename = RenameEntry;
             grid.ShareTileSize = true; // the same tile size as the Audio page
+            grid.RenameFinished += _ =>
+            {
+                var asset = _openAfterRename;
+                _openAfterRename = null;
+                if (asset != null)
+                    EditorApplication.delayCall += () => OpenMade(asset);
+            };
             grid.BackgroundMenu = BuildBackgroundMenu;
             // Tag chips dragged onto a tile tag it.
             grid.CanDropOnTile = entry => DragAndDrop.GetGenericData(AssetTags.DragKey) is AssetTag && AssetOf(entry) != null;
@@ -357,8 +366,8 @@ namespace Remedy.Schematics.Browsers
                     if (made != null)
                     {
                         _knownBeforeTemplate = null;
-                        // The template window starts the Project window's rename itself; just show it here.
-                        Navigate(made, rename: false);
+                        // Named here like any new one (clicking into the name ends the Project window's own rename), then opened.
+                        Navigate(made, rename: true);
                         return;
                     }
                 }
@@ -387,10 +396,37 @@ namespace Remedy.Schematics.Browsers
             _revealTries = 0;
             _revealWhenListed = null;
             Grid.Reveal(entry);
-            if (AssetOf(entry) is { } asset)
-                EditorGUIUtility.PingObject(asset);
+            var made = AssetOf(entry);
+            if (made != null)
+                EditorGUIUtility.PingObject(made);
             if (_renameAfterReveal)
-                Grid.schedule.Execute(() => Grid.BeginRename(entry)).ExecuteLater(50);
+            {
+                // Opened once it's named (Prefab Mode would take the focus away from the name being typed).
+                _openAfterRename = made;
+                Grid.schedule.Execute(() =>
+                {
+                    Grid.BeginRename(entry);
+                    if (!Grid.IsRenaming && _openAfterRename != null)
+                    {
+                        var asset = _openAfterRename; // the rename didn't start: open it now
+                        _openAfterRename = null;
+                        OpenMade(asset);
+                    }
+                }).ExecuteLater(50);
+            }
+            else if (made != null)
+                EditorApplication.delayCall += () => OpenMade(made);
+        }
+
+        /// <summary>
+        /// Opens a Schematic that was just made: a Schematic Object in Prefab Mode (where its graph opens beside the Scene
+        /// view), any other kind in the graph editor.
+        /// </summary>
+        private static void OpenMade(UnityEngine.Object asset)
+        {
+            if (asset == null)
+                return;
+            AssetDatabase.OpenAsset(asset);
         }
 
         // Opens the template window to make an object in a folder, watching for the object it makes.

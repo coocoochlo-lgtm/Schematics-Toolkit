@@ -321,6 +321,12 @@ namespace Remedy.Schematics.Templates
 
         private readonly List<FolderTile> _folderTiles = new();
 
+        /// <summary>Whether a tile is being renamed in place right now.</summary>
+        public bool IsRenaming => _renaming;
+
+        /// <summary>A tile's in-place rename ended (renamed, unchanged or cancelled).</summary>
+        public event Action<SchematicTemplate> RenameFinished;
+
         /// <summary>Starts renaming a tile in place (when <see cref="Rename"/> is set and the tile is shown).</summary>
         public void BeginRename(SchematicTemplate template)
         {
@@ -1047,6 +1053,7 @@ namespace Remedy.Schematics.Templates
                     _isRenaming = false;
                     _grid._renaming = false;
                     _grid.Focus();
+                    _grid.RenameFinished?.Invoke(Template);
                     if (_grid._refreshAfterRename)
                     {
                         _grid._refreshAfterRename = false;
