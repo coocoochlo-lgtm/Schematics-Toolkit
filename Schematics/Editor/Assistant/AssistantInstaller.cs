@@ -240,8 +240,35 @@ namespace Remedy.Schematics.Assistant
                     if (File.Exists(path))
                         return path;
                 }
-                return "dotnet";
+                return InstalledDotnet();
             }
+        }
+
+        // Unity started from the Hub or a desktop launcher doesn't get the shell's PATH (a ~/.dotnet install, or one a
+        // profile script adds), so the usual install locations are checked before falling back to plain "dotnet".
+        private static string InstalledDotnet()
+        {
+            if (Application.platform == RuntimePlatform.WindowsEditor)
+                return "dotnet";
+
+            string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            string root = Environment.GetEnvironmentVariable("DOTNET_ROOT");
+            string[] candidates =
+            {
+                string.IsNullOrEmpty(root) ? null : Path.Combine(root, "dotnet"),
+                Path.Combine(home, ".dotnet", "dotnet"),
+                "/usr/local/share/dotnet/dotnet",
+                "/usr/share/dotnet/dotnet",
+                "/usr/lib/dotnet/dotnet",
+                "/usr/local/bin/dotnet",
+                "/usr/bin/dotnet",
+                "/snap/bin/dotnet",
+                "/opt/homebrew/bin/dotnet",
+            };
+            foreach (var path in candidates)
+                if (path != null && File.Exists(path))
+                    return path;
+            return "dotnet";
         }
     }
 }
