@@ -202,8 +202,8 @@ namespace Remedy.LevelDesigner.Editor
     }
 
     /// <summary>
-    /// The character the blockout's Jump Arc and Run rulers are made from, picked in the Level Designer window's
-    /// Characters tab (remembered per user).
+    /// The character the blockout's Jump Arc and Run rulers are made from, picked with the blockout toolbar's
+    /// Character button (remembered per user).
     /// </summary>
     public static class ActiveCharacter
     {

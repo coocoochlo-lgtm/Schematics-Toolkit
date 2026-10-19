@@ -49,6 +49,7 @@ namespace Remedy.LevelDesigner.Editor
             container.Add(MainButton("Schematics", BlockoutPalette.Schematics, vertical));
             container.Add(ColorSwatch());
             container.Add(PaintButton());
+            container.Add(CharacterButton());
 
             var snap = new EditorToolbarDropdown(SnapText(), null);
             snap.tooltip = "Snapping step for placing and sizing blockout shapes";
@@ -97,6 +98,50 @@ namespace Remedy.LevelDesigner.Editor
             swatch.RegisterCallback<AttachToPanelEvent>(_ => LevelDesignerSettings.Changed += Sync);
             swatch.RegisterCallback<DetachFromPanelEvent>(_ => LevelDesignerSettings.Changed -= Sync);
             return swatch;
+        }
+
+        // The reference character the jump and run rulers are measured from: click for the Character panel, or drop a
+        // character prefab on it.
+        private EditorToolbarDropdown CharacterButton()
+        {
+            var button = new EditorToolbarDropdown("Character", EditorGUIUtility.IconContent("d_Avatar Icon")?.image as Texture2D);
+            void Sync()
+            {
+                var prefab = ActiveCharacter.Prefab;
+                button.text = prefab != null ? prefab.name : "Character";
+                button.tooltip = prefab != null
+                    ? $"Rulers are measured from {prefab.name} (click for its numbers, or drop another character prefab here)"
+                    : "Pick the reference character the jump and run rulers are measured from (or drop a character prefab here)";
+            }
+            Sync();
+            button.clicked += () =>
+            {
+                var window = containerWindow;
+                Vector2 origin = window != null ? window.position.position : Vector2.zero;
+                CharacterPickerWindow.Show(new Rect(origin + button.worldBound.position, button.worldBound.size));
+            };
+            button.RegisterCallback<DragUpdatedEvent>(evt =>
+            {
+                if (DragAndDrop.objectReferences.Length == 1 && DragAndDrop.objectReferences[0] is GameObject prefab
+                    && EditorUtility.IsPersistent(prefab) && CharacterMetricsAnalyzer.IsCharacter(prefab))
+                {
+                    DragAndDrop.visualMode = DragAndDropVisualMode.Link;
+                    evt.StopPropagation();
+                }
+            });
+            button.RegisterCallback<DragPerformEvent>(evt =>
+            {
+                if (DragAndDrop.objectReferences.Length == 1 && DragAndDrop.objectReferences[0] is GameObject prefab
+                    && EditorUtility.IsPersistent(prefab) && CharacterMetricsAnalyzer.IsCharacter(prefab))
+                {
+                    DragAndDrop.AcceptDrag();
+                    ActiveCharacter.Prefab = prefab;
+                    evt.StopPropagation();
+                }
+            });
+            button.RegisterCallback<AttachToPanelEvent>(_ => ActiveCharacter.Changed += Sync);
+            button.RegisterCallback<DetachFromPanelEvent>(_ => ActiveCharacter.Changed -= Sync);
+            return button;
         }
 
         // The paint bucket: on while its tool is active.
@@ -223,7 +268,7 @@ namespace Remedy.LevelDesigner.Editor
             if (_palette == BlockoutPalette.Rulers)
             {
                 var character = ActiveCharacter.Prefab;
-                var note = new Label(character != null ? "Character: " + character.name : "No character picked (Level Designer → Characters)");
+                var note = new Label(character != null ? "Character: " + character.name : "No character picked (the toolbar's Character button)");
                 note.style.unityFontStyleAndWeight = FontStyle.Italic;
                 note.style.fontSize = 10;
                 root.Add(note);

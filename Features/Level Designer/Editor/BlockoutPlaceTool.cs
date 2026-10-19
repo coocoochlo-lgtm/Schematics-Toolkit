@@ -296,7 +296,7 @@ namespace Remedy.LevelDesigner.Editor
                         break;
                     if ((Item.RulerKind == BlockoutRulerKind.JumpArc || Item.RulerKind == BlockoutRulerKind.RunDistance) && !ActiveCharacter.TryGetMetrics(out _))
                     {
-                        SceneView.lastActiveSceneView?.ShowNotification(new GUIContent("Pick a character first:\nLevel Designer window → Characters"));
+                        SceneView.lastActiveSceneView?.ShowNotification(new GUIContent("Pick a character first:\nthe blockout toolbar's Character button"));
                         e.Use();
                         break;
                     }

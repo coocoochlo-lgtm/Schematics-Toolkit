@@ -13,9 +13,10 @@ namespace Remedy.LevelDesigner.Editor
     /// The Level Designer window. <b>Levels</b>: blockouts on the left (+ makes a new blockout scene, - removes one),
     /// and on the right the variants built on the selected blockout, as cards (open, duplicate, rename, remove,
     /// "Compose into build"), with + to start a new variant over the blockout and <b>Test Composed Scene</b> to play
-    /// the blockout merged with picked variants. <b>Characters</b>: the movement numbers of character prefabs (jump
-    /// height, air time, run speed…), exported to JSON or CSV, and which character the blockout's jump and run rulers
-    /// use. <b>Palette</b>: the team's named blockout colours. The header holds the blockout X-ray toggle and opacity, the snapping step, and the
+    /// the blockout merged with picked variants. Blockouts can be grouped into folders in the list (right-click, or
+    /// drag a blockout onto a folder); scenes stay where they are on disk. The reference character the jump and run
+    /// rulers use is picked in the Scene view, on the blockout toolbar's Character button. <b>Palette</b>: the team's
+    /// named blockout colours. The header holds the blockout X-ray toggle and opacity, the snapping step, and the
     /// Levels menu (the folder every scene goes in, moving existing scenes there, capturing a thumbnail).<br/>
     /// The Level Designer panel hosted in Project Manager (or a standalone window when Project Manager is unavailable),
     /// built with UI Toolkit.
@@ -46,7 +47,7 @@ namespace Remedy.LevelDesigner.Editor
         private static GUIContent Title()
         {
             var icon = EditorGUIUtility.IconContent("SceneAsset Icon")?.image;
-            return new GUIContent("Level Designer", icon, "Blockouts, variants, character metrics and the blockout palette");
+            return new GUIContent("Level Designer", icon, "Blockouts, variants and the blockout palette");
         }
 
         /// <summary>Opens Project Manager on the Level Designer's Palette tab.</summary>
@@ -64,18 +65,18 @@ namespace Remedy.LevelDesigner.Editor
             window.CreateGUI();
         }
 
-        private enum Tab { Levels, Characters, Palette }
+        // Values kept from when there was a Characters tab (1), so a saved window still opens the right tab.
+        private enum Tab { Levels = 0, Palette = 2 }
 
         [SerializeField] private Tab _tab;
         [SerializeField] private int _selectedBlockout;
 
         private VisualElement _body;
-        private ListView _blockoutList;
+        private ScrollView _blockoutTree;
+        [SerializeField] private string _selectedFolder = "";
         private VisualElement _artPane;
         private Toggle _xrayToggle;
         private Slider _opacitySlider;
-        private readonly List<GameObject> _characters = new();
-        private bool _charactersScanned;
 
         private LevelDesignProject Project => LevelDesignerContext.Project;
 
@@ -104,7 +105,7 @@ namespace Remedy.LevelDesigner.Editor
 
         private void OnThumbnailCaptured(string sceneGuid)
         {
-            _blockoutList?.RefreshItems();
+            RebuildBlockoutTree();
             if (_tab == Tab.Levels)
                 BuildArtPane();
         }
@@ -118,7 +119,7 @@ namespace Remedy.LevelDesigner.Editor
 
         private void OnModeChanged()
         {
-            _blockoutList?.RefreshItems();
+            RebuildBlockoutTree();
             if (_tab == Tab.Levels)
                 BuildArtPane();
         }
@@ -132,6 +133,8 @@ namespace Remedy.LevelDesigner.Editor
         {
             if (showPalette)
                 _tab = Tab.Palette;
+            if (_tab != Tab.Levels && _tab != Tab.Palette)
+                _tab = Tab.Levels;
             root.Clear();
             root.Add(BuildHeader());
             _body = new VisualElement { style = { flexGrow = 1 } };
@@ -146,8 +149,6 @@ namespace Remedy.LevelDesigner.Editor
             _body.Clear();
             if (_tab == Tab.Levels)
                 BuildLevels();
-            else if (_tab == Tab.Characters)
-                BuildCharacters();
             else
                 BuildPalette();
             SyncHeader();
@@ -160,14 +161,11 @@ namespace Remedy.LevelDesigner.Editor
             var toolbar = new Toolbar();
 
             var levels = new ToolbarToggle { text = "Levels", value = _tab == Tab.Levels };
-            var characters = new ToolbarToggle { text = "Characters", value = _tab == Tab.Characters };
             var palette = new ToolbarToggle { text = "Palette", value = _tab == Tab.Palette, tooltip = "The team's named blockout colours" };
-            _tabToggles = new[] { levels, characters, palette };
+            _tabToggles = new[] { (Tab.Levels, levels), (Tab.Palette, palette) };
             levels.RegisterValueChangedCallback(evt => SwitchTab(Tab.Levels));
-            characters.RegisterValueChangedCallback(evt => SwitchTab(Tab.Characters));
             palette.RegisterValueChangedCallback(evt => SwitchTab(Tab.Palette));
             toolbar.Add(levels);
-            toolbar.Add(characters);
             toolbar.Add(palette);
             toolbar.Add(new ToolbarSpacer { flex = true });
 
@@ -249,14 +247,14 @@ namespace Remedy.LevelDesigner.Editor
             Rebuild();
         }
 
-        private ToolbarToggle[] _tabToggles;
+        private (Tab tab, ToolbarToggle toggle)[] _tabToggles;
 
         private void SwitchTab(Tab tab)
         {
             _tab = tab;
             if (_tabToggles != null)
-                for (int i = 0; i < _tabToggles.Length; i++)
-                    _tabToggles[i].SetValueWithoutNotify((int)tab == i);
+                foreach (var (t, toggle) in _tabToggles)
+                    toggle.SetValueWithoutNotify(t == tab);
             Rebuild();
         }
 
@@ -287,6 +285,7 @@ namespace Remedy.LevelDesigner.Editor
                 var created = LevelDesignerContext.CreateBlockout(levelName.value);
                 if (created != null)
                 {
+                    PutInFolder(created, _selectedFolder);
                     _selectedBlockout = Project.Blockouts.IndexOf(created);
                     Rebuild();
                 }
@@ -294,6 +293,7 @@ namespace Remedy.LevelDesigner.Editor
             leftHeader.Add(SmallButton("+", $"Make a new blockout scene in {LevelDesignerContext.LevelsRoot}/<Level>/", CreateLevel));
             leftHeader.Add(SmallButton("Add…", "Add an existing scene as a blockout", AddExistingBlockout));
             leftHeader.Add(SmallButton("−", "Remove the selected blockout from the list", RemoveSelectedBlockout));
+            leftHeader.Add(SmallButton("New Folder", "A folder in the list to group blockouts in (drag blockouts onto it)", () => CreateListFolder(_selectedFolder)));
             left.Add(leftHeader);
             var nameRow = new VisualElement { style = { flexDirection = FlexDirection.Row, paddingLeft = 4, paddingRight = 4, marginBottom = 2 } };
             levelName.RegisterCallback<KeyDownEvent>(evt =>
@@ -304,23 +304,15 @@ namespace Remedy.LevelDesigner.Editor
             nameRow.Add(levelName);
             left.Add(nameRow);
 
-            _blockoutList = new ListView(Project.Blockouts, 44, MakeBlockoutItem, BindBlockoutItem)
+            _blockoutTree = new ScrollView(ScrollViewMode.Vertical) { style = { flexGrow = 1 } };
+            // Dropping a blockout or folder on the list's empty space moves it to the top level.
+            MakeListDropTarget(_blockoutTree, () => "");
+            _blockoutTree.AddManipulator(new ContextualMenuManipulator(evt =>
             {
-                selectionType = SelectionType.Single,
-                style = { flexGrow = 1 },
-            };
-            _blockoutList.selectionChanged += _ =>
-            {
-                _selectedBlockout = _blockoutList.selectedIndex;
-                BuildArtPane();
-            };
-            _blockoutList.itemsChosen += _ =>
-            {
-                var blockout = SelectedBlockout;
-                if (blockout != null)
-                    LevelDesignerContext.OpenBlockout(blockout);
-            };
-            left.Add(_blockoutList);
+                evt.menu.AppendAction("New Folder", _ => CreateListFolder(""));
+                evt.menu.AppendAction("Add Existing Blockout…", _ => AddExistingBlockout());
+            }));
+            left.Add(_blockoutTree);
             if (Project.Blockouts.Count == 0)
                 left.Add(Hint("No blockouts yet. Press + to make one: a new scene with a floor, ready for the blockout tools in the Scene view."));
             split.Add(left);
@@ -331,8 +323,7 @@ namespace Remedy.LevelDesigner.Editor
 
             if (SelectedBlockout == null && Project.Blockouts.Count > 0)
                 _selectedBlockout = Mathf.Max(0, Project.Blockouts.IndexOf(LevelDesignerContext.CurrentBlockoutEntry));
-            if (SelectedBlockout != null)
-                _blockoutList.SetSelectionWithoutNotify(new[] { _selectedBlockout });
+            RebuildBlockoutTree();
             BuildArtPane();
         }
 
@@ -402,6 +393,334 @@ namespace Remedy.LevelDesigner.Editor
             return image;
         }
 
+        // ---------------------------------------------------------------- blockout folders
+
+        private const string BlockoutDragKey = "Remedy.LevelDesigner.Blockout";
+        private const string FolderDragKey = "Remedy.LevelDesigner.ListFolder";
+        private const string OpenFoldersPref = "Remedy.LevelDesigner.OpenFolder.";
+
+        private static string ParentFolder(string folder)
+        {
+            int slash = folder?.LastIndexOf('/') ?? -1;
+            return slash < 0 ? "" : folder.Substring(0, slash);
+        }
+
+        private static string FolderName(string folder)
+        {
+            int slash = folder.LastIndexOf('/');
+            return slash < 0 ? folder : folder.Substring(slash + 1);
+        }
+
+        // Every list folder: the ones kept in the project, those blockouts are in, and all their parents.
+        private SortedSet<string> AllListFolders()
+        {
+            var folders = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+            void AddWithParents(string folder)
+            {
+                for (; !string.IsNullOrEmpty(folder); folder = ParentFolder(folder))
+                    folders.Add(folder);
+            }
+            foreach (var folder in Project.Folders)
+                AddWithParents(folder);
+            foreach (var blockout in Project.Blockouts)
+                AddWithParents(blockout.Folder);
+            return folders;
+        }
+
+        private readonly Dictionary<string, Label> _folderLabels = new(StringComparer.OrdinalIgnoreCase);
+
+        private static bool IsOpen(string folder) => EditorPrefs.GetBool(OpenFoldersPref + folder, true);
+
+        // The list: folders (with their folders and blockouts inside), then the blockouts at the top level.
+        private void RebuildBlockoutTree()
+        {
+            if (_blockoutTree == null || Project == null)
+                return;
+            _blockoutTree.Clear();
+            _folderLabels.Clear();
+            var folders = AllListFolders();
+            AddListChildren(folders, "", 0);
+        }
+
+        private void AddListChildren(SortedSet<string> folders, string parent, int depth)
+        {
+            foreach (var folder in folders)
+            {
+                if (!string.Equals(ParentFolder(folder), parent, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                _blockoutTree.Add(FolderRow(folder, depth));
+                if (IsOpen(folder))
+                    AddListChildren(folders, folder, depth + 1);
+            }
+            for (int i = 0; i < Project.Blockouts.Count; i++)
+                if (string.Equals(Project.Blockouts[i].Folder ?? "", parent, StringComparison.OrdinalIgnoreCase))
+                    _blockoutTree.Add(BlockoutRow(i, depth));
+        }
+
+        private VisualElement FolderRow(string folder, int depth)
+        {
+            var row = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, height = 22, paddingLeft = 4 + depth * 14 } };
+            bool selected = _selectedBlockout < 0 && string.Equals(_selectedFolder, folder, StringComparison.OrdinalIgnoreCase);
+            if (selected)
+                row.style.backgroundColor = new Color(0.25f, 0.5f, 0.85f, 0.35f);
+
+            var arrow = new Label(IsOpen(folder) ? "▾" : "▸") { style = { width = 14, unityTextAlign = TextAnchor.MiddleCenter } };
+            arrow.RegisterCallback<PointerDownEvent>(evt =>
+            {
+                if (evt.button != 0) return;
+                EditorPrefs.SetBool(OpenFoldersPref + folder, !IsOpen(folder));
+                RebuildBlockoutTree();
+                evt.StopPropagation();
+            });
+            row.Add(arrow);
+            row.Add(new Image { image = EditorGUIUtility.IconContent("Folder Icon")?.image, style = { width = 16, height = 16, marginRight = 4 } });
+            var label = new Label(FolderName(folder)) { style = { flexGrow = 1, unityTextAlign = TextAnchor.MiddleLeft } };
+            row.Add(label);
+            _folderLabels[folder] = label;
+
+            row.RegisterCallback<PointerDownEvent>(evt =>
+            {
+                if (evt.button != 0) return;
+                if (evt.clickCount == 2 && evt.target == label)
+                {
+                    EditorApplication.delayCall += () => RenameListFolder(label, folder);
+                    return;
+                }
+                if (evt.clickCount == 2)
+                {
+                    EditorPrefs.SetBool(OpenFoldersPref + folder, !IsOpen(folder));
+                    RebuildBlockoutTree();
+                    return;
+                }
+                _selectedFolder = folder;
+                _selectedBlockout = -1;
+                RebuildBlockoutTree();
+                BuildArtPane();
+            });
+            Vector2 press = default;
+            bool pressed = false;
+            row.RegisterCallback<PointerDownEvent>(evt => { pressed = evt.button == 0; press = evt.position; }, TrickleDown.TrickleDown);
+            row.RegisterCallback<PointerMoveEvent>(evt =>
+            {
+                if (!pressed || (evt.pressedButtons & 1) == 0 || ((Vector2)evt.position - press).sqrMagnitude < 36f) return;
+                pressed = false;
+                DragAndDrop.PrepareStartDrag();
+                DragAndDrop.objectReferences = Array.Empty<UnityEngine.Object>();
+                DragAndDrop.paths = Array.Empty<string>();
+                DragAndDrop.SetGenericData(FolderDragKey, folder);
+                DragAndDrop.StartDrag(FolderName(folder));
+            });
+            row.RegisterCallback<PointerUpEvent>(_ => pressed = false);
+            row.AddManipulator(new ContextualMenuManipulator(evt =>
+            {
+                evt.menu.AppendAction("New Folder Inside", _ => CreateListFolder(folder));
+                evt.menu.AppendAction("Rename", _ => RenameListFolder(label, folder));
+                evt.menu.AppendAction("Delete Folder (keeps its blockouts)", _ => DeleteListFolder(folder));
+                evt.StopPropagation();
+            }));
+            MakeListDropTarget(row, () => folder);
+            return row;
+        }
+
+        private VisualElement BlockoutRow(int index, int depth)
+        {
+            var row = MakeBlockoutItem();
+            row.style.height = 44;
+            row.style.marginLeft = depth * 14;
+            BindBlockoutItem(row, index);
+            var blockout = Project.Blockouts[index];
+            if (index == _selectedBlockout)
+                row.Q<Label>("name").style.color = new Color(0.55f, 0.8f, 1f);
+
+            row.RegisterCallback<PointerDownEvent>(evt =>
+            {
+                if (evt.button != 0) return;
+                _selectedBlockout = index;
+                _selectedFolder = blockout.Folder ?? "";
+                if (evt.clickCount == 2)
+                {
+                    LevelDesignerContext.OpenBlockout(blockout);
+                    return;
+                }
+                RebuildBlockoutTree();
+                BuildArtPane();
+            });
+            Vector2 press = default;
+            bool pressed = false;
+            row.RegisterCallback<PointerDownEvent>(evt => { pressed = evt.button == 0; press = evt.position; }, TrickleDown.TrickleDown);
+            row.RegisterCallback<PointerMoveEvent>(evt =>
+            {
+                if (!pressed || (evt.pressedButtons & 1) == 0 || ((Vector2)evt.position - press).sqrMagnitude < 36f) return;
+                pressed = false;
+                DragAndDrop.PrepareStartDrag();
+                DragAndDrop.objectReferences = Array.Empty<UnityEngine.Object>();
+                DragAndDrop.paths = Array.Empty<string>();
+                DragAndDrop.SetGenericData(BlockoutDragKey, blockout);
+                DragAndDrop.StartDrag(blockout.Name);
+            });
+            row.RegisterCallback<PointerUpEvent>(_ => pressed = false);
+            row.AddManipulator(new ContextualMenuManipulator(evt =>
+            {
+                evt.menu.AppendAction("Open", _ => LevelDesignerContext.OpenBlockout(blockout));
+                evt.menu.AppendAction("Move to Top Level", _ => PutInFolder(blockout, ""),
+                    string.IsNullOrEmpty(blockout.Folder) ? DropdownMenuAction.Status.Disabled : DropdownMenuAction.Status.Normal);
+                evt.menu.AppendAction("Remove from List…", _ =>
+                {
+                    _selectedBlockout = index;
+                    RemoveSelectedBlockout();
+                });
+                evt.StopPropagation();
+            }));
+            // Dropping onto a blockout puts the dragged one in the same folder.
+            MakeListDropTarget(row, () => blockout.Folder ?? "");
+            return row;
+        }
+
+        // Takes a dragged blockout (into the folder) or list folder (moved inside it).
+        private void MakeListDropTarget(VisualElement element, Func<string> folder)
+        {
+            element.RegisterCallback<DragUpdatedEvent>(evt =>
+            {
+                bool blockout = DragAndDrop.GetGenericData(BlockoutDragKey) is BlockoutLevel;
+                bool listFolder = DragAndDrop.GetGenericData(FolderDragKey) is string dragged && CanMoveFolder(dragged, folder());
+                if (!blockout && !listFolder) return;
+                DragAndDrop.visualMode = DragAndDropVisualMode.Move;
+                evt.StopPropagation();
+            });
+            element.RegisterCallback<DragPerformEvent>(evt =>
+            {
+                string target = folder();
+                if (DragAndDrop.GetGenericData(BlockoutDragKey) is BlockoutLevel blockout)
+                {
+                    DragAndDrop.AcceptDrag();
+                    evt.StopPropagation();
+                    EditorApplication.delayCall += () => PutInFolder(blockout, target);
+                }
+                else if (DragAndDrop.GetGenericData(FolderDragKey) is string dragged && CanMoveFolder(dragged, target))
+                {
+                    DragAndDrop.AcceptDrag();
+                    evt.StopPropagation();
+                    EditorApplication.delayCall += () => RenameFolderPath(dragged, string.IsNullOrEmpty(target) ? FolderName(dragged) : target + "/" + FolderName(dragged));
+                }
+            });
+        }
+
+        private static bool CanMoveFolder(string folder, string into)
+            => !string.Equals(folder, into, StringComparison.OrdinalIgnoreCase)
+               && !into.StartsWith(folder + "/", StringComparison.OrdinalIgnoreCase)
+               && !string.Equals(ParentFolder(folder), into, StringComparison.OrdinalIgnoreCase);
+
+        private void PutInFolder(BlockoutLevel blockout, string folder)
+        {
+            if (blockout == null || string.Equals(blockout.Folder ?? "", folder ?? "", StringComparison.Ordinal))
+                return;
+            LevelDesignerContext.RecordProject("Move Blockout to Folder");
+            blockout.Folder = folder ?? "";
+            if (!string.IsNullOrEmpty(folder))
+                EditorPrefs.SetBool(OpenFoldersPref + folder, true);
+            RebuildBlockoutTree();
+        }
+
+        private void CreateListFolder(string parent)
+        {
+            var existing = AllListFolders();
+            string prefix = string.IsNullOrEmpty(parent) ? "" : parent + "/";
+            string name = "New Folder";
+            for (int n = 2; existing.Contains(prefix + name); n++)
+                name = "New Folder " + n;
+            LevelDesignerContext.RecordProject("New Level Folder");
+            Project.Folders.Add(prefix + name);
+            if (!string.IsNullOrEmpty(parent))
+                EditorPrefs.SetBool(OpenFoldersPref + parent, true);
+            _selectedFolder = prefix + name;
+            _selectedBlockout = -1;
+            RebuildBlockoutTree();
+            BuildArtPane();
+            // Start renaming the new folder.
+            _blockoutTree.schedule.Execute(() =>
+            {
+                if (_folderLabels.TryGetValue(prefix + name, out var label))
+                    RenameListFolder(label, prefix + name);
+            });
+        }
+
+        // Swaps the folder's name for a text field: Enter (or clicking away) renames it, Escape cancels.
+        private void RenameListFolder(Label label, string folder)
+        {
+            var host = label?.parent;
+            if (host == null) return;
+            var field = new TextField { value = FolderName(folder), style = { flexGrow = 1, marginLeft = 0, marginRight = 0 } };
+            label.style.display = DisplayStyle.None;
+            host.Insert(host.IndexOf(label) + 1, field);
+            bool done = false;
+            void Finish(bool apply)
+            {
+                if (done) return;
+                done = true;
+                string value = field.value?.Replace("/", " ").Trim();
+                field.RemoveFromHierarchy();
+                label.style.display = DisplayStyle.Flex;
+                if (apply && !string.IsNullOrEmpty(value) && value != FolderName(folder))
+                {
+                    string parent = ParentFolder(folder);
+                    RenameFolderPath(folder, string.IsNullOrEmpty(parent) ? value : parent + "/" + value);
+                }
+            }
+            field.RegisterCallback<KeyDownEvent>(evt =>
+            {
+                if (evt.keyCode == KeyCode.Return || evt.keyCode == KeyCode.KeypadEnter) { Finish(true); evt.StopPropagation(); }
+                else if (evt.keyCode == KeyCode.Escape) { Finish(false); evt.StopPropagation(); }
+            }, TrickleDown.TrickleDown);
+            field.RegisterCallback<FocusOutEvent>(_ => Finish(true));
+            field.RegisterCallback<PointerDownEvent>(evt => evt.StopPropagation());
+            field.schedule.Execute(() =>
+            {
+                field.Focus();
+                field.SelectAll();
+            }).ExecuteLater(1);
+        }
+
+        // Renames (or moves) a list folder, with everything inside it.
+        private void RenameFolderPath(string from, string to)
+        {
+            if (string.IsNullOrEmpty(to) || string.Equals(from, to, StringComparison.Ordinal))
+                return;
+            string Map(string folder) => folder == null ? null
+                : string.Equals(folder, from, StringComparison.OrdinalIgnoreCase) ? to
+                : folder.StartsWith(from + "/", StringComparison.OrdinalIgnoreCase) ? to + folder.Substring(from.Length)
+                : folder;
+            LevelDesignerContext.RecordProject("Rename Level Folder");
+            for (int i = 0; i < Project.Folders.Count; i++)
+                Project.Folders[i] = Map(Project.Folders[i]);
+            if (!Project.Folders.Contains(to))
+                Project.Folders.Add(to);
+            foreach (var blockout in Project.Blockouts)
+                blockout.Folder = Map(blockout.Folder ?? "") ?? "";
+            _selectedFolder = Map(_selectedFolder ?? "") ?? "";
+            EditorPrefs.SetBool(OpenFoldersPref + to, IsOpen(from));
+            RebuildBlockoutTree();
+        }
+
+        // Removes a list folder; its blockouts and folders move up into its parent.
+        private void DeleteListFolder(string folder)
+        {
+            string parent = ParentFolder(folder);
+            string Map(string f) => string.Equals(f, folder, StringComparison.OrdinalIgnoreCase) ? parent
+                : f.StartsWith(folder + "/", StringComparison.OrdinalIgnoreCase)
+                    ? (string.IsNullOrEmpty(parent) ? "" : parent + "/") + f.Substring(folder.Length + 1)
+                    : f;
+            LevelDesignerContext.RecordProject("Delete Level Folder");
+            Project.Folders.RemoveAll(f => string.Equals(f, folder, StringComparison.OrdinalIgnoreCase));
+            for (int i = 0; i < Project.Folders.Count; i++)
+                Project.Folders[i] = Map(Project.Folders[i]);
+            Project.Folders.RemoveAll(string.IsNullOrEmpty);
+            foreach (var blockout in Project.Blockouts)
+                blockout.Folder = Map(blockout.Folder ?? "");
+            if (string.Equals(_selectedFolder, folder, StringComparison.OrdinalIgnoreCase))
+                _selectedFolder = parent;
+            RebuildBlockoutTree();
+        }
+
         private void AddExistingBlockout()
         {
             string absolute = EditorUtility.OpenFilePanel("Add Blockout Scene", Application.dataPath, "unity");
@@ -453,7 +772,7 @@ namespace Remedy.LevelDesigner.Editor
             {
                 LevelDesignerContext.RecordProject("Rename Blockout");
                 blockout.Name = evt.newValue;
-                _blockoutList?.RefreshItems();
+                RebuildBlockoutTree();
             });
             header.Add(nameField);
             header.Add(SmallButton("Open", "Open the blockout scene (blockout tools appear in the Scene view)", () => LevelDesignerContext.OpenBlockout(blockout)));
@@ -590,7 +909,7 @@ namespace Remedy.LevelDesigner.Editor
                 return;
             var editor = buildEditor.Invoke(null, new object[] { "Levels", scene, (Action)(() =>
             {
-                _blockoutList?.RefreshItems();
+                RebuildBlockoutTree();
                 if (_tab == Tab.Levels)
                     BuildArtPane();
             }) }) as VisualElement;
@@ -731,150 +1050,6 @@ namespace Remedy.LevelDesigner.Editor
             var asset = string.IsNullOrEmpty(path) ? null : AssetDatabase.LoadAssetAtPath<SceneAsset>(path);
             if (asset != null)
                 EditorGUIUtility.PingObject(asset);
-        }
-
-        // ---------------------------------------------------------------- characters
-
-        private void BuildCharacters()
-        {
-            var header = Header("Characters");
-            header.Add(SmallButton("Find in Project", "Look for prefabs with the character controller", () =>
-            {
-                _characters.Clear();
-                _characters.AddRange(CharacterMetricsAnalyzer.FindCharacterPrefabs());
-                _charactersScanned = true;
-                Rebuild();
-            }));
-            var add = new ObjectField { objectType = typeof(GameObject), allowSceneObjects = false, tooltip = "Add a character prefab", style = { width = 180 } };
-            add.RegisterValueChangedCallback(evt =>
-            {
-                if (evt.newValue is GameObject prefab && !_characters.Contains(prefab))
-                {
-                    if (CharacterMetricsAnalyzer.IsCharacter(prefab))
-                    {
-                        _characters.Add(prefab);
-                        Rebuild();
-                    }
-                    else
-                        EditorUtility.DisplayDialog("Level Designer", $"{prefab.name} doesn't have the Physics Based Character Controller.", "OK");
-                }
-            });
-            header.Add(add);
-            header.Add(SmallButton("Export JSON", "Save every listed character's numbers as JSON", () => CharacterMetricsAnalyzer.Export(CollectMetrics(), false)));
-            header.Add(SmallButton("Export CSV", "Save every listed character's numbers as CSV", () => CharacterMetricsAnalyzer.Export(CollectMetrics(), true)));
-            _body.Add(header);
-
-            if (ActiveCharacter.Prefab != null && !_characters.Contains(ActiveCharacter.Prefab))
-                _characters.Insert(0, ActiveCharacter.Prefab);
-
-            var scroll = new ScrollView { style = { flexGrow = 1 } };
-            _body.Add(scroll);
-            if (_characters.Count == 0)
-            {
-                scroll.Add(Hint(_charactersScanned
-                    ? "No prefabs with the Physics Based Character Controller were found."
-                    : "Press Find in Project, or drop a character prefab in the field above."));
-                return;
-            }
-
-            foreach (var prefab in _characters)
-            {
-                if (prefab == null)
-                    continue;
-                scroll.Add(CharacterCard(prefab));
-            }
-        }
-
-        private List<CharacterMetrics> CollectMetrics()
-        {
-            var list = new List<CharacterMetrics>();
-            foreach (var prefab in _characters)
-                if (prefab != null && CharacterMetricsAnalyzer.TryAnalyze(prefab, out var metrics))
-                    list.Add(metrics);
-            return list;
-        }
-
-        private VisualElement CharacterCard(GameObject prefab)
-        {
-            var card = Card();
-            card.style.width = StyleKeyword.Auto;
-            card.style.minHeight = StyleKeyword.Auto;
-            card.style.marginLeft = 6;
-
-            var top = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center } };
-            var title = new Label(prefab.name) { style = { unityFontStyleAndWeight = FontStyle.Bold, flexGrow = 1 } };
-            top.Add(title);
-            bool active = ActiveCharacter.Prefab == prefab;
-            var useToggle = new Toggle("Use for Rulers") { value = active, tooltip = "The blockout's Jump Arc and Run rulers use this character" };
-            useToggle.RegisterValueChangedCallback(evt =>
-            {
-                ActiveCharacter.Prefab = evt.newValue ? prefab : null;
-                Rebuild();
-            });
-            top.Add(useToggle);
-            top.Add(SmallButton("Ping", "Show the prefab", () => EditorGUIUtility.PingObject(prefab)));
-            top.Add(SmallButton("Jump Ruler Here", "Place a jump arc ruler at the Scene view's pivot", () => PlaceRulerAtPivot(prefab, BlockoutRulerKind.JumpArc)));
-            top.Add(SmallButton("Run Ruler Here", "Place a 1 second run ruler at the Scene view's pivot", () => PlaceRulerAtPivot(prefab, BlockoutRulerKind.RunDistance)));
-            card.Add(top);
-
-            if (!CharacterMetricsAnalyzer.TryAnalyze(prefab, out var m))
-            {
-                card.Add(Hint("The controller has no Properties assigned, so there's nothing to measure."));
-                return card;
-            }
-
-            var table = new VisualElement { style = { flexDirection = FlexDirection.Row, flexWrap = Wrap.Wrap, marginTop = 4 } };
-            void Row(string label, string value, string tooltip)
-            {
-                var cell = new VisualElement { tooltip = tooltip, style = { width = 175, flexDirection = FlexDirection.Row, marginBottom = 2 } };
-                cell.Add(new Label(label) { style = { width = 105, color = new Color(0.7f, 0.7f, 0.7f) } });
-                cell.Add(new Label(value) { style = { unityFontStyleAndWeight = FontStyle.Bold } });
-                table.Add(cell);
-            }
-            string M(float v) => BlockoutShape.FormatMeters(v) + " m";
-            string S(float v) => v.ToString("0.##") + " s";
-            Row("Run speed", BlockoutShape.FormatMeters(m.MoveSpeed) + " m/s", "Top speed on the ground and in the air");
-            Row("Run 1 s / 3 s", M(m.RunDistance(1f)) + " / " + M(m.RunDistance(3f)), "Distance from a standstill");
-            Row("To top speed", S(m.TimeToTopSpeed) + ", " + M(m.DistanceToTopSpeed), "Time and distance to reach top speed");
-            Row("Stopping", M(m.StopDistance), "Slide after letting go at top speed");
-            Row("Jump height", M(m.JumpHeight), "How far the feet rise (highest ledge that can be jumped onto)");
-            Row("Rise / hang", S(m.RiseTime) + " / " + S(m.HangTime), "Time going up, time held at the top");
-            Row("Air time", S(m.AirTime), "A jump landing at the height it started");
-            Row("Jump distance", M(m.JumpDistance), "A running jump landing at the starting height (widest gap)");
-            Row("Fall", BlockoutShape.FormatMeters(m.FallAcceleration) + " m/s²", "Downward acceleration while falling, gravity included");
-            Row("Jump again after", S(m.JumpCooldown), "Delay after landing before the next jump");
-            if (m.CanHover)
-            {
-                Row("Hover", S(m.HoverTime) + " at " + BlockoutShape.FormatMeters(m.HoverSpeed) + " m/s", "A full hover");
-                Row("Hover distance", M(m.HoverDistance), "Extra distance a full hover adds");
-            }
-            card.Add(table);
-            card.Add(new Label($"Gravity {BlockoutShape.FormatMeters(m.Gravity)} m/s², physics step {m.FixedTimeStep:0.###} s. Predictions from the tuning: springs and collisions make the real motion a little softer.")
-            {
-                style = { fontSize = 10, color = new Color(0.6f, 0.6f, 0.6f), whiteSpace = WhiteSpace.Normal, marginTop = 2 },
-            });
-            return card;
-        }
-
-        private static void PlaceRulerAtPivot(GameObject prefab, BlockoutRulerKind kind)
-        {
-            if (LevelDesignerContext.Mode != LevelDesignerMode.Blockout)
-            {
-                EditorUtility.DisplayDialog("Level Designer", "Open a blockout first: rulers live in blockout scenes.", "OK");
-                return;
-            }
-            if (!CharacterMetricsAnalyzer.TryAnalyze(prefab, out var metrics))
-                return;
-            var view = SceneView.lastActiveSceneView;
-            Vector3 at = view != null ? view.pivot : Vector3.zero;
-            var forward = view != null ? view.rotation * Vector3.forward : Vector3.forward;
-            forward.y = 0f;
-            var rotation = forward.sqrMagnitude > 1e-4f ? Quaternion.LookRotation(forward.normalized) : Quaternion.identity;
-            var ruler = LevelDesignerSceneGUI.CreateRuler(kind, LevelDesignerSettings.SnapPoint(at), rotation,
-                $"{metrics.CharacterName} {(kind == BlockoutRulerKind.JumpArc ? "Jump" : "Run")}");
-            ruler.Character = prefab;
-            ruler.Metrics = metrics;
-            Selection.activeGameObject = ruler.gameObject;
         }
 
         // ---------------------------------------------------------------- palette

@@ -15,17 +15,21 @@ Open it from **Window → Remedy → Level Designer** (also under **Tools → Re
   - **Left: blockouts**, each with its thumbnail. Type a level name and press **+** (or Enter) to make a new
     blockout scene (camera, light, a 20 x 20 m floor and the blockout marker) in the levels folder and open it: no
     save dialog. **Add…** adds an existing scene. **−** removes the selected one from the list (optionally moving
-    its scenes to the trash). Double-click opens it. The blockout open right now is marked with ●.
+    its scenes to the trash). Double-click opens it. The blockout open right now is marked with ●. **New Folder**
+    (or right-click) makes a folder in the list: drag blockouts (or other folders) onto it, double-click its name to
+    rename it, and new blockouts go in the selected folder. These folders only group the list (they're kept in the
+    `LevelDesignProject` asset); the scenes stay in their level folders on disk.
   - **Right: variants** of the selected blockout, as cards with thumbnails: rename, notes, **Compose into build**,
     **Open** (opens the variant scene with the blockout loaded underneath, the variant active), **Duplicate**, **✕**
     (remove). The **+** card (or **+ Add Variant** with a name typed in) makes a new, empty variant scene in the
     blockout's **Variants** folder and opens it. **▶ Test Composed Scene…** merges the blockout with the variants
     you tick (the flagged ones to start with) and enters Play Mode (see *Composing variants*). **Blockout when
     composed** picks whether the blockout comes along visible, collision only, or not at all.
-- **Characters tab**: movement numbers for character prefabs (see *Character metrics*). **Find in Project** lists
-  every prefab with the Physics Based Character Controller; drop one in the field to add it by hand. **Use for
-  Rulers** picks the character the blockout's Jump Arc and Run rulers use. **Export JSON / CSV** saves everyone's
-  numbers for animators and spreadsheets.
+- **Reference character** (in the Scene view, the blockout toolbar's **Character** button): the Schematic prefab
+  with the Physics Based Character Controller that the Jump Arc and Run rulers are measured from. Drop a character
+  prefab on the button, or click it to pick one (**Find ▾** lists every character in the project), see its movement
+  numbers (see *Character metrics*), place **Jump / Run Ruler Here**, and **Export JSON / CSV** for animators and
+  spreadsheets.
 - **Palette tab**: the project's named blockout colours (see *Colours and the paint bucket*): recolour, rename,
   reorder (▲ ▼), remove, **+ Add Colour**, **Reset to Defaults**, and per colour **Use** / **Paint Selected**.
 - **Header**: **Blockout Overlay** (the X-ray toggle) and its opacity, the **Snap** step (0.125 / 0.25 / 0.5 /

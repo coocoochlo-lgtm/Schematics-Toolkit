@@ -37,6 +37,12 @@ namespace Remedy.LevelDesigner
         public List<BlockoutLevel> Blockouts = new();
 
         /// <summary>
+        /// The folders the Levels list groups blockouts into ("World 1/Forest"), kept here so empty ones stay. They
+        /// organize the list only: scenes stay in their own folders on disk (see <see cref="BlockoutLevel.Folder"/>).
+        /// </summary>
+        public List<string> Folders = new();
+
+        /// <summary>
         /// The team's named blockout colours ("Climbable", "Enemy Zone", "Secret"…), so everyone paints with the same
         /// colour language. Kept in this asset (not per user) so it's shared through version control. The blockout
         /// toolbar's colour swatch picks from it; the window's Palette tab edits it.
@@ -132,6 +138,12 @@ namespace Remedy.LevelDesigner
 
         /// <summary>The blockout scene's path when it was last seen (a fallback if the GUID can't be resolved).</summary>
         public string ScenePath;
+
+        /// <summary>
+        /// The folder the Levels list shows this blockout in ("World 1/Forest"; empty for the top). Only the list's
+        /// grouping: the scene itself stays at &lt;Levels Root&gt;/&lt;Level&gt;/, where the Level Designer's tools expect it.
+        /// </summary>
+        public string Folder = "";
 
         /// <summary>Free notes for the team: goals of the level, open questions.</summary>
         [TextArea] public string Notes;
