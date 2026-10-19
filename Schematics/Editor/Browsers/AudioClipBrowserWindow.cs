@@ -914,11 +914,6 @@ namespace Remedy.Schematics.Browsers
                 string path = AssetDatabase.GetAssetPath(clip);
                 _folderTree?.Reveal(GroupOf(path), path);
             });
-            menu.AddItem(new GUIContent("Delete"), false, () =>
-            {
-                if (ProjectAssetOps.Delete(new[] { AssetDatabase.GetAssetPath(clip) }))
-                    ReloadAssets();
-            });
             menu.AddSeparator("");
             foreach (var tag in AssetTags.In(TagSection))
             {
@@ -928,6 +923,15 @@ namespace Remedy.Schematics.Browsers
             menu.AddSeparator("");
             AddMoveMenus(menu, clip, MusicRoot);
             AddMoveMenus(menu, clip, SfxRoot);
+            menu.AddSeparator("");
+            // Asks first; the file goes to the system trash, so it can be restored from there.
+            menu.AddItem(new GUIContent("Delete Audio File…"), false, () =>
+            {
+                if (_previewClip == clip)
+                    StopPreview();
+                if (ProjectAssetOps.Delete(new[] { AssetDatabase.GetAssetPath(clip) }))
+                    ReloadAssets();
+            });
             menu.ShowAsContext();
         }
 
