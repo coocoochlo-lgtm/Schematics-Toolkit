@@ -96,6 +96,32 @@ namespace Remedy.Schematics.Browsers
             return row;
         }
 
+        /// <summary>Asks for a name and makes a new tag for a section (it isn't on any asset yet).</summary>
+        public static void PromptNewTag(string section, Action changed)
+            => TagNamePrompt.Open(section, tag => { Create(section, tag); changed?.Invoke(); });
+
+        /// <summary>Makes a tag for a section if it doesn't exist; returns its name as stored (or null).</summary>
+        public static string Create(string section, string tag)
+        {
+            tag = (tag ?? "").Trim().Replace("|", " ");
+            if (string.IsNullOrEmpty(tag))
+                return null;
+            var database = GetDatabase(section);
+            var tagSet = GetTagSet(database, section, false);
+            string existing = tagSet?.Names.FirstOrDefault(value => string.Equals(value, tag, StringComparison.OrdinalIgnoreCase));
+            if (existing != null)
+                return existing;
+            Undo.RecordObject(database, "Add Project Manager Tag");
+            tagSet ??= GetTagSet(database, section, true);
+            tagSet.Names.Add(tag);
+            EditorUtility.SetDirty(database);
+            AssetDatabase.SaveAssets();
+            return tag;
+        }
+
+        /// <summary>Puts a tag on an asset (making the tag if needed).</summary>
+        public static void Add(string section, UnityEngine.Object asset, string tag) => SetTag(asset, section, tag, null);
+
         private static void SetTag(UnityEngine.Object asset, string section, string tag, Action changed)
         {
             tag = (tag ?? "").Trim().Replace("|", " ");

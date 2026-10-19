@@ -287,6 +287,27 @@ namespace Remedy.Schematics.Templates
         /// <summary>Assets or folders were moved by dropping them on a folder tile (their new paths).</summary>
         public event Action<List<string>> Moved;
 
+        /// <summary>Fills the right-click menu of the grid's empty space (not a tile).</summary>
+        public Action<DropdownMenu> BackgroundMenu { get; set; }
+
+        /// <summary>A chip after the category chips (e.g. "+ New Tag"); null for none.</summary>
+        public string NewChipLabel { get; set; }
+
+        /// <summary>What the <see cref="NewChipLabel"/> chip does.</summary>
+        public Action NewChipAction { get; set; }
+
+        /// <summary>The DragAndDrop generic-data key a dragged chip carries (what <see cref="ChipDragData"/> returned).</summary>
+        public const string ChipDragKey = "Remedy.ProjectManager.Chip";
+
+        /// <summary>What dragging a chip carries (dropped on a tile, e.g. to tag it); null: the chip doesn't drag.</summary>
+        public Func<string, object> ChipDragData { get; set; }
+
+        /// <summary>Whether what's being dragged can be dropped on a tile (checked while dragging over it).</summary>
+        public Func<SchematicTemplate, bool> CanDropOnTile { get; set; }
+
+        /// <summary>Something was dropped on a tile (see <see cref="CanDropOnTile"/>).</summary>
+        public Action<SchematicTemplate> DropOnTile { get; set; }
+
         /// <summary>Starts renaming a folder tile in place.</summary>
         public void BeginRenameFolder(string folder)
             => _folderTiles.FirstOrDefault(t => t.Folder == folder)?.BeginRename();
@@ -347,6 +368,13 @@ namespace Remedy.Schematics.Templates
             _content.style.paddingBottom = 4;
             _scroll.Add(_content);
             Add(_scroll);
+            // Tiles and folder tiles build their own menus (and stop the event); this is the space around them.
+            _scroll.AddManipulator(new ContextualMenuManipulator(evt =>
+            {
+                if (BackgroundMenu == null) return;
+                BackgroundMenu(evt.menu);
+                evt.StopPropagation();
+            }));
 
             _empty = new Label("No templates yet.\nClick + to make one, or run Tools > Remedy > Schematics > Templates > Generate Level Kit Templates.");
             _empty.AddToClassList("schematic-grid__empty");
@@ -560,8 +588,54 @@ namespace Remedy.Schematics.Templates
                     chip.style.backgroundColor = SelectedColor;
                     chip.style.color = SelectedTextColor;
                 }
+                var dragData = ChipDragData?.Invoke(category);
+                if (dragData != null)
+                {
+                    chip.tooltip = "Click to filter; drag onto a tile to tag it.";
+                    MakeChipDraggable(chip, category, dragData);
+                }
                 _categoryBar.Add(chip);
             }
+
+            if (!string.IsNullOrEmpty(NewChipLabel))
+            {
+                var add = new Button(() => NewChipAction?.Invoke()) { text = NewChipLabel };
+                add.AddToClassList("schematic-grid__chip");
+                add.AddToClassList("schematic-grid__chip--new");
+                add.style.marginLeft = 0;
+                add.style.marginRight = 4;
+                add.style.marginTop = add.style.marginBottom = 1;
+                add.style.paddingLeft = add.style.paddingRight = 8;
+                add.style.height = 20;
+                add.style.opacity = 0.8f;
+                SetRadius(add.style, 10);
+                _categoryBar.Add(add);
+            }
+        }
+
+        // A chip dragged a few pixels starts a drag carrying its data (a click still just picks the chip).
+        private static void MakeChipDraggable(VisualElement chip, string label, object data)
+        {
+            Vector2 press = default;
+            bool pressed = false;
+            chip.RegisterCallback<PointerDownEvent>(evt =>
+            {
+                if (evt.button != 0) return;
+                pressed = true;
+                press = evt.position;
+            }, TrickleDown.TrickleDown);
+            chip.RegisterCallback<PointerMoveEvent>(evt =>
+            {
+                if (!pressed || (evt.pressedButtons & 1) == 0 || ((Vector2)evt.position - press).sqrMagnitude < 36f)
+                    return;
+                pressed = false;
+                DragAndDrop.PrepareStartDrag();
+                DragAndDrop.objectReferences = Array.Empty<UnityEngine.Object>();
+                DragAndDrop.paths = Array.Empty<string>();
+                DragAndDrop.SetGenericData(ChipDragKey, data);
+                DragAndDrop.StartDrag(label);
+            }, TrickleDown.TrickleDown);
+            chip.RegisterCallback<PointerUpEvent>(_ => pressed = false, TrickleDown.TrickleDown);
         }
 
         private void UpdateDetails()
@@ -980,6 +1054,26 @@ namespace Remedy.Schematics.Templates
 
                     RegisterCallback<PointerDownEvent>(OnPointerDown);
                     RegisterCallback<PointerMoveEvent>(OnPointerMove);
+                    // Things dropped on a tile (a tag chip, say) go to the grid's owner.
+                    RegisterCallback<DragUpdatedEvent>(evt =>
+                    {
+                        if (_grid.CanDropOnTile == null || !_grid.CanDropOnTile(Template))
+                            return;
+                        DragAndDrop.visualMode = DragAndDropVisualMode.Link;
+                        AddToClassList("schematic-grid__tile--drop");
+                        evt.StopPropagation();
+                    });
+                    RegisterCallback<DragLeaveEvent>(_ => RemoveFromClassList("schematic-grid__tile--drop"));
+                    RegisterCallback<DragExitedEvent>(_ => RemoveFromClassList("schematic-grid__tile--drop"));
+                    RegisterCallback<DragPerformEvent>(evt =>
+                    {
+                        RemoveFromClassList("schematic-grid__tile--drop");
+                        if (_grid.CanDropOnTile == null || !_grid.CanDropOnTile(Template))
+                            return;
+                        DragAndDrop.AcceptDrag();
+                        _grid.DropOnTile?.Invoke(Template);
+                        evt.StopPropagation();
+                    });
                     RegisterCallback<PointerUpEvent>(_ => _pressed = false);
                     this.AddManipulator(new ContextualMenuManipulator(evt => _grid.BuildTileMenu(evt, Template)));
                 }

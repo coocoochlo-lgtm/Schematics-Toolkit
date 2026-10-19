@@ -124,31 +124,11 @@ namespace Remedy.Schematics.Browsers
         protected override void BuildHeader(VisualElement header)
         {
             header.Add(HeaderToggle("Folders", "On: browse folder by folder. Off: show every clip in the selection at once.", "FolderView", true, _ => RebuildCards()));
-            var importFile = new Button(ImportFiles) { text = "Import Audio" };
-            importFile.tooltip = "Copy an audio file into the selected folder.";
-            importFile.AddToClassList("schematic-browser__button");
-            header.Add(importFile);
-
-            var importFolder = new Button(ImportFolder) { text = "Import Folder" };
-            importFolder.tooltip = "Copy an audio folder and its subfolders into the selected folder.";
-            importFolder.AddToClassList("schematic-browser__button");
-            header.Add(importFolder);
-
-            var newFolder = new Button(CreateFolder) { text = "New Folder", tooltip = "A new folder in the open folder (in SFX when All Audio is open)." };
-            newFolder.AddToClassList("schematic-browser__button");
-            header.Add(newFolder);
-
-            var newTag = new Button(CreateTag) { text = "New Tag" };
-            newTag.AddToClassList("schematic-browser__button");
-            header.Add(newTag);
+            // Importing, folders and tags: the "+" tile, the grid's right-click menu, and the "+ New Tag" chip.
         }
 
         protected override VisualElement BuildContent()
         {
-            var body = new VisualElement();
-            body.AddToClassList("audio-browser");
-            body.RegisterCallback<PointerUpEvent>(OnEditorClick, TrickleDown.TrickleDown);
-
             _folderTree = new ProjectFolderTree("Audio");
             _folderTree.AddToClassList("audio-browser__folders");
             _folderTree.SetAllRow("All Audio");
@@ -170,11 +150,13 @@ namespace Remedy.Schematics.Browsers
                 var group = _folderTree.SelectedGroup;
                 _selectedFolder = group == null ? AudioRoot : _folderTree.SelectedFolder ?? group.Root;
             }
-            body.Add(_folderTree);
-
             var main = new VisualElement();
             main.AddToClassList("audio-browser__main");
-            body.Add(main);
+
+            // The sidebar beside the clips, at the width all Project Manager pages share.
+            var body = ProjectManagerLayout.Split(_folderTree, main);
+            body.AddToClassList("audio-browser");
+            body.RegisterCallback<PointerUpEvent>(OnEditorClick, TrickleDown.TrickleDown);
 
             // The same top bar as the Schematics page (search and tile size), and the same shared tile size.
             var toolbar = SchematicTemplateGrid.CreateToolbar(out _search, out _tileSizeSlider);
@@ -193,6 +175,7 @@ namespace Remedy.Schematics.Browsers
             _clipGrid = new VisualElement();
             _clipGrid.AddToClassList("audio-browser__grid");
             scroll.Add(_clipGrid);
+            scroll.AddManipulator(new ContextualMenuManipulator(BuildBackgroundMenu));
             // Dropping on the grid moves clips and folders into the open folder.
             ProjectAssetOps.MakeDropTarget(scroll, () => _selectedFolder == AudioRoot ? null : _selectedFolder, _ => ReloadAssets(), "audio-browser__scroll--drop");
 
@@ -307,8 +290,65 @@ namespace Remedy.Schematics.Browsers
                     menu.ShowAsContext();
                     evt.StopPropagation();
                 });
+                button.tooltip = "Click to filter; drag onto a clip to tag it.";
+                MakeTagDraggable(button, tag);
                 _tagFilters.Add(button);
             }
+
+            var add = new Button(CreateTag) { text = "+ New Tag", tooltip = "Make a new audio tag." };
+            add.AddToClassList("audio-browser__tag-filter");
+            add.AddToClassList("audio-browser__tag-filter--new");
+            _tagFilters.Add(add);
+        }
+
+        private const string TagDragKey = "Remedy.AudioClipTag";
+
+        // A tag chip dragged a few pixels carries the tag (a click still filters by it).
+        private static void MakeTagDraggable(VisualElement chip, AudioClipTag tag)
+        {
+            Vector2 press = default;
+            bool pressed = false;
+            chip.RegisterCallback<PointerDownEvent>(evt =>
+            {
+                if (evt.button != 0) return;
+                pressed = true;
+                press = evt.position;
+            }, TrickleDown.TrickleDown);
+            chip.RegisterCallback<PointerMoveEvent>(evt =>
+            {
+                if (!pressed || (evt.pressedButtons & 1) == 0 || ((Vector2)evt.position - press).sqrMagnitude < 36f)
+                    return;
+                pressed = false;
+                DragAndDrop.PrepareStartDrag();
+                DragAndDrop.objectReferences = Array.Empty<UnityEngine.Object>();
+                DragAndDrop.paths = Array.Empty<string>();
+                DragAndDrop.SetGenericData(TagDragKey, tag);
+                DragAndDrop.StartDrag(tag.TagName);
+            }, TrickleDown.TrickleDown);
+            chip.RegisterCallback<PointerUpEvent>(_ => pressed = false, TrickleDown.TrickleDown);
+        }
+
+        // Clip cards take a dropped tag chip (a clip has one tag: the dropped one replaces it).
+        private void MakeTagDropTarget(VisualElement card, AudioClip clip)
+        {
+            card.RegisterCallback<DragUpdatedEvent>(evt =>
+            {
+                if (!(DragAndDrop.GetGenericData(TagDragKey) is AudioClipTag)) return;
+                DragAndDrop.visualMode = DragAndDropVisualMode.Link;
+                card.AddToClassList("audio-browser__card--drop");
+                evt.StopPropagation();
+            });
+            card.RegisterCallback<DragLeaveEvent>(_ => card.RemoveFromClassList("audio-browser__card--drop"));
+            card.RegisterCallback<DragExitedEvent>(_ => card.RemoveFromClassList("audio-browser__card--drop"));
+            card.RegisterCallback<DragPerformEvent>(evt =>
+            {
+                card.RemoveFromClassList("audio-browser__card--drop");
+                if (!(DragAndDrop.GetGenericData(TagDragKey) is AudioClipTag tag)) return;
+                DragAndDrop.AcceptDrag();
+                evt.StopPropagation();
+                if (!GetTags(clip).Contains(tag))
+                    EditorApplication.delayCall += () => ToggleTag(clip, tag);
+            });
         }
 
         private void RebuildCards()
@@ -321,6 +361,7 @@ namespace Remedy.Schematics.Browsers
                 _clipGrid.Clear();
                 _players.Clear();
                 _nameLabels.Clear();
+                _clipGrid.Add(BuildImportCard());
                 var folders = FolderView ? FoldersInView().Where(f => MatchesSearch(Path.GetFileName(f))).ToList() : new List<string>();
                 foreach (var folder in folders)
                     _clipGrid.Add(BuildFolderCard(folder));
@@ -335,6 +376,60 @@ namespace Remedy.Schematics.Browsers
             {
                 _rebuilding = false;
             }
+        }
+
+        // Where imports go: the open folder (SFX when All Audio is open).
+        private string ImportTarget => _selectedFolder == AudioRoot ? SfxRoot : SelectedImportRoot();
+
+        // The "+" card, first like the Schematics page's: imports audio files into the open folder.
+        private VisualElement BuildImportCard()
+        {
+            float size = TileSize;
+            var card = new VisualElement { tooltip = $"Import audio files into {ImportTarget}. Right-click the grid for folders and more." };
+            card.AddToClassList("audio-browser__card");
+            card.AddToClassList("audio-browser__import-card");
+            SizeCard(card, size);
+            card.style.alignItems = Align.Center;
+            card.style.justifyContent = Justify.Center;
+            var plus = new Label("+") { pickingMode = PickingMode.Ignore };
+            plus.AddToClassList("audio-browser__import-plus");
+            plus.style.fontSize = Mathf.Round(size * 0.4f);
+            card.Add(plus);
+            var label = new Label("Import Audio…") { pickingMode = PickingMode.Ignore };
+            label.AddToClassList("audio-browser__clip-name");
+            card.Add(label);
+            card.RegisterCallback<PointerDownEvent>(evt =>
+            {
+                if (evt.button != 0) return;
+                evt.StopPropagation();
+                EditorApplication.delayCall += ImportFiles;
+            });
+            return card;
+        }
+
+        // Right-clicking the grid's empty space: what the Project window offers there, for audio.
+        private void BuildBackgroundMenu(ContextualMenuPopulateEvent evt)
+        {
+            // Cards have their own menus; this one is only for the space around them.
+            if (IsWithin(evt.target as VisualElement, "audio-browser__card"))
+                return;
+            var menu = evt.menu;
+            menu.AppendAction("Import Audio…", _ => ImportFiles());
+            menu.AppendAction("Import Folder…", _ => ImportFolder());
+            menu.AppendSeparator();
+            menu.AppendAction("Create/Folder", _ => CreateFolder());
+            menu.AppendAction("Create/Tag…", _ => CreateTag());
+            menu.AppendSeparator();
+            string folder = _selectedFolder;
+            menu.AppendAction("Show in Project", _ => Ping(AssetDatabase.LoadMainAssetAtPath(folder)));
+            menu.AppendAction(SchematicObjectsBrowserWindow.RevealLabel, _ => EditorUtility.RevealInFinder(folder));
+            menu.AppendSeparator();
+            menu.AppendAction("Refresh", _ =>
+            {
+                AssetDatabase.Refresh();
+                ReloadAssets();
+            });
+            evt.StopPropagation();
         }
 
         // The folders shown as cards in the folder view: Music and SFX at the top, else the open folder's subfolders.
@@ -410,6 +505,7 @@ namespace Remedy.Schematics.Browsers
                     menu.AddItem(new GUIContent("Rename"), false, () => RenameFolder(name, folder));
                 menu.AddItem(new GUIContent("Show in Folder Tree"), false, () => _folderTree?.Reveal(GroupOf(folder), folder));
                 menu.AddItem(new GUIContent("Show in Project"), false, () => Ping(AssetDatabase.LoadMainAssetAtPath(folder)));
+                menu.AddItem(new GUIContent(SchematicObjectsBrowserWindow.RevealLabel), false, () => EditorUtility.RevealInFinder(folder));
                 if (!fixedFolder)
                 {
                     menu.AddSeparator("");
@@ -571,7 +667,12 @@ namespace Remedy.Schematics.Browsers
 
             timeline.PlayCue = playCue;
             _players.Add(timeline);
-            card.RegisterCallback<ContextClickEvent>(evt => ShowClipMenu(clip));
+            card.RegisterCallback<ContextClickEvent>(evt =>
+            {
+                ShowClipMenu(clip);
+                evt.StopPropagation(); // not the grid's own menu as well
+            });
+            MakeTagDropTarget(card, clip);
             return card;
         }
 
@@ -862,6 +963,7 @@ namespace Remedy.Schematics.Browsers
         {
             var menu = new GenericMenu();
             menu.AddItem(new GUIContent("Select in Project"), false, () => Ping(clip));
+            menu.AddItem(new GUIContent(SchematicObjectsBrowserWindow.RevealLabel), false, () => EditorUtility.RevealInFinder(AssetDatabase.GetAssetPath(clip)));
             menu.AddItem(new GUIContent("Rename"), false, () => BeginRenameClip(clip));
             menu.AddItem(new GUIContent("Show in Folder Tree"), false, () =>
             {

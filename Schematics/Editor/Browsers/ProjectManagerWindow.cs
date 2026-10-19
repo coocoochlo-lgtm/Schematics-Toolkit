@@ -4,6 +4,7 @@ using System.Reflection;
 using UnityEditor;
 using UnityEditor.UIElements;
 using UnityEngine;
+using Remedy.Schematics.Templates;
 using UnityEngine.UIElements;
 
 namespace Remedy.Schematics.Browsers
@@ -87,6 +88,12 @@ namespace Remedy.Schematics.Browsers
             _content.AddToClassList("project-manager__content");
             root.Add(_content);
             SelectSection(_section);
+            // Every page's sidebar at the shared width (pages like Levels rebuild theirs, so this keeps checking).
+            _content.schedule.Execute(() =>
+            {
+                if (_pageRoots.TryGetValue(_section, out var shown))
+                    ProjectManagerLayout.SyncAll(shown);
+            }).Every(400);
         }
 
         private void AddTab(VisualElement toolbar, Section section, string label)

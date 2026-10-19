@@ -83,19 +83,18 @@ namespace Remedy.Schematics.Browsers
 
         protected override VisualElement BuildContent()
         {
-            var body = new VisualElement();
-            body.AddToClassList("schematics-page");
-
             _tree = new ProjectFolderTree(Section);
             _tree.AddToClassList("schematics-page__tree");
             _tree.ExtraMenu = AddTreeMenu;
             _tree.SelectionChanged += OnTreeSelectionChanged;
             _tree.FoldersChanged += () => Grid?.Refresh();
-            body.Add(_tree);
 
             var grid = base.BuildContent();
             grid.AddToClassList("schematics-page__grid");
-            body.Add(grid);
+
+            // The sidebar beside the grid, at the width all Project Manager pages share (drag the divider to change it).
+            var body = ProjectManagerLayout.Split(_tree, grid);
+            body.AddToClassList("schematics-page");
 
             _tree.SetGroups(SchematicTypes.All.Select(kind => new ProjectFolderTree.Group
             {
@@ -124,6 +123,20 @@ namespace Remedy.Schematics.Browsers
             grid.DragAssetOf = entry => entry.Prefab != null ? null : AssetOf(entry);
             grid.Rename = RenameEntry;
             grid.ShareTileSize = true; // the same tile size as the Audio page
+            grid.BackgroundMenu = BuildBackgroundMenu;
+            grid.NewChipLabel = "+ New Tag";
+            grid.NewChipAction = () => ProjectManagerTags.PromptNewTag(TagSection, () => Grid?.Refresh());
+            // Project Manager tags ("Tag: X" chips) drag onto tiles to tag them.
+            grid.ChipDragData = chip => chip.StartsWith("Tag: ", StringComparison.Ordinal) ? new TagDrag(chip.Substring(5)) : null;
+            grid.CanDropOnTile = entry => DragAndDrop.GetGenericData(SchematicTemplateGrid.ChipDragKey) is TagDrag && AssetOf(entry) != null;
+            grid.DropOnTile = entry =>
+            {
+                if (DragAndDrop.GetGenericData(SchematicTemplateGrid.ChipDragKey) is TagDrag drag && AssetOf(entry) is { } asset)
+                {
+                    ProjectManagerTags.Add(TagSection, asset, drag.Tag);
+                    Grid?.Refresh();
+                }
+            };
             grid.FoldersSource = () => FolderView && _tree != null ? _tree.VisibleChildren(_tree.SelectedGroup, _tree.SelectedFolder) : null;
             grid.FolderOpened += folder => _tree?.Select(_tree.SelectedGroup?.Key, folder);
             grid.FolderMenu = BuildFolderMenu;
@@ -344,6 +357,7 @@ namespace Remedy.Schematics.Browsers
                 menu.AppendAction("Rename", _ => Grid?.BeginRename(entry));
                 menu.AppendAction("Show in Folder Tree", _ => Reveal(entry));
                 menu.AppendAction("Ping in Project", _ => Ping(asset));
+                menu.AppendAction(RevealLabel, _ => EditorUtility.RevealInFinder(PathOf(entry)));
                 menu.AppendSeparator();
                 menu.AppendAction("Delete", _ => DeleteEntry(entry));
                 return;
@@ -355,6 +369,7 @@ namespace Remedy.Schematics.Browsers
             menu.AppendAction("Rename", _ => Grid?.BeginRename(entry));
             menu.AppendAction("Show in Folder Tree", _ => Reveal(entry));
             menu.AppendAction("Ping in Project", _ => Ping(prefab));
+            menu.AppendAction(RevealLabel, _ => EditorUtility.RevealInFinder(PathOf(entry)));
             menu.AppendAction("Place in Scene", _ => SchematicObjectFactory.InstantiateInScene(entry));
             menu.AppendSeparator();
 
@@ -371,6 +386,57 @@ namespace Remedy.Schematics.Browsers
             menu.AppendSeparator();
             menu.AppendAction("Delete", _ => DeleteEntry(entry));
         }
+
+        /// <summary>A tag chip being dragged onto a tile.</summary>
+        private sealed class TagDrag
+        {
+            public readonly string Tag;
+            public TagDrag(string tag) => Tag = tag;
+        }
+
+        // Right-clicking the grid's empty space: what the Project window offers there, for the open kind and folder.
+        private void BuildBackgroundMenu(DropdownMenu menu)
+        {
+            var kind = Kind;
+            if (kind == null) return;
+            string folder = _tree?.TargetFolder ?? kind.DefaultFolder;
+            if (kind.ListsPrefabs)
+            {
+                menu.AppendAction("Create/Empty Schematic Object", _ => CreateIn(kind, folder));
+                menu.AppendAction("Create/Schematic Object From Template…", _ =>
+                {
+                    ProjectFolderTree.CreateFolderPath(folder);
+                    CreateSchematicObjectWindow.ShowForProject(folder);
+                });
+            }
+            else
+                menu.AppendAction($"Create/{kind.NewAssetName.Replace("New ", "")}", _ => CreateIn(kind, folder));
+            menu.AppendAction("Create/Folder", _ =>
+            {
+                var group = _tree?.SelectedGroup;
+                if (group != null) _tree.CreateFolder(group, folder);
+            });
+            menu.AppendAction("Create/Tag…", _ => ProjectManagerTags.PromptNewTag(TagSection, () => Grid?.Refresh()));
+            menu.AppendSeparator();
+            bool exists = AssetDatabase.IsValidFolder(folder);
+            var status = exists ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled;
+            menu.AppendAction("Show in Project", _ => Ping(AssetDatabase.LoadMainAssetAtPath(folder)), status);
+            menu.AppendAction(RevealLabel, _ => EditorUtility.RevealInFinder(folder), status);
+            menu.AppendSeparator();
+            menu.AppendAction("Refresh", _ =>
+            {
+                AssetDatabase.Refresh();
+                SchematicObjectIndex.Rescan();
+            });
+        }
+
+        // What the OS calls its file browser.
+        internal static string RevealLabel => Application.platform switch
+        {
+            RuntimePlatform.OSXEditor => "Reveal in Finder",
+            RuntimePlatform.WindowsEditor => "Show in Explorer",
+            _ => "Open in File System",
+        };
 
         // Selects the entry's folder in the sidebar, so it's easy to see where it lives.
         private void Reveal(SchematicTemplate entry)
@@ -398,6 +464,7 @@ namespace Remedy.Schematics.Browsers
             menu.AppendAction("Rename", _ => Grid?.BeginRenameFolder(folder));
             menu.AppendAction("Show in Folder Tree", _ => { if (group != null) _tree.Reveal(group.Key, folder); });
             menu.AppendAction("Show in Project", _ => Ping(AssetDatabase.LoadMainAssetAtPath(folder)));
+            menu.AppendAction(RevealLabel, _ => EditorUtility.RevealInFinder(folder));
             menu.AppendSeparator();
             menu.AppendAction("Delete", _ =>
             {

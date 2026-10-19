@@ -253,13 +253,11 @@
 }
 
 .audio-browser {
-    flex-direction: row;
     flex-grow: 1;
     min-height: 0;
 }
 
 .audio-browser__folders {
-    width: 175px;
     min-width: 125px;
     flex-shrink: 0;
     padding: 6px 4px;
@@ -501,13 +499,11 @@
 
 /* The Schematics page: the kinds/folders tree beside the grid. */
 .schematics-page {
-    flex-direction: row;
     flex-grow: 1;
     min-height: 0;
 }
 
 .schematics-page__tree {
-    width: 190px;
     min-width: 130px;
     padding: 6px 4px;
     border-right-width: 1px;
@@ -543,4 +539,20 @@
 .inline-rename {
     margin: 0;
     min-width: 40px;
+}
+
+.audio-browser__import-card {
+    background-color: rgba(46, 92, 140, 0.35);
+    border-color: rgba(127, 127, 127, 0.5);
+}
+
+.audio-browser__import-plus {
+    color: #ffffff;
+    -unity-font-style: bold;
+    opacity: 0.9;
+}
+
+.audio-browser__tag-filter--new,
+.schematic-grid__chip--new {
+    -unity-font-style: italic;
 }
