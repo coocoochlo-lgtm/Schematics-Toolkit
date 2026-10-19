@@ -572,3 +572,44 @@
 .audio-browser__card > .audio-browser__clip-name {
     margin-right: 18px;
 }
+
+/* Audio playback: a fill across the waveform that grows left to right, and a handle on its edge to drag through
+   the clip. */
+.audio-browser__progress {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 0;
+    background-color: rgba(255, 255, 255, 0.16);
+    border-right-width: 0;
+}
+
+.audio-browser__scrub {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 12px;
+    margin-left: -6px;
+    align-items: center;
+    cursor: resize-horizontal;
+}
+
+.audio-browser__scrub-grip {
+    width: 2px;
+    flex-grow: 1;
+    background-color: rgba(255, 255, 255, 0.85);
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-left-color: rgba(0, 0, 0, 0.35);
+    border-right-color: rgba(0, 0, 0, 0.35);
+}
+
+.audio-browser__scrub:hover .audio-browser__scrub-grip {
+    width: 4px;
+    background-color: #ffffff;
+}
+
+.audio-browser__time {
+    text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.6);
+}

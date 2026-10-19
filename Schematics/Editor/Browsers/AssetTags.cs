@@ -375,6 +375,7 @@ namespace Remedy.Schematics.Browsers
             {
                 var all = Chip("All", null, () => Select(null));
                 all.EnableInClassList("audio-browser__tag-filter--selected", Selected == null);
+                MakePressable(all, null);
                 Add(all);
             }
             foreach (var tag in AssetTags.In(_section))
@@ -391,12 +392,13 @@ namespace Remedy.Schematics.Browsers
                     evt.menu.AppendAction("Delete Tag…", _ => AssetTags.Delete(t));
                     evt.StopPropagation();
                 }));
-                MakeDraggable(chip, t);
+                MakePressable(chip, t);
                 Add(chip);
             }
             var add = Chip("+ New Tag", null, () => AssetTagWindow.Open(_section, null));
             add.AddToClassList("audio-browser__tag-filter--new");
             add.tooltip = "Make a new tag, then drag it onto assets.";
+            MakePressable(add, null);
             Add(add);
         }
 
@@ -407,18 +409,23 @@ namespace Remedy.Schematics.Browsers
             FilterChanged?.Invoke();
         }
 
-        private static Button Chip(string text, AssetTag tag, Action click)
+        // Chips are plain labels, not Buttons: a Button holds on to the mouse while it's pressed, and a drag started
+        // from it then sends its drop back to the chip instead of to whatever is under the cursor.
+        private static Label Chip(string text, AssetTag tag, Action click)
         {
-            var chip = new Button(click) { text = text };
+            var chip = new Label(text);
+            chip.AddToClassList("unity-button");
             chip.AddToClassList("audio-browser__tag-filter");
+            chip.userData = click;
             return chip;
         }
 
         private static Color ReadableOn(Color background)
             => background.r * 0.299f + background.g * 0.587f + background.b * 0.114f > 0.6f ? Color.black : Color.white;
 
-        // A chip dragged a few pixels carries its tag (a click still filters).
-        private static void MakeDraggable(VisualElement chip, AssetTag tag)
+        // Press and release without moving: the chip's click. Press and move a few pixels: a tag chip starts a drag
+        // carrying its tag. Nothing captures the pointer, so the drag's events go to what's under the cursor.
+        private static void MakePressable(VisualElement chip, AssetTag tag)
         {
             Vector2 press = default;
             bool pressed = false;
@@ -427,19 +434,28 @@ namespace Remedy.Schematics.Browsers
                 if (evt.button != 0) return;
                 pressed = true;
                 press = evt.position;
-            }, TrickleDown.TrickleDown);
+                evt.StopPropagation();
+            });
             chip.RegisterCallback<PointerMoveEvent>(evt =>
             {
-                if (!pressed || (evt.pressedButtons & 1) == 0 || ((Vector2)evt.position - press).sqrMagnitude < 36f)
+                if (tag == null || !pressed || (evt.pressedButtons & 1) == 0 || ((Vector2)evt.position - press).sqrMagnitude < 36f)
                     return;
                 pressed = false;
+                if (chip.HasPointerCapture(evt.pointerId))
+                    chip.ReleasePointer(evt.pointerId);
                 DragAndDrop.PrepareStartDrag();
                 DragAndDrop.objectReferences = Array.Empty<UnityEngine.Object>();
                 DragAndDrop.paths = Array.Empty<string>();
                 DragAndDrop.SetGenericData(AssetTags.DragKey, tag);
                 DragAndDrop.StartDrag(tag.TagName);
-            }, TrickleDown.TrickleDown);
-            chip.RegisterCallback<PointerUpEvent>(_ => pressed = false, TrickleDown.TrickleDown);
+            });
+            chip.RegisterCallback<PointerUpEvent>(evt =>
+            {
+                if (evt.button != 0 || !pressed) return;
+                pressed = false;
+                (chip.userData as Action)?.Invoke();
+            });
+            chip.RegisterCallback<PointerLeaveEvent>(_ => pressed = false);
         }
     }
 }

@@ -658,6 +658,9 @@ namespace Remedy.Schematics.Templates
                 if (!pressed || (evt.pressedButtons & 1) == 0 || ((Vector2)evt.position - press).sqrMagnitude < 36f)
                     return;
                 pressed = false;
+                // A chip is a Button, which holds the pointer while pressed; let go so the drag goes where the cursor is.
+                if (chip.HasPointerCapture(evt.pointerId))
+                    chip.ReleasePointer(evt.pointerId);
                 DragAndDrop.PrepareStartDrag();
                 DragAndDrop.objectReferences = Array.Empty<UnityEngine.Object>();
                 DragAndDrop.paths = Array.Empty<string>();

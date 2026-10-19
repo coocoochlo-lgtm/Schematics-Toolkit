@@ -484,6 +484,9 @@ namespace Remedy.Schematics.Browsers
             timeline.Container.style.right = 7f;
             timeline.Container.style.bottom = 5f;
             card.Add(timeline.Container);
+            // The playback fill sits over the waveform (under the name and tags); the scrub handle is on top.
+            card.Insert(Mathf.Min(2, card.childCount), timeline.Fill);
+            card.Add(timeline.Handle);
             card.Add(flash);
             card.Add(playCue);
 
@@ -553,40 +556,90 @@ namespace Remedy.Schematics.Browsers
             return card;
         }
 
+        // The card's player: a fill that grows from left to right across the waveform while the clip plays, a handle on
+        // its edge to drag through the clip, and the time. The card adds the fill and handle over its waveform.
         private PlayerControls BuildTimeline(AudioClip clip)
         {
-            var container = new VisualElement();
+            var container = new VisualElement { pickingMode = PickingMode.Ignore };
             container.AddToClassList("audio-browser__timeline");
-            container.AddToClassList("audio-player-control");
-            var time = new Label($"0:00 / {FormatTime(clip.length)}");
+            var time = new Label($"0:00 / {FormatTime(clip.length)}") { pickingMode = PickingMode.Ignore };
             time.AddToClassList("audio-browser__time");
             container.Add(time);
 
-            var seek = new Slider(0f, Mathf.Max(clip.samples - 1, 1))
+            var fill = new VisualElement { pickingMode = PickingMode.Ignore };
+            fill.AddToClassList("audio-browser__progress");
+
+            var handle = new VisualElement { tooltip = "Drag through the clip" };
+            handle.AddToClassList("audio-browser__scrub");
+            handle.AddToClassList("audio-player-control");
+            var grip = new VisualElement { pickingMode = PickingMode.Ignore };
+            grip.AddToClassList("audio-browser__scrub-grip");
+            handle.Add(grip);
+
+            var player = new PlayerControls(clip, container, fill, handle, time);
+            handle.RegisterCallback<PointerDownEvent>(evt =>
             {
-                value = 0f,
-                showInputField = false
-            };
-            seek.AddToClassList("audio-browser__timeline-slider");
-            seek.AddToClassList("audio-player-control");
-            seek.RegisterValueChangedCallback(evt =>
-            {
-                if (_previewClip == clip)
-                {
-                    _previewSamplePosition = Mathf.RoundToInt(evt.newValue);
-                    if (!_previewPaused)
-                        AudioPreview.SetSamplePosition(clip, _previewSamplePosition);
-                    else
-                        UpdatePreviewTime(clip, _previewSamplePosition);
-                }
+                if (evt.button != 0) return;
+                handle.CapturePointer(evt.pointerId);
+                player.Scrubbing = true;
+                Scrub(player, evt.position);
+                evt.StopPropagation();
             });
-            seek.RegisterCallback<PointerDownEvent>(_ =>
+            handle.RegisterCallback<PointerMoveEvent>(evt =>
             {
-                if (_previewClip != clip)
-                    StopPreview();
+                if (!player.Scrubbing || !handle.HasPointerCapture(evt.pointerId)) return;
+                Scrub(player, evt.position);
+                evt.StopPropagation();
             });
-            container.Add(seek);
-            return new PlayerControls(clip, container, seek, time);
+            handle.RegisterCallback<PointerUpEvent>(evt =>
+            {
+                if (!player.Scrubbing) return;
+                player.Scrubbing = false;
+                if (handle.HasPointerCapture(evt.pointerId))
+                    handle.ReleasePointer(evt.pointerId);
+                evt.StopPropagation();
+            });
+            player.SetFraction(0f);
+            return player;
+        }
+
+        // Moves the clip to where the handle is dragged: live while it plays; otherwise it's cued there, paused, and
+        // clicking the card plays from that point.
+        private void Scrub(PlayerControls player, Vector2 worldPosition)
+        {
+            var card = player.Fill.parent;
+            if (card == null) return;
+            var rect = card.worldBound;
+            float fraction = rect.width > 0f ? Mathf.Clamp01((worldPosition.x - rect.xMin) / rect.width) : 0f;
+            var clip = player.Clip;
+            int sample = Mathf.Clamp(Mathf.RoundToInt(fraction * clip.samples), 0, Mathf.Max(clip.samples - 1, 0));
+            if (_previewClip != clip)
+            {
+                StopPreview();
+                _previewClip = clip;
+                _previewPaused = true;
+            }
+            _previewSamplePosition = sample;
+            if (!_previewPaused)
+                AudioPreview.SetSamplePosition(clip, sample);
+            UpdatePreviewTime(clip, sample);
+        }
+
+        // The ▶ / ❚❚ cue in the middle of the card, flashed whenever the clip starts, resumes or pauses.
+        private void ShowCue(AudioClip clip, bool playing)
+        {
+            var player = _players.FirstOrDefault(p => p.Clip == clip);
+            var cue = player?.PlayCue;
+            if (cue == null) return;
+            cue.text = playing ? "▶" : "❚❚";
+            cue.RemoveFromClassList("audio-browser__play-cue--visible");
+            cue.schedule.Execute(() => cue.AddToClassList("audio-browser__play-cue--visible")).ExecuteLater(1);
+            int token = ++player.CueToken;
+            cue.schedule.Execute(() =>
+            {
+                if (player.CueToken == token)
+                    cue.RemoveFromClassList("audio-browser__play-cue--visible");
+            }).ExecuteLater(650);
         }
 
         private void TogglePreview(AudioClip clip)
@@ -597,6 +650,7 @@ namespace Remedy.Schematics.Browsers
                 {
                     AudioPreview.Play(clip, _previewSamplePosition);
                     _previewPaused = false;
+                    ShowCue(clip, true);
                 }
                 else
                 {
@@ -607,6 +661,7 @@ namespace Remedy.Schematics.Browsers
                     AudioPreview.Stop();
                     _previewPaused = true;
                     UpdatePreviewTime(clip, _previewSamplePosition);
+                    ShowCue(clip, false);
                 }
                 return;
             }
@@ -615,16 +670,7 @@ namespace Remedy.Schematics.Browsers
             _previewPaused = false;
             AudioPreview.Play(clip, _previewSamplePosition);
             _previewClip = clip;
-            var activePlayer = _players.FirstOrDefault(player => player.Clip == clip);
-            if (activePlayer != null)
-            {
-                activePlayer.PlayCue.AddToClassList("audio-browser__play-cue--visible");
-                activePlayer.PlayCue.schedule.Execute(() =>
-                {
-                    if (activePlayer.PlayCue != null)
-                        activePlayer.PlayCue.RemoveFromClassList("audio-browser__play-cue--visible");
-                }).ExecuteLater(650);
-            }
+            ShowCue(clip, true);
             UpdatePlayers();
         }
 
@@ -654,7 +700,7 @@ namespace Remedy.Schematics.Browsers
             {
                 if (player.Clip != _previewClip)
                 {
-                    player.Seek.SetValueWithoutNotify(0f);
+                    player.SetFraction(0f);
                     player.Time.text = $"0:00 / {FormatTime(player.Clip.length)}";
                 }
             }
@@ -685,7 +731,7 @@ namespace Remedy.Schematics.Browsers
             var player = _players.FirstOrDefault(item => item.Clip == clip);
             if (player == null)
                 return;
-            player.Seek.SetValueWithoutNotify(samplePosition);
+            player.SetFraction(clip.samples > 0 ? samplePosition / (float)clip.samples : 0f);
             player.Time.text = FormatTime(samplePosition / (float)clip.frequency) + " / " + FormatTime(clip.length);
         }
 
@@ -1052,20 +1098,32 @@ namespace Remedy.Schematics.Browsers
         {
             public readonly AudioClip Clip;
             public readonly VisualElement Container;
-            public readonly Slider Seek;
+            public readonly VisualElement Fill;
+            public readonly VisualElement Handle;
             public readonly Label Time;
             public Label PlayCue;
             public Vector2 PressPosition;
             public double PressTime;
             public bool Pressed;
             public bool Dragged;
+            public bool Scrubbing;
+            public int CueToken;
 
-            public PlayerControls(AudioClip clip, VisualElement container, Slider seek, Label time)
+            public PlayerControls(AudioClip clip, VisualElement container, VisualElement fill, VisualElement handle, Label time)
             {
                 Clip = clip;
                 Container = container;
-                Seek = seek;
+                Fill = fill;
+                Handle = handle;
                 Time = time;
+            }
+
+            /// <summary>How far through the clip (0 to 1): the fill's width and the handle's place.</summary>
+            public void SetFraction(float fraction)
+            {
+                fraction = Mathf.Clamp01(fraction);
+                Fill.style.width = Length.Percent(fraction * 100f);
+                Handle.style.left = Length.Percent(fraction * 100f);
             }
         }
 
