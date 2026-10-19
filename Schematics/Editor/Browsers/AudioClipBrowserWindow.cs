@@ -367,15 +367,29 @@ namespace Remedy.Schematics.Browsers
                 return;
             _folderTree?.Reveal(GroupOf(path), path);
             ReloadAssets();
+            // The cards are rebuilt more than once after an import (the import, then Unity's own change notice), so the
+            // card is looked up when it's time to scroll, and only a card that's still in the grid is scrolled to.
+            int tries = 0;
             _page?.schedule.Execute(() =>
             {
-                if (!_nameLabels.TryGetValue(clip, out var label) || label.parent == null)
+                tries++;
+                if (_clipScroll == null || !_nameLabels.TryGetValue(clip, out var label))
                     return;
                 var card = label.parent;
-                _clipScroll?.ScrollTo(card);
+                if (card == null || card.panel == null || !_clipScroll.contentContainer.Contains(card))
+                    return;
+                tries = int.MaxValue;
+                try
+                {
+                    _clipScroll.ScrollTo(card);
+                }
+                catch (ArgumentException)
+                {
+                    return; // replaced while scrolling: nothing to show
+                }
                 FlashCard(card);
                 card.schedule.Execute(() => FlashCard(card)).ExecuteLater(450);
-            }).ExecuteLater(30);
+            }).Every(150).Until(() => tries > 10);
             EditorGUIUtility.PingObject(clip);
         }
 

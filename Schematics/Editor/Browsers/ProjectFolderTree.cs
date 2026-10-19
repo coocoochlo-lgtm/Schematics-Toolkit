@@ -186,7 +186,12 @@ namespace Remedy.Schematics.Browsers
                 folder = null;
             Select(groupKey, folder);
             if (_rows.TryGetValue(Key(groupKey, folder), out var row))
-                schedule.Execute(() => _scroll.ScrollTo(row));
+                schedule.Execute(() =>
+                {
+                    // Only a row that's still in the tree (a rebuild may have replaced it meanwhile).
+                    if (row.panel != null && _scroll.contentContainer.Contains(row))
+                        _scroll.ScrollTo(row);
+                });
         }
 
         private void AddChildren(Row parent, Group group, HashSet<string> folders, string under, int depth)

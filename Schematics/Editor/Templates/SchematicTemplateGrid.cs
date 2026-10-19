@@ -447,7 +447,12 @@ namespace Remedy.Schematics.Templates
                 return false;
             Selected = null;
             Select(template, true);
-            schedule.Execute(() => _scroll.ScrollTo(tile)).ExecuteLater(1);
+            schedule.Execute(() =>
+            {
+                // Only a tile that's still in the grid (a refresh may have replaced it meanwhile).
+                if (tile.panel != null && _scroll.contentContainer.Contains(tile))
+                    _scroll.ScrollTo(tile);
+            }).ExecuteLater(1);
             tile.Flash();
             return true;
         }
@@ -467,7 +472,8 @@ namespace Remedy.Schematics.Templates
             UpdateDetails();
             var selectedTile = _tiles.FirstOrDefault(t => t.Template == template && t.Template != null);
             if (scrollIntoView && selectedTile != null)
-                _scroll.ScrollTo(selectedTile);
+                if (selectedTile.panel != null && _scroll.contentContainer.Contains(selectedTile))
+                    _scroll.ScrollTo(selectedTile);
             SelectionChanged?.Invoke(template);
         }
 
