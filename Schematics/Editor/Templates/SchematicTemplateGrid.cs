@@ -951,6 +951,7 @@ namespace Remedy.Schematics.Templates
                         badge.pickingMode = PickingMode.Ignore;
                         badge.style.position = Position.Absolute;
                         badge.style.left = 3;
+                        badge.style.right = 3;
                         badge.style.bottom = 3;
                         _image.Add(badge);
                     }

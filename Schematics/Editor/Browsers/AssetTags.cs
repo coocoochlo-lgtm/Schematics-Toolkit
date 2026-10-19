@@ -193,24 +193,52 @@ namespace Remedy.Schematics.Browsers
             });
         }
 
-        /// <summary>Small coloured dots for an asset's tags (named in the tooltip), for a thumbnail's corner.</summary>
+        /// <summary>
+        /// An asset's tags as small coloured spheres (all of them, wrapping onto more lines when there are many).
+        /// Hovering a sphere opens it into the tag's pill, with its name.
+        /// </summary>
         public static VisualElement Dots(IReadOnlyList<AssetTag> tags)
         {
             var row = new VisualElement { pickingMode = PickingMode.Ignore };
             row.AddToClassList("asset-tag-dots");
             row.style.flexDirection = FlexDirection.Row;
-            foreach (var tag in tags.Take(6))
-            {
-                var dot = new VisualElement { pickingMode = PickingMode.Ignore };
-                dot.style.width = dot.style.height = 9;
-                dot.style.marginRight = 2;
-                dot.style.borderTopLeftRadius = dot.style.borderTopRightRadius = dot.style.borderBottomLeftRadius = dot.style.borderBottomRightRadius = 5;
-                dot.style.backgroundColor = tag.Color;
-                dot.style.borderTopWidth = dot.style.borderBottomWidth = dot.style.borderLeftWidth = dot.style.borderRightWidth = 1;
-                dot.style.borderTopColor = dot.style.borderBottomColor = dot.style.borderLeftColor = dot.style.borderRightColor = new Color(0f, 0f, 0f, 0.55f);
-                row.Add(dot);
-            }
+            row.style.flexWrap = Wrap.Wrap;
+            row.style.alignItems = Align.Center;
+            foreach (var tag in tags)
+                row.Add(Sphere(tag));
             return row;
+        }
+
+        private static VisualElement Sphere(AssetTag tag)
+        {
+            const float size = 11f;
+            var pill = new VisualElement { tooltip = tag.TagName };
+            pill.AddToClassList("asset-tag-sphere");
+            pill.style.flexDirection = FlexDirection.Row;
+            pill.style.alignItems = Align.Center;
+            pill.style.height = size;
+            pill.style.minWidth = size;
+            pill.style.marginRight = 2;
+            pill.style.marginTop = 2;
+            pill.style.borderTopLeftRadius = pill.style.borderTopRightRadius = pill.style.borderBottomLeftRadius = pill.style.borderBottomRightRadius = size / 2f;
+            pill.style.backgroundColor = tag.Color;
+            pill.style.borderTopWidth = pill.style.borderBottomWidth = pill.style.borderLeftWidth = pill.style.borderRightWidth = 1;
+            pill.style.borderTopColor = pill.style.borderLeftColor = Color.Lerp(tag.Color, Color.white, 0.45f);
+            pill.style.borderBottomColor = pill.style.borderRightColor = Color.Lerp(tag.Color, Color.black, 0.5f);
+
+            var name = new Label(tag.TagName) { pickingMode = PickingMode.Ignore };
+            name.style.display = DisplayStyle.None;
+            name.style.fontSize = 9;
+            name.style.paddingLeft = name.style.paddingRight = 5;
+            name.style.paddingTop = name.style.paddingBottom = 0;
+            name.style.marginLeft = name.style.marginRight = name.style.marginTop = name.style.marginBottom = 0;
+            name.style.unityTextAlign = TextAnchor.MiddleCenter;
+            name.style.color = tag.Color.r * 0.299f + tag.Color.g * 0.587f + tag.Color.b * 0.114f > 0.6f ? Color.black : Color.white;
+            pill.Add(name);
+
+            pill.RegisterCallback<PointerEnterEvent>(_ => name.style.display = DisplayStyle.Flex);
+            pill.RegisterCallback<PointerLeaveEvent>(_ => name.style.display = DisplayStyle.None);
+            return pill;
         }
 
         internal sealed class Watcher : AssetPostprocessor

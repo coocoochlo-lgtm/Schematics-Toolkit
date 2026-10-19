@@ -454,19 +454,18 @@ namespace Remedy.Schematics.Browsers
                 EditorApplication.delayCall += () => BeginRenameClip(clip);
             });
 
+            // The clip's tags as spheres (hover one for its name).
             var tags = GetTags(clip);
-            var tagRow = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center } };
-            if (tags.Count > 0)
-                tagRow.Add(AssetTags.Dots(tags));
-            var tagNames = new Label(tags.Count > 0 ? string.Join(", ", tags.Select(t => t.TagName)) : "No tags");
-            tagNames.AddToClassList("audio-browser__card-tag");
-            tagNames.style.color = TextColorFor(card.style.backgroundColor.value);
-            tagNames.style.overflow = Overflow.Hidden;
-            tagNames.style.textOverflow = TextOverflow.Ellipsis;
-            tagNames.style.whiteSpace = WhiteSpace.NoWrap;
-            tagNames.style.flexShrink = 1;
-            tagRow.Add(tagNames);
-            tagRow.tooltip = tags.Count > 0 ? string.Join(", ", tags.Select(t => t.TagName)) : "No tags: drag a tag onto the clip";
+            var tagRow = AssetTags.Dots(tags);
+            tagRow.style.marginLeft = 2;
+            tagRow.style.marginRight = 2;
+            if (tags.Count == 0)
+            {
+                var none = new Label("No tags") { tooltip = "Drag a tag onto the clip" };
+                none.AddToClassList("audio-browser__card-tag");
+                none.style.color = TextColorFor(card.style.backgroundColor.value);
+                tagRow.Add(none);
+            }
             card.Add(tagRow);
 
             // "This is audio": a small speaker in the corner (Audio Graphs will show something of their own).
