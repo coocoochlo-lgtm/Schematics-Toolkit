@@ -1,8 +1,6 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
-using Unity.VisualScripting;
 using UnityEngine;
 
 namespace Remedy.Framework
@@ -35,21 +33,13 @@ namespace Remedy.Framework
         {
             get
             {
-                if (dictionary.ContainsKey(key))
-                    return dictionary[key];
-                else
-                {
-                    //Debug.LogWarning("Key " + key + " doesn't exist!");
-                    return default(TValue);
-                }
+                return dictionary.TryGetValue(key, out var value)
+                    ? value
+                    : default(TValue);
             }
-
             set
             {
-                if (!dictionary.ContainsKey(key))
-                    dictionary.Add(key, value);
-                else
-                    dictionary[key] = value;
+                dictionary[key] = value;
             }
         }
 
@@ -65,8 +55,7 @@ namespace Remedy.Framework
 
         public void Add(TKey key, TValue value)
         {
-            if (!dictionary.ContainsKey(key))
-                dictionary.Add(key, value);
+            dictionary.TryAdd(key, value);
         }
 
         public bool ContainsKey(TKey key)
@@ -189,36 +178,47 @@ namespace Remedy.Framework
             return dictionary;
         }
 
-        public TKey KeyAt(int index)
+        public KeyValuePair<TKey, TValue> KVPAt(int index)
         {
-            return dictionary.Keys.ElementAt(index);
-        }
+            if (index < 0 || index >= dictionary.Count)
+                throw new ArgumentOutOfRangeException(nameof(index));
 
-        public TValue ValueAt(int index)
-        {
-            return dictionary.Values.ElementAt(index);
+            int i = 0;
+            foreach (var kvp in dictionary)
+            {
+                if (i++ == index)
+                    return kvp;
+            }
+
+            throw new InvalidOperationException();
         }
 
         public override string ToString()
         {
-            var returnValue = "";
+            var sb = new System.Text.StringBuilder();
+            bool first = true;
 
-            var keyList = Keys.ToList();
-            for (int i = 0; i < keyList.Count; i++)
+            foreach (var pair in dictionary)
             {
-                var key = keyList[i];
+                if (!first)
+                    sb.Append(',');
 
-                var keyString = key is float ? (Math.Truncate(((float)(object)key) * 100) / 100).ToString() : key.ToString();
-                var valueString = this[key] is float ? (Math.Truncate(((float)(object)this[key]) * 100) / 100).ToString() : this[key].ToString();
-                var itemString = keyString + ":" + valueString;
+                first = false;
 
-                returnValue += itemString;
-
-                if (i < keyList.Count - 1)
-                    returnValue += ",";
+                sb.Append(FormatValue(pair.Key));
+                sb.Append(':');
+                sb.Append(FormatValue(pair.Value));
             }
 
-            return returnValue;
+            return sb.ToString();
+        }
+
+        private static string FormatValue<T>(T value)
+        {
+            if (value is float f)
+                return (Math.Truncate(f * 100) / 100).ToString();
+
+            return value?.ToString() ?? string.Empty;
         }
 
         /// <summary>
