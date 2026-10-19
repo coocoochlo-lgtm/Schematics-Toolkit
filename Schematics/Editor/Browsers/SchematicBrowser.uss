@@ -613,3 +613,35 @@
 .audio-browser__time {
     text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.6);
 }
+
+/* The pause cue: two rounded bars side by side, centred where the play triangle shows. */
+.audio-browser__pause {
+    display: none;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+}
+
+.audio-browser__pause-bar {
+    width: 7px;
+    height: 26px;
+    margin-left: 2px;
+    margin-right: 2px;
+    border-radius: 3.5px;
+    background-color: #ffffff;
+}
+
+.audio-browser__artist {
+    margin: 0 18px 0 2px;
+    font-size: 10px;
+    -unity-font-style: italic;
+    opacity: 0.85;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}

@@ -10,8 +10,9 @@ using UnityEngine.UIElements;
 namespace Remedy.Schematics.Browsers
 {
     /// <summary>
-    /// The Project Manager's tags, shared by every page: <see cref="AssetTag"/> assets (one set per section) put on
-    /// assets as labels, so an asset can have any number of them. Tags live in Assets/Project Manager/Tags/&lt;Section&gt;/.
+    /// The Project Manager's tags, shared by every page: <see cref="AssetTag"/> assets (one set per section), each
+    /// holding the GUIDs of the assets it's on, so an asset can have any number of them. Tags live in
+    /// Assets/Project Manager/Tags/&lt;Section&gt;/.
     /// </summary>
     public static class AssetTags
     {
@@ -21,6 +22,8 @@ namespace Remedy.Schematics.Browsers
         public const string DragKey = "Remedy.AssetTag";
 
         private static List<AssetTag> _all;
+        // Asset GUID → its tags, built from every tag's list (looked up for every tile, so it's kept ready).
+        private static Dictionary<string, List<AssetTag>> _byAsset;
 
         /// <summary>Raised when tags were made, edited, deleted, or put on or taken off assets.</summary>
         public static event Action Changed;
@@ -35,6 +38,8 @@ namespace Remedy.Schematics.Browsers
                     .Select(guid => AssetDatabase.LoadAssetAtPath<AssetTag>(AssetDatabase.GUIDToAssetPath(guid)))
                     .Where(tag => tag != null)
                     .ToList();
+                foreach (var tag in _all)
+                    AdoptLabels(tag);
                 return _all;
             }
         }
@@ -45,20 +50,58 @@ namespace Remedy.Schematics.Browsers
                 .OrderBy(tag => tag.TagName, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-        /// <summary>The tag's label (its asset GUID).</summary>
+        /// <summary>The label the earlier version of these tags put on assets (the tag's asset GUID).</summary>
         public static string LabelOf(AssetTag tag) => tag == null ? null : AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(tag));
 
-        /// <summary>The section's tags an asset has.</summary>
+        private static string GuidOf(UnityEngine.Object asset)
+        {
+            if (asset == null) return null;
+            string path = AssetDatabase.GetAssetPath(asset);
+            return string.IsNullOrEmpty(path) ? null : AssetDatabase.AssetPathToGUID(path);
+        }
+
+        private static Dictionary<string, List<AssetTag>> ByAsset
+        {
+            get
+            {
+                if (_byAsset != null)
+                    return _byAsset;
+                _byAsset = new Dictionary<string, List<AssetTag>>(StringComparer.OrdinalIgnoreCase);
+                foreach (var tag in AllTags)
+                {
+                    tag.AssetGuids ??= new List<string>();
+                    foreach (var guid in tag.AssetGuids)
+                    {
+                        if (string.IsNullOrEmpty(guid)) continue;
+                        if (!_byAsset.TryGetValue(guid, out var list))
+                            _byAsset[guid] = list = new List<AssetTag>();
+                        list.Add(tag);
+                    }
+                }
+                return _byAsset;
+            }
+        }
+
+        /// <summary>The section's tags an asset has, A to Z.</summary>
         public static List<AssetTag> Of(UnityEngine.Object asset, string section)
         {
-            if (asset == null)
+            string guid = GuidOf(asset);
+            if (guid == null || !ByAsset.TryGetValue(guid, out var tags))
                 return new List<AssetTag>();
-            var labels = new HashSet<string>(AssetDatabase.GetLabels(asset), StringComparer.OrdinalIgnoreCase);
-            return In(section).Where(tag => labels.Contains(LabelOf(tag))).ToList();
+            return tags.Where(tag => tag != null && string.Equals(tag.Section, section, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(tag => tag.TagName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
 
         public static bool Has(UnityEngine.Object asset, AssetTag tag)
-            => asset != null && tag != null && AssetDatabase.GetLabels(asset).Contains(LabelOf(tag), StringComparer.OrdinalIgnoreCase);
+        {
+            string guid = GuidOf(asset);
+            return guid != null && tag != null && tag.AssetGuids != null && tag.AssetGuids.Contains(guid, StringComparer.OrdinalIgnoreCase);
+        }
+
+        /// <summary>The paths of the assets with a tag (ones that no longer exist are skipped).</summary>
+        public static IEnumerable<string> AssetsWith(AssetTag tag)
+            => tag?.AssetGuids?.Select(AssetDatabase.GUIDToAssetPath).Where(p => !string.IsNullOrEmpty(p)) ?? Enumerable.Empty<string>();
 
         public static void Add(UnityEngine.Object asset, AssetTag tag) => Set(asset, tag, true);
         public static void Remove(UnityEngine.Object asset, AssetTag tag) => Set(asset, tag, false);
@@ -66,17 +109,44 @@ namespace Remedy.Schematics.Browsers
 
         private static void Set(UnityEngine.Object asset, AssetTag tag, bool on)
         {
-            if (asset == null || tag == null)
+            string guid = GuidOf(asset);
+            if (guid == null || tag == null)
+            {
+                Debug.LogWarning($"[Project Manager] Couldn't tag '{(asset != null ? asset.name : "nothing")}': it isn't a project asset.");
                 return;
-            string label = LabelOf(tag);
-            var labels = AssetDatabase.GetLabels(asset).ToList();
-            bool has = labels.Contains(label, StringComparer.OrdinalIgnoreCase);
+            }
+            tag.AssetGuids ??= new List<string>();
+            bool has = tag.AssetGuids.Contains(guid, StringComparer.OrdinalIgnoreCase);
             if (has == on)
                 return;
-            if (on) labels.Add(label);
-            else labels.RemoveAll(l => string.Equals(l, label, StringComparison.OrdinalIgnoreCase));
-            AssetDatabase.SetLabels(asset, labels.ToArray());
+            Undo.RecordObject(tag, on ? "Add Tag" : "Remove Tag");
+            if (on) tag.AssetGuids.Add(guid);
+            else tag.AssetGuids.RemoveAll(g => string.Equals(g, guid, StringComparison.OrdinalIgnoreCase));
+            EditorUtility.SetDirty(tag);
+            AssetDatabase.SaveAssetIfDirty(tag);
+            _byAsset = null;
             Changed?.Invoke();
+        }
+
+        // Tags from the earlier version were asset labels: those assets go into the tag's list, and the label comes off.
+        private static void AdoptLabels(AssetTag tag)
+        {
+            string label = LabelOf(tag);
+            if (string.IsNullOrEmpty(label)) return;
+            var labelled = AssetDatabase.FindAssets("l:" + label);
+            if (labelled.Length == 0) return;
+            tag.AssetGuids ??= new List<string>();
+            foreach (var guid in labelled)
+            {
+                if (!tag.AssetGuids.Contains(guid, StringComparer.OrdinalIgnoreCase))
+                    tag.AssetGuids.Add(guid);
+                var asset = AssetDatabase.LoadMainAssetAtPath(AssetDatabase.GUIDToAssetPath(guid));
+                if (asset != null)
+                    AssetDatabase.SetLabels(asset, AssetDatabase.GetLabels(asset)
+                        .Where(l => !string.Equals(l, label, StringComparison.OrdinalIgnoreCase)).ToArray());
+            }
+            EditorUtility.SetDirty(tag);
+            AssetDatabase.SaveAssetIfDirty(tag);
         }
 
         /// <summary>Makes a tag in a section (or returns the one with that name).</summary>
@@ -107,19 +177,11 @@ namespace Remedy.Schematics.Browsers
         {
             if (tag == null)
                 return false;
-            string label = LabelOf(tag);
-            var tagged = AssetDatabase.FindAssets("l:" + label).Select(AssetDatabase.GUIDToAssetPath).ToList();
+            int tagged = AssetsWith(tag).Count();
             if (!EditorUtility.DisplayDialog("Delete Tag",
-                    $"Delete the tag '{tag.TagName}'?" + (tagged.Count > 0 ? $" It comes off the {tagged.Count} asset(s) that have it." : ""),
+                    $"Delete the tag '{tag.TagName}'?" + (tagged > 0 ? $" It comes off the {tagged} asset(s) that have it." : ""),
                     "Delete", "Cancel"))
                 return false;
-            foreach (var path in tagged)
-            {
-                var asset = AssetDatabase.LoadMainAssetAtPath(path);
-                if (asset != null)
-                    AssetDatabase.SetLabels(asset, AssetDatabase.GetLabels(asset)
-                        .Where(l => !string.Equals(l, label, StringComparison.OrdinalIgnoreCase)).ToArray());
-            }
             AssetDatabase.DeleteAsset(AssetDatabase.GetAssetPath(tag));
             Invalidate();
             Changed?.Invoke();
@@ -127,7 +189,11 @@ namespace Remedy.Schematics.Browsers
         }
 
         /// <summary>Forgets the tag list (it's found again when next asked for).</summary>
-        public static void Invalidate() => _all = null;
+        public static void Invalidate()
+        {
+            _all = null;
+            _byAsset = null;
+        }
 
         internal static void RaiseChanged() => Changed?.Invoke();
 
@@ -140,17 +206,19 @@ namespace Remedy.Schematics.Browsers
             var tag = Create(section, name, color);
             if (tag == null || string.IsNullOrEmpty(oldLabel))
                 return tag;
-            string label = LabelOf(tag);
+            tag.AssetGuids ??= new List<string>();
             foreach (var guid in AssetDatabase.FindAssets("l:" + oldLabel))
             {
+                if (!tag.AssetGuids.Contains(guid, StringComparer.OrdinalIgnoreCase))
+                    tag.AssetGuids.Add(guid);
                 var asset = AssetDatabase.LoadMainAssetAtPath(AssetDatabase.GUIDToAssetPath(guid));
-                if (asset == null) continue;
-                var labels = AssetDatabase.GetLabels(asset)
-                    .Where(l => !string.Equals(l, oldLabel, StringComparison.OrdinalIgnoreCase)).ToList();
-                if (!labels.Contains(label, StringComparer.OrdinalIgnoreCase))
-                    labels.Add(label);
-                AssetDatabase.SetLabels(asset, labels.ToArray());
+                if (asset != null)
+                    AssetDatabase.SetLabels(asset, AssetDatabase.GetLabels(asset)
+                        .Where(l => !string.Equals(l, oldLabel, StringComparison.OrdinalIgnoreCase)).ToArray());
             }
+            EditorUtility.SetDirty(tag);
+            AssetDatabase.SaveAssetIfDirty(tag);
+            _byAsset = null;
             return tag;
         }
 

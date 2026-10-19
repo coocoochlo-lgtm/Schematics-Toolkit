@@ -438,12 +438,32 @@ namespace Remedy.Schematics.Browsers
 
             var playCue = new Label("▶") { pickingMode = PickingMode.Ignore };
             playCue.AddToClassList("audio-browser__play-cue");
+            // The pause symbol: two rounded bars, close together (a text "❚❚" sits too far apart).
+            var pauseBars = new VisualElement { name = "pause", pickingMode = PickingMode.Ignore };
+            pauseBars.AddToClassList("audio-browser__pause");
+            for (int i = 0; i < 2; i++)
+            {
+                var bar = new VisualElement { pickingMode = PickingMode.Ignore };
+                bar.AddToClassList("audio-browser__pause-bar");
+                pauseBars.Add(bar);
+            }
+            playCue.Add(pauseBars);
 
             var name = new Label(clip.name) { tooltip = AssetDatabase.GetAssetPath(clip) };
             name.AddToClassList("audio-browser__clip-name");
             name.style.color = TextColorFor(card.style.backgroundColor.value);
             card.Add(name);
             _nameLabels[clip] = name;
+
+            // Who made it, when the file says (its ID3, Vorbis or WAV tags).
+            string artist = AudioMetadata.ArtistOf(AssetDatabase.GetAssetPath(clip));
+            if (!string.IsNullOrEmpty(artist))
+            {
+                var by = new Label(artist) { tooltip = "Creator (from the file's own tags)", pickingMode = PickingMode.Ignore };
+                by.AddToClassList("audio-browser__artist");
+                by.style.color = TextColorFor(card.style.backgroundColor.value);
+                card.Add(by);
+            }
             // Double-clicking the name renames the clip (instead of previewing it).
             name.RegisterCallback<PointerDownEvent>(evt =>
             {
@@ -631,7 +651,10 @@ namespace Remedy.Schematics.Browsers
             var player = _players.FirstOrDefault(p => p.Clip == clip);
             var cue = player?.PlayCue;
             if (cue == null) return;
-            cue.text = playing ? "▶" : "❚❚";
+            cue.text = playing ? "▶" : "";
+            var pause = cue.Q("pause");
+            if (pause != null)
+                pause.style.display = playing ? DisplayStyle.None : DisplayStyle.Flex;
             cue.RemoveFromClassList("audio-browser__play-cue--visible");
             cue.schedule.Execute(() => cue.AddToClassList("audio-browser__play-cue--visible")).ExecuteLater(1);
             int token = ++player.CueToken;
