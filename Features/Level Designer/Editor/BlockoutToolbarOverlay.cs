@@ -104,7 +104,8 @@ namespace Remedy.LevelDesigner.Editor
         // character prefab on it.
         private EditorToolbarDropdown CharacterButton()
         {
-            var button = new EditorToolbarDropdown("Character", EditorGUIUtility.IconContent("d_Avatar Icon")?.image as Texture2D);
+            var button = new EditorToolbarDropdown("Character", null);
+            button.icon = EditorGUIUtility.IconContent(EditorGUIUtility.isProSkin ? "d_Avatar Icon" : "Avatar Icon")?.image as Texture2D;
             void Sync()
             {
                 var prefab = ActiveCharacter.Prefab;
