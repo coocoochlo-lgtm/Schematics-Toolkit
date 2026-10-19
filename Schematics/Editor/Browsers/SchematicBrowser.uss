@@ -439,3 +439,86 @@
     padding: 3px 8px;
     opacity: 0.65;
 }
+
+/* Project Manager sidebar tree (ProjectFolderTree): groups are foldouts holding their folders. */
+.folder-tree {
+    flex-shrink: 0;
+}
+
+.folder-tree__scroll {
+    flex-grow: 1;
+}
+
+.folder-tree__row {
+    flex-direction: row;
+    align-items: center;
+    height: 22px;
+    margin: 1px 0;
+    padding-right: 4px;
+    border-radius: 3px;
+}
+
+.folder-tree__row:hover {
+    background-color: rgba(127, 127, 127, 0.18);
+}
+
+.folder-tree__row--group {
+    -unity-font-style: bold;
+}
+
+.folder-tree__row--selected,
+.folder-tree__row--selected:hover {
+    background-color: var(--schematic-accent);
+    color: #ffffff;
+}
+
+.folder-tree__arrow {
+    width: 14px;
+    flex-shrink: 0;
+    -unity-text-align: middle-center;
+    opacity: 0.8;
+}
+
+.folder-tree__icon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    margin-right: 4px;
+}
+
+.folder-tree__label {
+    flex-grow: 1;
+    flex-shrink: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    -unity-text-align: middle-left;
+}
+
+.folder-tree__rename {
+    flex-grow: 1;
+    margin: 0;
+}
+
+/* The Schematics page: the kinds/folders tree beside the grid. */
+.schematics-page {
+    flex-direction: row;
+    flex-grow: 1;
+    min-height: 0;
+}
+
+.schematics-page__tree {
+    width: 190px;
+    min-width: 130px;
+    padding: 6px 4px;
+    border-right-width: 1px;
+    border-right-color: var(--schematic-border);
+}
+
+.schematics-page__grid {
+    flex-grow: 1;
+    min-width: 0;
+}
+
+.audio-browser__rename {
+    margin: 2px 4px;
+}

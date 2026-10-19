@@ -77,7 +77,7 @@ namespace Remedy.Schematics.Browsers
 
             var toolbar = new Toolbar();
             toolbar.AddToClassList("project-manager__tabs");
-            AddTab(toolbar, Section.SchematicObjects, "Schematic Objects");
+            AddTab(toolbar, Section.SchematicObjects, "Schematics");
             AddTab(toolbar, Section.Audio, "Audio");
             if (SchematicBrowsers.HasLevelDesigner)
                 AddTab(toolbar, Section.LevelDesigner, "Level Designer");

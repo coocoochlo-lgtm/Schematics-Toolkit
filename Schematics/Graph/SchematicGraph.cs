@@ -11,6 +11,7 @@ using UnityEditor;
 
 namespace Remedy.Schematics
 {
+    [SchematicType("Objects", Order = 0, ListsPrefabs = true, Icon = "Prefab Icon", NewAssetName = "New Schematic Object")]
     public class SchematicGraph : Graph, ISchematicAsset
     {
         [SerializeField, HideInInspector]

@@ -150,7 +150,7 @@ namespace Remedy.Schematics.Browsers
         {
             var nav = new VisualElement();
             nav.AddToClassList("schematic-browser__nav");
-            AddNavButton(nav, "Objects", "PrefabVariant Icon", "Schematic Objects: every Schematic prefab in the project.",
+            AddNavButton(nav, "Schematics", "PrefabVariant Icon", "Schematics: every Schematic Object, Singleton and other Schematic in the project.",
                 typeof(SchematicObjectsBrowserWindow), SchematicBrowsers.OpenSchematicObjects);
             AddNavButton(nav, "Audio", "AudioClip Icon", "Audio Clips: organize, tag and preview audio.",
                 typeof(AudioClipBrowserWindow), AudioClipBrowserWindow.Open);

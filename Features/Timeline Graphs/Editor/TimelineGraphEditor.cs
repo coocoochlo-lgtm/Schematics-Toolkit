@@ -38,12 +38,20 @@ namespace Remedy.Schematics.TimelineGraphs
             if (!string.IsNullOrEmpty(selected))
                 folder = AssetDatabase.IsValidFolder(selected) ? selected : Path.GetDirectoryName(selected).Replace('\\', '/');
 
+            var graph = CreateIn(folder);
+            Selection.activeObject = graph;
+            EditorGUIUtility.PingObject(graph);
+        }
+
+        /// <summary>A new Timeline Graph (and its Timeline) in a folder. Also how the Project Manager makes one.</summary>
+        [SchematicTypeCreator(typeof(TimelineGraph))]
+        public static TimelineGraph CreateIn(string folder)
+        {
             string path = AssetDatabase.GenerateUniqueAssetPath($"{folder}/New Timeline Graph.asset");
             var graph = ScriptableObject.CreateInstance<TimelineGraph>();
             AssetDatabase.CreateAsset(graph, path);
             CreateTimeline(graph);
-            Selection.activeObject = graph;
-            EditorGUIUtility.PingObject(graph);
+            return graph;
         }
 
         /// <summary>Makes a Timeline for a graph (next to it), with a Schematic track ready for markers.</summary>

@@ -13,12 +13,24 @@ namespace Remedy.Schematics.Browsers
         public List<string> Names = new();
     }
 
+    /// <summary>Folders made inside one of a section's groups (by GUID, so moves and renames keep them).</summary>
+    [Serializable]
+    public sealed class ProjectManagerFolderSet
+    {
+        public string Section;
+        public string Group;
+        public List<string> FolderGuids = new();
+    }
+
     public sealed class ProjectManagerTagDatabase : ScriptableObject
     {
         private const string AssetFolder = "Assets/Project Manager";
         private const string AssetPath = AssetFolder + "/ProjectManagerTags.asset";
 
         public List<ProjectManagerTagSet> Sections = new();
+
+        [Tooltip("Folders made in a Project Manager sidebar group, so they show there even while empty.")]
+        public List<ProjectManagerFolderSet> Folders = new();
 
         internal static ProjectManagerTagDatabase LoadOrCreate()
         {

@@ -14,6 +14,7 @@ namespace Remedy.Schematics.TimelineGraphs
     /// Seek...). Every object playing it has its own player, so many objects can play one Timeline Graph at once.
     /// Made with Assets/Create/Schematics/Timeline Graph (which makes its Timeline too).
     /// </summary>
+    [SchematicType("Timelines", Order = 20, Icon = "TimelineAsset Icon", NewAssetName = "New Timeline Graph")]
     public class TimelineGraph : SchematicGraph
     {
         public override string Title => "TIMELINE";

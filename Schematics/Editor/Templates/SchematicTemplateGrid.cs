@@ -182,6 +182,33 @@ namespace Remedy.Schematics.Templates
         /// <summary>What the grid says when there's nothing at all to show. Null: the "No templates yet" hint.</summary>
         public string EmptyMessage { get; set; }
 
+        /// <summary>A tile's picture, for tiles that aren't prefabs (graph assets). Null: the prefab's thumbnail.</summary>
+        public Func<SchematicTemplate, Texture> ThumbnailOf { get; set; }
+
+        /// <summary>
+        /// The asset a tile drags as (into fields and other windows). Null, or null for a tile: it drags as a template,
+        /// which the Scene view places.
+        /// </summary>
+        public Func<SchematicTemplate, UnityEngine.Object> DragAssetOf { get; set; }
+
+        /// <summary>
+        /// Renames a tile's asset; returns false if it couldn't. Set to allow renaming: double-click a tile's name, press
+        /// F2, or call <see cref="BeginRename"/> (e.g. from the right-click menu).
+        /// </summary>
+        public Func<SchematicTemplate, string, bool> Rename { get; set; }
+
+        /// <summary>Starts renaming a tile in place (when <see cref="Rename"/> is set and the tile is shown).</summary>
+        public void BeginRename(SchematicTemplate template)
+        {
+            if (Rename == null || template == null)
+                return;
+            var tile = _tiles.FirstOrDefault(t => t.Template == template);
+            if (tile == null)
+                return;
+            Select(template);
+            tile.BeginRename();
+        }
+
         /// <param name="prefsKey">Remembers the tile size and category per use (EditorPrefs key prefix).</param>
         public SchematicTemplateGrid(string prefsKey = "Remedy.Schematics.TemplateGrid")
         {
@@ -308,9 +335,17 @@ namespace Remedy.Schematics.Templates
             SelectionChanged?.Invoke(template);
         }
 
+        // While a tile is being renamed, rebuilding would throw its text field away: the rebuild waits until it's done.
+        private bool _renaming, _refreshAfterRename;
+
         /// <summary>Rebuilds the chips and tiles from <see cref="SchematicTemplates.All"/>.</summary>
         public void Refresh()
         {
+            if (_renaming)
+            {
+                _refreshAfterRename = true;
+                return;
+            }
             BuildCategories();
 
             _content.Clear();
@@ -474,6 +509,10 @@ namespace Remedy.Schematics.Templates
                 case KeyCode.Return:
                 case KeyCode.KeypadEnter:
                     PickSelected();
+                    break;
+                case KeyCode.F2:
+                    if (Rename == null || Selected == null) return;
+                    BeginRename(Selected);
                     break;
                 case KeyCode.LeftArrow: Move(-1, 0); break;
                 case KeyCode.RightArrow: Move(1, 0); break;
@@ -745,8 +784,57 @@ namespace Remedy.Schematics.Templates
 
             public void UpdateThumbnail()
             {
-                if (Template != null)
-                    _image.image = SchematicTemplates.Thumbnail(Template.Prefab);
+                if (Template == null)
+                    return;
+                var custom = _grid.ThumbnailOf?.Invoke(Template);
+                _image.image = custom != null ? custom : SchematicTemplates.Thumbnail(Template.Prefab);
+            }
+
+            private TextField _renameField;
+
+            public void BeginRename()
+            {
+                if (Template == null || _renameField != null || _grid.Rename == null)
+                    return;
+                _renameField = new TextField { value = Template.DisplayName };
+                _renameField.AddToClassList("schematic-grid__rename");
+                _renameField.style.width = _label.style.width;
+                _renameField.style.marginTop = 2;
+                _label.style.display = DisplayStyle.None;
+                Add(_renameField);
+                _grid._renaming = true;
+                bool done = false;
+                void Finish(bool apply)
+                {
+                    if (done) return;
+                    done = true;
+                    string value = _renameField.value?.Trim();
+                    _renameField.RemoveFromHierarchy();
+                    _renameField = null;
+                    _label.style.display = DisplayStyle.Flex;
+                    _grid._renaming = false;
+                    if (apply && !string.IsNullOrEmpty(value) && value != Template.DisplayName && _grid.Rename(Template, value))
+                        _label.text = value;
+                    _grid.Focus();
+                    if (_grid._refreshAfterRename)
+                    {
+                        _grid._refreshAfterRename = false;
+                        _grid.schedule.Execute(_grid.Refresh);
+                    }
+                }
+                _renameField.RegisterCallback<KeyDownEvent>(evt =>
+                {
+                    if (evt.keyCode == KeyCode.Return || evt.keyCode == KeyCode.KeypadEnter) { Finish(true); evt.StopPropagation(); }
+                    else if (evt.keyCode == KeyCode.Escape) { Finish(false); evt.StopPropagation(); }
+                    else evt.StopPropagation(); // typing mustn't move the selection
+                }, TrickleDown.TrickleDown);
+                _renameField.RegisterCallback<FocusOutEvent>(_ => Finish(true));
+                _renameField.RegisterCallback<PointerDownEvent>(evt => evt.StopPropagation());
+                _renameField.schedule.Execute(() =>
+                {
+                    _renameField?.Focus();
+                    _renameField?.SelectAll();
+                });
             }
 
             public void Resize(float size)
@@ -798,7 +886,12 @@ namespace Remedy.Schematics.Templates
                 if (evt.clickCount == 2)
                 {
                     _pressed = false;
-                    _grid.Picked?.Invoke(Template);
+                    // Double-clicking the name renames; anywhere else opens.
+                    var local = _label.WorldToLocal(evt.position);
+                    if (_grid.Rename != null && _label.ContainsPoint(local))
+                        EditorApplication.delayCall += BeginRename;
+                    else
+                        _grid.Picked?.Invoke(Template);
                 }
                 evt.StopPropagation();
             }
@@ -812,6 +905,15 @@ namespace Remedy.Schematics.Templates
                     return;
                 _pressed = false;
                 DragAndDrop.PrepareStartDrag();
+                var asset = _grid.DragAssetOf?.Invoke(Template);
+                if (asset != null)
+                {
+                    DragAndDrop.objectReferences = new[] { asset };
+                    DragAndDrop.paths = new[] { AssetDatabase.GetAssetPath(asset) };
+                    DragAndDrop.StartDrag(Template.DisplayName);
+                    evt.StopPropagation();
+                    return;
+                }
                 DragAndDrop.objectReferences = Array.Empty<UnityEngine.Object>();
                 DragAndDrop.paths = Array.Empty<string>();
                 DragAndDrop.SetGenericData(DragDataKey, Template);

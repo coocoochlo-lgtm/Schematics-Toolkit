@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using Remedy.Schematics.Templates;
 using UnityEditor;
 using UnityEngine;
@@ -8,61 +10,62 @@ using UnityEngine.UIElements;
 namespace Remedy.Schematics.Browsers
 {
     /// <summary>
-    /// The Schematic Objects section hosted in Project Manager: every Schematic prefab already in the project (any prefab under Assets/ with a Schematic Object
-    /// on its root), in the same grid as the Template Browser. Chips group them by folder or by Int Tag. Double-click
-    /// opens the prefab; drag a tile into the Scene view to place it; right-click to open its graph, ping it, make it a
-    /// template or tag it for level design.
+    /// The Schematics section hosted in Project Manager. A sidebar groups the project's Schematics by kind (Objects,
+    /// Singletons, Timelines, and any kind marked with <see cref="SchematicTypeAttribute"/>), each with the folders that
+    /// hold that kind, like assemblies in a solution explorer. The grid shows the selected kind (and folder). Objects
+    /// are Schematic prefabs: double-click opens the prefab, drag a tile into the Scene view to place it. Other kinds
+    /// are graph assets: double-click opens the graph, drag a tile into a field to assign it. Everything can be renamed
+    /// (double-click its name, or F2), and new ones can be empty or (for Objects) made from a template.
     /// </summary>
     /// <remarks>
-    /// The list comes from <see cref="SchematicObjectIndex"/>, which scans once and then follows imports, so it stays
-    /// current without rescanning the project on every change.
+    /// Objects come from <see cref="SchematicObjectIndex"/> and graphs from <see cref="SchematicTypes"/>; both follow
+    /// imports, so the page stays current without rescanning the project.
     /// </remarks>
     public class SchematicObjectsBrowserWindow : SchematicBrowserWindow
     {
-        private enum GroupBy { Folder, Tag }
+        private const string Section = "Schematics";
+        private const string TagSection = "SchematicObjects"; // the tag set's original name, kept so existing tags stay
 
-        private static readonly List<string> GroupChoices = new() { "Group by Folder", "Group by Tag" };
+        private readonly Dictionary<string, SchematicTemplate> _graphEntries = new(StringComparer.Ordinal);
+        private ProjectFolderTree _tree;
+        private Toggle _levelDesignOnly;
+        private string _renameWhenListed;
 
-        /// <summary>Opens Project Manager on the Schematic Objects section.</summary>
+        /// <summary>Opens Project Manager on the Schematics section.</summary>
         public static SchematicObjectsBrowserWindow Open() => ProjectManagerWindow.Open(ProjectManagerWindow.Section.SchematicObjects).ObjectsPage;
 
         protected override string PrefsKey => "Remedy.Schematics.ObjectsBrowser";
-        protected override string Title => "Schematic Objects";
+        protected override string Title => "Schematics";
         protected override string IconName => "PrefabVariant Icon";
-        protected override string Hint => "Double-click to open, or drag into the Scene view.";
+        protected override string Hint => "Double-click to open, double-click a name to rename, or drag out.";
 
-        private GroupBy Grouping
-        {
-            get => (GroupBy)EditorPrefs.GetInt($"{PrefsKey}.GroupBy", 0);
-            set => EditorPrefs.SetInt($"{PrefsKey}.GroupBy", (int)value);
-        }
+        private SchematicTypes.Info Kind => SchematicTypes.Find(_tree?.SelectedGroup?.Key) ?? SchematicTypes.All.FirstOrDefault();
 
         protected override void OnEnable()
         {
             base.OnEnable();
-            SchematicObjectIndex.Changed += OnIndexChanged;
+            SchematicObjectIndex.Changed += OnAssetsChanged;
+            SchematicTypes.Changed += OnAssetsChanged;
         }
 
         protected override void OnDisable()
         {
-            SchematicObjectIndex.Changed -= OnIndexChanged;
+            SchematicObjectIndex.Changed -= OnAssetsChanged;
+            SchematicTypes.Changed -= OnAssetsChanged;
             base.OnDisable();
         }
 
-        private void OnIndexChanged() => Grid?.schedule.Execute(() => Grid?.Refresh());
+        private void OnAssetsChanged() => Grid?.schedule.Execute(() =>
+        {
+            _tree?.Rebuild();
+            Grid?.Refresh();
+            RenamePending();
+        });
 
         protected override void BuildHeader(VisualElement header)
         {
-            var group = new DropdownField(GroupChoices, (int)Grouping) { tooltip = "What the chips group the objects by." };
-            group.AddToClassList("schematic-browser__dropdown");
-            group.RegisterValueChangedCallback(_ =>
-            {
-                Grouping = (GroupBy)Mathf.Max(0, GroupChoices.IndexOf(group.value));
-                ApplyGrouping();
-            });
-            header.Add(group);
-
-            header.Add(HeaderToggle("Level Design only", "Only show objects tagged Level Design.", "LevelDesignOnly", false, ApplyFilter));
+            _levelDesignOnly = HeaderToggle("Level Design only", "Only show objects tagged Level Design.", "LevelDesignOnly", false, _ => ApplyFilter());
+            header.Add(_levelDesignOnly);
 
             header.Add(new Button(SchematicObjectIndex.Rescan)
             {
@@ -71,49 +74,262 @@ namespace Remedy.Schematics.Browsers
             });
         }
 
+        protected override VisualElement BuildContent()
+        {
+            var body = new VisualElement();
+            body.AddToClassList("schematics-page");
+
+            _tree = new ProjectFolderTree(Section);
+            _tree.AddToClassList("schematics-page__tree");
+            _tree.ExtraMenu = AddTreeMenu;
+            _tree.SelectionChanged += OnTreeSelectionChanged;
+            _tree.FoldersChanged += () => Grid?.Refresh();
+            body.Add(_tree);
+
+            var grid = base.BuildContent();
+            grid.AddToClassList("schematics-page__grid");
+            body.Add(grid);
+
+            _tree.SetGroups(SchematicTypes.All.Select(kind => new ProjectFolderTree.Group
+            {
+                Key = kind.Key,
+                Label = kind.Name,
+                Icon = kind.Attribute.Icon,
+                DefaultFolder = kind.DefaultFolder,
+                Folders = () => FoldersOf(kind),
+            }));
+            OnTreeSelectionChanged();
+            return body;
+        }
+
         protected override void ConfigureGrid(SchematicTemplateGrid grid)
         {
             grid.ShowCreateTile = true;
             grid.CreateTileFirst = true;
-            grid.CreateTileLabel = "New Schematic Object…";
-            grid.CreateTileTooltip = "Choose a template and create a new Schematic Object prefab.";
-            grid.CreateTileAction = () =>
-                CreateSchematicObjectWindow.ShowForProject(SchematicObjectFactory.SelectedProjectFolder());
-            grid.EmptyMessage = "No Schematic Objects yet.\nUse the + tile to create one, or right-click in the Project window > Create > Schematics > Schematic Object.";
+            grid.CreateTileAction = ShowCreateMenu;
             grid.TileMenu = BuildMenu;
             grid.AdditionalTileMenu = (menu, entry) =>
-                ProjectManagerTags.AppendMenu(menu, "SchematicObjects", entry.Prefab, () => Grid?.Refresh());
-            grid.Source = () => SchematicObjectIndex.All;
-            ApplyGrouping();
-            ApplyFilter(EditorPrefs.GetBool($"{PrefsKey}.LevelDesignOnly", false));
+                ProjectManagerTags.AppendMenu(menu, TagSection, AssetOf(entry), () => Grid?.Refresh());
+            grid.Source = Entries;
+            grid.CategoriesOf = entry => ProjectManagerTags.Categories(TagSection, AssetOf(entry),
+                entry.Prefab != null ? SchematicObjectIndex.TagsOf(entry) : null);
+            grid.ThumbnailOf = entry => entry.Prefab != null ? null : ThumbnailOf(entry);
+            grid.DragAssetOf = entry => entry.Prefab != null ? null : AssetOf(entry);
+            grid.Rename = RenameEntry;
+            ApplyFilter();
         }
 
-        private void ApplyGrouping()
+        private void OnTreeSelectionChanged()
         {
-            if (Grid == null) return;
-            Grid.CategoriesOf = Grouping == GroupBy.Tag
-                ? new Func<SchematicTemplate, IEnumerable<string>>(entry =>
-                    ProjectManagerTags.Categories("SchematicObjects", entry.Prefab, SchematicObjectIndex.TagsOf(entry)))
-                : new Func<SchematicTemplate, IEnumerable<string>>(entry =>
-                    ProjectManagerTags.Categories("SchematicObjects", entry.Prefab, new[] { SchematicObjectIndex.FolderOf(entry) }));
+            var kind = Kind;
+            if (Grid == null || kind == null)
+                return;
+            Grid.CreateTileLabel = kind.ListsPrefabs ? "New Schematic Object…" : $"{kind.NewAssetName}…";
+            Grid.CreateTileTooltip = kind.ListsPrefabs
+                ? "A new Schematic Object prefab: empty, or from a template."
+                : $"A new {kind.Name} graph in the selected folder.";
+            Grid.EmptyMessage = $"No {kind.Name} here yet.\nUse the + tile to make one.";
+            if (_levelDesignOnly != null)
+                _levelDesignOnly.style.display = kind.ListsPrefabs ? DisplayStyle.Flex : DisplayStyle.None;
+            ApplyFilter();
+            Grid.Refresh();
         }
 
-        private void ApplyFilter(bool levelDesignOnly)
+        private void ApplyFilter()
         {
             if (Grid == null) return;
+            bool levelDesignOnly = EditorPrefs.GetBool($"{PrefsKey}.LevelDesignOnly", false) && Kind?.ListsPrefabs == true;
             Grid.Filter = levelDesignOnly ? new Func<SchematicTemplate, bool>(entry => entry.IsLevelDesign) : null;
         }
 
-        protected override void OnPicked(SchematicTemplate entry) => OpenPrefab(entry?.Prefab);
+        #region Entries
+
+        // The selected kind's Schematics, in the selected folder (and the folders below it).
+        private IEnumerable<SchematicTemplate> Entries()
+        {
+            var kind = Kind;
+            if (kind == null)
+                return Enumerable.Empty<SchematicTemplate>();
+            IEnumerable<SchematicTemplate> entries = kind.ListsPrefabs ? PrefabsOf(kind) : GraphsOf(kind);
+            string folder = _tree?.SelectedFolder;
+            if (string.IsNullOrEmpty(folder))
+                return entries;
+            return entries.Where(e => PathOf(e).StartsWith(folder + "/", StringComparison.Ordinal));
+        }
+
+        // Schematic prefabs listed by this kind: those whose graph's kind lists prefabs and is this one. Every other
+        // prefab (no graph yet, or a graph of a kind that lists assets, like a Timeline Graph) is in the first such kind.
+        private static IEnumerable<SchematicTemplate> PrefabsOf(SchematicTypes.Info kind)
+        {
+            var fallback = SchematicTypes.All.FirstOrDefault(k => k.ListsPrefabs);
+            return SchematicObjectIndex.All.Where(e =>
+            {
+                var graph = SchematicObjectFactory.GraphOf(e.Prefab);
+                var own = graph != null ? SchematicTypes.Of(graph.GetType()) : null;
+                return (own != null && own.ListsPrefabs ? own : fallback) == kind;
+            });
+        }
+
+        private IEnumerable<SchematicTemplate> GraphsOf(SchematicTypes.Info kind)
+        {
+            foreach (var path in SchematicTypes.AssetPaths(kind))
+            {
+                if (!_graphEntries.TryGetValue(path, out var entry))
+                    _graphEntries[path] = entry = new SchematicTemplate();
+                entry.Name = Path.GetFileNameWithoutExtension(path);
+                entry.Description = path;
+                entry.Category = Path.GetDirectoryName(path)?.Replace('\\', '/');
+                yield return entry;
+            }
+        }
+
+        private IEnumerable<string> FoldersOf(SchematicTypes.Info kind)
+            => (kind.ListsPrefabs ? PrefabsOf(kind).Select(PathOf) : SchematicTypes.AssetPaths(kind))
+                .Select(p => Path.GetDirectoryName(p)?.Replace('\\', '/'))
+                .Where(f => !string.IsNullOrEmpty(f))
+                .Distinct();
+
+        private static string PathOf(SchematicTemplate entry)
+            => entry.Prefab != null ? AssetDatabase.GetAssetPath(entry.Prefab) : entry.Description ?? "";
+
+        private static UnityEngine.Object AssetOf(SchematicTemplate entry)
+            => entry == null ? null : entry.Prefab != null ? entry.Prefab : AssetDatabase.LoadMainAssetAtPath(entry.Description ?? "");
+
+        private static Texture ThumbnailOf(SchematicTemplate entry)
+        {
+            var asset = AssetOf(entry);
+            var kind = asset != null ? SchematicTypes.Of(asset.GetType()) : null;
+            var icon = SchematicBrowsers.Icon(kind?.Attribute.Icon);
+            return icon != null ? icon : AssetPreview.GetMiniThumbnail(asset);
+        }
+
+        #endregion
+
+        #region Making and renaming
+
+        private void ShowCreateMenu()
+        {
+            var kind = Kind;
+            if (kind == null)
+                return;
+            string folder = _tree?.TargetFolder ?? kind.DefaultFolder;
+            if (!kind.ListsPrefabs)
+            {
+                CreateIn(kind, folder);
+                return;
+            }
+            var menu = new GenericMenu();
+            menu.AddItem(new GUIContent("Empty Schematic Object"), false, () => CreateIn(kind, folder));
+            menu.AddItem(new GUIContent("From Template…"), false, () =>
+            {
+                ProjectFolderTree.CreateFolderPath(folder);
+                CreateSchematicObjectWindow.ShowForProject(folder);
+            });
+            menu.ShowAsContext();
+        }
+
+        private void CreateIn(SchematicTypes.Info kind, string folder)
+        {
+            // A kind's default folder is made for it, so it shows in that kind's tree even before anything is in it.
+            bool isDefault = string.IsNullOrEmpty(folder) || folder == kind.DefaultFolder;
+            var asset = SchematicTypes.Create(kind, folder);
+            if (asset == null)
+                return;
+            if (isDefault)
+                ProjectFolderMarks.Mark(Section, kind.Key, kind.DefaultFolder);
+            _renameWhenListed = AssetDatabase.GetAssetPath(asset);
+            OnAssetsChanged();
+        }
+
+        // Starts renaming a just-made Schematic once the index lists it (prefabs are listed on the next editor tick).
+        private void RenamePending()
+        {
+            if (string.IsNullOrEmpty(_renameWhenListed) || Grid == null)
+                return;
+            var entry = Grid.Visible.FirstOrDefault(e => PathOf(e) == _renameWhenListed);
+            if (entry == null)
+                return;
+            _renameWhenListed = null;
+            Grid.BeginRename(entry);
+        }
+
+        private bool RenameEntry(SchematicTemplate entry, string name)
+        {
+            string path = PathOf(entry);
+            if (string.IsNullOrEmpty(path))
+                return false;
+            string error = AssetDatabase.RenameAsset(path, SafeName(name));
+            if (!string.IsNullOrEmpty(error))
+            {
+                Debug.LogWarning($"[Schematics] Couldn't rename '{path}': {error}");
+                return false;
+            }
+            if (entry.Prefab == null)
+            {
+                // The entry follows the asset to its new path.
+                _graphEntries.Remove(path);
+                string renamed = Path.GetDirectoryName(path)?.Replace('\\', '/') + "/" + SafeName(name) + Path.GetExtension(path);
+                entry.Description = renamed;
+                entry.Name = Path.GetFileNameWithoutExtension(renamed);
+                _graphEntries[renamed] = entry;
+            }
+            return true;
+        }
+
+        private static string SafeName(string name)
+        {
+            foreach (char invalid in Path.GetInvalidFileNameChars())
+                name = name.Replace(invalid, '_');
+            return name.Trim();
+        }
+
+        private void AddTreeMenu(GenericMenu menu, ProjectFolderTree.Group group, string folder)
+        {
+            var kind = SchematicTypes.Find(group.Key);
+            if (kind == null)
+                return;
+            string target = folder ?? kind.DefaultFolder;
+            menu.AddItem(new GUIContent(kind.ListsPrefabs ? "New Empty Schematic Object" : $"New {kind.NewAssetName.Replace("New ", "")}"), false, () =>
+            {
+                _tree.Select(group.Key, folder);
+                CreateIn(kind, target);
+            });
+            if (kind.ListsPrefabs)
+                menu.AddItem(new GUIContent("New Schematic Object From Template…"), false, () =>
+                {
+                    ProjectFolderTree.CreateFolderPath(target);
+                    CreateSchematicObjectWindow.ShowForProject(target);
+                });
+        }
+
+        #endregion
+
+        protected override void OnPicked(SchematicTemplate entry)
+        {
+            if (entry == null) return;
+            if (entry.Prefab != null)
+                OpenPrefab(entry.Prefab);
+            else if (AssetOf(entry) is { } asset)
+                AssetDatabase.OpenAsset(asset);
+        }
 
         private void BuildMenu(DropdownMenu menu, SchematicTemplate entry)
         {
             var prefab = entry.Prefab;
-            if (prefab == null) return;
+            if (prefab == null)
+            {
+                var asset = AssetOf(entry);
+                if (asset == null) return;
+                menu.AppendAction("Open Graph", _ => AssetDatabase.OpenAsset(asset));
+                menu.AppendAction("Rename", _ => Grid?.BeginRename(entry));
+                menu.AppendAction("Ping in Project", _ => Ping(asset));
+                return;
+            }
 
             menu.AppendAction("Open Prefab", _ => OpenPrefab(prefab));
             menu.AppendAction("Open Schematic Graph", _ => SchematicObjectFactory.OpenGraph(prefab),
                 SchematicObjectFactory.GraphOf(prefab) != null ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
+            menu.AppendAction("Rename", _ => Grid?.BeginRename(entry));
             menu.AppendAction("Ping in Project", _ => Ping(prefab));
             menu.AppendAction("Place in Scene", _ => SchematicObjectFactory.InstantiateInScene(entry));
             menu.AppendSeparator();
