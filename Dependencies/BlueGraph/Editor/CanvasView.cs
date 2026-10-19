@@ -101,12 +101,121 @@ namespace BlueGraph.Editor
         }
 
         /// <summary>
-        /// Event handler to frame the graph view on initial layout
+        /// Event handler to frame the graph view on initial layout: where this graph's view was left, else its nodes
+        /// at a readable size (Frame All zoomed out until everything fit, which left spread-out graphs tiny).
         /// </summary>
         private void OnFirstResize(GeometryChangedEvent evt)
         {
             UnregisterCallback<GeometryChangedEvent>(OnFirstResize);
-            FrameAll();
+            if (!RestoreView())
+                FrameNodesReadable();
+            viewTransformChanged += _ => SaveView();
+        }
+
+        private const float ReadableScale = 1f, SmallestStartScale = 0.75f, TooSmallScale = 0.6f;
+        private static readonly Vector2 AssumedNodeSize = new Vector2(220f, 120f);
+
+        // A node's rectangle in the graph (its laid-out size, or a typical size before it's laid out).
+        private static Rect RectOf(GraphElement element)
+        {
+            var rect = element.GetPosition();
+            if (rect.width <= 1f || rect.height <= 1f)
+                rect.size = AssumedNodeSize;
+            return rect;
+        }
+
+        /// <summary>
+        /// Centres the view on the graph's nodes at a readable size: between 75% and 100%, zoomed out only as far as
+        /// it takes to fit them (a big graph stays at 75%, centred on its nodes).
+        /// </summary>
+        public void FrameNodesReadable()
+        {
+            var size = layout.size;
+            if (size.x <= 0f || size.y <= 0f)
+                return;
+            var rects = nodes.ToList().Select(RectOf).ToList();
+            if (rects.Count == 0)
+            {
+                UpdateViewTransform(new Vector3(size.x * 0.5f, size.y * 0.5f, 0f), Vector3.one);
+                return;
+            }
+            var bounds = rects[0];
+            foreach (var rect in rects)
+                bounds = Rect.MinMaxRect(Mathf.Min(bounds.xMin, rect.xMin), Mathf.Min(bounds.yMin, rect.yMin),
+                    Mathf.Max(bounds.xMax, rect.xMax), Mathf.Max(bounds.yMax, rect.yMax));
+            float fit = Mathf.Min((size.x - 80f) / Mathf.Max(1f, bounds.width), (size.y - 80f) / Mathf.Max(1f, bounds.height));
+            float scale = Mathf.Clamp(Mathf.Clamp(fit, SmallestStartScale, ReadableScale), minScale, maxScale);
+            var position = size * 0.5f - bounds.center * scale;
+            UpdateViewTransform(new Vector3(position.x, position.y, 0f), new Vector3(scale, scale, 1f));
+        }
+
+        /// <summary>
+        /// Brings a node into view: pans to it when it's off screen, and zooms back to a readable size when the view is
+        /// zoomed far out. A node already on screen at a readable size leaves the view alone.
+        /// </summary>
+        public void RevealNode(GraphElement element)
+        {
+            if (element == null)
+                return;
+            schedule.Execute(() =>
+            {
+                if (element.panel == null)
+                    return;
+                var size = layout.size;
+                if (size.x <= 0f || size.y <= 0f)
+                    return;
+                var rect = RectOf(element);
+                float scale = viewTransform.scale.x;
+                bool tooSmall = scale < TooSmallScale;
+                if (tooSmall)
+                    scale = Mathf.Clamp(ReadableScale, minScale, maxScale);
+                Vector2 position = viewTransform.position;
+                Vector2 min = position + rect.min * scale, max = position + rect.max * scale;
+                bool onScreen = min.x >= 0f && min.y >= 0f && max.x <= size.x && max.y <= size.y;
+                if (onScreen && !tooSmall)
+                    return;
+                var centred = size * 0.5f - rect.center * scale;
+                UpdateViewTransform(new Vector3(centred.x, centred.y, 0f), new Vector3(scale, scale, 1f));
+            }).ExecuteLater(30);
+        }
+
+        // The view (pan and zoom) is remembered per graph, so a graph opens where it was left.
+        private string ViewKey
+        {
+            get
+            {
+                string path = Graph != null ? AssetDatabase.GetAssetPath(Graph) : null;
+                return string.IsNullOrEmpty(path) ? null : "BlueGraph.View." + AssetDatabase.AssetPathToGUID(path);
+            }
+        }
+
+        private void SaveView()
+        {
+            string key = ViewKey;
+            if (key == null) return;
+            var p = viewTransform.position;
+            EditorPrefs.SetString(key, string.Join(";",
+                p.x.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                p.y.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                viewTransform.scale.x.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        }
+
+        private bool RestoreView()
+        {
+            string key = ViewKey;
+            if (key == null || !EditorPrefs.HasKey(key)) return false;
+            var parts = EditorPrefs.GetString(key, "").Split(';');
+            var style = System.Globalization.NumberStyles.Float;
+            var culture = System.Globalization.CultureInfo.InvariantCulture;
+            if (parts.Length != 3
+                || !float.TryParse(parts[0], style, culture, out float x)
+                || !float.TryParse(parts[1], style, culture, out float y)
+                || !float.TryParse(parts[2], style, culture, out float scale)
+                || scale <= 0f)
+                return false;
+            scale = Mathf.Clamp(scale, minScale, maxScale);
+            UpdateViewTransform(new Vector3(x, y, 0f), new Vector3(scale, scale, 1f));
+            return true;
         }
 
         private GraphViewChange OnGraphViewChanged(GraphViewChange change)
@@ -348,6 +457,10 @@ namespace BlueGraph.Editor
             }
 
             Dirty(element);
+
+            // A node made by the user (not one a graph requires, added while loading) is brought into view.
+            if (registerUndo)
+                RevealNode(element);
         }
 
         /// <summary>
