@@ -25,7 +25,7 @@ namespace Remedy.StickyNotes.Editor
         public static bool Placing
         {
             get => _placing;
-            set { _placing = value; SceneView.RepaintAll(); }
+            set { _placing = value; _previewValid = false; SceneView.RepaintAll(); }
         }
         private static bool _placing;
 
@@ -299,6 +299,10 @@ namespace Remedy.StickyNotes.Editor
 
         #region Adding
 
+        // Where the note would go, picked on the last mouse move.
+        private static bool _previewValid;
+        private static Vector3 _previewPoint, _previewNormal;
+
         private static void HandlePlacement(SceneView view, Event e, int id)
         {
             switch (e.type)
@@ -307,6 +311,10 @@ namespace Remedy.StickyNotes.Editor
                     HandleUtility.AddDefaultControl(id);
                     break;
                 case EventType.MouseMove:
+                case EventType.MouseDrag:
+                    // Picking renders the scene, so it can't happen while the Scene view is repainting: the preview
+                    // point is found here and only drawn on Repaint.
+                    _previewValid = Pick(e.mousePosition, out _previewPoint, out _previewNormal, out _);
                     view.Repaint();
                     break;
                 case EventType.KeyDown when e.keyCode == KeyCode.Escape:
@@ -322,13 +330,13 @@ namespace Remedy.StickyNotes.Editor
                     break;
                 }
                 case EventType.Repaint:
-                    if (Pick(e.mousePosition, out var point, out var normal, out _))
+                    if (_previewValid)
                     {
                         using (new Handles.DrawingScope(StickyNoteStyle.DefaultColor))
                         {
-                            float size = HandleUtility.GetHandleSize(point) * 0.12f;
-                            Handles.DrawWireDisc(point, normal, size);
-                            Handles.DrawLine(point, point + normal * size * 2f);
+                            float size = HandleUtility.GetHandleSize(_previewPoint) * 0.12f;
+                            Handles.DrawWireDisc(_previewPoint, _previewNormal, size);
+                            Handles.DrawLine(_previewPoint, _previewPoint + _previewNormal * size * 2f);
                         }
                     }
                     Handles.BeginGUI();
