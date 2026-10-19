@@ -13,6 +13,7 @@ namespace Remedy.LevelStreaming
     /// </summary>
     [SchematicDoc(@"{""name"": ""Load Level"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Levels"", ""description"": ""Adds a level on top of what's loaded (a scene by name or path, or a level prefab) and lets its content stream in over several frames. The nodes after it run once everything in the level has woken (or straight away when Wait is off)."", ""inputs"": [{""name"": ""Scene"", ""type"": ""string""}, {""name"": ""Prefab"", ""type"": ""GameObject""}, {""name"": ""Position"", ""type"": ""Vector3""}, {""name"": ""Wait"", ""type"": ""bool""}], ""outputs"": [{""name"": ""Level Name"", ""type"": ""string""}, {""name"": ""Progress"", ""type"": ""float""}, {""name"": ""Root"", ""type"": ""GameObject""}], ""use_for"": [""adding the next area of a level"", ""loading interiors and dungeons"", ""streaming big levels in without a hitch""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next. Loading a level that's already loaded just continues. Prefab wins over Scene when both are set. Put a Streamed Level in level scenes so they stream in; levels with NetworkObjects should be loaded the Netcode way.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Object)]
     [Node(Name = "Load Level", Path = "Levels"), Tags("Default")]
     public class LoadLevelNode : SchematicActionNode
     {
@@ -68,6 +69,7 @@ namespace Remedy.LevelStreaming
     /// </summary>
     [SchematicDoc(@"{""name"": ""Unload Level"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Levels"", ""description"": ""Takes away a level added with Load Level (a scene by name or path, or a level prefab), a few objects per frame. A level still streaming in stops. The nodes after it run once it's gone (or straight away when Wait is off)."", ""inputs"": [{""name"": ""Scene"", ""type"": ""string""}, {""name"": ""Prefab"", ""type"": ""GameObject""}, {""name"": ""Force"", ""type"": ""bool""}, {""name"": ""Wait"", ""type"": ""bool""}], ""outputs"": [{""name"": ""Level Name"", ""type"": ""string""}], ""use_for"": [""removing areas the player has left"", ""swapping one level for another""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next. A level that an occupied Level Streaming Zone still wants stays until the zone lets go, unless Force is on.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Object)]
     [Node(Name = "Unload Level", Path = "Levels"), Tags("Default")]
     public class UnloadLevelNode : SchematicActionNode
     {

@@ -7,6 +7,7 @@ using Remedy.Schematics;
 using UnityEngine;
 
 [SchematicDoc(@"{""name"": ""On Scene Loaded"", ""kind"": ""node"", ""flow"": ""event"", ""category"": ""Events"", ""description"": ""In a singleton graph: starts a flow when a scene finishes loading."", ""use_for"": [""per-level setup"", ""placing the player""], ""notes"": ""Starts a flow: connect its arrow to the actions that should run.""}")]
+[NodeColor(NodeColors.Event)]
 [Node(Path = "Events"), Tags("Runtime")]
 public class OnSceneLoaded : SchematicEventNode
 { }

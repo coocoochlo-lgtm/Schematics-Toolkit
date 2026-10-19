@@ -96,6 +96,7 @@ namespace Remedy.Schematics
     /// </summary>
     [SchematicDoc(@"{""name"": ""Get Graph Variable"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Schematic/Graph"", ""description"": ""Reads a graph Variable: a value that belongs to the graph (made in the Graph tab) rather than to a Behavior. Each object running the graph has its own value; wire an object into Of to read another object's."", ""use_for"": [""remember things in the graph itself (a counter, a phase, a chosen target)"", ""read a cutscene's or another graph's state""], ""notes"": ""Made by dragging a Variable from the Graph tab and choosing Get.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Schematic)]
     [Node(Name = "Get Graph Variable", Path = "Schematic/Graph"), Tags("Object")]
     public class GetGraphVariableNode : GraphVariableNodeBase
     {
@@ -126,6 +127,7 @@ namespace Remedy.Schematics
     /// </summary>
     [SchematicDoc(@"{""name"": ""Set Graph Variable"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Schematic/Graph"", ""description"": ""Writes a graph Variable: a value that belongs to the graph (made in the Graph tab) rather than to a Behavior. Each object running the graph has its own value; wire an object into Of to write another object's."", ""use_for"": [""keep track of progress or state in the graph"", ""set a cutscene's or another graph's Variables""], ""notes"": ""Made by dragging a Variable from the Graph tab and choosing Set. An action: wire flow into it.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Schematic)]
     [Node(Name = "Set Graph Variable", Path = "Schematic/Graph"), Tags("Object")]
     public class SetGraphVariableNode : GraphVariableNodeBase
     {

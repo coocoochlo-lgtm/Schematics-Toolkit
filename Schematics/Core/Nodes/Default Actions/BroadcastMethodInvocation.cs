@@ -10,6 +10,7 @@ namespace Remedy.Schematics
 {
     [SchematicDoc(@"{""name"": ""Broadcast Method Invocation"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Objects"", ""description"": ""Calls a method by name, with arguments, on every script of a target object."", ""inputs"": [{""name"": ""Target"", ""type"": ""GameObject""}, {""name"": ""Name"", ""type"": ""string""}, {""name"": ""Arguments"", ""type"": ""List<object>""}], ""use_for"": [""talking to plain Unity scripts that aren't Schematic Behaviors""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next. Prefer Signals for Schematic Behaviors.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Object)]
     [Node(Path = "Objects"), Tags("Object")]
     public class BroadcastMethodInvocation : SchematicActionNode
     {

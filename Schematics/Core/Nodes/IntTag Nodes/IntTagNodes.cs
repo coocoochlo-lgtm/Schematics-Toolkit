@@ -47,6 +47,7 @@ namespace Remedy.Schematics
 
     [SchematicDoc(@"{""name"": ""Find With Tag"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Objects/Int Tags"", ""description"": ""Every active object with an Int Tag, plus the first one and how many there are. A dictionary lookup, so it's cheap enough to use often."", ""inputs"": [{""name"": ""Tag"", ""type"": ""IntTag""}], ""outputs"": [{""name"": ""Objects"", ""type"": ""List<Union>""}, {""name"": ""First"", ""type"": ""GameObject""}, {""name"": ""Count"", ""type"": ""int""}], ""use_for"": [""finding the player"", ""finding every enemy, checkpoint or spawn point""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next. Pick the tag from the dropdown, or choose Add Tag... to make one. First is empty when nothing has the tag.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Object)]
     [Node(Name = "Find With Tag", Path = "Objects/Int Tags"), Tags("Default")]
     public class FindWithIntTag : IntTagActionNode
     {
@@ -77,6 +78,7 @@ namespace Remedy.Schematics
 
     [SchematicDoc(@"{""name"": ""Has Tag"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Objects/Int Tags"", ""description"": ""Whether an object (or, with nothing connected, the object running the graph) has an Int Tag. The replacement for Compare Tag."", ""inputs"": [{""name"": ""Object"", ""type"": ""GameObject""}, {""name"": ""Tag"", ""type"": ""IntTag""}], ""outputs"": [{""name"": ""Has Tag"", ""type"": ""bool""}], ""use_for"": [""only reacting to the player in a trigger"", ""telling enemies from pickups""], ""notes"": ""Runs when flow reaches it. Connect Has Tag into an If, or turn on Stop If Missing to only continue when the object has the tag.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Object)]
     [Node(Name = "Has Tag", Path = "Objects/Int Tags"), Tags("Object")]
     public class HasIntTag : IntTagActionNode
     {
@@ -104,6 +106,7 @@ namespace Remedy.Schematics
 
     [SchematicDoc(@"{""name"": ""Add Tag"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Objects/Int Tags"", ""description"": ""Gives an object (or, with nothing connected, the object running the graph) an Int Tag, so Find With Tag finds it."", ""inputs"": [{""name"": ""Object"", ""type"": ""GameObject""}, {""name"": ""Tag"", ""type"": ""IntTag""}], ""use_for"": [""marking an enemy as defeated or a door as open"", ""tagging something spawned at runtime""], ""notes"": ""Runs when flow reaches it. The tag lasts until the object is disabled or despawned; to tag it permanently, add the tag to its Tags list in the Inspector.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Object)]
     [Node(Name = "Add Tag", Path = "Objects/Int Tags"), Tags("Object")]
     public class AddIntTag : IntTagActionNode
     {
@@ -122,6 +125,7 @@ namespace Remedy.Schematics
 
     [SchematicDoc(@"{""name"": ""Remove Tag"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Objects/Int Tags"", ""description"": ""Takes an Int Tag away from an object (or, with nothing connected, the object running the graph), so Find With Tag stops finding it."", ""inputs"": [{""name"": ""Object"", ""type"": ""GameObject""}, {""name"": ""Tag"", ""type"": ""IntTag""}], ""use_for"": [""a pickup that's been collected"", ""an enemy that's no longer a target""], ""notes"": ""Runs when flow reaches it. Tags from the Inspector come back when the object is spawned again.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Object)]
     [Node(Name = "Remove Tag", Path = "Objects/Int Tags"), Tags("Object")]
     public class RemoveIntTag : IntTagActionNode
     {
@@ -176,12 +180,14 @@ namespace Remedy.Schematics
 
     [SchematicDoc(@"{""name"": ""On Tag Added"", ""kind"": ""node"", ""flow"": ""event"", ""category"": ""Events/Int Tags"", ""description"": ""Starts a flow when an object gains an Int Tag (spawned with it, enabled, or tagged by Add Tag). Outputs the object and the tag."", ""outputs"": [{""name"": ""Object"", ""type"": ""GameObject""}, {""name"": ""Tag"", ""type"": ""IntTag""}], ""use_for"": [""reacting when the player spawns"", ""counting enemies as they appear""], ""notes"": ""Starts a flow: connect its arrow to the actions that should run. Set Tag to listen for one tag (Untagged means any), and Only This Object to ignore other objects. Play Mode only. An object's own graph doesn't hear the tags it spawns with (use On Create for that).""}")]
     [Serializable]
+    [NodeColor(NodeColors.Event)]
     [Node(Name = "On Tag Added", Path = "Events/Int Tags"), Tags("Object")]
     public class OnIntTagAdded : IntTagEventNode
     { }
 
     [SchematicDoc(@"{""name"": ""On Tag Removed"", ""kind"": ""node"", ""flow"": ""event"", ""category"": ""Events/Int Tags"", ""description"": ""Starts a flow when an object loses an Int Tag (disabled, despawned, or untagged by Remove Tag). Outputs the object and the tag."", ""outputs"": [{""name"": ""Object"", ""type"": ""GameObject""}, {""name"": ""Tag"", ""type"": ""IntTag""}], ""use_for"": [""noticing the last enemy is gone"", ""reacting when a pickup is collected""], ""notes"": ""Starts a flow: connect its arrow to the actions that should run. Set Tag to listen for one tag (Untagged means any), and Only This Object to ignore other objects. Play Mode only.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Event)]
     [Node(Name = "On Tag Removed", Path = "Events/Int Tags"), Tags("Object")]
     public class OnIntTagRemoved : IntTagEventNode
     { }

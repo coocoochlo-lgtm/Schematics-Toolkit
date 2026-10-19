@@ -8,6 +8,7 @@ using UnityEngine;
 namespace Remedy.Schematics
 {
     [Output("▶", typeof(bool))]
+    [NodeColor(NodeColors.Condition)]
     public class SchematicConditionalNode : SchematicGraphNode
     {
         [Tooltip("Inverts the value of the Condition")]

@@ -7,6 +7,7 @@ namespace Remedy.Schematics
 {
     [Serializable]
     [Output("▶", typeof(ActionPort), enableCasting: false, Multiple = true)]
+    [NodeColor(NodeColors.Event)]
     public class SchematicEventNode : SchematicGraphNode
     {
         /// <summary>Set during OnTrigger to stop the nodes after this event from running this time.</summary>

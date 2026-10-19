@@ -17,6 +17,7 @@ namespace Remedy.Schematics
     /// </summary>
     [SchematicDoc(@"{""name"": ""Find Game Objects With Tag"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Objects"", ""description"": ""Every active object with an Int Tag, as a list."", ""inputs"": [{""name"": ""Tag"", ""type"": ""IntTag""}], ""outputs"": [{""name"": ""Objects"", ""type"": ""List<object>""}], ""use_for"": [""finding all enemies, checkpoints or players""], ""notes"": ""A value node: no flow arrows; connect its outputs to other nodes' inputs. A dictionary lookup (Int Tags), so it's cheap; it's computed once per flow step however many nodes read it.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Object)]
     [Node(Path = "Objects"), Tags("Default")]
     public class FindGameObjectsWithTag : SchematicGraphNode
     {

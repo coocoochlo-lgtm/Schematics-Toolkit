@@ -20,6 +20,7 @@ namespace Remedy.Schematics
     /// Only the wiring is cached (which output feeds which input, port lookups, flow children), never values.
     /// </summary>
     [Serializable]
+    [BlueGraph.NodeColor(BlueGraph.NodeColors.Value)]
     public class SchematicGraphNode : BlueGraph.Node
     {
         public SchematicGraph Schematic => (SchematicGraph)Graph;

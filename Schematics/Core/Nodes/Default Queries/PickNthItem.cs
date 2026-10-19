@@ -13,6 +13,7 @@ namespace Remedy.Schematics
 {
     [SchematicDoc(@"{""name"": ""Pick Nth Item"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Collections"", ""description"": ""The item at an index of a list."", ""inputs"": [{""name"": ""List"", ""type"": ""List<object>""}, {""name"": ""Index"", ""type"": ""int""}], ""outputs"": [{""name"": ""Item"", ""type"": ""object""}], ""use_for"": [""picking a specific or random element""], ""notes"": ""A value node: no flow arrows; connect its outputs to other nodes' inputs.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Value)]
     [Node(Path = "Collections"), Tags("Default")]
     public class PickNthItem : SchematicGraphNode
     {

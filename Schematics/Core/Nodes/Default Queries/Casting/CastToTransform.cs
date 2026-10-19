@@ -10,6 +10,7 @@ namespace Remedy.Schematics
 {
     [SchematicDoc(@"{""name"": ""Cast To Transform"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Casts"", ""description"": ""Treats a value as a Transform (from a GameObject or component) and outputs its position and rotation."", ""inputs"": [{""name"": ""Value"", ""type"": ""object""}], ""outputs"": [{""name"": ""Position"", ""type"": ""Vector3""}, {""name"": ""EulerAngles"", ""type"": ""Vector3""}, {""name"": ""Casted"", ""type"": ""T""}], ""use_for"": [""getting the position of an object from a list or Signal""], ""notes"": ""A value node: no flow arrows; connect its outputs to other nodes' inputs.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Value)]
     [Node(Path = "Casts"), Tags("Default")]
     public class CastToTransform : Cast<Transform>
     {

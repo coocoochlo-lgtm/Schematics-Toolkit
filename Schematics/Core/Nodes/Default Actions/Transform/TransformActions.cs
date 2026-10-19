@@ -5,6 +5,7 @@ using UnityEngine;
 namespace Remedy.Schematics
 {
     [Serializable]
+    [NodeColor(NodeColors.Object)]
     [Node(Path = "Objects/Transform"), Tags("Object")]
     public class SetRotation : SchematicActionNode
     {
@@ -23,6 +24,7 @@ namespace Remedy.Schematics
     }
 
     [Serializable]
+    [NodeColor(NodeColors.Object)]
     [Node(Path = "Objects/Transform"), Tags("Object")]
     public class SetScale : SchematicActionNode
     {
@@ -38,6 +40,7 @@ namespace Remedy.Schematics
     }
 
     [Serializable]
+    [NodeColor(NodeColors.Object)]
     [Node(Path = "Objects/Transform", Name="Translate"), Tags("Object")]
     public class TranslateTransform : SchematicActionNode
     {
@@ -54,6 +57,7 @@ namespace Remedy.Schematics
     }
 
     [Serializable]
+    [NodeColor(NodeColors.Object)]
     [Node(Path = "Objects/Transform", Name="Rotate"), Tags("Object")]
     public class RotateTransform : SchematicActionNode
     {
@@ -70,6 +74,7 @@ namespace Remedy.Schematics
     }
 
     [Serializable]
+    [NodeColor(NodeColors.Object)]
     [Node(Path = "Objects/Transform"), Tags("Object")]
     public class SetParent : SchematicActionNode
     {
@@ -87,6 +92,7 @@ namespace Remedy.Schematics
     }
 
     [Serializable]
+    [NodeColor(NodeColors.Object)]
     [Node(Path = "Objects"), Tags("Object")]
     public class SetGameObjectActive : SchematicActionNode
     {

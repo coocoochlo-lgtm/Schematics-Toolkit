@@ -10,6 +10,7 @@ namespace Remedy.Schematics
     /// <see cref="PinName"/>.
     /// </summary>
     [Serializable]
+    [NodeColor(NodeColors.Flow)]
     public abstract class DynamicFlowNode : SchematicActionNodeBase
     {
         /// <summary>The fewest pins the node can have (it starts with this many).</summary>

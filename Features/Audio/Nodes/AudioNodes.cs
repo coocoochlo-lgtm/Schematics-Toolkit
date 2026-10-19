@@ -62,6 +62,7 @@ namespace Remedy.Audio
 
     /// <summary>Plays a clip as a sound effect. Dropping an SFX clip into a graph makes one.</summary>
     [Serializable]
+    [NodeColor(NodeColors.Audio)]
     [Node(Name = "Play SFX", Path = "Audio"), Tags("Default")]
     [AssetNode(typeof(AudioClip), Tags = new[] { "SFX" }, Title = "Play SFX: {0}")]
     public class PlaySFX : PlayClipNode
@@ -71,6 +72,7 @@ namespace Remedy.Audio
 
     /// <summary>Plays a clip as music (looping and not 3D to start with). Dropping a Music clip into a graph makes one.</summary>
     [Serializable]
+    [NodeColor(NodeColors.Audio)]
     [Node(Name = "Play Music", Path = "Audio"), Tags("Default")]
     [AssetNode(typeof(AudioClip), Tags = new[] { "Music" }, Title = "Play Music: {0}")]
     public class PlayMusic : PlayClipNode
@@ -89,6 +91,7 @@ namespace Remedy.Audio
     /// Music are the usual choices; this one is kept for graphs that use it.
     /// </summary>
     [Serializable]
+    [NodeColor(NodeColors.Audio)]
     [Node(Name = "Play Sound", Path = "Audio"), Tags("Default")]
     public class PlaySound : PlayClipNode
     {
@@ -102,6 +105,7 @@ namespace Remedy.Audio
     }
 
     [Serializable]
+    [NodeColor(NodeColors.Audio)]
     [Node(Name = "Stop Sound", Path = "Audio"), Tags("Default")]
     public class StopSound : SchematicActionNode
     {

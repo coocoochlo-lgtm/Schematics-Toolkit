@@ -5,6 +5,7 @@ using UnityEngine;
 namespace Remedy.Schematics
 {
     [Serializable]
+    [NodeColor(NodeColors.Object)]
     [Node(Path = "Objects/Transform"), Tags("Object")]
     public class TransformValues : SchematicGraphNode
     {

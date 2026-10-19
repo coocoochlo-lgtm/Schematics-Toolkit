@@ -10,6 +10,7 @@ namespace Remedy.Schematics
 {
     [SchematicDoc(@"{""name"": ""Cast To Mono Behaviour"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Casts"", ""description"": ""Treats a value as a script component."", ""inputs"": [{""name"": ""Value"", ""type"": ""object""}], ""outputs"": [{""name"": ""Casted"", ""type"": ""T""}], ""use_for"": [""reaching plain Unity scripts""], ""notes"": ""A value node: no flow arrows; connect its outputs to other nodes' inputs.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Value)]
     [Node(Path = "Casts"), Tags("Default")]
     public class CastToMonoBehaviour : Cast<MonoBehaviour>
     { }

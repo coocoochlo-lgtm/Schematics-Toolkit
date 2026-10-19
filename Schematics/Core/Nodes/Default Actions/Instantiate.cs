@@ -7,6 +7,7 @@ namespace Remedy.Schematics
 {
     [SchematicDoc(@"{""name"": ""Instantiate"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Objects"", ""description"": ""Creates a copy of a prefab at a position and rotation, and outputs the new object."", ""inputs"": [{""name"": ""Position"", ""type"": ""Vector3""}, {""name"": ""Rotation"", ""type"": ""Vector3""}, {""name"": ""Prefab"", ""type"": ""GameObject""}], ""outputs"": [{""name"": ""Instanced Object"", ""type"": ""GameObject""}], ""use_for"": [""spawning enemies, bullets, pickups and effects""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next. Uses the pool for Schematic prefabs.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Object)]
     [Node(Path = "Objects"), Tags("Default")] 
     public class Instantiate : SchematicActionNode
     {

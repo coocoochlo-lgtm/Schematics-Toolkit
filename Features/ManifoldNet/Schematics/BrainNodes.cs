@@ -37,6 +37,7 @@ namespace Remedy.ManifoldNetwork.Schematics
     /// <summary>Feeds one input slot. Use it on On Think. A slot of Size n takes the Values list (or Value for one).</summary>
     [SchematicDoc(@"{""name"": ""Set Brain Input"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""AI/Brain"", ""description"": ""Feeds one input slot. Use it on On Think. A slot of Size n takes the Values list (or Value for one)."", ""inputs"": [{""name"": ""Value"", ""type"": ""float""}, {""name"": ""Values"", ""type"": ""float[]""}, {""name"": ""Brain Of"", ""type"": ""GameObject""}], ""use_for"": [""giving an AI what it senses (distances, directions, health)""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next. Use on the Brain's On Think Signal. Slot is a name from the Brain's IO Dock section.""}")]
     [Serializable]
+    [NodeColor(NodeColors.AI)]
     [Node(Name = "Set Brain Input", Path = "AI/Brain"), Tags("Object")]
     public class SetBrainInputNode : BrainNodeBase
     {
@@ -58,6 +59,7 @@ namespace Remedy.ManifoldNetwork.Schematics
     /// <summary>Reads one output slot. Use it on On Decided.</summary>
     [SchematicDoc(@"{""name"": ""Get Brain Output"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""AI/Brain"", ""description"": ""Reads one output slot. Use it on On Decided."", ""inputs"": [{""name"": ""Brain Of"", ""type"": ""GameObject""}], ""outputs"": [{""name"": ""Value"", ""type"": ""float""}, {""name"": ""Pressed"", ""type"": ""bool""}, {""name"": ""Choice"", ""type"": ""int""}, {""name"": ""Option"", ""type"": ""string""}], ""use_for"": [""reading what an AI decided (move, jump, attack, which weapon)""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next. Use on the Brain's On Decided Signal.""}")]
     [Serializable]
+    [NodeColor(NodeColors.AI)]
     [Node(Name = "Get Brain Output", Path = "AI/Brain"), Tags("Object")]
     public class GetBrainOutputNode : BrainNodeBase
     {
@@ -90,6 +92,7 @@ namespace Remedy.ManifoldNetwork.Schematics
     /// </summary>
     [SchematicDoc(@"{""name"": ""Teach Brain Output"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""AI/Brain"", ""description"": ""\""The right answer was ...\"": teaches an output slot this tick (an axis value, a button as Pressed, a choice's option index). E.g. wire the player's own input here so the bot learns by watching."", ""inputs"": [{""name"": ""Value"", ""type"": ""float""}, {""name"": ""Pressed"", ""type"": ""bool""}, {""name"": ""Choice"", ""type"": ""int""}, {""name"": ""Brain Of"", ""type"": ""GameObject""}], ""use_for"": [""training an AI by example, e.g. wiring in the player's input""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next.""}")]
     [Serializable]
+    [NodeColor(NodeColors.AI)]
     [Node(Name = "Teach Brain Output", Path = "AI/Brain"), Tags("Object")]
     public class TeachBrainOutputNode : BrainNodeBase
     {
@@ -119,6 +122,7 @@ namespace Remedy.ManifoldNetwork.Schematics
     /// </summary>
     [SchematicDoc(@"{""name"": ""Reward Brain"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""AI/Brain"", ""description"": ""Praise (positive) or punish (negative) the brain. The reward credits its recent decisions, most of all the latest ones, fading by the definition's Credit Half-Life."", ""inputs"": [{""name"": ""Reward"", ""type"": ""float""}, {""name"": ""Brain Of"", ""type"": ""GameObject""}], ""use_for"": [""rewarding good AI behavior (reaching goals, hitting targets)"", ""punishing bad behavior (taking damage, falling)""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next. Positive praises, negative punishes.""}")]
     [Serializable]
+    [NodeColor(NodeColors.AI)]
     [Node(Name = "Reward Brain", Path = "AI/Brain"), Tags("Object")]
     public class RewardBrainNode : BrainNodeBase
     {
@@ -131,6 +135,7 @@ namespace Remedy.ManifoldNetwork.Schematics
     /// <summary>Forgets the past: the brain's memory (its heads) back at rest, for this instance.</summary>
     [SchematicDoc(@"{""name"": ""Reset Brain Memory"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""AI/Brain"", ""description"": ""Forgets the past: the brain's memory (its heads) back at rest, for this instance."", ""inputs"": [{""name"": ""Brain Of"", ""type"": ""GameObject""}], ""use_for"": [""a fresh start for an AI after respawning""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next.""}")]
     [Serializable]
+    [NodeColor(NodeColors.AI)]
     [Node(Name = "Reset Brain Memory", Path = "AI/Brain"), Tags("Object")]
     public class ResetBrainMemoryNode : BrainNodeBase
     {
@@ -144,6 +149,7 @@ namespace Remedy.ManifoldNetwork.Schematics
     /// <summary>Gives one brain's weights to another (same Brain Definition layout). Shared brains change for everyone.</summary>
     [SchematicDoc(@"{""name"": ""Copy Brain"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""AI/Brain"", ""description"": ""Gives one brain's weights to another (same Brain Definition layout). Shared brains change for everyone."", ""inputs"": [{""name"": ""From"", ""type"": ""GameObject""}, {""name"": ""To"", ""type"": ""GameObject""}], ""use_for"": [""giving the best AI's skills to others""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next.""}")]
     [Serializable]
+    [NodeColor(NodeColors.AI)]
     [Node(Name = "Copy Brain", Path = "AI/Brain"), Tags("Object")]
     public class CopyBrainNode : SchematicActionNode
     {
@@ -165,6 +171,7 @@ namespace Remedy.ManifoldNetwork.Schematics
     /// </summary>
     [SchematicDoc(@"{""name"": ""Mix Brains"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""AI/Brain"", ""description"": ""Crossbreeds two brains into a third: Blend averages the weights, Swap Parts takes whole parts (the master, each head, the translator) from one parent or the other, Per Weight flips a coin for each. Amount is how much comes from B."", ""inputs"": [{""name"": ""A"", ""type"": ""GameObject""}, {""name"": ""B"", ""type"": ""GameObject""}, {""name"": ""Into"", ""type"": ""GameObject""}, {""name"": ""Amount"", ""type"": ""float""}], ""use_for"": [""breeding AI creatures"", ""evolution mechanics""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next.""}")]
     [Serializable]
+    [NodeColor(NodeColors.AI)]
     [Node(Name = "Mix Brains", Path = "AI/Brain"), Tags("Object")]
     public class MixBrainsNode : SchematicActionNode
     {
@@ -186,6 +193,7 @@ namespace Remedy.ManifoldNetwork.Schematics
     /// <summary>Adds a little random noise to a brain's weights (Strength is the noise's typical size).</summary>
     [SchematicDoc(@"{""name"": ""Mutate Brain"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""AI/Brain"", ""description"": ""Adds a little random noise to a brain's weights (Strength is the noise's typical size)."", ""inputs"": [{""name"": ""Strength"", ""type"": ""float""}, {""name"": ""Brain Of"", ""type"": ""GameObject""}], ""use_for"": [""adding variety between AI offspring""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next.""}")]
     [Serializable]
+    [NodeColor(NodeColors.AI)]
     [Node(Name = "Mutate Brain", Path = "AI/Brain"), Tags("Object")]
     public class MutateBrainNode : BrainNodeBase
     {
@@ -242,6 +250,7 @@ namespace Remedy.ManifoldNetwork.Schematics
     /// <summary>A fan of rays from an object (Box3D physics): each ray's hit distance, 0 (touching) to 1 (nothing within range).</summary>
     [SchematicDoc(@"{""name"": ""Ray Fan"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""AI/Senses"", ""description"": ""A fan of rays from an object (Box3D physics): each ray's hit distance, 0 (touching) to 1 (nothing within range)."", ""inputs"": [{""name"": ""From"", ""type"": ""GameObject""}, {""name"": ""Rays"", ""type"": ""int""}, {""name"": ""Spread"", ""type"": ""float""}, {""name"": ""Range"", ""type"": ""float""}, {""name"": ""Height"", ""type"": ""float""}, {""name"": ""Layers"", ""type"": ""LayerMask""}], ""outputs"": [{""name"": ""Distances"", ""type"": ""float[]""}, {""name"": ""Closest"", ""type"": ""float""}], ""use_for"": [""AI sight and obstacle sensing"", ""detecting walls around a character""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next.""}")]
     [Serializable]
+    [NodeColor(NodeColors.AI)]
     [Node(Name = "Ray Fan", Path = "AI/Senses"), Tags("Object")]
     public class RayFanNode : SchematicActionNode
     {
@@ -284,6 +293,7 @@ namespace Remedy.ManifoldNetwork.Schematics
     /// <summary>Where a target is from an object's point of view: its local direction (x right, z forward) and distance.</summary>
     [SchematicDoc(@"{""name"": ""Direction To"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""AI/Senses"", ""description"": ""Where a target is from an object's point of view: its local direction (x right, z forward) and distance."", ""inputs"": [{""name"": ""From"", ""type"": ""GameObject""}, {""name"": ""Target"", ""type"": ""Vector3""}], ""outputs"": [{""name"": ""Local Direction"", ""type"": ""Vector3""}, {""name"": ""Values"", ""type"": ""float[]""}, {""name"": ""Distance"", ""type"": ""float""}, {""name"": ""Angle"", ""type"": ""float""}], ""use_for"": [""aiming"", ""steering toward or away from targets"", ""AI senses""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next.""}")]
     [Serializable]
+    [NodeColor(NodeColors.AI)]
     [Node(Name = "Direction To", Path = "AI/Senses"), Tags("Object")]
     public class DirectionToNode : SchematicActionNode
     {
@@ -311,6 +321,7 @@ namespace Remedy.ManifoldNetwork.Schematics
     /// <summary>The nearest object with an Int Tag within range: it, its position, and how far.</summary>
     [SchematicDoc(@"{""name"": ""Nearest With Tag"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""AI/Senses"", ""description"": ""The nearest object with an Int Tag within range: it, its position, and how far."", ""inputs"": [{""name"": ""From"", ""type"": ""GameObject""}, {""name"": ""Tag"", ""type"": ""IntTag""}, {""name"": ""Range"", ""type"": ""float""}], ""outputs"": [{""name"": ""Found"", ""type"": ""bool""}, {""name"": ""Object"", ""type"": ""GameObject""}, {""name"": ""Position"", ""type"": ""Vector3""}, {""name"": ""Distance"", ""type"": ""float""}], ""use_for"": [""finding the closest enemy, player or pickup""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next.""}")]
     [Serializable]
+    [NodeColor(NodeColors.AI)]
     [Node(Name = "Nearest With Tag", Path = "AI/Senses"), Tags("Object")]
     public class NearestWithTagNode : SchematicActionNode
     {
@@ -362,6 +373,7 @@ namespace Remedy.ManifoldNetwork.Schematics
     /// <summary>Several numbers as one list, for a multi-value brain input.</summary>
     [SchematicDoc(@"{""name"": ""Make Values"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""AI/Senses"", ""description"": ""Several numbers as one list, for a multi-value brain input."", ""inputs"": [{""name"": ""A"", ""type"": ""float""}, {""name"": ""B"", ""type"": ""float""}, {""name"": ""C"", ""type"": ""float""}, {""name"": ""D"", ""type"": ""float""}, {""name"": ""Count"", ""type"": ""int""}], ""outputs"": [{""name"": ""Values"", ""type"": ""float[]""}], ""use_for"": [""packing several numbers into one brain input""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next.""}")]
     [Serializable]
+    [NodeColor(NodeColors.AI)]
     [Node(Name = "Make Values", Path = "AI/Senses"), Tags("Default")]
     public class MakeValuesNode : SchematicActionNode
     {

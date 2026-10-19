@@ -10,6 +10,7 @@ namespace Remedy.Schematics
 {
     [SchematicDoc(@"{""name"": ""Vector 3"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Collections"", ""description"": ""Creates a new Vector3, either from input Floats or new values defined in the Node"", ""inputs"": [{""name"": ""x"", ""type"": ""float""}, {""name"": ""y"", ""type"": ""float""}, {""name"": ""z"", ""type"": ""float""}], ""outputs"": [{""name"": ""value"", ""type"": ""Vector3""}], ""use_for"": [""Creating a Vector3 value""], ""notes"": ""A value node: no flow arrows; connect its outputs to other nodes' inputs.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Value)]
     [Node(Path = "Values"), Tags("Default")]
     public class Vector3Value : SchematicGraphNode
     {

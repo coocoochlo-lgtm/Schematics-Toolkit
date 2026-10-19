@@ -114,6 +114,7 @@ namespace Remedy.Schematics
     /// </summary>
     [SchematicDoc(@"{""name"": ""Get Variable"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Schematic/Behaviors"", ""description"": ""Reads a Behavior Variable of the object running the graph. Created by dragging a Variable from the IO Dock."", ""use_for"": [""read a Behavior's state (health, speed, is grounded)"", ""feed values into conditions and math""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next. Made by dragging a Variable from the IO Dock and choosing Get. Pure value node: no flow needed.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Schematic)]
     [Node(Name = "Get Variable", Path = "Schematic/Behaviors"), Tags("Object")]
     public class GetBehaviorVariableNode : BehaviorNodeBase
     {
@@ -166,6 +167,7 @@ namespace Remedy.Schematics
     /// </summary>
     [SchematicDoc(@"{""name"": ""Set Variable"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Schematic/Behaviors"", ""description"": ""Writes a Behavior Variable of the object running the graph. Created by dragging a Variable from the IO Dock."", ""use_for"": [""change a Behavior's settings or state at runtime (speed boosts, toggles)""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next. Made by dragging a Variable from the IO Dock and choosing Set. An action: wire flow into it.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Schematic)]
     [Node(Name = "Set Variable", Path = "Schematic/Behaviors"), Tags("Object")]
     public class SetBehaviorVariableNode : BehaviorNodeBase
     {
@@ -205,6 +207,7 @@ namespace Remedy.Schematics
     /// </summary>
     [SchematicDoc(@"{""name"": ""Behavior"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Schematic/Behaviors"", ""description"": ""A reference to one of the object's Behaviors, pinned out: every Variable as an output, its Enabled state, and optionally one of its public methods to call (with a pin per parameter and one for the result). Created by dragging a Behavior from the IO Dock. Reflection is done once per Behavior type and cached."", ""use_for"": [""read several Variables of one Behavior at once"", ""enable or disable a Behavior""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Schematic)]
     [Node(Name = "Behavior", Path = "Schematic/Behaviors"), Tags("Object")]
     public class BehaviorReferenceNode : BehaviorNodeBase
     {
@@ -356,6 +359,7 @@ namespace Remedy.Schematics
     /// </summary>
     [SchematicDoc(@"{""name"": ""Prefab Object"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Schematic"", ""description"": ""A GameObject from the Schematic Object's hierarchy, found on the spawned object running the graph. Created by dragging a GameObject from the IO Dock's prefab hierarchy."", ""outputs"": [{""name"": ""Object"", ""type"": ""GameObject""}, {""name"": ""Transform_"", ""type"": ""Transform""}], ""use_for"": [""refer to a child object of this prefab (a muzzle, a hitbox, a model)""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Schematic)]
     [Node(Name = "Prefab Object", Path = "Schematic"), Tags("Object")]
     public class PrefabObjectNode : SchematicActionNode
     {

@@ -1,4 +1,5 @@
-﻿using System.Text.RegularExpressions;
+﻿using System.Reflection;
+using System.Text.RegularExpressions;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -68,6 +69,11 @@ namespace BlueGraph.Editor
 
             SetPosition(new Rect(node.Position, Vector2.one));
             title = node.Name;
+
+            // [NodeColor] colors the title bar by kind of node.
+            var nodeColor = node.GetType().GetCustomAttribute<NodeColorAttribute>(true);
+            if (nodeColor != null)
+                titleContainer.style.backgroundColor = nodeColor.Color;
 
             if (!ReflectionData.Deletable)
             {

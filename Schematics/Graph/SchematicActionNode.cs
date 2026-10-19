@@ -12,6 +12,7 @@ namespace Remedy.Schematics
 
     [Serializable]
     [Input("▷", typeof(ActionPort), enableCasting: false, Multiple = true)]
+    [NodeColor(NodeColors.Action)]
     public abstract class SchematicActionNodeBase : SchematicGraphNode
     {
         /// <summary>

@@ -15,6 +15,7 @@ namespace Remedy.Schematics
     /// <summary>The objects of a list that have an Int Tag (it used to compare Unity's string tags).</summary>
     [SchematicDoc(@"{""name"": ""Pick From List With Tag"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Collections"", ""description"": ""The objects of a list that have an Int Tag (components count as their GameObject)."", ""inputs"": [{""name"": ""List"", ""type"": ""List<object>""}, {""name"": ""Tag"", ""type"": ""IntTag""}], ""outputs"": [{""name"": ""Objects With Tag"", ""type"": ""List<object>""}], ""use_for"": [""filtering targets by tag""], ""notes"": ""A value node: no flow arrows; connect its outputs to other nodes' inputs.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Value)]
     [Node(Path = "Collections"), Tags("Object")]
     public class PickFromListWithTag : SchematicGraphNode
     {

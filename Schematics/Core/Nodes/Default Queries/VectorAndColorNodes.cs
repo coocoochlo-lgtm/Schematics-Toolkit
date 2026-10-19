@@ -5,6 +5,7 @@ using UnityEngine;
 namespace Remedy.Schematics
 {
     [Serializable]
+    [NodeColor(NodeColors.Math)]
     [Node(Path = "Vectors"), Tags("Default")]
     public class MakeVector2 : SchematicGraphNode
     {
@@ -20,6 +21,7 @@ namespace Remedy.Schematics
     }
 
     [Serializable]
+    [NodeColor(NodeColors.Math)]
     [Node(Path = "Vectors"), Tags("Default")]
     public class SplitVector2 : SchematicGraphNode
     {
@@ -35,6 +37,7 @@ namespace Remedy.Schematics
     }
 
     [Serializable]
+    [NodeColor(NodeColors.Math)]
     [Node(Path = "Vectors"), Tags("Default")]
     public class MakeVector3 : SchematicGraphNode
     {
@@ -54,6 +57,7 @@ namespace Remedy.Schematics
     }
 
     [Serializable]
+    [NodeColor(NodeColors.Math)]
     [Node(Path = "Vectors"), Tags("Default")]
     public class SplitVector3 : SchematicGraphNode
     {
@@ -73,6 +77,7 @@ namespace Remedy.Schematics
     }
 
     [Serializable]
+    [NodeColor(NodeColors.Math)]
     [Node(Path = "Vectors"), Tags("Default")]
     public class MakeVector4 : SchematicGraphNode
     {
@@ -94,6 +99,7 @@ namespace Remedy.Schematics
     }
 
     [Serializable]
+    [NodeColor(NodeColors.Math)]
     [Node(Path = "Vectors"), Tags("Default")]
     public class SplitVector4 : SchematicGraphNode
     {
@@ -115,6 +121,7 @@ namespace Remedy.Schematics
     }
 
     [Serializable]
+    [NodeColor(NodeColors.Value)]
     [Node(Path = "Colors"), Tags("Default")]
     public class MakeColor : SchematicGraphNode
     {
@@ -136,6 +143,7 @@ namespace Remedy.Schematics
     }
 
     [Serializable]
+    [NodeColor(NodeColors.Value)]
     [Node(Path = "Colors"), Tags("Default")]
     public class SplitColor : SchematicGraphNode
     {

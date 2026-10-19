@@ -18,6 +18,7 @@ namespace Remedy.Schematics
     /// </summary>
     [SchematicDoc(@"{""name"": ""Has Collider Forward"", ""kind"": ""node"", ""flow"": ""condition"", ""category"": ""Collider"", ""description"": ""True when a sphere cast from the object along its forward axis hits something (with the given Int Tag, if set; with nothing connected to Object, from the object running the graph) within the distance. Uses Box3D; moved here from Schematics Core, so existing graphs keep it."", ""inputs"": [{""name"": ""Object"", ""type"": ""GameObject""}, {""name"": ""Other Tag"", ""type"": ""IntTag""}, {""name"": ""Distance"", ""type"": ""float""}, {""name"": ""Radius"", ""type"": ""float""}], ""outputs"": [{""name"": ""Other GameObject"", ""type"": ""GameObject""}], ""use_for"": [""detecting walls or enemies ahead"", ""AI obstacle checks""], ""notes"": ""A true/false value: connect it to an If node's Condition.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Condition)]
     [Node(Path = "Collider"), Tags("Object")]
     [MovedFrom(false, "Remedy.Schematics", "Remedy.Schematics.Core", "HasColliderForward")]
     public class HasColliderForward : SchematicConditionalNode

@@ -7,6 +7,7 @@ namespace Remedy.Schematics
 {
     [SchematicDoc(@"{""name"": ""Set Position"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Objects/Transform"", ""description"": ""Moves an object (or, with no Target connected, the object running the graph) to a position."", ""inputs"": [{""name"": ""Target"", ""type"": ""GameObject""}, {""name"": ""Position"", ""type"": ""Vector3""}], ""use_for"": [""teleporting"", ""respawning"", ""placing objects""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Object)]
     [Node(Path = "Objects/Transform"), Tags("Object")]
     public class SetPosition : SchematicActionNode
     {

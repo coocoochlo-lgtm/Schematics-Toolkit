@@ -150,6 +150,7 @@ namespace Remedy.Schematics
 
     [SchematicDoc(@"{""name"": ""Greater Than"", ""kind"": ""node"", ""flow"": ""condition"", ""category"": ""Conditions"", ""description"": ""True when A is greater than B. Takes any numbers (int, float, double...) and compares them without rounding."", ""inputs"": [{""name"": ""A"", ""type"": ""number""}, {""name"": ""B"", ""type"": ""number""}], ""use_for"": [""score thresholds"", ""speed limits""], ""notes"": ""A true/false value: connect it to an If node's Condition.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Condition)]
     [Node(Name = "Greater Than", Path = "Conditions/Compare"), Tags("Default")]
     public class GreaterThan : NumberComparisonNode
     {
@@ -158,6 +159,7 @@ namespace Remedy.Schematics
 
     [SchematicDoc(@"{""name"": ""Greater Than Or Equal"", ""kind"": ""node"", ""flow"": ""condition"", ""category"": ""Conditions"", ""description"": ""True when A is greater than or equal to B. Takes any numbers (int, float, double...) and compares them without rounding."", ""inputs"": [{""name"": ""A"", ""type"": ""number""}, {""name"": ""B"", ""type"": ""number""}], ""use_for"": [""having enough of something (coins >= price)""], ""notes"": ""A true/false value: connect it to an If node's Condition.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Condition)]
     [Node(Name = "Greater Than Or Equal", Path = "Conditions/Compare"), Tags("Default")]
     public class GreaterThanOrEqual : NumberComparisonNode
     {
@@ -167,6 +169,7 @@ namespace Remedy.Schematics
 
     [SchematicDoc(@"{""name"": ""Less Than"", ""kind"": ""node"", ""flow"": ""condition"", ""category"": ""Conditions"", ""description"": ""True when A is less than B. Takes any numbers (int, float, double...) and compares them without rounding."", ""inputs"": [{""name"": ""A"", ""type"": ""number""}, {""name"": ""B"", ""type"": ""number""}], ""use_for"": [""distance checks"", ""low health warnings""], ""notes"": ""A true/false value: connect it to an If node's Condition.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Condition)]
     [Node(Name = "Less Than", Path = "Conditions/Compare"), Tags("Default")]
     public class LessThan : NumberComparisonNode
     {
@@ -175,6 +178,7 @@ namespace Remedy.Schematics
 
     [SchematicDoc(@"{""name"": ""Less Than Or Equal"", ""kind"": ""node"", ""flow"": ""condition"", ""category"": ""Conditions"", ""description"": ""True when A is less than or equal to B. Takes any numbers (int, float, double...) and compares them without rounding."", ""inputs"": [{""name"": ""A"", ""type"": ""number""}, {""name"": ""B"", ""type"": ""number""}], ""use_for"": [""health checks (health <= 0)"", ""timers running out""], ""notes"": ""A true/false value: connect it to an If node's Condition.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Condition)]
     [Node(Name = "Less Than Or Equal", Path = "Conditions/Compare"), Tags("Default")]
     public class LessThanOrEqual : NumberComparisonNode
     {
@@ -184,6 +188,7 @@ namespace Remedy.Schematics
 
     [SchematicDoc(@"{""name"": ""Equal"", ""kind"": ""node"", ""flow"": ""condition"", ""category"": ""Conditions"", ""description"": ""True when A equals B. Takes any numbers (int, float, double...); fractional numbers within rounding error of each other count as equal."", ""inputs"": [{""name"": ""A"", ""type"": ""number""}, {""name"": ""B"", ""type"": ""number""}], ""use_for"": [""reaching an exact count"", ""checking a state number""], ""notes"": ""A true/false value: connect it to an If node's Condition.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Condition)]
     [Node(Name = "Equal", Path = "Conditions/Compare"), Tags("Default")]
     public class NumbersEqual : NumberComparisonNode
     {
@@ -192,6 +197,7 @@ namespace Remedy.Schematics
 
     [SchematicDoc(@"{""name"": ""Not Equal"", ""kind"": ""node"", ""flow"": ""condition"", ""category"": ""Conditions"", ""description"": ""True when A doesn't equal B. Takes any numbers (int, float, double...); fractional numbers within rounding error of each other count as equal."", ""inputs"": [{""name"": ""A"", ""type"": ""number""}, {""name"": ""B"", ""type"": ""number""}], ""use_for"": [""reacting when a value changed from a known one""], ""notes"": ""A true/false value: connect it to an If node's Condition.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Condition)]
     [Node(Name = "Not Equal", Path = "Conditions/Compare"), Tags("Default")]
     public class NumbersNotEqual : NumberComparisonNode
     {

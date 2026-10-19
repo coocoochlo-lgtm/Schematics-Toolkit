@@ -4,6 +4,7 @@ using System;
 namespace Remedy.Schematics
 {
     [Serializable]
+    [NodeColor(NodeColors.Value)]
     [Node(Path = "Strings"), Tags("Default")]
     public class StringCombine : SchematicGraphNode
     {

@@ -11,6 +11,7 @@ namespace Remedy.Schematics
 {
     [SchematicDoc(@"{""name"": ""Every X Seconds"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Flow"", ""description"": ""Starts a repeating timer: continues from Tick every Seconds (game time), Times times (0 = forever), then from Done. Count is how many ticks so far. Reaching the node again restarts its timer (for that object); it stops when the object is destroyed."", ""inputs"": [{""name"": ""Seconds"", ""type"": ""float""}, {""name"": ""Times"", ""type"": ""int""}], ""outputs"": [{""name"": ""Count"", ""type"": ""int""}], ""use_for"": [""spawning waves"", ""damage over time"", ""periodic checks"", ""blinking lights""], ""notes"": ""Runs when flow reaches it (On Start, usually): connect an arrow into it, from Tick to what repeats, and from Done to what runs once it's finished.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Flow)]
     [Node(Name = "Every X Seconds", Path = "Flow"), Tags("Default")]
     [Output(TickPort, typeof(ActionPort), enableCasting: false, Multiple = true)]
     [Output(DonePort, typeof(ActionPort), enableCasting: false, Multiple = true)]

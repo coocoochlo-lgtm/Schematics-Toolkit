@@ -11,6 +11,7 @@ using UnityEngine;
 /// </summary>
 [SchematicDoc(@"{""name"": ""Send a Signal"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""ScriptableEvents/Events"", ""description"": ""Sends its Signal to the object running this graph, where Schematic Behaviors and other graphs hear it. Has an input pin per Signal parameter (added by the editor when the Signal is dropped in)."", ""use_for"": [""tell a Behavior to do something (its Input Signals)"", ""notify other graphs"", ""pass values like damage amounts or targets"", ""send a Signal to another object (wire it into To)""], ""notes"": ""Wire an object into To to send it there instead of to this object. Runs when flow reaches it: connect an arrow into it, and from it to what runs next. Made by dragging a Signal from the IO Dock. An action: wire flow into it; its inputs are the Signal's parameters.""}")]
 [Serializable]
+[NodeColor(NodeColors.Schematic)]
 [Node(Name = "Send a Signal", Path = "ScriptableEvents/Events"), Tags("Object")]
 public class SendSignalNode : SchematicActionNode
 {
@@ -85,6 +86,7 @@ public class SendSignalNode : SchematicActionNode
 /// </summary>
 [SchematicDoc(@"{""name"": ""On Signal Received"", ""kind"": ""node"", ""flow"": ""event"", ""description"": ""Fires when its Signal is sent to the object running this graph, from a Schematic Behavior or another graph. Subscribed by the Schematic Object when it spawns, under its UID."", ""use_for"": [""react when a Behavior reports something (its Output Signals, e.g. OnDied, OnPickedUp)"", ""react to Signals sent by other graphs""], ""notes"": ""Starts a flow: connect its arrow to the actions that should run. Made by dragging a Signal from the IO Dock. An event: starts a flow; its outputs are the Signal's parameters.""}")]
 [Serializable]
+[NodeColor(NodeColors.Event)]
 [Node(Name = "On Signal Received"), Tags("Object")]
 public class OnSignalReceivedNode : SchematicEventNode
 {
