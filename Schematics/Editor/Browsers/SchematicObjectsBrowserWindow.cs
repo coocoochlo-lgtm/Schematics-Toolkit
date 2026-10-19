@@ -396,13 +396,13 @@ namespace Remedy.Schematics.Browsers
             _revealTries = 0;
             _revealWhenListed = null;
             Grid.Reveal(entry);
-            var made = AssetOf(entry);
-            if (made != null)
-                EditorGUIUtility.PingObject(made);
+            var madeAsset = AssetOf(entry);
+            if (madeAsset != null)
+                EditorGUIUtility.PingObject(madeAsset);
             if (_renameAfterReveal)
             {
                 // Opened once it's named (Prefab Mode would take the focus away from the name being typed).
-                _openAfterRename = made;
+                _openAfterRename = madeAsset;
                 Grid.schedule.Execute(() =>
                 {
                     Grid.BeginRename(entry);
@@ -414,8 +414,8 @@ namespace Remedy.Schematics.Browsers
                     }
                 }).ExecuteLater(50);
             }
-            else if (made != null)
-                EditorApplication.delayCall += () => OpenMade(made);
+            else if (madeAsset != null)
+                EditorApplication.delayCall += () => OpenMade(madeAsset);
         }
 
         /// <summary>
