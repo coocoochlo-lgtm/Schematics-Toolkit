@@ -64,6 +64,7 @@ namespace Remedy.Schematics.Browsers
             EnsureFolders();
             AssetTags.Changed += OnTagsChanged;
             EditorApplication.delayCall += MigrateOldTags;
+            EditorApplication.delayCall += () => AssetTags.RemoveReserved(TagSection);
             ReloadAssets();
         }
 
@@ -100,7 +101,8 @@ namespace Remedy.Schematics.Browsers
             if (old.Count == 0)
                 return;
             foreach (var (guid, tag) in old)
-                AssetTags.Migrate(TagSection, tag.TagName, tag.Color, guid);
+                if (!AssetTags.IsReserved(TagSection, tag.TagName)) // Music and SFX are folders, not tags
+                    AssetTags.Migrate(TagSection, tag.TagName, tag.Color, guid);
             foreach (var (guid, _) in old)
                 AssetDatabase.MoveAssetToTrash(AssetDatabase.GUIDToAssetPath(guid));
             Debug.Log($"[Project Manager] Moved {old.Count} audio tag(s) into the shared tags (Assets/Project Manager/Tags/Audio). Clips keep their tags, and can now have several.");
@@ -250,7 +252,8 @@ namespace Remedy.Schematics.Browsers
                     _clips.Add(clip);
             }
             RebuildAudioData();
-            if (rootVisualElement.childCount > 0 && _folderTree != null)
+            // The page is hosted in Project Manager (this window's own root stays empty), so check the page itself.
+            if (_page != null && _folderTree != null)
                 RefreshControls();
         }
 
@@ -456,7 +459,7 @@ namespace Remedy.Schematics.Browsers
             _nameLabels[clip] = name;
 
             // Who made it, when the file says (its ID3, Vorbis or WAV tags).
-            string artist = AudioMetadata.ArtistOf(AssetDatabase.GetAssetPath(clip));
+            string artist = AudioCredits.CreatorOf(AssetDatabase.GetAssetPath(clip));
             if (!string.IsNullOrEmpty(artist))
             {
                 var by = new Label(artist) { tooltip = "Creator (from the file's own tags)", pickingMode = PickingMode.Ignore };
@@ -905,6 +908,7 @@ namespace Remedy.Schematics.Browsers
             menu.AddItem(new GUIContent("Select in Project"), false, () => Ping(clip));
             menu.AddItem(new GUIContent(SchematicObjectsBrowserWindow.RevealLabel), false, () => EditorUtility.RevealInFinder(AssetDatabase.GetAssetPath(clip)));
             menu.AddItem(new GUIContent("Rename"), false, () => BeginRenameClip(clip));
+            menu.AddItem(new GUIContent("Edit Creator…"), false, () => AudioCredits.Edit(AssetDatabase.GetAssetPath(clip), RebuildCards));
             menu.AddItem(new GUIContent("Show in Folder Tree"), false, () =>
             {
                 string path = AssetDatabase.GetAssetPath(clip);
@@ -1001,48 +1005,92 @@ namespace Remedy.Schematics.Browsers
             return SfxRoot;
         }
 
+        // Lists the files (a folder's files keep their subfolders) and opens the import settings for them.
         private void ImportPaths(IEnumerable<string> paths, string root)
         {
-            EnsureFolders();
+            bool music = root.StartsWith(MusicRoot, StringComparison.OrdinalIgnoreCase);
+            var items = new List<AudioImportWindow.Item>();
+            void AddFile(string file, string subfolder)
+            {
+                if (!IsAudioFile(file))
+                {
+                    Debug.LogWarning($"Skipped unsupported audio file '{file}'.");
+                    return;
+                }
+                items.Add(new AudioImportWindow.Item
+                {
+                    Source = file,
+                    Subfolder = subfolder,
+                    IsMusic = music,
+                    Creator = AudioMetadata.ArtistOf(file),
+                });
+            }
+            void AddFolder(string folder, string subfolder)
+            {
+                foreach (var file in Directory.GetFiles(folder).OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
+                    if (IsAudioFile(file))
+                        AddFile(file, subfolder);
+                foreach (var child in Directory.GetDirectories(folder).OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
+                    AddFolder(child, subfolder + "/" + SanitizeName(Path.GetFileName(child)));
+            }
             foreach (var source in paths)
             {
                 if (Directory.Exists(source))
-                {
-                    string folderName = Path.GetFileName(source.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-                    ImportDirectory(source, root + "/" + SanitizeName(folderName));
-                }
+                    AddFolder(source, SanitizeName(Path.GetFileName(source.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))));
                 else if (File.Exists(source))
-                {
-                    if (IsAudioFile(source))
-                        CopyAudioFile(source, root);
-                    else
-                        Debug.LogWarning($"Skipped unsupported audio file '{source}'.");
-                }
+                    AddFile(source, "");
+            }
+            if (items.Count == 0)
+            {
+                EditorUtility.DisplayDialog("Import Audio", "There are no audio files there (wav, mp3, ogg, aif, mod, it, s3m, xm).", "OK");
+                return;
+            }
+            AudioImportWindow.Open(items, Import);
+        }
+
+        // Copies each file into its kind's folder (the open folder when it's of that kind, else Music or SFX), then
+        // gives the imported clips their tags and creators.
+        private void Import(List<AudioImportWindow.Item> items)
+        {
+            EnsureFolders();
+            var imported = new List<(string path, AudioImportWindow.Item item)>();
+            foreach (var item in items)
+            {
+                string root = item.IsMusic ? MusicRoot : SfxRoot;
+                string folder = _selectedFolder.StartsWith(root, StringComparison.OrdinalIgnoreCase) ? _selectedFolder : root;
+                if (!string.IsNullOrEmpty(item.Subfolder))
+                    folder = folder.TrimEnd('/') + "/" + item.Subfolder;
+                CreateAssetFolder(folder);
+                string path = CopyAudioFile(item.Source, folder);
+                if (path != null)
+                    imported.Add((path, item));
             }
             AssetDatabase.Refresh();
+            foreach (var (path, item) in imported)
+            {
+                var clip = AssetDatabase.LoadAssetAtPath<AudioClip>(path);
+                if (clip == null) continue;
+                foreach (var tag in item.Tags)
+                    AssetTags.Add(clip, tag);
+                string detected = AudioMetadata.ArtistOf(path);
+                if (!string.IsNullOrWhiteSpace(item.Creator) && item.Creator.Trim() != detected)
+                    AudioCredits.SetCreator(path, item.Creator.Trim());
+            }
             ReloadAssets();
         }
 
-        private void ImportDirectory(string source, string destination)
-        {
-            CreateAssetFolder(destination);
-            foreach (var file in Directory.GetFiles(source))
-                if (IsAudioFile(file))
-                    CopyAudioFile(file, destination);
-            foreach (var child in Directory.GetDirectories(source))
-                ImportDirectory(child, destination + "/" + SanitizeName(Path.GetFileName(child)));
-        }
-
-        private void CopyAudioFile(string source, string destination)
+        private string CopyAudioFile(string source, string destination)
         {
             string path = AssetDatabase.GenerateUniqueAssetPath(destination + "/" + SanitizeName(Path.GetFileName(source)));
             try
             {
                 File.Copy(source, path);
+                return path;
             }
             catch (IOException exception)
             {
                 Debug.LogError($"Could not import audio file '{source}': {exception.Message}");
+                return null;
             }
         }
 

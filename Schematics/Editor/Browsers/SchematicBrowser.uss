@@ -645,3 +645,18 @@
     white-space: nowrap;
     text-overflow: ellipsis;
 }
+
+/* The audio import settings window. */
+.audio-import__all,
+.audio-import__row {
+    flex-direction: row;
+    align-items: center;
+    flex-shrink: 0;
+    padding: 3px 2px;
+    border-bottom-width: 1px;
+    border-bottom-color: var(--schematic-border);
+}
+
+.audio-import__all {
+    background-color: rgba(127, 127, 127, 0.12);
+}

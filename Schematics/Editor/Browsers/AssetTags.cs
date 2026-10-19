@@ -149,12 +149,39 @@ namespace Remedy.Schematics.Browsers
             AssetDatabase.SaveAssetIfDirty(tag);
         }
 
+        // Names a section keeps for itself: Audio's Music and SFX are its two folders (a clip is one or the other by
+        // where it lives), so they aren't tags.
+        private static readonly string[] AudioReserved = { "Music", "SFX", "Sound Effect", "Sound Effects", "SoundEffect" };
+
+        /// <summary>Whether a name can't be a tag in a section (Audio: Music, SFX).</summary>
+        public static bool IsReserved(string section, string name)
+            => string.Equals(section, "Audio", StringComparison.OrdinalIgnoreCase)
+               && AudioReserved.Any(r => string.Equals(r, (name ?? "").Trim(), StringComparison.OrdinalIgnoreCase));
+
+        /// <summary>Deletes a section's tags that use reserved names (left by older versions).</summary>
+        public static void RemoveReserved(string section)
+        {
+            var reserved = In(section).Where(tag => IsReserved(section, tag.TagName)).ToList();
+            if (reserved.Count == 0)
+                return;
+            foreach (var tag in reserved)
+                AssetDatabase.DeleteAsset(AssetDatabase.GetAssetPath(tag));
+            Debug.Log($"[Project Manager] Removed the {section} tag(s) {string.Join(", ", reserved.Select(t => "'" + t.TagName + "'"))}: Music and SFX are the Audio page's folders, not tags.");
+            Invalidate();
+            Changed?.Invoke();
+        }
+
         /// <summary>Makes a tag in a section (or returns the one with that name).</summary>
         public static AssetTag Create(string section, string name, Color? color = null)
         {
             name = (name ?? "").Trim();
             if (string.IsNullOrEmpty(name))
                 return null;
+            if (IsReserved(section, name))
+            {
+                EditorUtility.DisplayDialog("New Tag", $"'{name}' can't be a tag: Music and SFX are the Audio page's two folders. Move a clip between them instead.", "OK");
+                return null;
+            }
             var existing = In(section).FirstOrDefault(tag => string.Equals(tag.TagName, name, StringComparison.OrdinalIgnoreCase));
             if (existing != null)
                 return existing;
