@@ -50,6 +50,8 @@ namespace BlueGraph
         public const string Object = "#C06A32";
         /// <summary>Time and timelines: Wait, Every X Seconds, Timeline playback.</summary>
         public const string Time = "#4F5FC4";
+        /// <summary>Physics bodies: forces, impulses, velocity.</summary>
+        public const string Physics = "#8A6A3A";
         /// <summary>Sound and music.</summary>
         public const string Audio = "#C2508C";
         /// <summary>AI: brains and senses.</summary>
