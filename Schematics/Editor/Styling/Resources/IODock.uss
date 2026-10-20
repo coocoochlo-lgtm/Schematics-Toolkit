@@ -694,7 +694,7 @@ EventContainerRenderer
 .node-Send-a-Signal #node-border ObjectField
 {
 	position: absolute;
-	bottom: 0;
+	bottom: 4px;
 	width: 100%;
 	height: 24px;
 }
@@ -705,7 +705,6 @@ EventContainerRenderer
 	left: 50%;
 	margin-left: -67px;
 	width: 134px;
-	height: 24px;
 	background-image: url("Textures/io-gradient.png");
 	border-width: 1px;
 	border-color: gray;
