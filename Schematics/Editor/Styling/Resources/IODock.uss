@@ -600,7 +600,7 @@ EventContainerRenderer
 	background-color: rgba(0,0,0,0);
 }
 
-.send-signal-node
+.node-Send-a-Signal
 {
 	width: 160px;
 	height: 96px;
@@ -610,13 +610,13 @@ EventContainerRenderer
 	background-position: 12px 12px;
 }
 
-.send-signal-node VisualElement
+.node-Send-a-Signal VisualElement
 {
 	overflow: visible;
 	border-width: 0px;
 }
 
-.send-signal-node #node-border
+.node-Send-a-Signal #node-border
 {
 	opacity: 1;
 	height: 96px;
@@ -626,12 +626,12 @@ EventContainerRenderer
 	background-image: url("Textures/io-graph-gradient.png");
 }
 
-.send-signal-node #node-border #title
+.node-Send-a-Signal #node-border #title
 {
 	opacity: 0;
 }
 
-.send-signal-node #node-border VisualElement
+.node-Send-a-Signal #node-border VisualElement
 {
 	opacity: 1;
 	background-image: none;
@@ -639,13 +639,13 @@ EventContainerRenderer
 	overflow: visible;
 }
 
-.send-signal-node #node-border #divider
+.node-Send-a-Signal #node-border #divider
 {
 	display: none;
 }
 
-.send-signal-node #node-border #collapsible-area,
-.send-signal-node #node-border #collapsible-area VisualElement
+.node-Send-a-Signal #node-border #collapsible-area,
+.node-Send-a-Signal #node-border #collapsible-area VisualElement
 {
 	opacity: 1;
 	background-image: none;
