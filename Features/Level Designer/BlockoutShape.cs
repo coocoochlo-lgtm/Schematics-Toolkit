@@ -54,6 +54,12 @@ namespace Remedy.LevelDesigner
         /// <summary>Round shapes: how many sides they're made of.</summary>
         [Range(6, 64)] public int Segments = 24;
 
+        [Min(0f), Tooltip("Straight track length at each end of a full Loop, for an open approach and exit.")]
+        public float LoopApproachLength = 4f;
+
+        [Min(0.05f), Tooltip("Thickness of the solid body behind curved Loop and Half Pipe driving surfaces.")]
+        public float CurvedTrackThickness = 0.5f;
+
         /// <summary>Arch: how much of the width the tunnel takes up.</summary>
         [Range(0.1f, 0.95f)] public float ArchOpening = 0.6f;
 
@@ -71,8 +77,8 @@ namespace Remedy.LevelDesigner
         // The mesh layout version the saved mesh was built with; older meshes are rebuilt when the shape wakes.
         [SerializeField, HideInInspector] private int _meshVersion;
 
-        /// <summary>Bumped whenever the mesh's vertex data changes meaning (2: UV1.zw hold axis codes for cell labels).</summary>
-        private const int MeshVersion = 2;
+        /// <summary>Bumped whenever the mesh layout or procedural shape geometry changes.</summary>
+        private const int MeshVersion = 3;
 
         /// <summary>
         /// Set by a <see cref="VariantScene"/> that brings its blockout into Play Mode for collision only: shapes
@@ -157,8 +163,15 @@ namespace Remedy.LevelDesigner
                 Rebuild();
             else if (_meshVersion != MeshVersion && !Application.isPlaying)
             {
-                // Saved with an older layout (the previous one carried a label position where the cell labels now
-                // read their axes): rebuild so the shader reads it right.
+                // Older loops used Size.z for the loop diameter alone; the current size includes the two
+                // approach sections, so grow the bounds while preserving that diameter.
+                if (_meshVersion < 3 && Kind == BlockoutShapeKind.Loop)
+                {
+                    if (LoopApproachLength <= 0f)
+                        LoopApproachLength = 4f;
+                    Size = new Vector3(Size.x, Size.y, Size.z + LoopApproachLength * 2f);
+                }
+                // Saved meshes need rebuilding when their layout or generated geometry changes.
                 _meshOwners[_mesh] = this;
                 RebuildMesh();
                 ApplyRendering();
@@ -236,7 +249,8 @@ namespace Remedy.LevelDesigner
                 _mesh = new Mesh { name = "Blockout " + Kind };
             _meshOwners[_mesh] = this;
             _mesh.name = "Blockout " + Kind;
-            BlockoutMeshBuilder.Build(_mesh, Kind, Size, StepHeight, Segments, ArchOpening);
+            BlockoutMeshBuilder.Build(_mesh, Kind, Size, StepHeight, Segments, ArchOpening,
+                LoopApproachLength, CurvedTrackThickness);
             _meshVersion = MeshVersion;
 
             var filter = GetComponent<MeshFilter>();

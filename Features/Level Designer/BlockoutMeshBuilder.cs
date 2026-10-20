@@ -19,8 +19,10 @@ namespace Remedy.LevelDesigner
         Arch,
         /// <summary>A curved ramp (like a skate ramp) rising along +Z, flat at the bottom and steep at the top.</summary>
         QuarterPipe,
-        /// <summary>A closed 360-degree driving loop in the Y-Z plane; Size.x is width, Size.y/z are loop diameters.</summary>
+        /// <summary>A vertical driving loop with straight entry and exit tracks.</summary>
         Loop,
+        /// <summary>A U-shaped driving trough running along +Z.</summary>
+        HalfPipe,
     }
 
     /// <summary>
@@ -64,7 +66,8 @@ namespace Remedy.LevelDesigner
         }
 
         /// <summary>Builds the mesh for a shape into <paramref name="mesh"/> (cleared first).</summary>
-        public static void Build(Mesh mesh, BlockoutShapeKind kind, Vector3 size, float stepHeight = 0.25f, int segments = 24, float archOpening = 0.6f)
+        public static void Build(Mesh mesh, BlockoutShapeKind kind, Vector3 size, float stepHeight = 0.25f, int segments = 24,
+            float archOpening = 0.6f, float loopApproachLength = 4f, float trackThickness = 0.5f)
         {
             var builder = new BlockoutMeshBuilder();
             size = new Vector3(Mathf.Max(0.01f, size.x), Mathf.Max(0.01f, size.y), Mathf.Max(0.01f, size.z));
@@ -79,7 +82,8 @@ namespace Remedy.LevelDesigner
                 case BlockoutShapeKind.Wedge: builder.Wedge(size); break;
                 case BlockoutShapeKind.Arch: builder.Arch(size, segments, archOpening); break;
                 case BlockoutShapeKind.QuarterPipe: builder.QuarterPipe(size, segments); break;
-                case BlockoutShapeKind.Loop: builder.Loop(size, segments); break;
+                case BlockoutShapeKind.Loop: builder.Loop(size, segments, loopApproachLength, trackThickness); break;
+                case BlockoutShapeKind.HalfPipe: builder.HalfPipe(size, segments, trackThickness); break;
                 default: builder.Box(size); break;
             }
 
@@ -420,37 +424,142 @@ namespace Remedy.LevelDesigner
             }
         }
 
-        private void Loop(Vector3 s, int segments)
+        private void Loop(Vector3 s, int segments, float approachLength, float thickness)
         {
             int steps = Mathf.Max(24, segments * 2);
             float radiusY = s.y * 0.5f;
-            float radiusZ = s.z * 0.5f;
+            approachLength = Mathf.Clamp(Mathf.Max(0f, approachLength), 0f, Mathf.Max(0f, s.z * 0.5f - 0.05f));
+            float diameterZ = Mathf.Max(0.1f, s.z - 2f * approachLength);
+            float radiusZ = diameterZ * 0.5f;
             float halfWidth = s.x * 0.5f;
-            float arcLength = 0f;
-            var points = new Vector3[steps + 1, 2];
-            var normals = new Vector3[steps + 1, 2];
-            var uvs = new Vector2[steps + 1, 2];
+            thickness = Mathf.Max(0.05f, thickness);
+            var profile = new List<(Vector3 point, Vector3 normal, float distance)>();
+            float distance = 0f;
 
-            Vector3 PointAt(float angle) => new Vector3(0f, radiusY * (1f - Mathf.Cos(angle)), radiusZ * Mathf.Sin(angle));
+            void AddProfilePoint(Vector3 point, Vector3 normal)
+            {
+                if (profile.Count > 0)
+                {
+                    if ((profile[^1].point - point).sqrMagnitude < 1e-8f)
+                        return;
+                    distance += Vector3.Distance(profile[^1].point, point);
+                }
+                profile.Add((point, normal.normalized, distance));
+            }
+
+            // The open, level approach meets the loop at its bottom tangent.
+            AddProfilePoint(new Vector3(0f, 0f, -approachLength), Vector3.up);
             for (int i = 0; i <= steps; i++)
             {
                 float angle = (float)i / steps * Mathf.PI * 2f;
-                Vector3 center = PointAt(angle);
-                if (i > 0)
-                    arcLength += Vector3.Distance(PointAt((float)(i - 1) / steps * Mathf.PI * 2f), center);
+                var point = new Vector3(0f, radiusY * (1f - Mathf.Cos(angle)), radiusZ * Mathf.Sin(angle));
+                var normal = new Vector3(0f, Mathf.Cos(angle) / radiusY, -Mathf.Sin(angle) / radiusZ);
+                AddProfilePoint(point, normal);
+            }
+            // Continue straight from the same bottom tangent; the ends remain open to drive through.
+            AddProfilePoint(new Vector3(0f, 0f, approachLength), Vector3.up);
 
-                // The driving surface faces the inside of the loop.
-                Vector3 normal = new Vector3(0f, Mathf.Cos(angle) / radiusY, -Mathf.Sin(angle) / radiusZ).normalized;
-                for (int side = 0; side < 2; side++)
-                {
-                    float x = side == 0 ? -halfWidth : halfWidth;
-                    points[i, side] = center + Vector3.right * x;
-                    normals[i, side] = normal;
-                    uvs[i, side] = new Vector2(side == 0 ? 0f : s.x, arcLength);
-                }
+            AddSolidTrack(profile, halfWidth, thickness, new Vector2(s.x, distance));
+        }
+
+        private void HalfPipe(Vector3 s, int segments, float thickness)
+        {
+            int steps = Mathf.Max(12, segments);
+            float halfWidth = s.x * 0.5f;
+            thickness = Mathf.Max(0.05f, thickness);
+            var profile = new List<(Vector3 point, Vector3 normal, float distance)>();
+            float distance = 0f;
+            for (int i = 0; i <= steps; i++)
+            {
+                float angle = Mathf.Lerp(-Mathf.PI * 0.5f, Mathf.PI * 0.5f, (float)i / steps);
+                var point = new Vector3(halfWidth * Mathf.Sin(angle), s.y * (1f - Mathf.Cos(angle)), 0f);
+                var normal = new Vector3(-Mathf.Sin(angle) / halfWidth, Mathf.Cos(angle) / s.y, 0f).normalized;
+                if (i > 0)
+                    distance += Vector3.Distance(profile[^1].point, point);
+                profile.Add((point, normal, distance));
             }
 
-            AddSmoothGrid(points, normals, uvs, new Vector2(s.x, arcLength), 1);
+            // The U-shaped ride surface and its solid back. Its open ends face along +/-Z.
+            var inner = new Vector3[steps + 1, 2];
+            var outer = new Vector3[steps + 1, 2];
+            var innerNormals = new Vector3[steps + 1, 2];
+            var outerNormals = new Vector3[steps + 1, 2];
+            var innerUvs = new Vector2[steps + 1, 2];
+            var outerUvs = new Vector2[steps + 1, 2];
+            for (int i = 0; i <= steps; i++)
+            for (int end = 0; end < 2; end++)
+            {
+                float z = end == 0 ? -s.z * 0.5f : s.z * 0.5f;
+                var (point, normal, alongCurve) = profile[i];
+                inner[i, end] = point + Vector3.forward * z;
+                outer[i, end] = inner[i, end] - normal * thickness;
+                innerNormals[i, end] = normal;
+                outerNormals[i, end] = -normal;
+                innerUvs[i, end] = new Vector2(alongCurve, z + s.z * 0.5f);
+                outerUvs[i, end] = innerUvs[i, end];
+            }
+            AddSmoothGrid(inner, innerNormals, innerUvs, new Vector2(distance, s.z), 1);
+            AddSmoothGrid(outer, outerNormals, outerUvs, new Vector2(distance, s.z), 1);
+
+            // Solid side rails join the inside and underside at both lips, leaving the channel open at its ends.
+            for (int side = 0; side < 2; side++)
+            {
+                var wall = new Vector3[2, 2];
+                var normals = new Vector3[2, 2];
+                var uvs = new Vector2[2, 2];
+                int row = side == 0 ? 0 : steps;
+                Vector3 normal = side == 0 ? Vector3.left : Vector3.right;
+                for (int end = 0; end < 2; end++)
+                {
+                    wall[0, end] = inner[row, end];
+                    wall[1, end] = outer[row, end];
+                    normals[0, end] = normals[1, end] = normal;
+                    uvs[0, end] = uvs[1, end] = new Vector2(end * s.z, 0f);
+                }
+                AddSmoothGrid(wall, normals, uvs, new Vector2(s.z, thickness), 0);
+            }
+        }
+
+        private void AddSolidTrack(IReadOnlyList<(Vector3 point, Vector3 normal, float distance)> profile,
+            float halfWidth, float thickness, Vector2 faceSize)
+        {
+            int count = profile.Count;
+            var inner = new Vector3[count, 2];
+            var outer = new Vector3[count, 2];
+            var innerNormals = new Vector3[count, 2];
+            var outerNormals = new Vector3[count, 2];
+            var innerUvs = new Vector2[count, 2];
+            var outerUvs = new Vector2[count, 2];
+            for (int i = 0; i < count; i++)
+            for (int side = 0; side < 2; side++)
+            {
+                var (point, normal, alongPath) = profile[i];
+                float x = side == 0 ? -halfWidth : halfWidth;
+                inner[i, side] = point + Vector3.right * x;
+                outer[i, side] = inner[i, side] - normal * thickness;
+                innerNormals[i, side] = normal;
+                outerNormals[i, side] = -normal;
+                innerUvs[i, side] = outerUvs[i, side] = new Vector2(side * halfWidth * 2f, alongPath);
+            }
+            AddSmoothGrid(inner, innerNormals, innerUvs, faceSize, 1);
+            AddSmoothGrid(outer, outerNormals, outerUvs, faceSize, 1);
+
+            for (int side = 0; side < 2; side++)
+            {
+                var wall = new Vector3[count, 2];
+                var normals = new Vector3[count, 2];
+                var uvs = new Vector2[count, 2];
+                Vector3 normal = side == 0 ? Vector3.left : Vector3.right;
+                for (int i = 0; i < count; i++)
+                {
+                    wall[i, 0] = inner[i, side];
+                    wall[i, 1] = outer[i, side];
+                    normals[i, 0] = normals[i, 1] = normal;
+                    uvs[i, 0] = new Vector2(profile[i].distance, 0f);
+                    uvs[i, 1] = new Vector2(profile[i].distance, thickness);
+                }
+                AddSmoothGrid(wall, normals, uvs, new Vector2(faceSize.y, thickness), 0);
+            }
         }
 
         private void Arch(Vector3 s, int segments, float opening)
