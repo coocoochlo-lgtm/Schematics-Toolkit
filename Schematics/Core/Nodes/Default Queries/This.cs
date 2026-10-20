@@ -8,7 +8,9 @@ using UnityEngine;
 
 namespace Remedy.Schematics
 {
+    [SchematicDoc(@"{""name"": ""This"", ""kind"": ""node"", ""flow"": ""query"", ""description"": ""The object running this graph."", ""outputs"": [{""name"": ""value"", ""type"": ""object""}], ""use_for"": [""passing 'myself' to other nodes and Signals""], ""notes"": ""A value node: no flow arrows; connect its outputs to other nodes' inputs.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Object)]
     [Node(Path = ""), Tags("Object")]
     public class This : SchematicGraphNode
     {
@@ -17,7 +19,9 @@ namespace Remedy.Schematics
 
         public override object OnRequestValue(Port port)
         {
-            return GameObject;
+            // The spawned object running the graph (this used to be the prefab asset). Outside a flow, the prefab.
+            var instance = RunningInstance;
+            return instance != null ? instance : GameObject;
         }
     }
 }

@@ -1,0 +1,29 @@
+{
+    "name": "Remedy.Vehicles.Networking",
+    "rootNamespace": "Remedy.Vehicles.Networking",
+    "references": [
+        "GUID:1491147abca9d7d4bb7105af628b223e",
+        "GUID:bba4e093fb1c4ce8b65e6888e34b8ceb",
+        "GUID:0a22d72520a82174ab746de6d8876564",
+        "GUID:6082862122ef11a49bf208ee4ec62519",
+        "GUID:9cef1c0784dad074282847b193c0d47b",
+        "Unity.Collections"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "SCHEMATICS_NETCODE"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.unity.netcode.gameobjects",
+            "expression": "2.0.0",
+            "define": "SCHEMATICS_NETCODE"
+        }
+    ],
+    "noEngineReferences": false
+}

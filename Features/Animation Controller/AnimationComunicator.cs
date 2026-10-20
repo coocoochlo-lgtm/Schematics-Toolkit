@@ -1,94 +1,65 @@
-using Remedy.Framework;
-using Remedy.Schematics.Utils;
-//using SaintsField;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-//Enable SaintsEditor and Change Mono to SaintsMonoBehaviour
 namespace Remedy.Animation
 {
-    public class AnimationComunicator : MonoBehaviour
+    /// <summary>
+    /// Drives the Animator on its GameObject from Signals: each entry of its Properties maps a Signal to an Animator
+    /// parameter (trigger, bool, float, or a Vector2 split into floats).
+    /// </summary>
+    [SchematicDoc(@"{""name"": ""Animation Comunicator"", ""kind"": ""behavior"", ""menu"": ""Animation/Animation Communicator"", ""description"": ""Drives the Animator on its GameObject from Signals: each entry of its Properties maps a Signal to an Animator parameter (trigger, bool, float, or a Vector2 split into floats)."", ""variables"": [""Properties""], ""use_for"": [""driving Animator parameters from gameplay Signals (run, jump, attack animations)""]}")]
+    [SchematicBehaviorPath("Animation/Animation Communicator")]
+    public class AnimationComunicator : SchematicBehavior
     {
-        public Animator Animator => gameObject.GetCachedComponent<Animator>();
-        public List<TriggerEvent> Triggers = new();
-        public List<BooleanEvent> BooleanValues = new();
-        public List<FloatEvent> FloatValues = new();
-        public List<Vector2Event> Vector2Values = new();
+        /// <summary>The Signal-to-parameter mappings, assigned per object.</summary>
+        [SchematicDoc(@"{""name"": ""Properties"", ""kind"": ""variable"", ""behavior"": ""Animation Comunicator"", ""type"": ""AnimationComunicatorProperties"", ""default"": ""null"", ""description"": ""The Signal-to-parameter mappings, assigned per object.""}")]
+        public readonly VariableHandle<AnimationComunicatorProperties> Properties = (AnimationComunicatorProperties)null;
 
-        private void Awake()
+        protected override void OnStart()
         {
-            foreach (var tEvent in Triggers)
-            {
-                tEvent.OnEvent.Subscribe(this, (Union value) => {
-                    if (tEvent.ParameterName == 0) return;
+            var instance = Self;
+            var properties = Properties.Value;
+            var animator = instance.GetComponent<Animator>();
+            if (properties == null || animator == null)
+                return;
 
-                    Animator.ResetTrigger(tEvent.ParameterName);
-                    Animator.SetTrigger(tEvent.ParameterName);
-                });
-            }
-            foreach (var bEvent in BooleanValues)
+            foreach (var entry in properties.Triggers)
             {
-                bEvent.OnEvent.Subscribe(this, (bool value) => {
-                    if (bEvent.ParameterName == 0) return;
-
-                    Animator.SetBool(bEvent.ParameterName, value);
-                });
-            }
-
-            foreach (var bEvent in FloatValues)
-            {
-                bEvent.OnEvent.Subscribe(this, (float value) => {
-                    if (bEvent.ParameterName == 0) return;
-
-                    Animator.SetFloat(bEvent.ParameterName, value);
-                });
-            }
-            foreach (var v2Event in Vector2Values)
-            {
-                v2Event.OnEvent.Subscribe(this, (Vector2 value) =>
+                if (entry.ParameterName == 0) continue;
+                int parameter = entry.ParameterName;
+                // Triggers fire on any send, whatever the Signal carries.
+                entry.OnEvent?.Subscribe(instance, () =>
                 {
-                    if (v2Event.XParameter != 0) Animator.SetFloat(v2Event.XParameter, value.x);
-                    if (v2Event.YParameter != 0) Animator.SetFloat(v2Event.YParameter, value.y);
-                    if (v2Event.MagnitudeParameter != 0) Animator.SetFloat(v2Event.MagnitudeParameter, value.magnitude);
+                    animator.ResetTrigger(parameter);
+                    animator.SetTrigger(parameter);
                 });
             }
-        }
 
-        [Serializable]
-        public class TriggerEvent
-        {
-            public SignalData OnEvent;
-            //[AnimatorParam(AnimatorControllerParameterType.Trigger)]
-            public int ParameterName;
-        }
-        [Serializable]
-        public class BooleanEvent
-        {
-            public SignalData OnEvent;
-            //[AnimatorParam(AnimatorControllerParameterType.Bool)]
-            public int ParameterName;
-        }
-        [Serializable]
-        public class FloatEvent
-        {
-            public SignalData OnEvent;
-            //[AnimatorParam(AnimatorControllerParameterType.Float)]
-            public int ParameterName;
-        }
-        [Serializable]
-        public class Vector2Event
-        {
-            public SignalData OnEvent;
-            //[AnimatorParam(AnimatorControllerParameterType.Float)]
-            [Tooltip("The Parameter that is set to the X axis value of the Vector2 passed from the Event")]
-            public int XParameter;
-            //[AnimatorParam(AnimatorControllerParameterType.Float)]
-            [Tooltip("The Parameter that is set to the Y axis value of the Vector2 passed from the Event")]
-            public int YParameter;
-            //[AnimatorParam(AnimatorControllerParameterType.Float)]
-            [Tooltip("The Parameter that is set to the Magnitude value of the Vector2 passed from the Event")]
-            public int MagnitudeParameter;
+            foreach (var entry in properties.BooleanValues)
+            {
+                if (entry.ParameterName == 0) continue;
+                int parameter = entry.ParameterName;
+                entry.OnEvent?.Subscribe(instance, (bool value) => animator.SetBool(parameter, value));
+            }
+
+            foreach (var entry in properties.FloatValues)
+            {
+                if (entry.ParameterName == 0) continue;
+                int parameter = entry.ParameterName;
+                entry.OnEvent?.Subscribe(instance, (float value) => animator.SetFloat(parameter, value));
+            }
+
+            foreach (var entry in properties.Vector2Values)
+            {
+                var mapping = entry;
+                mapping.OnEvent?.Subscribe(instance, (Vector2 value) =>
+                {
+                    if (mapping.XParameter != 0) animator.SetFloat(mapping.XParameter, value.x);
+                    if (mapping.YParameter != 0) animator.SetFloat(mapping.YParameter, value.y);
+                    if (mapping.MagnitudeParameter != 0) animator.SetFloat(mapping.MagnitudeParameter, value.magnitude);
+                });
+            }
         }
     }
 }

@@ -1,24 +1,36 @@
-using Remedy.Framework;
+using Remedy.Schematics;
+using Box3D.Hybrid;
+using Remedy.Box3DPhysics;
 using UnityEngine;
 
 namespace Remedy.LevelDesign
 {
-    public class CheckpointAgent : MonoBehaviour
+    /// <summary>
+    /// Moves its object's Box3D body to the position carried by the Respawn Signal (stopping it there).
+    /// </summary>
+    [SchematicDoc(@"{""name"": ""Checkpoint Agent"", ""kind"": ""behavior"", ""menu"": ""Level Design/Checkpoint Agent"", ""description"": ""Moves its object's Box3D body to the position carried by the Respawn Signal (stopping it there)."", ""signals"": [""Respawn""], ""use_for"": [""respawning the player at checkpoints""]}")]
+    [SchematicBehaviorPath("Level Design/Checkpoint Agent")]
+    public class CheckpointAgent : SchematicBehavior
     {
-        public SignalData Respawn;
-        private Rigidbody _rb => gameObject.GetCachedComponent<Rigidbody>();
+        [SchematicDoc(@"{""name"": ""Respawn"", ""kind"": ""signal"", ""behavior"": ""Checkpoint Agent"", ""direction"": ""input"", ""params"": [{""name"": ""Position"", ""type"": ""Vector3""}], ""description"": ""Tells Checkpoint Agent to act."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
+        [InputSignal]
+        [Parameter("Position", typeof(Vector3))]
+        [NetworkSync(SignalSender.Authority)]
+        public readonly SignalHandle<Vector3> Respawn;
 
-        private void OnEnable()
+        protected override void OnStart()
         {
-            Respawn?.Subscribe(this, (Vector3 position) =>
+            Respawn.Subscribe(position =>
             {
-                if (_rb != null)
+                var body = Self.GetComponent<Box3DBody>();
+                if (body == null)
                 {
-                    bool originallyKinematic = _rb.isKinematic;
-                    _rb.isKinematic = true;
-                    _rb.position = position;
-                    _rb.isKinematic = originallyKinematic;
+                    Self.Transform.position = position;
+                    return;
                 }
+
+                body.Teleport(position);
+                body.SetVelocity(Vector3.zero);
             });
         }
     }

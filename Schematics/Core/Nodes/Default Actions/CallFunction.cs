@@ -2,15 +2,17 @@
 
 #pragma warning disable 0414
 
+using Remedy.Framework;
 using BlueGraph;
 using System.Collections.Generic;
 using UnityEngine;
 using System;
-using Remedy.Schematics.Utils;
 
 namespace Remedy.Schematics
 {
+    [SchematicDoc(@"{""name"": ""Call Function"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Loops"", ""description"": ""Calls a function by name on another Schematic Graph (its On Function event), passing parameters."", ""inputs"": [{""name"": ""FunctionParameters"", ""type"": ""List<FunctionParameter>""}], ""use_for"": [""reusable routines"", ""one graph asking another to do something""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next. Pair with On Function in the target graph.""}")]
     [Serializable]
+    [NodeColor(NodeColors.Action)]
     [Node(Path = "Loops"), Tags("Default")]
     public class CallFunction : SchematicActionNode
     {
@@ -25,10 +27,12 @@ namespace Remedy.Schematics
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
         {
-            if(TargetGraph != null)
-            {
-                TargetGraph?.TriggerEvent<OnFunction>(instance, FunctionName, FunctionParameters.ToArray());
-            }
+            if (TargetGraph == null)
+                return;
+
+            // On Function receives the name (to check it's the one being called) and the parameters list.
+            var parameters = GetInputValue("FunctionParameters", FunctionParameters);
+            TargetGraph.TriggerEvent<OnFunction>(instance, FunctionName, PortValues.ToUnion(parameters));
         }
     }
 

@@ -6,7 +6,6 @@ using UnityEngine.UIElements;
 using UnityEngine;
 using UnityEditor;
 using System.Linq;
-using Remedy.Schematics.Utils;
 using SchematicAssets;
 
 [FieldRendererTarget(typeof(SignalContainerRendererAttribute))]
@@ -14,7 +13,6 @@ public class SignalRenderer : FieldRenderer
 {
     private static List<SignalRenderer> _eventLinkWaitPool = new(); // Events waiting for the rest of the Component to finish displaying before attempting to draw
     private SignalContainerRendererAttribute _evAttr;
-    private SchematicEventLinkAttribute _linkAttr;
     private static Texture2D _oIcon;
     private static Texture2D _outputIcon => _oIcon ??= Resources.Load<Texture2D>("Icons/Output");
     private static Texture2D _iIcon;
@@ -31,33 +29,12 @@ public class SignalRenderer : FieldRenderer
     {
         _evAttr = (SignalContainerRendererAttribute)attr;
 
-        SchematicEventLinkAttribute linkAttr = null;
-
-        if (fieldInfo != null)
-        {
-            var attributes = fieldInfo.GetCustomAttributes();
-            for (int i = 0; i < attributes.Count(); i++)
-            {
-                var attribute = attributes.ElementAt(i) as SchematicEventLinkAttribute;
-                if (attribute != null)
-                {
-                    linkAttr = attribute;
-                    break;
-                }
-            }
-        }
-
-        _linkAttr = linkAttr;
-
         if (_evAttr == null)
-            _evAttr = new SignalContainerRendererAttribute(typeof(ISignal), _field.Name, false);
+            _evAttr = new SignalContainerRendererAttribute(typeof(SignalData), _field.Name, false);
 
-        if (_linkAttr != null)
-            DrawEventContainer();
-        else
-            _eventLinkWaitPool.Add(this);
-
-
+        // SchematicEventLinkAttribute (the only reason to wait for the rest of the Component) no longer exists, so
+        // every Signal container draws straight away; DrawDelayedEvents still flushes anything left in the pool.
+        DrawEventContainer();
     }
 
     /// <summary>
@@ -126,7 +103,36 @@ public class SignalRenderer : FieldRenderer
 
     protected void DrawEventContainer()
     {
-        var handler = new SignalHandler(GlobalObjectId.GetGlobalObjectIdSlow(_object), _path, _field);
+        // The Signal the field already points at, if it has one: the SignalData a field holds, or a Schematic Behavior's
+        // Signal (its SignalHandle field's asset, kept in the Behavior's Metadata). Only fields without one get theirs
+        // from a SignalHandler, as before.
+        var behaviorMetadata = _object as BehaviorMetadata;
+        var existingSignal = _value as SignalData;
+        if (existingSignal == null && behaviorMetadata != null)
+            existingSignal = behaviorMetadata.FindSignal(_field.Name)?.Asset;
+        bool ownedByBehavior = behaviorMetadata != null && existingSignal != null;
+
+        var handler = existingSignal == null ? new SignalHandler(GlobalObjectId.GetGlobalObjectIdSlow(_object), _path, _field) : null;
+        var signalData = existingSignal != null ? existingSignal : handler.SignalAsset;
+
+        if (existingSignal == null)
+            AssignToEmptyField(signalData);
+
+        // Signals named and typed by their owner (Remedy Input's): brought up to date before they're drawn.
+        var owner = Owner();
+        string ownerName = MemberValue(owner, _evAttr.NameFrom) as string;
+        bool namedByOwner = !string.IsNullOrEmpty(_evAttr.NameFrom) && owner != null;
+        if (namedByOwner && !string.IsNullOrWhiteSpace(ownerName) && signalData != null && signalData.Name != ownerName)
+        {
+            var renamed = signalData;
+            string to = ownerName;
+            EditorApplication.delayCall += () => { if (renamed != null) renamed.EditorRename(to); };
+        }
+        var decidedType = MemberValue(owner, _evAttr.ParameterTypeFrom) as Type;
+        if (decidedType != null && signalData != null && signalData.SetSingleParameter(decidedType))
+            EditorUtility.SetDirty(signalData);
+        if (_evAttr.Outgoing && signalData != null)
+            OutgoingSignals.Add(signalData);
 
         var column = new VisualElement
         {
@@ -152,35 +158,8 @@ public class SignalRenderer : FieldRenderer
             }
         };
 
-        if (_linkAttr != null)
-        {
-            var otherComponent = ((MonoBehaviour)_object).gameObject.GetComponent(_linkAttr.Type);
-            var otherField = _linkAttr.Type.GetField(_linkAttr.FieldName);
-            if (otherComponent != null && otherField != null)
-            {
-                var parentLabel = new Label
-                {
-                    text = "> " + _linkAttr.Type + _linkAttr.FieldName,
-                    style =
-                    {
-                        fontSize = 8,
-                        color = Color.gray8,
-
-                        marginTop = 2,
-                        marginLeft = 2
-                    }
-                };
-                parentLabel.AddToClassList("event-link-label");
-
-                column.Add(parentLabel);
-
-                _object = otherComponent;
-                _field = otherField;
-            }
-        }
-
         // Name field
-        var nameField = new TextField { value = _field.Name, style = { flexGrow = 1, paddingLeft = 0 } };
+        var nameField = new TextField { value = namedByOwner && !string.IsNullOrWhiteSpace(ownerName) ? ownerName : _field.Name, style = { flexGrow = 1, paddingLeft = 0 } };
 
         nameField.Children().ElementAt(0).AddToClassList("event-name");
 
@@ -205,21 +184,48 @@ public class SignalRenderer : FieldRenderer
         nameField.RegisterCallback<FocusOutEvent>((EventCallback<FocusOutEvent>)(evt =>
         {
             Undo.RecordObject(_window, "Edit Event Name");
-            handler.ChangeName(oldName, newName);
+            if (namedByOwner)
+            {
+                // Renamed here, renamed on the owner too (the input it belongs to), and the other way around.
+                newName = newName?.Trim();
+                if (!string.IsNullOrEmpty(newName) && newName != oldName)
+                {
+                    var live = Owner() ?? owner;
+                    if (_object != null)
+                        Undo.RecordObject(_object, "Rename Signal");
+                    SetMemberValue(live, _evAttr.NameFrom, newName);
+                    if (_object != null)
+                        EditorUtility.SetDirty(_object);
+                    signalData.EditorRename(newName);
+                    EditorApplication.delayCall += () => { if (_window != null) _window.RedrawIODock(true); };
+                }
+            }
+            else if (handler != null)
+                handler.ChangeName(oldName, newName);
+            else if (!ownedByBehavior && oldName != newName && !string.IsNullOrWhiteSpace(newName))
+            {
+                Undo.RecordObject(signalData, "Edit Event Name");
+                signalData.name = newName;
+                signalData.Name = newName;
+                EditorUtility.SetDirty(signalData);
+            }
             _window.Canvas.Reload();
         }));
 
+        // A Behavior's Signals are named by its code.
+        nameField.isReadOnly = ownedByBehavior;
+
         // Global toggle
-        var globalToggle = new Toggle { value = handler.SignalAsset.Global };
+        var globalToggle = new Toggle { value = signalData.Global };
 
         globalToggle.RegisterValueChangedCallback(evt =>
         {
             Undo.RecordObject(_window, "Toggle Global");
-            handler.SignalAsset.Global = evt.newValue;
+            signalData.Global = evt.newValue;
             _window.Canvas.Reload();
         });
 
-        bool signalType = _field.Attributes.Any(attr => attr.AttributeType == typeof(OutputSignalAttribute));
+        bool signalType = _evAttr.Outgoing || _field.Attributes.Any(attr => attr.AttributeType == typeof(OutputSignalAttribute));
 
         // Drag Handle
         Texture2D myTexture = signalType ? myTexture = _outputIcon : myTexture = _inputIcon;
@@ -230,7 +236,7 @@ public class SignalRenderer : FieldRenderer
         imageElement.RegisterCallback<MouseDownEvent>(evt =>
         {
             DragAndDrop.PrepareStartDrag();
-            DragAndDrop.objectReferences = new UnityEngine.Object[] { handler.SignalAsset };
+            DragAndDrop.objectReferences = new UnityEngine.Object[] { signalData };
             DragAndDrop.StartDrag("Drag ScriptableEvent");
             evt.StopPropagation();
         });
@@ -258,15 +264,16 @@ public class SignalRenderer : FieldRenderer
         column.AddToClassList("event-container");
         column.AddToClassList("event-container-" + (signalType ? "output" : "input"));
 
-        var signalData = handler.SignalAsset;
-
-        _window.SchematicGraph.AddSignalToCache(signalData);
-
         var paramAttrs = _field.GetCustomAttributes().OfType<ParameterAttribute>();
 
-        signalData.Parameters.Contents.Clear();
+        // Parameters declared in code ([Parameter]) replace the Signal's. A Behavior's Signals are kept in step with
+        // its code by the Behavior Metadata, and a field that declares none keeps the parameters edited here.
+        bool syncCodeParameters = !ownedByBehavior && paramAttrs.Any();
 
-        foreach(var param in paramAttrs)
+        if (syncCodeParameters)
+            signalData.Parameters.Contents.Clear();
+
+        foreach(var param in syncCodeParameters ? paramAttrs : Enumerable.Empty<ParameterAttribute>())
         {
             if(!signalData.Parameters.Contents.Any(item => item.Name == param.Name))
             {
@@ -275,7 +282,7 @@ public class SignalRenderer : FieldRenderer
                 paramInSignal.Value.Type = Union.ReverseTypeLookup[param.Type];
             }
         }
-        foreach (var param in paramAttrs)
+        foreach (var param in syncCodeParameters ? paramAttrs : Enumerable.Empty<ParameterAttribute>())
         {
             if (signalData.Parameters.Contents.Any(item => item.Name == param.Name))
             {
@@ -314,7 +321,9 @@ public class SignalRenderer : FieldRenderer
                                                     t => t?.Name ?? "???"
                                                 );
 
-                                                typePopup.SetEnabled(_evAttr.ParamTypeModifiable);
+                                                typePopup.SetEnabled(_evAttr.ParamTypeModifiable && decidedType == null);
+                                                if (decidedType != null)
+                                                    typePopup.tooltip = "Set by the Input Action's control type.";
 
                                                 var nameField = new TextField { value = ((SignalData.Parameter)value).Name , style = { flexGrow = 1, paddingLeft = 0 } };
 
@@ -361,13 +370,11 @@ public class SignalRenderer : FieldRenderer
                                                 return paramRow;
                                             },
                                             getItemName: (object item) => { return ((SignalData.Parameter)item).Name; },
-                                            contentModifiable: _evAttr.ParametersEditable,
+                                            contentModifiable: _evAttr.ParametersEditable && decidedType == null,
                                             startExpanded: true
                                             );
 
         signalData.RuntimeArgs = new Union[signalData.Parameters.Contents.Count];
-
-        _window.SchematicGraph.AddSignalToCache(signalData);
 
         column.Add(row);
         column.Add(paramList);
@@ -375,6 +382,70 @@ public class SignalRenderer : FieldRenderer
         Add(column);
     }
 
+
+    /// <summary>
+    /// Signals the code sends and graphs react to (<see cref="SignalContainerRendererAttribute.Outgoing"/>), so a graph
+    /// they're dropped into makes On Received for them without asking.
+    /// </summary>
+    internal static readonly HashSet<SignalData> OutgoingSignals = new();
+
+    // The object holding the Signal field right now (an input of Remedy Input's), found by its path when possible.
+    private object Owner()
+    {
+        object resolved = null;
+        try { resolved = string.IsNullOrEmpty(_path) ? _object : ManagedPath.Resolve(_object, _path); }
+        catch { }
+        if (resolved != null && Member(resolved.GetType(), _field.Name) != null)
+            return resolved;
+        return _parent;
+    }
+
+    private static System.Reflection.MemberInfo Member(Type type, string name)
+    {
+        if (type == null || string.IsNullOrEmpty(name))
+            return null;
+        const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+        return (System.Reflection.MemberInfo)type.GetField(name, flags) ?? type.GetProperty(name, flags);
+    }
+
+    private static object MemberValue(object owner, string name)
+    {
+        switch (Member(owner?.GetType(), name))
+        {
+            case System.Reflection.FieldInfo field: return field.GetValue(owner);
+            case System.Reflection.PropertyInfo property when property.CanRead:
+                try { return property.GetValue(owner); } catch { return null; }
+            default: return null;
+        }
+    }
+
+    private static void SetMemberValue(object owner, string name, object value)
+    {
+        switch (Member(owner?.GetType(), name))
+        {
+            case System.Reflection.FieldInfo field: field.SetValue(owner, value); break;
+            case System.Reflection.PropertyInfo property when property.CanWrite: property.SetValue(owner, value); break;
+        }
+    }
+
+    /// <summary>
+    /// A <see cref="SignalData"/> field that's still empty is given the Signal made for it, so the code that sends it
+    /// (e.g. Remedy Input's Output) and the graphs that use it share the same one.
+    /// </summary>
+    private void AssignToEmptyField(SignalData signal)
+    {
+        if (signal == null || _object == null || !typeof(SignalData).IsAssignableFrom(_field.MemberType))
+            return;
+
+        var property = DockSerializedObjects.FindProperty(_object, string.IsNullOrEmpty(_path) ? _field.Name : _path + "." + _field.Name);
+        if (property == null || property.propertyType != SerializedPropertyType.ObjectReference || property.objectReferenceValue != null)
+            return;
+        var serializedObject = property.serializedObject;
+
+        property.objectReferenceValue = signal;
+        serializedObject.ApplyModifiedPropertiesWithoutUndo();
+        _value = signal;
+    }
 
     protected IMGUIContainer DrawGUIContainer()
     {

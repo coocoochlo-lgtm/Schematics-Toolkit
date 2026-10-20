@@ -1,0 +1,585 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using UnityEditor;
+using UnityEditor.UIElements;
+using UnityEngine;
+using UnityEngine.UIElements;
+
+namespace Remedy.Schematics.Browsers
+{
+    /// <summary>
+    /// The Project Manager's tags, shared by every page: <see cref="AssetTag"/> assets (one set per section), each
+    /// holding the GUIDs of the assets it's on, so an asset can have any number of them. Tags live in
+    /// Assets/Project Manager/Tags/&lt;Section&gt;/.
+    /// </summary>
+    public static class AssetTags
+    {
+        public const string Folder = "Assets/Project Manager/Tags";
+
+        /// <summary>The DragAndDrop generic-data key a dragged tag chip carries (the <see cref="AssetTag"/>).</summary>
+        public const string DragKey = "Remedy.AssetTag";
+
+        private static List<AssetTag> _all;
+        // Asset GUID → its tags, built from every tag's list (looked up for every tile, so it's kept ready).
+        private static Dictionary<string, List<AssetTag>> _byAsset;
+
+        /// <summary>Raised when tags were made, edited, deleted, or put on or taken off assets.</summary>
+        public static event Action Changed;
+
+        private static List<AssetTag> AllTags
+        {
+            get
+            {
+                if (_all != null)
+                    return _all;
+                _all = AssetDatabase.FindAssets("t:" + nameof(AssetTag))
+                    .Select(guid => AssetDatabase.LoadAssetAtPath<AssetTag>(AssetDatabase.GUIDToAssetPath(guid)))
+                    .Where(tag => tag != null)
+                    .ToList();
+                foreach (var tag in _all)
+                    AdoptLabels(tag);
+                return _all;
+            }
+        }
+
+        /// <summary>A section's tags, A to Z.</summary>
+        public static IReadOnlyList<AssetTag> In(string section)
+            => AllTags.Where(tag => tag != null && string.Equals(tag.Section, section, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(tag => tag.TagName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+        /// <summary>The label the earlier version of these tags put on assets (the tag's asset GUID).</summary>
+        public static string LabelOf(AssetTag tag) => tag == null ? null : AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(tag));
+
+        private static string GuidOf(UnityEngine.Object asset)
+        {
+            if (asset == null) return null;
+            string path = AssetDatabase.GetAssetPath(asset);
+            return string.IsNullOrEmpty(path) ? null : AssetDatabase.AssetPathToGUID(path);
+        }
+
+        private static Dictionary<string, List<AssetTag>> ByAsset
+        {
+            get
+            {
+                if (_byAsset != null)
+                    return _byAsset;
+                _byAsset = new Dictionary<string, List<AssetTag>>(StringComparer.OrdinalIgnoreCase);
+                foreach (var tag in AllTags)
+                {
+                    tag.AssetGuids ??= new List<string>();
+                    foreach (var guid in tag.AssetGuids)
+                    {
+                        if (string.IsNullOrEmpty(guid)) continue;
+                        if (!_byAsset.TryGetValue(guid, out var list))
+                            _byAsset[guid] = list = new List<AssetTag>();
+                        list.Add(tag);
+                    }
+                }
+                return _byAsset;
+            }
+        }
+
+        /// <summary>Every user tag an asset has, in any section.</summary>
+        public static IEnumerable<AssetTag> AllOf(UnityEngine.Object asset)
+        {
+            string guid = GuidOf(asset);
+            return guid != null && ByAsset.TryGetValue(guid, out var tags) ? tags.Where(t => t != null) : Enumerable.Empty<AssetTag>();
+        }
+
+        /// <summary>The section's tags an asset has, A to Z.</summary>
+        public static List<AssetTag> Of(UnityEngine.Object asset, string section)
+        {
+            string guid = GuidOf(asset);
+            if (guid == null || !ByAsset.TryGetValue(guid, out var tags))
+                return new List<AssetTag>();
+            return tags.Where(tag => tag != null && string.Equals(tag.Section, section, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(tag => tag.TagName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        public static bool Has(UnityEngine.Object asset, AssetTag tag)
+        {
+            string guid = GuidOf(asset);
+            return guid != null && tag != null && tag.AssetGuids != null && tag.AssetGuids.Contains(guid, StringComparer.OrdinalIgnoreCase);
+        }
+
+        /// <summary>The paths of the assets with a tag (ones that no longer exist are skipped).</summary>
+        public static IEnumerable<string> AssetsWith(AssetTag tag)
+            => tag?.AssetGuids?.Select(AssetDatabase.GUIDToAssetPath).Where(p => !string.IsNullOrEmpty(p)) ?? Enumerable.Empty<string>();
+
+        public static void Add(UnityEngine.Object asset, AssetTag tag) => Set(asset, tag, true);
+        public static void Remove(UnityEngine.Object asset, AssetTag tag) => Set(asset, tag, false);
+        public static void Toggle(UnityEngine.Object asset, AssetTag tag) => Set(asset, tag, !Has(asset, tag));
+
+        private static void Set(UnityEngine.Object asset, AssetTag tag, bool on)
+        {
+            string guid = GuidOf(asset);
+            if (guid == null || tag == null)
+            {
+                Debug.LogWarning($"[Project Manager] Couldn't tag '{(asset != null ? asset.name : "nothing")}': it isn't a project asset.");
+                return;
+            }
+            tag.AssetGuids ??= new List<string>();
+            bool has = tag.AssetGuids.Contains(guid, StringComparer.OrdinalIgnoreCase);
+            if (has == on)
+                return;
+            Undo.RecordObject(tag, on ? "Add Tag" : "Remove Tag");
+            if (on) tag.AssetGuids.Add(guid);
+            else tag.AssetGuids.RemoveAll(g => string.Equals(g, guid, StringComparison.OrdinalIgnoreCase));
+            EditorUtility.SetDirty(tag);
+            AssetDatabase.SaveAssetIfDirty(tag);
+            _byAsset = null;
+            Changed?.Invoke();
+        }
+
+        // Tags from the earlier version were asset labels: those assets go into the tag's list, and the label comes off.
+        private static void AdoptLabels(AssetTag tag)
+        {
+            string label = LabelOf(tag);
+            if (string.IsNullOrEmpty(label)) return;
+            var labelled = AssetDatabase.FindAssets("l:" + label);
+            if (labelled.Length == 0) return;
+            tag.AssetGuids ??= new List<string>();
+            foreach (var guid in labelled)
+            {
+                if (!tag.AssetGuids.Contains(guid, StringComparer.OrdinalIgnoreCase))
+                    tag.AssetGuids.Add(guid);
+                var asset = AssetDatabase.LoadMainAssetAtPath(AssetDatabase.GUIDToAssetPath(guid));
+                if (asset != null)
+                    AssetDatabase.SetLabels(asset, AssetDatabase.GetLabels(asset)
+                        .Where(l => !string.Equals(l, label, StringComparison.OrdinalIgnoreCase)).ToArray());
+            }
+            EditorUtility.SetDirty(tag);
+            AssetDatabase.SaveAssetIfDirty(tag);
+        }
+
+        /// <summary>
+        /// Whether a name can't be a user tag: it's an editor tag's (like Audio's Music and SFX), which the editor
+        /// gives assets itself (see <see cref="EditorTagProvider"/>).
+        /// </summary>
+        public static bool IsReserved(string section, string name) => AssetTagIndex.IsEditorTag(name);
+
+        /// <summary>Deletes a section's tags that use reserved names (left by older versions).</summary>
+        public static void RemoveReserved(string section)
+        {
+            var reserved = In(section).Where(tag => IsReserved(section, tag.TagName)).ToList();
+            if (reserved.Count == 0)
+                return;
+            foreach (var tag in reserved)
+                AssetDatabase.DeleteAsset(AssetDatabase.GetAssetPath(tag));
+            Debug.Log($"[Project Manager] Removed the {section} tag(s) {string.Join(", ", reserved.Select(t => "'" + t.TagName + "'"))}: Music and SFX are the Audio page's folders, not tags.");
+            Invalidate();
+            Changed?.Invoke();
+        }
+
+        /// <summary>Makes a tag in a section (or returns the one with that name).</summary>
+        public static AssetTag Create(string section, string name, Color? color = null)
+        {
+            name = (name ?? "").Trim();
+            if (string.IsNullOrEmpty(name))
+                return null;
+            if (IsReserved(section, name))
+            {
+                EditorUtility.DisplayDialog("New Tag", $"'{name}' is an editor tag: the editor gives it to assets itself (Music and SFX come from the Audio folder a clip is in), so it can't be made by hand.", "OK");
+                return null;
+            }
+            var existing = In(section).FirstOrDefault(tag => string.Equals(tag.TagName, name, StringComparison.OrdinalIgnoreCase));
+            if (existing != null)
+                return existing;
+
+            string folder = $"{Folder}/{section}";
+            ProjectFolderTree.CreateFolderPath(folder);
+            var created = ScriptableObject.CreateInstance<AssetTag>();
+            created.TagName = name;
+            created.Section = section;
+            created.Color = color ?? Color.HSVToRGB(Mathf.Repeat(In(section).Count * 0.618034f, 1f), 0.58f, 0.92f);
+            AssetDatabase.CreateAsset(created, AssetDatabase.GenerateUniqueAssetPath($"{folder}/{Remedy.Schematics.Templates.InlineRename.SafeFileName(name)}.asset"));
+            AssetDatabase.SaveAssets();
+            Invalidate();
+            Changed?.Invoke();
+            return created;
+        }
+
+        /// <summary>Asks, then deletes a tag (taking it off every asset that has it).</summary>
+        public static bool Delete(AssetTag tag)
+        {
+            if (tag == null)
+                return false;
+            int tagged = AssetsWith(tag).Count();
+            if (!EditorUtility.DisplayDialog("Delete Tag",
+                    $"Delete the tag '{tag.TagName}'?" + (tagged > 0 ? $" It comes off the {tagged} asset(s) that have it." : ""),
+                    "Delete", "Cancel"))
+                return false;
+            AssetDatabase.DeleteAsset(AssetDatabase.GetAssetPath(tag));
+            Invalidate();
+            Changed?.Invoke();
+            return true;
+        }
+
+        /// <summary>Forgets the tag list (it's found again when next asked for).</summary>
+        public static void Invalidate()
+        {
+            _all = null;
+            _byAsset = null;
+        }
+
+        internal static void RaiseChanged() => Changed?.Invoke();
+
+        /// <summary>
+        /// Moves an older tag over: makes (or finds) the tag, and every asset with the old label gets the new one
+        /// instead. Used to bring Audio's and Schematics' earlier tags into this system.
+        /// </summary>
+        public static AssetTag Migrate(string section, string name, Color color, string oldLabel)
+        {
+            var tag = Create(section, name, color);
+            if (tag == null || string.IsNullOrEmpty(oldLabel))
+                return tag;
+            tag.AssetGuids ??= new List<string>();
+            foreach (var guid in AssetDatabase.FindAssets("l:" + oldLabel))
+            {
+                if (!tag.AssetGuids.Contains(guid, StringComparer.OrdinalIgnoreCase))
+                    tag.AssetGuids.Add(guid);
+                var asset = AssetDatabase.LoadMainAssetAtPath(AssetDatabase.GUIDToAssetPath(guid));
+                if (asset != null)
+                    AssetDatabase.SetLabels(asset, AssetDatabase.GetLabels(asset)
+                        .Where(l => !string.Equals(l, oldLabel, StringComparison.OrdinalIgnoreCase)).ToArray());
+            }
+            EditorUtility.SetDirty(tag);
+            AssetDatabase.SaveAssetIfDirty(tag);
+            _byAsset = null;
+            return tag;
+        }
+
+        /// <summary>The "Tags/..." items of an asset's right-click menu: each of the section's tags, ticked when it has it.</summary>
+        public static void AppendMenu(DropdownMenu menu, string section, UnityEngine.Object asset)
+        {
+            if (asset == null) return;
+            var tags = In(section);
+            if (tags.Count == 0)
+                menu.AppendAction("Tags/(no tags yet: use + New Tag)", _ => { }, DropdownMenuAction.Status.Disabled);
+            foreach (var tag in tags)
+            {
+                var t = tag;
+                menu.AppendAction("Tags/" + t.TagName, _ => Toggle(asset, t),
+                    Has(asset, t) ? DropdownMenuAction.Status.Checked : DropdownMenuAction.Status.Normal);
+            }
+        }
+
+        /// <summary>Makes an element take dropped tag chips, tagging the asset it stands for.</summary>
+        public static void MakeDropTarget(VisualElement element, Func<UnityEngine.Object> asset, string hoverClass = "schematic-grid__tile--drop")
+        {
+            element.RegisterCallback<DragUpdatedEvent>(evt =>
+            {
+                if (!(DragAndDrop.GetGenericData(DragKey) is AssetTag) || asset() == null) return;
+                DragAndDrop.visualMode = DragAndDropVisualMode.Link;
+                element.AddToClassList(hoverClass);
+                evt.StopPropagation();
+            });
+            element.RegisterCallback<DragLeaveEvent>(_ => element.RemoveFromClassList(hoverClass));
+            element.RegisterCallback<DragExitedEvent>(_ => element.RemoveFromClassList(hoverClass));
+            element.RegisterCallback<DragPerformEvent>(evt =>
+            {
+                element.RemoveFromClassList(hoverClass);
+                if (!(DragAndDrop.GetGenericData(DragKey) is AssetTag tag)) return;
+                var target = asset();
+                if (target == null) return;
+                DragAndDrop.AcceptDrag();
+                evt.StopPropagation();
+                EditorApplication.delayCall += () => Add(target, tag);
+            });
+        }
+
+        /// <summary>
+        /// An asset's tags as small coloured spheres (all of them, wrapping onto more lines when there are many).
+        /// Hovering a sphere opens it into the tag's pill, with its name.
+        /// </summary>
+        public static VisualElement Dots(IReadOnlyList<AssetTag> tags)
+        {
+            var row = new VisualElement { pickingMode = PickingMode.Ignore };
+            row.AddToClassList("asset-tag-dots");
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.flexWrap = Wrap.Wrap;
+            row.style.alignItems = Align.Center;
+            foreach (var tag in tags)
+                row.Add(Sphere(tag));
+            return row;
+        }
+
+        private static VisualElement Sphere(AssetTag tag)
+        {
+            const float size = 11f;
+            var pill = new VisualElement { tooltip = tag.TagName };
+            pill.AddToClassList("asset-tag-sphere");
+            pill.style.flexDirection = FlexDirection.Row;
+            pill.style.alignItems = Align.Center;
+            pill.style.height = size;
+            pill.style.minWidth = size;
+            pill.style.marginRight = 2;
+            pill.style.marginTop = 2;
+            pill.style.borderTopLeftRadius = pill.style.borderTopRightRadius = pill.style.borderBottomLeftRadius = pill.style.borderBottomRightRadius = size / 2f;
+            pill.style.backgroundColor = tag.Color;
+            pill.style.borderTopWidth = pill.style.borderBottomWidth = pill.style.borderLeftWidth = pill.style.borderRightWidth = 1;
+            pill.style.borderTopColor = pill.style.borderLeftColor = Color.Lerp(tag.Color, Color.white, 0.45f);
+            pill.style.borderBottomColor = pill.style.borderRightColor = Color.Lerp(tag.Color, Color.black, 0.5f);
+
+            var name = new Label(tag.TagName) { pickingMode = PickingMode.Ignore };
+            name.style.display = DisplayStyle.None;
+            name.style.fontSize = 9;
+            name.style.paddingLeft = name.style.paddingRight = 5;
+            name.style.paddingTop = name.style.paddingBottom = 0;
+            name.style.marginLeft = name.style.marginRight = name.style.marginTop = name.style.marginBottom = 0;
+            name.style.unityTextAlign = TextAnchor.MiddleCenter;
+            name.style.color = Color.white;
+            name.AddToClassList("asset-tag__text");
+            pill.Add(name);
+
+            pill.RegisterCallback<PointerEnterEvent>(_ => name.style.display = DisplayStyle.Flex);
+            pill.RegisterCallback<PointerLeaveEvent>(_ => name.style.display = DisplayStyle.None);
+            return pill;
+        }
+
+        internal sealed class Watcher : AssetPostprocessor
+        {
+            private static void OnPostprocessAllAssets(string[] imported, string[] deleted, string[] moved, string[] movedFrom)
+            {
+                if (imported.Concat(deleted).Concat(moved).Any(p => p.StartsWith(Folder, StringComparison.OrdinalIgnoreCase)))
+                {
+                    Invalidate();
+                    EditorApplication.delayCall -= RaiseChanged;
+                    EditorApplication.delayCall += RaiseChanged;
+                }
+            }
+        }
+    }
+
+    /// <summary>Hands the Project Manager's tags to the editor-wide tag lookup (graph drops, for one, filter by them).</summary>
+    [InitializeOnLoad]
+    internal static class AssetTagsRegistration
+    {
+        static AssetTagsRegistration()
+            => AssetTagIndex.UserTags = asset => AssetTags.AllOf(asset).Select(tag => tag.TagName);
+    }
+
+    /// <summary>Audio's editor tags: Music or SFX, from the folder a clip is in (the Audio page's two halves).</summary>
+    internal sealed class AudioEditorTags : EditorTagProvider
+    {
+        public override IEnumerable<string> Names => new[] { "Music", "SFX", "Sound Effect", "Sound Effects", "SoundEffect" };
+
+        public override IEnumerable<string> TagsOf(UnityEngine.Object asset)
+        {
+            if (!(asset is AudioClip))
+                yield break;
+            string path = AssetDatabase.GetAssetPath(asset);
+            if (path.StartsWith(AudioClipBrowserWindow.MusicRoot + "/", StringComparison.OrdinalIgnoreCase))
+                yield return "Music";
+            else if (path.StartsWith(AudioClipBrowserWindow.SfxRoot + "/", StringComparison.OrdinalIgnoreCase))
+                yield return "SFX";
+        }
+    }
+
+    /// <summary>Makes or edits a tag: its name and colour.</summary>
+    public sealed class AssetTagWindow : EditorWindow
+    {
+        private AssetTag _tag;
+        private string _section;
+        private Action<AssetTag> _done;
+
+        /// <summary>Edits a tag (null: makes a new one in the section).</summary>
+        public static void Open(string section, AssetTag tag, Action<AssetTag> done = null)
+        {
+            var window = CreateInstance<AssetTagWindow>();
+            window._tag = tag;
+            window._section = section;
+            window._done = done;
+            window.titleContent = new GUIContent(tag == null ? $"New {section} Tag" : "Edit Tag");
+            window.minSize = window.maxSize = new Vector2(300, 96);
+            window.ShowUtility();
+        }
+
+        private void CreateGUI()
+        {
+            var root = rootVisualElement;
+            root.style.paddingLeft = root.style.paddingRight = root.style.paddingTop = root.style.paddingBottom = 8;
+            var name = new TextField("Name") { value = _tag != null ? _tag.TagName : "" };
+            root.Add(name);
+            var color = new ColorField("Colour")
+            {
+                value = _tag != null ? _tag.Color : Color.HSVToRGB(Mathf.Repeat(AssetTags.In(_section).Count * 0.618034f, 1f), 0.58f, 0.92f),
+                showAlpha = false,
+            };
+            root.Add(color);
+            void Save()
+            {
+                string value = name.value?.Trim();
+                if (string.IsNullOrEmpty(value))
+                    return;
+                var tag = _tag;
+                if (tag == null)
+                    tag = AssetTags.Create(_section, value, color.value);
+                else
+                {
+                    Undo.RecordObject(tag, "Edit Tag");
+                    tag.TagName = value;
+                    tag.Color = color.value;
+                    EditorUtility.SetDirty(tag);
+                    AssetDatabase.SaveAssetIfDirty(tag);
+                    AssetTags.RaiseChanged();
+                }
+                _done?.Invoke(tag);
+                Close();
+            }
+            name.RegisterCallback<KeyDownEvent>(evt =>
+            {
+                if (evt.keyCode == KeyCode.Return || evt.keyCode == KeyCode.KeypadEnter) Save();
+                else if (evt.keyCode == KeyCode.Escape) Close();
+            });
+            var buttons = new VisualElement { style = { flexDirection = FlexDirection.Row, justifyContent = Justify.FlexEnd, marginTop = 6 } };
+            buttons.Add(new Button(Close) { text = "Cancel" });
+            buttons.Add(new Button(Save) { text = _tag == null ? "Create" : "Save" });
+            root.Add(buttons);
+            name.schedule.Execute(() => name.Focus()).ExecuteLater(1);
+        }
+    }
+
+    /// <summary>
+    /// A page's tag chips: every tag of its section (shown whether or not anything has it yet), "+ New Tag", and
+    /// (when filtering is on) a click on a chip shows only assets with that tag. Chips drag onto assets to tag them;
+    /// right-click a chip to edit or delete it.
+    /// </summary>
+    public sealed class TagBar : VisualElement
+    {
+        private readonly string _section;
+        private bool _filterEnabled;
+
+        /// <summary>The tag being filtered by, or null.</summary>
+        public AssetTag Selected { get; private set; }
+
+        /// <summary>The filter changed (or tags changed): the page shows its assets again.</summary>
+        public event Action FilterChanged;
+
+        /// <summary>Whether clicking a chip filters (a page's "Filter by Tag" toggle). Off clears the filter.</summary>
+        public bool FilterEnabled
+        {
+            get => _filterEnabled;
+            set
+            {
+                _filterEnabled = value;
+                if (!value) Selected = null;
+                Rebuild();
+                FilterChanged?.Invoke();
+            }
+        }
+
+        public TagBar(string section)
+        {
+            _section = section;
+            AddToClassList("audio-browser__tags");
+            RegisterCallback<AttachToPanelEvent>(_ => { AssetTags.Changed += OnTagsChanged; Rebuild(); });
+            RegisterCallback<DetachFromPanelEvent>(_ => AssetTags.Changed -= OnTagsChanged);
+        }
+
+        /// <summary>Whether an asset passes the filter.</summary>
+        public bool Passes(UnityEngine.Object asset) => Selected == null || AssetTags.Has(asset, Selected);
+
+        private void OnTagsChanged() => schedule.Execute(() =>
+        {
+            if (Selected == null) { Rebuild(); FilterChanged?.Invoke(); return; }
+            if (!AssetTags.In(_section).Contains(Selected))
+                Selected = null;
+            Rebuild();
+            FilterChanged?.Invoke();
+        });
+
+        public void Rebuild()
+        {
+            Clear();
+            if (_filterEnabled)
+            {
+                var all = Chip("All", null, () => Select(null));
+                all.EnableInClassList("audio-browser__tag-filter--selected", Selected == null);
+                MakePressable(all, null);
+                Add(all);
+            }
+            foreach (var tag in AssetTags.In(_section))
+            {
+                var t = tag;
+                var chip = Chip(t.TagName, t, () => { if (_filterEnabled) Select(Selected == t ? null : t); });
+                chip.style.backgroundColor = t.Color;
+                chip.style.color = Color.white;
+                chip.AddToClassList("asset-tag__text");
+                chip.EnableInClassList("audio-browser__tag-filter--selected", Selected == t);
+                chip.tooltip = _filterEnabled ? "Click to filter; drag onto an asset to tag it." : "Drag onto an asset to tag it.";
+                chip.AddManipulator(new ContextualMenuManipulator(evt =>
+                {
+                    evt.menu.AppendAction("Edit Tag…", _ => AssetTagWindow.Open(_section, t));
+                    evt.menu.AppendAction("Delete Tag…", _ => AssetTags.Delete(t));
+                    evt.StopPropagation();
+                }));
+                MakePressable(chip, t);
+                Add(chip);
+            }
+            var add = Chip("+ New Tag", null, () => AssetTagWindow.Open(_section, null));
+            add.AddToClassList("audio-browser__tag-filter--new");
+            add.tooltip = "Make a new tag, then drag it onto assets.";
+            MakePressable(add, null);
+            Add(add);
+        }
+
+        private void Select(AssetTag tag)
+        {
+            Selected = tag;
+            Rebuild();
+            FilterChanged?.Invoke();
+        }
+
+        // Chips are plain labels, not Buttons: a Button holds on to the mouse while it's pressed, and a drag started
+        // from it then sends its drop back to the chip instead of to whatever is under the cursor.
+        private static Label Chip(string text, AssetTag tag, Action click)
+        {
+            var chip = new Label(text);
+            chip.AddToClassList("unity-button");
+            chip.AddToClassList("audio-browser__tag-filter");
+            chip.userData = click;
+            return chip;
+        }
+
+
+        // Press and release without moving: the chip's click. Press and move a few pixels: a tag chip starts a drag
+        // carrying its tag. Nothing captures the pointer, so the drag's events go to what's under the cursor.
+        private static void MakePressable(VisualElement chip, AssetTag tag)
+        {
+            Vector2 press = default;
+            bool pressed = false;
+            chip.RegisterCallback<PointerDownEvent>(evt =>
+            {
+                if (evt.button != 0) return;
+                pressed = true;
+                press = evt.position;
+                evt.StopPropagation();
+            });
+            chip.RegisterCallback<PointerMoveEvent>(evt =>
+            {
+                if (tag == null || !pressed || (evt.pressedButtons & 1) == 0 || ((Vector2)evt.position - press).sqrMagnitude < 36f)
+                    return;
+                pressed = false;
+                if (chip.HasPointerCapture(evt.pointerId))
+                    chip.ReleasePointer(evt.pointerId);
+                DragAndDrop.PrepareStartDrag();
+                DragAndDrop.objectReferences = Array.Empty<UnityEngine.Object>();
+                DragAndDrop.paths = Array.Empty<string>();
+                DragAndDrop.SetGenericData(AssetTags.DragKey, tag);
+                DragAndDrop.StartDrag(tag.TagName);
+            });
+            chip.RegisterCallback<PointerUpEvent>(evt =>
+            {
+                if (evt.button != 0 || !pressed) return;
+                pressed = false;
+                (chip.userData as Action)?.Invoke();
+            });
+            chip.RegisterCallback<PointerLeaveEvent>(_ => pressed = false);
+        }
+    }
+}

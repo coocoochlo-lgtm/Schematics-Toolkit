@@ -4,6 +4,7 @@ using System;
 namespace Remedy.Schematics
 {
     [Serializable]
+    [NodeColor(NodeColors.Math)]
     [Node(Path = "Logic"), Tags("Default")]
     public class BooleanOperation : SchematicGraphNode
     {

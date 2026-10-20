@@ -15,11 +15,11 @@ namespace Remedy.Schematics
         {
             SchematicGraph graph = target as SchematicGraph;
 
-            editorWindow = CreateInstance<SchematicGraphEditorWindow>();
+            // Opens as a tab beside the Scene view (where the prefab being edited is), not as a floating window.
+            editorWindow = EditorWindow.CreateWindow<SchematicGraphEditorWindow>(typeof(SceneView));
             /*            if(SchematicScope == null) SchematicScope = EnsureSchematicScopeExists(graph);
                         editorWindow.SchematicScope = SchematicScope;*/
             editorWindow.SchematicGraph = graph;
-            editorWindow.Show();
 
             editorWindow.Load(graph);
 

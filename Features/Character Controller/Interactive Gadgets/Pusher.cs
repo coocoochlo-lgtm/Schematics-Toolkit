@@ -1,68 +1,78 @@
+using Remedy.Schematics;
 using Cysharp.Threading.Tasks;
 using UnityEngine;
 
 namespace Remedy.CharacterControllers.Gadgets
 {
+    /// <summary>
+    /// Launches Rigidbodies that touch it along its up axis, after a short delay, squashing while it does.
+    /// </summary>
+    [SchematicDoc(@"{""name"": ""Pusher"", ""kind"": ""behavior"", ""menu"": ""Level Design/Pusher"", ""description"": ""Launches Rigidbodies that touch it along its up axis, after a short delay, squashing while it does."", ""variables"": [""Force"", ""ScaleOnHit"", ""Delay""], ""signals"": [""OnHit""], ""use_for"": [""jump pads"", ""launchers"", ""bouncers""]}")]
+    [SchematicBehaviorPath("Level Design/Pusher")]
     [RequireComponent(typeof(SphereCollider))]
-    public class Pusher : MonoBehaviour
+    public class Pusher : SchematicBehavior
     {
-        [Header("Output Events")]
+        [SchematicDoc(@"{""name"": ""OnHit"", ""kind"": ""signal"", ""behavior"": ""Pusher"", ""direction"": ""output"", ""params"": [{""name"": ""Hit"", ""type"": ""GameObject""}], ""description"": ""Invoked when a Rigidbody Collides with this."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [Tooltip("Invoked when a Rigidbody Collides with this.")]
-        public SignalData OnHit;
+        [OutputSignal, Parameter("Hit", typeof(GameObject))]
+        [NetworkSync(SignalSender.Authority)]
+        public readonly SignalHandle<GameObject> OnHit;
 
-        [Header("Properties")]
-        public float Force;
-        public Vector3 ScaleOnHit = Vector3.one;
-        public int Delay = 30;
+        [SchematicDoc(@"{""name"": ""Force"", ""kind"": ""variable"", ""behavior"": ""Pusher"", ""type"": ""float"", ""default"": ""0f"", ""description"": ""Force (float) of Pusher.""}")]
+        public readonly VariableHandle<float> Force = 0f;
+        [SchematicDoc(@"{""name"": ""ScaleOnHit"", ""kind"": ""variable"", ""behavior"": ""Pusher"", ""type"": ""Vector3"", ""default"": ""Vector3.one"", ""description"": ""Scale On Hit (Vector3) of Pusher.""}")]
+        public readonly VariableHandle<Vector3> ScaleOnHit = Vector3.one;
+        [SchematicDoc(@"{""name"": ""Delay"", ""kind"": ""variable"", ""behavior"": ""Pusher"", ""type"": ""int"", ""default"": ""30"", ""description"": ""Milliseconds before the push is applied.""}")]
+        [Tooltip("Milliseconds before the push is applied.")]
+        public readonly VariableHandle<int> Delay = 30;
 
-        private Vector3 _defaultScale;
-        private float _waitTime = 0;
+        private readonly VariableHandle<Vector3> _defaultScale = Vector3.one;
 
-        private void Reset()
+        protected override void OnSetup(BehaviorSetupContext context)
         {
-            GetComponent<SphereCollider>().isTrigger = true;
+            var collider = context.GameObject.GetComponent<SphereCollider>();
+            if (collider != null)
+                collider.isTrigger = true;
         }
 
-        private void OnEnable()
+        protected override void OnEnable()
         {
-            _defaultScale = transform.localScale;
+            _defaultScale.Value = Self.Transform.localScale;
         }
 
-        private void Update()
+        protected override void OnTriggerEnter(Collider other)
         {
-            _waitTime += Time.deltaTime;
+            var rb = other.attachedRigidbody;
+            if (rb == null)
+                return;
+
+            ApplyForce(Self, rb, Self.Transform.up * Force.Value, Delay.Value, _defaultScale.Value).Forget();
+            Self.Transform.localScale = Vector3.Scale(_defaultScale.Value, ScaleOnHit.Value);
+
+            OnHit.Invoke(Self, rb.gameObject);
         }
 
-        private void OnTriggerEnter(Collider other)
+        private static async UniTaskVoid ApplyForce(BehaviorInstance instance, Rigidbody rb, Vector3 velocity, int delay, Vector3 defaultScale)
         {
-            var rb = other.GetComponent<Rigidbody>();
+            int uid = instance.UID;
+            await UniTask.Delay(delay);
+
             if (rb != null)
-            {
-                ApplyForce(rb).Forget();
-                transform.localScale = Vector3.Scale(_defaultScale, ScaleOnHit);
-
-                OnHit?.FinalInvoke(default);
-            }
+                rb.linearVelocity = velocity;
+            if (instance.IsSpawnedAs(uid))
+                instance.Transform.localScale = defaultScale;
         }
 
-        private async UniTaskVoid ApplyForce(Rigidbody rb)
-        {
-            await UniTask.Delay(Delay);
-            rb.linearVelocity = transform.up * Force;
-            transform.localScale = _defaultScale;
-        }
-
-        private void OnDrawGizmos()
+        protected override void OnDrawGizmos(BehaviorGizmoContext context)
         {
 #if UNITY_EDITOR
-            if (UnityEditor.Selection.activeGameObject == null ||
-                UnityEditor.Selection.activeGameObject.GetComponent<Pusher>() == null) return;
+            if (UnityEditor.Selection.activeGameObject != context.GameObject) return;
             Gizmos.color = Color.cyan;
 
-            Vector3 initialVelocity = transform.up * Force;
+            Vector3 initialVelocity = context.Transform.up * context.Get(Force);
 
             Vector3[] trajectoryPoints = CharacterTrajectoryCalculator.CalculateTrajectory(
-                transform.position,
+                context.Transform.position,
                 initialVelocity,
                 timeStep: Time.fixedDeltaTime,
                 maxTime: 3f,

@@ -1,0 +1,22 @@
+# Built server and downloaded models (setup.ps1 / setup.sh fetch them).
+bin/
+obj/
+SchematicsAgent/bin/
+SchematicsAgent/obj/
+models/
+
+# The assistant server is a real .NET project, not a Unity-generated one.
+!SchematicsAgent.csproj
+.dotnet/
+dotnet-path.txt
+install-status.txt
+setup.log
+reference/
+build.log
+server.pid
+server.log
+answers.json
+nuget/
+tmp/
+voice-cache/
+Training/data/

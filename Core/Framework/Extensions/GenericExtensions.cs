@@ -1,4 +1,6 @@
+#if REMEDY_UVS
 using Unity.VisualScripting;
+#endif
 using UnityEngine.Rendering;
 
 namespace Remedy.Framework
@@ -16,7 +18,12 @@ namespace Remedy.Framework
             {
                 var thisField = @this.GetType().GetField(field.Name);
 
+#if REMEDY_UVS
                 if (thisField?.FieldType.IsConvertibleTo(field.FieldType, true) == true)
+#else
+                // Without Visual Scripting installed, only types that can hold the other's value directly.
+                if (thisField?.FieldType.IsAssignableFrom(field.FieldType) == true)
+#endif
                 {
                     thisField.SetValue(@this, field.GetValue(other));
                 }

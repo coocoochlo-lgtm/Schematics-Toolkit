@@ -1,0 +1,11 @@
+# Built helper and build logs (Unity builds it with `dotnet build` on first use).
+bin/
+obj/
+SchematicsCollab/bin/
+SchematicsCollab/obj/
+build.log
+selftest-work/
+# project-id is NOT ignored: projects without git share it so their peers find each other.
+
+# The helper is a real .NET project, not a Unity-generated one (the root .gitignore ignores *.csproj).
+!SchematicsCollab.csproj

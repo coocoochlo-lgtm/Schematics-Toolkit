@@ -1,0 +1,42 @@
+﻿<Project>
+    <PropertyGroup>
+        <Nullable>enable</Nullable>
+        <TargetFramework>net10.0</TargetFramework>
+<!-- To generate a NuGet package, uncomment the following line -->
+<!--    <GeneratePackageOnBuild>true</GeneratePackageOnBuild> -->
+        <Title>$(AssemblyName)</Title>
+        <PackageId>CAPCOM.$(AssemblyName)</PackageId>
+        <Authors>CAPCOM CO.,LTD.</Authors>
+        <Company>CAPCOM CO.,LTD.</Company>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <RepositoryUrl>https://github.com/CAPCOM-TD-OSS/redox</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <PackageTags>CAPCOM</PackageTags>
+        <Copyright>© CAPCOM 2026</Copyright>
+        <PackageIcon>rd_logo_white.png</PackageIcon>
+        <VersionPrefix>1.0.1</VersionPrefix>
+        <PackageReleaseNotes>https://github.com/CAPCOM-TD-OSS/redox/blob/v$(VersionPrefix)/docs/releases/v$(VersionPrefix).md</PackageReleaseNotes>
+        <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+        <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+        <PackageOutputPath>$(SolutionDir)package_out\$(Configuration)</PackageOutputPath>
+    </PropertyGroup>
+    <ItemGroup>
+        <None Include="$(PackageIconUrl)">
+            <Pack>True</Pack>
+            <PackagePath>\</PackagePath>
+        </None>
+        <None Include="$(ReadmeFile)">
+            <Pack>True</Pack>
+            <PackagePath>\</PackagePath>
+        </None>
+        <None Include="..\..\image\logo\rd_logo_white.png">
+            <Pack>True</Pack>
+            <PackagePath>\</PackagePath>
+        </None>
+        <None Include="..\..\README.md">
+            <Pack>True</Pack>
+            <PackagePath>\</PackagePath>
+        </None>
+    </ItemGroup>
+
+</Project>

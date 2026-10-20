@@ -4,7 +4,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
-using Remedy.Schematics.Utils;
 
 #if UNITY_EDITOR
 using UnityEditor;
@@ -12,125 +11,74 @@ using UnityEditor;
 
 namespace Remedy.Schematics
 {
-    public class SchematicGraph : Graph
+    [SchematicType("Objects", Order = 0, ListsPrefabs = true, Icon = "Prefab Icon", NewAssetName = "New Schematic Object")]
+    public class SchematicGraph : Graph, ISchematicAsset
     {
-        /// <summary>
-        /// Used with SignalRef, moving Signal ID's after this position down one to match the List.
-        /// </summary>
-        public Action<byte> OnSignalRemoved;
+        [SerializeField, HideInInspector]
+        private string _uid;
+
+        /// <summary>This graph's permanent id (see <see cref="ISchematicAsset"/>).</summary>
+        public string Uid => SchematicUid.Ensure(ref _uid, this);
+
+        public void RegenerateUid() => _uid = SchematicUid.New();
 
         public override string Title
         {
             get { return Prefab == null ? "SCHEMATIC" : "$ Prefab: " + Prefab.name; }
         }
 
-        private static Dictionary<int, SchematicGraph> _lookup = new Dictionary<int, SchematicGraph>();
-
-        // Serialized index for persistence
-        //[SerializeField, ReadOnly]
-        private int _id = -1;
-        public int ID => _id;
-
-        private static int _idCounter = 0;
-
-        public static Dictionary<int, SchematicGraph> Lookup
-        {
-            get
-            {
-                if (_lookup.Count == 0)
-                {
-                    _idCounter = 0;
-
-                    var objs = Resources.LoadAll<SchematicGraph>("");
-                    // Clear old lookup to avoid duplication on domain reload
-                    _lookup.Clear();
-
-                    // Assign stable indices based on loaded order
-                    for (int i = 0; i < objs.Length; i++)
-                    {
-                        var obj = objs[i];
-                        if (obj._id != i)
-                        {
-                            obj._id = i;
-                            _idCounter++;
-
-#if UNITY_EDITOR
-                            UnityEditor.EditorUtility.SetDirty(obj);
-                            UnityEditor.AssetDatabase.SaveAssets();
-#endif
-                        }
-                        if (!_lookup.ContainsKey(i))
-                        {
-                            _lookup[i] = obj;
-                        }
-                    }
-                }
-                return _lookup;
-            }
-        }
-
-        private void OnEnable()
-        {
-            if (_id == -1)
-                _id = _idCounter++;
-        }
-
         public GameObject Prefab;
-
-        [SerializeField]
-        private List<SignalData> _runtimeSignalCache;
-        [SerializeField]
-        private List<VariableData> _runtimeVariableCache;
-
-        public bool TryGetSignal(int id, out SignalData signalData)
-        {
-            if(_runtimeSignalCache.Count > id)
-            {
-                signalData = _runtimeSignalCache[id];
-                return true;
-            }
-            signalData = null;
-            return false;
-        }
-
-        public bool TryGetVariable(int id, out VariableData variableData)
-        {
-            if (_runtimeSignalCache.Count > id)
-            {
-                variableData = _runtimeVariableCache[id];
-                return true;
-            }
-
-            variableData = null;
-            return false;
-        }
 
 #if UNITY_EDITOR
         public GUID PrefabGUID;
         public GlobalObjectId PrefabID;
-        public List<GlobalObjectId> Components = new();
-
-        public void ResetSignalCache()
-        {
-            _editorSignalCache.Clear();
-        }
-
-        public void AddSignalToCache(SignalData signal)
-        {
-            _editorSignalCache[signal.name] = signal;
-        }
-
-        private SerializableDictionary<string, SignalData> _editorSignalCache = new();
-        public IReadOnlyDictionary<string, SignalData> EditorSignalCache => _editorSignalCache.GetReadOnlyDictionary();
-        [SerializeField]
-        private SerializableDictionary<string, VariableData> _editorVariableCache = new();
-        public IReadOnlyDictionary<string, VariableData> EditorVariableCache => _editorVariableCache.GetReadOnlyDictionary();
 #endif
 
         [SerializeField]
         [TextArea(1, 3)]
         private string _description;
+
+        [Tooltip("Sync this graph over the network: its events run on the object's authority, and nodes set to Everyone run on every peer.")]
+        public bool Networked;
         
+        [SerializeField, HideInInspector]
+        private List<GraphVariable> _variables = new();
+        [SerializeField, HideInInspector]
+        private List<GraphSignal> _signals = new();
+
+        /// <summary>This graph's own Variables: every object running it has its own values.</summary>
+        public List<GraphVariable> Variables => _variables ??= new();
+
+        /// <summary>This graph's own Signals, routed per object like Behavior Signals.</summary>
+        public List<GraphSignal> Signals => _signals ??= new();
+
+        /// <summary>A graph Variable by id (or, failing that, by name).</summary>
+        public GraphVariable FindVariable(string idOrName)
+        {
+            if (string.IsNullOrEmpty(idOrName)) return null;
+            foreach (var variable in Variables)
+                if (variable != null && variable.Id == idOrName) return variable;
+            foreach (var variable in Variables)
+                if (variable != null && variable.Name == idOrName) return variable;
+            return null;
+        }
+
+        public int IndexOfVariable(string id)
+        {
+            for (int i = 0; i < Variables.Count; i++)
+                if (Variables[i] != null && Variables[i].Id == id) return i;
+            return -1;
+        }
+
+        /// <summary>The graph Signal whose asset this is, or null.</summary>
+        public GraphSignal FindSignal(SignalData asset)
+        {
+            if (asset == null) return null;
+            foreach (var signal in Signals)
+                if (signal != null && signal.Asset == asset) return signal;
+            return null;
+        }
+
         [HideInInspector]
         public bool Returned;
         public object ReturnValue;
@@ -138,15 +86,55 @@ namespace Remedy.Schematics
         [HideInInspector]
         [SerializeField]
         private SerializableDictionary<SerializableType, SchematicEventNode[]> _eventNodesByType;
-        public SerializableDictionary<SerializableType, SchematicEventNode[]> EventNodesByType => _eventNodesByType ??= new(); 
+        public SerializableDictionary<SerializableType, SchematicEventNode[]> EventNodesByType
+        {
+            get
+            {
+                EnsureRuntimeCaches();
+                return _eventNodesByType ??= new();
+            }
+        }
         [HideInInspector]
         [SerializeField]
         private SendSignalNode[] _flowInvokeNodesCache = new SendSignalNode[0];
-        public SendSignalNode[] FlowInvokeNodesCache => _flowInvokeNodesCache;
+        public SendSignalNode[] FlowInvokeNodesCache
+        {
+            get
+            {
+                EnsureRuntimeCaches();
+                return _flowInvokeNodesCache;
+            }
+        }
         [HideInInspector]
         [SerializeField]
         private OnSignalReceivedNode[] _flowOnInvokeNodesCache = new OnSignalReceivedNode[0];
-        public OnSignalReceivedNode[] FlowOnInvokeCache => _flowOnInvokeNodesCache;
+        public OnSignalReceivedNode[] FlowOnInvokeCache
+        {
+            get
+            {
+                EnsureRuntimeCaches();
+                return _flowOnInvokeNodesCache;
+            }
+        }
+
+        // The event and Signal node caches above are saved with the graph, but saved as copies of the nodes (they're
+        // plain serialized fields, not references), and the editor only rebuilds them in edit mode when the graph is
+        // validated. A copy can therefore be stale (an On Start still wired to a node that was replaced), and copies
+        // don't get the real nodes' connections. So the first time a playing game (or a build) asks for them, they're
+        // rebuilt from the graph's real nodes, once per play session.
+        private static int _cacheSession;
+        [NonSerialized] private int _builtForSession;
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void NewCacheSession() => _cacheSession++;
+
+        private void EnsureRuntimeCaches()
+        {
+            if (!Application.isPlaying || _builtForSession == _cacheSession)
+                return;
+            _builtForSession = _cacheSession; // first, so the rebuild's own use of the caches doesn't come back here
+            CacheNodesByType();
+        }
 
 //        [ReadOnly]
         [Tooltip("A Dictionary pairing the Prefab's original Children to the Instantiated copies of them.")]
@@ -165,7 +153,8 @@ namespace Remedy.Schematics
         /// <returns></returns>
         public SchematicEventNode[] GetEventArray<TEventNode>() where TEventNode : SchematicEventNode
         {
-            return _eventNodesByType[typeof(TEventNode)];
+            // A graph without any node of this type has no entry.
+            return EventNodesByType.TryGetValue(typeof(TEventNode), out var nodes) ? nodes : null;
         }
 
         /// <summary>
@@ -176,8 +165,12 @@ namespace Remedy.Schematics
         {
             var eventArr = GetEventArray<TEventNode>();
 
-            if (eventArr != null && eventArr.Length > 0)
-                foreach (var node in eventArr) { node.Trigger(instance, args); }
+            if (eventArr == null || eventArr.Length == 0)
+                return;
+            // A networked graph's events run on the object's authority only; other peers run what it replicates.
+            if (!GraphNetwork.RunsEventsFor(this, instance))
+                return;
+            foreach (var node in eventArr) { node.Trigger(instance, args); }
         }
 
         protected override void ResetExtendedNodeCaches()

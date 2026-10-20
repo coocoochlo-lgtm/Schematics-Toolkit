@@ -8,8 +8,10 @@ using UnityEngine;
 
 namespace Remedy.Schematics
 {
+    [SchematicDoc(@"{""name"": ""Comparison"", ""kind"": ""node"", ""flow"": ""condition"", ""category"": ""Conditions"", ""description"": ""Compares two numbers (less than, equal to, greater than, ...) and outputs true or false. Its numbers can be typed in or connected."", ""inputs"": [{""name"": ""First Value"", ""type"": ""number""}, {""name"": ""Second Value"", ""type"": ""number""}], ""use_for"": [""health checks (health <= 0)"", ""distance checks"", ""score thresholds"", ""timers running out""], ""notes"": ""A true/false value: connect it to an If node's Condition. Pick the operator on the node; takes any numbers (int, float, double...). For a single comparison, Greater Than, Less Than, Equal etc. are separate nodes too.""}")]
     [Serializable]
-    [Node(Path = "Conditions"), Tags("Default")]
+    [NodeColor(NodeColors.Condition)]
+    [Node(Name = "Comparison", Path = "Conditions"), Tags("Default")]
     public class CompaCastrison : SchematicConditionalNode
     {
         public enum ComparisonOperator
@@ -18,33 +20,45 @@ namespace Remedy.Schematics
             LessThanOrEqualTo,
             EqualTo,
             GreaterThanOrEqualTo,
-            GreaterThan
+            GreaterThan,
+            NotEqualTo
         }
 
-        [Input("First Value", Editable = true)]
+        // The ports take any value (int, long, double, Union outputs...); the fields are what's typed in.
+        [Input("First Value", typeof(object), Editable = true)]
         public float FirstValue;
-        [Input("Second Value", Editable = true)]
+        [Input("Second Value", typeof(object), Editable = true)]
         public float SecondValue;
 
+        [Editable]
         public ComparisonOperator Operator;
 
         public override bool Condition()
         {
-            if (GetPort("First Value").ConnectionCount != 0)
-                FirstValue = GetInputValue<float>("First Value");
-
-            if (GetPort("Second Value").ConnectionCount != 0)
-                SecondValue = GetInputValue<float>("Second Value");
-
-            switch(Operator)
+            // Connected numbers are read as they are (compared in the most precise type of the two); unconnected, the
+            // numbers typed on the node (never overwritten).
+            var order = NumberComparison.Compare(Read("First Value", FirstValue), Read("Second Value", SecondValue));
+            switch (Operator)
             {
-                case ComparisonOperator.LessThan: return FirstValue < SecondValue;
-                case ComparisonOperator.LessThanOrEqualTo: return FirstValue <= SecondValue;
-                case ComparisonOperator.EqualTo: return FirstValue == SecondValue;
-                case ComparisonOperator.GreaterThan: return FirstValue > SecondValue;
-                case ComparisonOperator.GreaterThanOrEqualTo: return FirstValue >= SecondValue;
+                case ComparisonOperator.LessThan: return order == NumberComparison.Order.Less;
+                case ComparisonOperator.LessThanOrEqualTo: return order == NumberComparison.Order.Less || order == NumberComparison.Order.Equal;
+                case ComparisonOperator.EqualTo: return order == NumberComparison.Order.Equal;
+                case ComparisonOperator.GreaterThan: return order == NumberComparison.Order.Greater;
+                case ComparisonOperator.GreaterThanOrEqualTo: return order == NumberComparison.Order.Greater || order == NumberComparison.Order.Equal;
+                case ComparisonOperator.NotEqualTo: return order != NumberComparison.Order.Equal;
             }
             return false;
         }
+
+        public override void OnValidate()
+        {
+            base.OnValidate();
+            // Graphs saved before these took any number have float ports.
+            EnsureDataPort("First Value", typeof(object), PortDirection.Input);
+            EnsureDataPort("Second Value", typeof(object), PortDirection.Input);
+        }
+
+        private object Read(string port, float typed)
+            => TryGetInputValue<object>(port, out var value) && NumberComparison.IsNumber(value) ? value : typed;
     }
 }

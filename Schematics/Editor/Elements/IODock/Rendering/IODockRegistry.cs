@@ -8,7 +8,6 @@ using Remedy.Framework;
 using UnityEditor;
 using System.IO;
 using Remedy.Schematics;
-using PlasticPipe.PlasticProtocol.Messages;
 
 public static class IODockRegistry
 {
@@ -111,7 +110,7 @@ public static class IODockRegistry
 
                 if (attr == null)
                 {
-                    if (typeof(SignalBase).IsAssignableFrom(field.MemberType))
+                    if (IsSignalType(field.MemberType))
                     {
                         (fieldDrawn, element) = RenderElementForField(window, obj, parent, field.GetValue(parent), field, propertyPath, onModified, attr, typeof(SignalRenderer));
 
@@ -137,6 +136,19 @@ public static class IODockRegistry
         }
 
         return (draw, container);
+    }
+
+    /// <summary>
+    /// Whether a member holds a Signal and is drawn with the <see cref="SignalRenderer"/> without needing an attribute:
+    /// a <see cref="SignalData"/> field, or a Schematic Behavior's <c>SignalHandle</c> field (this replaces the old SignalBase check).
+    /// </summary>
+    public static bool IsSignalType(Type type)
+    {
+        if (type == null)
+            return false;
+        if (typeof(SignalData).IsAssignableFrom(type) || type == typeof(SignalHandle))
+            return true;
+        return type.IsGenericType && type.Assembly == typeof(SignalHandle).Assembly && type.GetGenericTypeDefinition().Name.StartsWith(nameof(SignalHandle) + "`");
     }
 
     /// <summary>

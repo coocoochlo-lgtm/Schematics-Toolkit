@@ -7,10 +7,17 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using System.IO;
 
+/// <summary>
+/// Loads a scene additively, in Edit Mode as well as at runtime, for splitting levels into sub-scenes.
+/// Stays a MonoBehaviour: it is a level-authoring tool that has to run in Edit Mode, where Schematic Behaviors don't.
+/// </summary>
 [ExecuteAlways]
 public class SceneReference : MonoBehaviour
 {
+#if UNITY_EDITOR
+    // SceneAsset only exists in the editor; builds load by the path saved below.
     public SceneAsset sceneAsset;
+#endif
     public bool loadOnStart = true;
 
     [HideInInspector]
@@ -30,9 +37,10 @@ public class SceneReference : MonoBehaviour
 
     public void LoadScene()
     {
-        if (sceneAsset == null) return;
-
-        scenePath = AssetDatabase.GetAssetPath(sceneAsset);
+#if UNITY_EDITOR
+        if (sceneAsset != null)
+            scenePath = AssetDatabase.GetAssetPath(sceneAsset);
+#endif
         if (string.IsNullOrEmpty(scenePath)) return;
 
         if (!SceneManager.GetSceneByPath(scenePath).isLoaded)
@@ -45,6 +53,13 @@ public class SceneReference : MonoBehaviour
     }
 
 #if UNITY_EDITOR
+    private void OnValidate()
+    {
+        // Keep the path current so builds, which can't read the SceneAsset, still know what to load.
+        if (sceneAsset != null)
+            scenePath = AssetDatabase.GetAssetPath(sceneAsset);
+    }
+
     private void LoadSceneInEditor()
     {
         if (sceneAsset == null) return;

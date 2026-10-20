@@ -1,0 +1,35 @@
+{
+    "name": "Remedy.TimelineGraphs.Editor",
+    "rootNamespace": "Remedy.Schematics.TimelineGraphs",
+    "references": [
+        "GUID:f324e59c863043c488695affdb041692",
+        "GUID:9cef1c0784dad074282847b193c0d47b",
+        "GUID:c61f7966d20e38f45989bde55b098f00",
+        "GUID:6ad709935d36ecb428b55e673bc2ab83",
+        "GUID:6082862122ef11a49bf208ee4ec62519",
+        "GUID:0a22d72520a82174ab746de6d8876564",
+        "GUID:34ab7552608995045bf7108d3c6dd27b",
+        "GUID:a14bcfccbf414ef7b91c8a36f5ca8795",
+        "GUID:f06555f75b070af458a003d92f9efb00",
+        "Unity.Timeline.Editor"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "SCHEMATICS_TIMELINE"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.unity.timeline",
+            "expression": "1.6.0",
+            "define": "SCHEMATICS_TIMELINE"
+        }
+    ],
+    "noEngineReferences": false
+}

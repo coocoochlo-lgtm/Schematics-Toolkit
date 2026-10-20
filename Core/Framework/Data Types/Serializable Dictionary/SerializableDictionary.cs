@@ -1,8 +1,6 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
-using Unity.VisualScripting;
 using UnityEngine;
 
 namespace Remedy.Framework
@@ -10,32 +8,38 @@ namespace Remedy.Framework
     [Serializable]
     public class SerializableDictionary<TKey, TValue> : IDictionary<TKey, TValue>, ISerializationCallbackReceiver
     {
-        private Dictionary<TKey, TValue> dictionary = new Dictionary<TKey, TValue>();
+        private Dictionary<TKey, TValue> _dictionary = new Dictionary<TKey, TValue>();
+
+        // Set when Unity has just loaded `items`: the dictionary is built from them the first time it's used, not inside
+        // OnAfterDeserialize, where Unity objects used as keys may not be loaded yet (comparing them to null there can
+        // say "null", which used to drop them and leave the dictionary empty).
+        [NonSerialized]
+        private bool _pending;
+
+        // The dictionary, built from the stored items first if they were just loaded.
+        private Dictionary<TKey, TValue> dictionary
+        {
+            get
+            {
+                EnsureBuilt();
+                return _dictionary;
+            }
+        }
 
         [SerializeField]
         private List<DictionaryItem> items = new List<DictionaryItem>();
-
-        private bool invalidFlag;
 
         public TValue this[TKey key]
         {
             get
             {
-                if (dictionary.ContainsKey(key))
-                    return dictionary[key];
-                else
-                {
-                    //Debug.LogWarning("Key " + key + " doesn't exist!");
-                    return default(TValue);
-                }
+                return dictionary.TryGetValue(key, out var value)
+                    ? value
+                    : default(TValue);
             }
-
             set
             {
-                if (!dictionary.ContainsKey(key))
-                    dictionary.Add(key, value);
-                else
-                    dictionary[key] = value;
+                dictionary[key] = value;
             }
         }
 
@@ -51,8 +55,7 @@ namespace Remedy.Framework
 
         public void Add(TKey key, TValue value)
         {
-            if (!dictionary.ContainsKey(key))
-                dictionary.Add(key, value);
+            dictionary.TryAdd(key, value);
         }
 
         public bool ContainsKey(TKey key)
@@ -118,51 +121,39 @@ namespace Remedy.Framework
 
         public void OnBeforeSerialize()
         {
-            if (invalidFlag)
-            {
+            // Not built since it was loaded: the stored items are still exactly its contents.
+            if (_pending)
                 return;
-            }
-            else
-            {
-                items.Clear();
-            }
 
-            foreach (var pair in dictionary)
-            {
+            items.Clear();
+            foreach (var pair in _dictionary)
                 items.Add(new DictionaryItem(pair.Key, pair.Value));
-            }
         }
 
         public void OnAfterDeserialize()
         {
-            dictionary.Clear();
+            // Built on first use (see _pending); the items are kept, so nothing is lost if it's saved before then.
+            _pending = true;
+        }
 
-            invalidFlag = false;
+        private void EnsureBuilt()
+        {
+            if (!_pending)
+                return;
+            _pending = false;
 
-            for (var i = 0; i < items.Count; ++i)
+            _dictionary ??= new Dictionary<TKey, TValue>();
+            _dictionary.Clear();
+            if (items == null)
+                return;
+
+            foreach (var item in items)
             {
-                if (items[i] != null)
-                {
-                    if (items[i].key != null || !(dictionary.ContainsKey(items[i].key)))
-                    {
-                        try
-                        {
-                            dictionary.Add(items[i].key, items[i].value);
-                        }
-                        catch
-                        { }
-                    }
-                    else
-                    {
-                        invalidFlag = true;
-                        continue;
-                    }
-                }
-            }
-
-            if (!invalidFlag)
-            {
-                items.Clear();
+                // Plain reference check: an entry whose object is missing is kept rather than silently dropped.
+                if (item == null || ReferenceEquals(item.key, null))
+                    continue;
+                if (!_dictionary.ContainsKey(item.key))
+                    _dictionary.Add(item.key, item.value);
             }
         }
 
@@ -187,36 +178,47 @@ namespace Remedy.Framework
             return dictionary;
         }
 
-        public TKey KeyAt(int index)
+        public KeyValuePair<TKey, TValue> KVPAt(int index)
         {
-            return items[index].key;
-        }
+            if (index < 0 || index >= dictionary.Count)
+                throw new ArgumentOutOfRangeException(nameof(index));
 
-        public TValue ValueAt(int index)
-        {
-            return items[index].value;
+            int i = 0;
+            foreach (var kvp in dictionary)
+            {
+                if (i++ == index)
+                    return kvp;
+            }
+
+            throw new InvalidOperationException();
         }
 
         public override string ToString()
         {
-            var returnValue = "";
+            var sb = new System.Text.StringBuilder();
+            bool first = true;
 
-            var keyList = Keys.ToList();
-            for (int i = 0; i < keyList.Count; i++)
+            foreach (var pair in dictionary)
             {
-                var key = keyList[i];
+                if (!first)
+                    sb.Append(',');
 
-                var keyString = key is float ? (Math.Truncate(((float)(object)key) * 100) / 100).ToString() : key.ToString();
-                var valueString = this[key] is float ? (Math.Truncate(((float)(object)this[key]) * 100) / 100).ToString() : this[key].ToString();
-                var itemString = keyString + ":" + valueString;
+                first = false;
 
-                returnValue += itemString;
-
-                if (i < keyList.Count - 1)
-                    returnValue += ",";
+                sb.Append(FormatValue(pair.Key));
+                sb.Append(':');
+                sb.Append(FormatValue(pair.Value));
             }
 
-            return returnValue;
+            return sb.ToString();
+        }
+
+        private static string FormatValue<T>(T value)
+        {
+            if (value is float f)
+                return (Math.Truncate(f * 100) / 100).ToString();
+
+            return value?.ToString() ?? string.Empty;
         }
 
         /// <summary>
@@ -251,7 +253,8 @@ namespace Remedy.Framework
         /// </summary>
         public void FromString(string dictionaryString)
         {
-            dictionary = NewFromString(dictionaryString).dictionary;
+            _dictionary = NewFromString(dictionaryString).dictionary;
+            _pending = false;
         }
 
         public static implicit operator Dictionary<TKey, TValue>(SerializableDictionary<TKey, TValue> serializableDictionary)

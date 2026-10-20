@@ -1,0 +1,27 @@
+﻿
+.canvasView {
+    flex: 1;
+    background-image:  url("Textures/Gradient.png");
+}
+
+.canvasViewTitle {
+    position: absolute;
+    bottom: 0px;
+    left: 0px;
+    font-size: 48px;
+    opacity: 0.25;
+    background-image:  url("Textures/graph_title_grad.png");
+    padding: 8px
+}
+
+GridBackground {
+    --grid-background-color: var(--bluegraph-grid-background-color); 
+    background-image:  url("Textures/graph_title_grad.png");
+    --line-color: var(--bluegraph-grid-line-color); 
+    --thick-line-color: var(--bluegraph-grid-thick-line-color); 
+    --spacing: 100;
+}
+
+.canvasView .edge {
+    --selected-edge-color: var(--bluegraph-highlight-color); 
+}

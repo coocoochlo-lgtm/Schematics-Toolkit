@@ -17,6 +17,12 @@
     "precompiledReferences": [],
     "autoReferenced": true,
     "defineConstraints": [],
-    "versionDefines": [],
+    "versionDefines": [
+        {
+            "name": "com.unity.visualscripting",
+            "expression": "",
+            "define": "REMEDY_UVS"
+        }
+    ],
     "noEngineReferences": false
 }

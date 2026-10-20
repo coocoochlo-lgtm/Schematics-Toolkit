@@ -1,101 +1,102 @@
-using Remedy.Framework;
 using UnityEngine;
 
 namespace Remedy.CharacterControllers.Hover
 {
-    [RequireComponent(typeof(CharacterMotionContext))]
-    [RequireComponent(typeof(CharacterRaycastContext))]
-    [SchematicComponent("Movement/3D/Flight and Hover Controller")]
-    public class HoverController : MonoBehaviour
+    /// <summary>
+    /// Flight: rises while there's Stamina, then hovers and plummets. Input comes from the Motion Context's Signals.
+    /// </summary>
+    [SchematicDoc(@"{""name"": ""Hover Controller"", ""kind"": ""behavior"", ""menu"": ""Movement/3D/Flight and Hover Controller"", ""description"": ""Flight: rises while there's Stamina, then hovers and plummets. Input comes from the Motion Context's Signals."", ""variables"": [""Properties"", ""CurrentVerticalSpeed"", ""RotationVelocity""], ""use_for"": [""flying or hovering abilities"", ""jetpacks""]}")]
+    [RequireComponent(typeof(Box3D.Hybrid.Box3DBody))]
+    [RequireBehavior(typeof(CharacterMotionContext), typeof(CharacterRaycastContext))]
+    [SchematicBehaviorPath("Movement/3D/Flight and Hover Controller")]
+    public class HoverController : SchematicBehavior
     {
-        [SchematicEventLink(typeof(CharacterMotionContext), nameof(CharacterMotionContext.JumpInput))]
-        public Signal<bool> JumpInput => MotionContext.JumpInput;
         [SchematicEventLink(typeof(CharacterMotionContext), nameof(CharacterMotionContext.MoveInput))]
-        public Signal<Vector2> MoveInput => MotionContext.MoveInput;
+        public readonly SignalHandle<Vector2> MoveInput;
+        [SchematicEventLink(typeof(CharacterMotionContext), nameof(CharacterMotionContext.JumpInput))]
+        public readonly SignalHandle<bool> JumpInput;
+        [SchematicDoc(@"{""name"": ""Properties"", ""kind"": ""variable"", ""behavior"": ""Hover Controller"", ""type"": ""HoverControllerProperties"", ""default"": ""null"", ""description"": ""Properties (HoverControllerProperties) of Hover Controller.""}")]
+        public readonly VariableHandle<HoverControllerProperties> Properties = (HoverControllerProperties)null;
 
-        public Signal<float> StaminaUpdated => MotionContext.StaminaUpdated;
-
-        [SchematicProperties]
-        public HoverControllerProperties Properties;
-
-        public float CurrentVerticalSpeed = 0f;
-        public float RotationVelocity;
-        public CharacterMotionContext MotionContext => _motionContext ??= gameObject.GetComponent<CharacterMotionContext>();
-
-        // cache
-        private bool _cached = false;
-        private CharacterMotionContext _motionContext;
+        [SchematicDoc(@"{""name"": ""CurrentVerticalSpeed"", ""kind"": ""variable"", ""behavior"": ""Hover Controller"", ""type"": ""float"", ""default"": ""0f"", ""description"": ""Current Vertical Speed (float) of Hover Controller.""}")]
+        public readonly VariableHandle<float> CurrentVerticalSpeed = 0f;
+        [SchematicDoc(@"{""name"": ""RotationVelocity"", ""kind"": ""variable"", ""behavior"": ""Hover Controller"", ""type"": ""float"", ""default"": ""0f"", ""description"": ""Rotation Velocity (float) of Hover Controller.""}")]
+        public readonly VariableHandle<float> RotationVelocity = 0f;
 
         // state variables
-        private Vector3 _moveInput;
-        private float _currentHoverTime = 0f;
-        private float _currentFallSpeed = 0f;
+        private readonly VariableHandle<Vector3> _moveInput = Vector3.zero;
+        private readonly VariableHandle<float> _currentHoverTime = 0f;
+        private readonly VariableHandle<float> _currentFallSpeed = 0f;
 
-        private void OnEnable()
+        private readonly BehaviorHandle<CharacterMotionContext> _motion;
+
+        protected override void OnStart()
         {
-            _motionContext.IsKinematic = false;
+            var instance = Self;
+            var motion = _motion.Select(instance);
+            if (motion == null)
+                return;
 
-            Cache();
-
-            MoveInput?.Subscribe(this, (Vector2 val) => Move(val));
-            JumpInput?.Subscribe(this, (bool val) => Jump(val));
-
-            _currentHoverTime = 0f;
-            _currentFallSpeed = 0f;
+            // The Motion Context's input Signals, heard here for the same object. Skipped while this is disabled.
+            motion.MoveInput.Subscribe(instance, value => Move(instance, value));
+            motion.JumpInput.Subscribe(instance, value => Jump(instance, value));
         }
 
-        private void Cache()
+        protected override void OnEnable()
         {
-            if (!_cached)
+            var motion = _motion.Selected;
+            if (motion != null)
+                motion.IsKinematic.Value = false;
+
+            _currentHoverTime.Value = 0f;
+            _currentFallSpeed.Value = 0f;
+        }
+
+        protected override void OnFixedUpdate()
+        {
+            var properties = Properties.Value;
+            var motion = _motion.Selected;
+            if (properties == null || motion == null)
+                return;
+
+            if (motion.CurrentStamina > properties.staminaUseRate * Time.fixedDeltaTime)
             {
-                _motionContext = gameObject.GetCachedComponent<CharacterMotionContext>();
-                _cached = true;
-            }
-        }
-
-        private void OnDisable()
-        {
-            MoveInput?.Unsubscribe(this);
-            JumpInput?.Unsubscribe(this);
-        }
-
-        private void FixedUpdate()
-        {
-            if(_motionContext.CurrentStamina > Properties.staminaUseRate * Time.fixedDeltaTime)
-            {
-                _motionContext.ApplyVerticalForce(Properties.RiseSpeed);
+                motion.ApplyVerticalForce(properties.RiseSpeed);
             }
             else
             {
-                if(_currentHoverTime < Properties.HoverTime)
+                ref var hoverTime = ref _currentHoverTime.Ref;
+                ref var fallSpeed = ref _currentFallSpeed.Ref;
+                if (hoverTime < properties.HoverTime)
                 {
-                    _motionContext.ApplyVerticalForce(-Properties.HoverFallSpeed, true);
-                    _currentHoverTime += Time.fixedDeltaTime;
-                    _currentFallSpeed = 0f;
+                    motion.ApplyVerticalForce(-properties.HoverFallSpeed, true);
+                    hoverTime += Time.fixedDeltaTime;
+                    fallSpeed = 0f;
                 }
                 else
                 {
-                    if(_currentFallSpeed < Properties.PlummetTerminalSpeed)
-                        _currentFallSpeed += Properties.PlummetAcceleration;
+                    if (fallSpeed < properties.PlummetTerminalSpeed)
+                        fallSpeed += properties.PlummetAcceleration;
 
-                    _motionContext.ApplyVerticalForce(-_currentFallSpeed, true);
+                    motion.ApplyVerticalForce(-fallSpeed, true);
                 }
             }
 
-            _motionContext.ApplyCappedHorizontalForce(_moveInput, Properties.HorizontalSpeed, Properties.HorizontalAcceleration, Properties.HorizontalDeceration);
+            motion.ApplyCappedHorizontalForce(_moveInput.Value, properties.HorizontalSpeed, properties.HorizontalAcceleration, properties.HorizontalDeceration);
         }
 
-        public void Jump(bool value)
+        public void Jump(BehaviorInstance instance, bool value)
         {
-            _moveInput.y = value ? 1 : 0;
+            _moveInput.For(instance).y = value ? 1 : 0;
         }
 
-        public void Move(Vector2 value)
+        public void Move(BehaviorInstance instance, Vector2 value)
         {
-            if(value != default)
+            if (value != default)
             {
-                _moveInput.x = value.x;
-                _moveInput.z = value.y;
+                ref var input = ref _moveInput.For(instance);
+                input.x = value.x;
+                input.z = value.y;
             }
         }
     }

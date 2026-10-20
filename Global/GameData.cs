@@ -4,6 +4,7 @@ using SaintsField.Playa;*/
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Serialization;
 //using SaintsField.ComponentHeader;
 
 // TODO: Add compiler Ifs for Module Assemblies to dynamically add Modifiable Data
@@ -16,9 +17,9 @@ using Remedy.CharacterControllers.WallSlide;
 using Remedy.CharacterControllers;
 using Remedy.Damagables;
 using Remedy.Inventories;
-using Remedy.StateMachines;
 using Remedy.Weapons.Projectiles;
 using Remedy.Weapons;
+using Remedy.Schematics;
 
 #if UNITY_EDITOR
 using UnityEditor;
@@ -40,48 +41,21 @@ namespace Remedy.Common
 #if UNITY_EDITOR
             Input = RemedyInput.Instance;
 
-            Damageables.Clear();
-            var damageables = AssetLoaderUtility.LoadAllComponentsInPrefabs<Damageable>();
-            foreach (var damageable in damageables)
-            {
-                Damageables.Add(new(damageable));
-            }
+            Damageables = AssetLoaderUtility.LoadAllBehaviorsInPrefabs<Damageable>();
 
-            Weapons.Clear();
-            var weapons = AssetLoaderUtility.LoadAllComponentsInPrefabs<Weapon>();
-            foreach (var weapon in weapons)
-            {
-                Weapons.Add(new(weapon));
-            }
+            Weapons = AssetLoaderUtility.LoadAllBehaviorsInPrefabs<Weapon>();
 
-            Projectiles.Clear();
-            var projectiles = AssetLoaderUtility.LoadAllComponentsInPrefabs<Projectile>();
-            foreach (var projectile in projectiles)
-            {
-                Projectiles.Add(new(projectile));
-            }
+            Projectiles = AssetLoaderUtility.LoadAllBehaviorsInPrefabs<Projectile>();
 
-            Inventories.Clear();
-            var inventories = AssetLoaderUtility.LoadAllComponentsInPrefabs<Inventory>();
-            foreach (var inventory in inventories)
-            {
-                Inventories.Add(new(inventory));
-            }
+            Inventories = AssetLoaderUtility.LoadAllBehaviorsInPrefabs<Inventory>();
 
-            CollectableInventories.Clear();
-            var collectableInventories = AssetLoaderUtility.LoadAllComponentsInPrefabs<CollectableInventory>();
-            foreach (var collectableInventory in collectableInventories)
-            {
-                CollectableInventories.Add(new(collectableInventory));
-            }
+            CollectableInventories = AssetLoaderUtility.LoadAllBehaviorsInPrefabs<CollectableInventory>();
 
 
-            SoundCues.Clear();
-            var soundCues = AssetLoaderUtility.LoadAllComponentsInPrefabs<SoundCue>();
-            foreach (var soundCue in soundCues)
-            {
-                SoundCues.Add(new(soundCue));
-            }
+            SoundCues = AssetLoaderUtility.LoadAllBehaviorsInPrefabs<SoundCue>();
+
+            if (PlayerPrefab != null && PlayerPrefab.TryGetComponent(out SchematicObject player))
+                Components.ReadFrom(player);
 
             Triggers = LevelDesign.LevelDesignData.Instance.Triggers;
             DamageData = Damagables.DamageData.Instance;
@@ -113,7 +87,27 @@ namespace Remedy.Common
         [Layout("Game/Player", ELayout.Tab | ELayout.Tab)]
         [LayoutStart("./Components")]
         [Tag]*/
-        public string PlayerTag;
+        [Tooltip("The Int Tag that marks the player: Trigger Volumes react to objects with it, and vehicles listen to player input while a driver with it is aboard.")]
+        public IntTag PlayerIntTag = IntTags.Player;
+
+        // Older Game Data assets saved a Unity tag name here; it's moved onto PlayerIntTag (by name) when the asset loads.
+        [SerializeField, HideInInspector, FormerlySerializedAs("PlayerTag")]
+        private string _legacyPlayerTag;
+
+        private void OnEnable() => ApplyPlayerTag();
+
+        private void OnValidate() => ApplyPlayerTag();
+
+        private void ApplyPlayerTag()
+        {
+            if (!string.IsNullOrEmpty(_legacyPlayerTag))
+            {
+                if (IntTags.TryGetId(_legacyPlayerTag, out int id))
+                    PlayerIntTag = id;
+                _legacyPlayerTag = null;
+            }
+            GlobalSubsystem.SetPlayerTag(PlayerIntTag);
+        }
 
         // --- Character Controller --- //
         /*[Layout("Game", ELayout.Tab | ELayout.Collapse)]
@@ -127,39 +121,48 @@ namespace Remedy.Common
         [Tooltip("All the Components attached to the Player Prefab.")]
         public PlayerComponents Components;
 
+        /// <summary>
+        /// The tuning data the Player Prefab's Behaviors are set up with. Filled in by Reload Assets; editing an asset here
+        /// edits it for every object that uses it.
+        /// </summary>
         [Serializable]
         public class PlayerComponents
         {
             [Header("State Components")]
-            /*[InfoBox("Components that control state and how it's displayed.")]
-            [Expandable]*/
-            public MBStateMachine StateMachine;
-            [Tooltip("The Stamina Controller can be used accross the board by any other Component, but is attached to the Player Prefab.")]
-            //[Expandable]
-            public StaminaController StaminaController;
-            [Tooltip("This is the Component that controls the Transformation of the Character's Mesh in accordance to the state and motion of the Character Controller.")]
-            //[Expandable]
-            public CharacterControllerRig CharacterControllerRig;
-            [Tooltip("Subscribes Parameter management to Scriptable Events for easily handling animation in-editor.")]
-            public AnimationComunicator AnimationCommunicator;
+            [Tooltip("The Player's State Machine (open it from the State Machine Behavior, or double-click the asset).")]
+            public StateMachineDefinition StateMachine;
+            [Tooltip("The Stamina Controller can be used accross the board by any other Behavior, but is attached to the Player Prefab.")]
+            public StaminaProperties StaminaProperties;
+            [Tooltip("Parameter management through Signals, for easily handling animation in-editor.")]
+            public AnimationComunicatorProperties AnimationCommunicator;
 
             [Header("State Based Components")]
-            /*[InfoBox("These components are enabled/disabled by the MB State Machine. These contain the functionality & properties of the Character Controller.")]
-            [Expandable]*/
-            public PhysicsBasedCharacterController DefaultMotionController;
-            //[Expandable]
-            public HoverController HoverController;
-            //[Expandable]
-            public LedgeGrabController LedgeGrabController;
-            //[Expandable]
-            public WallSlideController WallSlideController;
-
-            [Header("Weapons & Damage")]
-            public WeaponHolder WeaponHolder;
-            public Damageable Damageable;
+            [Tooltip("The Default Character Controller's tuning values.")]
+            public CharacterControllerProperties DefaultMotionProperties;
+            public CharacterMotionProperties MotionProperties;
+            public CharacterRaycastProperties RaycastProperties;
+            public HoverControllerProperties HoverProperties;
+            public LedgeGrabControllerProperties LedgeGrabProperties;
+            public WallSlideControllerProperties WallSlideProperties;
 
             [Header("Audio")]
-            public List<ExpandablePrefabComponent<SoundCue>> SoundCues;
+            public List<PrefabBehavior> SoundCues = new();
+
+            /// <summary>Reads the Properties assets the Player Prefab's Behaviors are configured with.</summary>
+            public void ReadFrom(SchematicObject player)
+            {
+                StateMachine = PrefabBehavior.ReadDefault<global::StateMachine, StateMachineDefinition>(player, "Definition") ?? StateMachine;
+                StaminaProperties = PrefabBehavior.ReadDefault<StaminaController, StaminaProperties>(player, "Properties") ?? StaminaProperties;
+                AnimationCommunicator = PrefabBehavior.ReadDefault<AnimationComunicator, AnimationComunicatorProperties>(player, "Properties") ?? AnimationCommunicator;
+                DefaultMotionProperties = PrefabBehavior.ReadDefault<PhysicsBasedCharacterController, CharacterControllerProperties>(player, "Properties") ?? DefaultMotionProperties;
+                MotionProperties = PrefabBehavior.ReadDefault<CharacterMotionContext, CharacterMotionProperties>(player, "Properties") ?? MotionProperties;
+                RaycastProperties = PrefabBehavior.ReadDefault<CharacterRaycastContext, CharacterRaycastProperties>(player, "Properties") ?? RaycastProperties;
+                HoverProperties = PrefabBehavior.ReadDefault<HoverController, HoverControllerProperties>(player, "Properties") ?? HoverProperties;
+                LedgeGrabProperties = PrefabBehavior.ReadDefault<LedgeGrabController, LedgeGrabControllerProperties>(player, "Properties") ?? LedgeGrabProperties;
+                WallSlideProperties = PrefabBehavior.ReadDefault<WallSlideController, WallSlideControllerProperties>(player, "Properties") ?? WallSlideProperties;
+
+                SoundCues = PrefabBehavior.Find<SoundCue>(player);
+            }
         }
 
         // --- Damageables --- //
@@ -170,14 +173,14 @@ namespace Remedy.Common
 /*        [Layout("Game", ELayout.Tab | ELayout.Collapse)]
         [Layout("Game/Weapons&Damage", ELayout.Tab | ELayout.Tab)]
         [LayoutStart("./Prefabs")]*/
-        public List<ExpandablePrefabComponent<Damageable>> Damageables;
+        public List<PrefabBehavior> Damageables;
 
         // --- Weapons --- //
 /*        [Layout("Game", ELayout.Tab | ELayout.Collapse)]
         [Layout("Game/Weapons&Damage", ELayout.Tab | ELayout.Tab)]
         [LayoutStart("./Prefabs")]*/
-        public List<ExpandablePrefabComponent<Weapon>> Weapons;
-        public List<ExpandablePrefabComponent<Projectile>> Projectiles;
+        public List<PrefabBehavior> Weapons;
+        public List<PrefabBehavior> Projectiles;
 
         // --- Inventory --- //
 /*        [Layout("Game", ELayout.Tab | ELayout.Collapse)]
@@ -187,9 +190,9 @@ namespace Remedy.Common
 /*        [Layout("Game", ELayout.Tab | ELayout.Collapse)]
         [Layout("Game/Inventory", ELayout.Tab | ELayout.Tab)]
         [LayoutStart("./Prefabs")]*/
-        public List<ExpandablePrefabComponent<Inventory>> Inventories;
+        public List<PrefabBehavior> Inventories;
         //[InfoBox("Collectable Inventories are Inventory Items, but can be one or more inventory items at once.")]
-        public List<ExpandablePrefabComponent<CollectableInventory>> CollectableInventories;
+        public List<PrefabBehavior> CollectableInventories;
 
         // --- Audio --- //
         /*[Layout("Game", ELayout.Tab | ELayout.Collapse)]
@@ -200,7 +203,7 @@ namespace Remedy.Common
         /*[Layout("Game", ELayout.Tab | ELayout.Collapse)]
         [Layout("Game/Audio", ELayout.Tab | ELayout.Tab)]
         [LayoutStart("./Prefabs")]*/
-        public List<ExpandablePrefabComponent<SoundCue>> SoundCues;
+        public List<PrefabBehavior> SoundCues;
 
         // --- Editor --- //
 
@@ -211,20 +214,59 @@ namespace Remedy.Common
         // ---- Dropdown Lists ---- //
 
 
+        /// <summary>
+        /// A prefab, and the GameObject in it, that a Schematic Behavior is attached to.
+        /// </summary>
         [Serializable]
-        public class ExpandablePrefabComponent<T> where T : MonoBehaviour
+        public class PrefabBehavior
         {
-            [Tooltip("The Prefab containing this Component.")]
-            //[AssetPreview(50)]
-            //[ReadOnly]
-            public GameObject Prefab;
-            //[Expandable]
-            public T Component;
+            [Tooltip("The Prefab containing this Behavior.")]
+            public SchematicObject Prefab;
+            [Tooltip("The GameObject in the Prefab the Behavior is attached to.")]
+            public GameObject Target;
+            public string Behavior;
 
-            public ExpandablePrefabComponent(T component)
+            public PrefabBehavior(SchematicObject prefab, GameObject target, Type behavior)
             {
-                Component = component;
-                Prefab = component.gameObject;
+                Prefab = prefab;
+                Target = target;
+                Behavior = behavior.Name;
+            }
+
+            /// <summary>Every GameObject of a Schematic Object that a Behavior of type T is attached to.</summary>
+            public static List<PrefabBehavior> Find<T>(SchematicObject prefab) where T : SchematicBehavior
+            {
+                var result = new List<PrefabBehavior>();
+                if (prefab == null || prefab.Behaviors == null)
+                    return result;
+
+                foreach (var entry in prefab.Behaviors)
+                {
+                    if (entry.Key == null || entry.Value?.Items == null) continue;
+                    foreach (var attachment in entry.Value.Items)
+                        if (attachment?.Metadata != null && typeof(T).IsAssignableFrom(attachment.Metadata.BehaviorType.Type))
+                            result.Add(new PrefabBehavior(prefab, entry.Key, attachment.Metadata.BehaviorType.Type));
+                }
+                return result;
+            }
+
+            /// <summary>
+            /// The value a prefab's Behavior is set up with for a Variable: its override, else the Metadata default.
+            /// Null if the Behavior isn't attached or the value isn't set.
+            /// </summary>
+            public static TValue ReadDefault<TBehavior, TValue>(SchematicObject prefab, string variable)
+                where TBehavior : SchematicBehavior where TValue : class
+            {
+                var attachment = prefab != null ? prefab.FindAttachment(typeof(TBehavior)) : null;
+                if (attachment == null)
+                    return null;
+
+                var entry = attachment.FindOverride(variable);
+                if (entry?.Value != null && entry.Value.Get<TValue>() is TValue value)
+                    return value;
+
+                var definition = attachment.Metadata != null ? attachment.Metadata.FindVariable(variable) : null;
+                return definition?.Default != null ? definition.Default.Get<TValue>() : null;
             }
         }
 
@@ -249,6 +291,21 @@ namespace Remedy.Common
             }
 
             return assets;
+        }
+
+        /// <summary>
+        /// Every place a Schematic Behavior of type T is attached in the project's prefabs.
+        /// </summary>
+        public static List<GameData.PrefabBehavior> LoadAllBehaviorsInPrefabs<T>() where T : SchematicBehavior
+        {
+            var results = new List<GameData.PrefabBehavior>();
+            foreach (string guid in AssetDatabase.FindAssets("t:Prefab"))
+            {
+                var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(AssetDatabase.GUIDToAssetPath(guid));
+                if (prefab != null && prefab.TryGetComponent(out SchematicObject schematic))
+                    results.AddRange(GameData.PrefabBehavior.Find<T>(schematic));
+            }
+            return results;
         }
 
         public static List<T> LoadAllComponentsInPrefabs<T>() where T : Component

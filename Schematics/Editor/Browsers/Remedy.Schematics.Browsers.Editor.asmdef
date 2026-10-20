@@ -1,0 +1,25 @@
+{
+    "name": "Remedy.Schematics.Browsers.Editor",
+    "rootNamespace": "Remedy.Schematics.Browsers",
+    "references": [
+        "GUID:b0bc71c846aa4593b307f667d9e4e05e",
+        "GUID:34ab7552608995045bf7108d3c6dd27b",
+        "GUID:0a22d72520a82174ab746de6d8876564",
+        "GUID:6082862122ef11a49bf208ee4ec62519",
+        "GUID:46b677238cf420e4e907fafa51cfa04e",
+        "GUID:9cef1c0784dad074282847b193c0d47b",
+        "GUID:c61f7966d20e38f45989bde55b098f00",
+        "GUID:278e6c310fdb601458868ec44b1cac4b"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

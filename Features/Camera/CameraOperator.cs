@@ -1,149 +1,194 @@
-/*using SaintsField;
-using SaintsField.Playa;*/
-using Unity.VisualScripting;
-using Unity.VisualScripting.YamlDotNet.Core.Tokens;
 using UnityEngine;
 
 namespace Remedy.Cameras
 {
-
-    public class CameraOperator : MonoBehaviour
+    /// <summary>
+    /// The base of a camera rig: a Root that follows a target, with the Camera on a boom beneath it.
+    /// The Camera Manager blends the scene camera toward the active Operator.
+    /// </summary>
+    [SchematicDoc(@"{""name"": ""Camera Operator"", ""kind"": ""behavior"", ""description"": ""The base of a camera rig: a Root that follows a target, with the Camera on a boom beneath it. The Camera Manager blends the scene camera toward the active Operator."", ""variables"": [""Properties"", ""Follow"", ""Root"", ""Camera"", ""CameraCollisionRadius"", ""CurrentVolume"", ""AimDirection"", ""OrientCharacterToCamera"", ""XAxis"", ""YAxis"", ""ActualXAxis"", ""ActualYAxis""], ""signals"": [""SetObjectToFollow"", ""LookInput"", ""AimDirectionOutput"", ""OrientCharacterToCameraOutput""], ""use_for"": [""custom camera rigs""], ""notes"": ""Base of the camera Behaviors; use Third Person or Shoulder instead.""}")]
+    public abstract class CameraOperator : SchematicBehavior
     {
-        public SignalData SetObjectToFollow;
-        public SignalData LookInput;
+        [SchematicDoc(@"{""name"": ""SetObjectToFollow"", ""kind"": ""signal"", ""behavior"": ""Camera Operator"", ""direction"": ""input"", ""params"": [{""name"": ""Target"", ""type"": ""GameObject""}], ""description"": ""Tells Camera Operator to act."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
+        [InputSignal, Parameter("Target", typeof(GameObject))]
+        public readonly SignalHandle<GameObject> SetObjectToFollow;
+        [SchematicDoc(@"{""name"": ""LookInput"", ""kind"": ""signal"", ""behavior"": ""Camera Operator"", ""direction"": ""input"", ""params"": [{""name"": ""Look"", ""type"": ""Vector2""}], ""description"": ""Tells Camera Operator to act."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
+        [InputSignal, Parameter("Look", typeof(Vector2))]
+        public readonly SignalHandle<Vector2> LookInput;
 
+        [SchematicDoc(@"{""name"": ""AimDirectionOutput"", ""kind"": ""signal"", ""behavior"": ""Camera Operator"", ""direction"": ""output"", ""params"": [{""name"": ""Direction"", ""type"": ""Vector3""}], ""description"": ""A direction value is passed, which is the horizontal direction the Camera is facing."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [Tooltip("A direction value is passed, which is the horizontal direction the Camera is facing.")]
-        public SignalData AimDirectionOutput;
+        [OutputSignal, Parameter("Direction", typeof(Vector3))]
+        public readonly SignalHandle<Vector3> AimDirectionOutput;
+        [SchematicDoc(@"{""name"": ""OrientCharacterToCameraOutput"", ""kind"": ""signal"", ""behavior"": ""Camera Operator"", ""direction"": ""output"", ""params"": [{""name"": ""Orient"", ""type"": ""bool""}], ""description"": ""A Boolean that tells the Rig that the Character Should look toward the AimDirectionOutput value."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [Tooltip("A Boolean that tells the Rig that the Character Should look toward the AimDirectionOutput value.")]
-        public SignalData OrientCharacterToCameraOutput;
+        [OutputSignal, Parameter("Orient", typeof(bool))]
+        public readonly SignalHandle<bool> OrientCharacterToCameraOutput;
 
-        /*[Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Component", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./References")]
-        [Expandable]*/
-        [SchematicProperties]
-        public CameraOperatorProperties Properties;
-        public Transform Follow;
-        public Transform Root;
-        public Transform Camera;
+        [SchematicDoc(@"{""name"": ""Properties"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""CameraOperatorProperties"", ""default"": ""null"", ""description"": ""Properties (CameraOperatorProperties) of Camera Operator.""}")]
+        public readonly VariableHandle<CameraOperatorProperties> Properties = (CameraOperatorProperties)null;
+        [SchematicDoc(@"{""name"": ""Follow"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""Follow (Transform) of Camera Operator.""}")]
+        public readonly VariableHandle<Transform> Follow = (Transform)null;
+        [SchematicDoc(@"{""name"": ""Root"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""Root (Transform) of Camera Operator.""}")]
+        public readonly VariableHandle<Transform> Root = (Transform)null;
+        [SchematicDoc(@"{""name"": ""Camera"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""Camera (Transform) of Camera Operator.""}")]
+        public readonly VariableHandle<Transform> Camera = (Transform)null;
 
-        public float XAxisSpeed => Properties.XAxisSpeed;
-        public float YAxisSpeed => Properties.YAxisSpeed;
-        public float SmoothSpeed => Properties.SmoothSpeed;
-        [Tooltip("If True, the Camera Manager will follow refer to this Operator's Current Volume for Camera Properties.")]
-        public bool UseVolumes => Properties.UseVolumes;
-
+        [SchematicDoc(@"{""name"": ""CameraCollisionRadius"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""float"", ""default"": ""0.2f"", ""description"": ""Radius of the Sphere used for SphereCasting to set the distance away from the player""}")]
         [Tooltip("Radius of the Sphere used for SphereCasting to set the distance away from the player")]
-        public float CameraCollisionRadius = 0.2f;
+        public readonly VariableHandle<float> CameraCollisionRadius = 0.2f;
 
-        /*[Layout("Settings", ELayout.Tab | ELayout.Collapse)]
-        [Layout("Settings/Component", ELayout.Tab | ELayout.Collapse)]
-        [LayoutStart("./Variables")]*/
-        public CameraPropertiesVolume CurrentVolume;
-        public Vector3 AimDirection;
-        public bool OrientCharacterToCamera = false;
+        /// <summary>The Camera Properties Volume this Operator is inside, if any.</summary>
+        [SchematicDoc(@"{""name"": ""CurrentVolume"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""BehaviorInstance"", ""default"": ""null"", ""description"": ""The Camera Properties Volume this Operator is inside, if any.""}")]
+        public readonly VariableHandle<BehaviorInstance> CurrentVolume = (BehaviorInstance)null;
+        [SchematicDoc(@"{""name"": ""AimDirection"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""Vector3"", ""default"": ""Vector3.forward"", ""description"": ""Aim Direction (Vector3) of Camera Operator.""}")]
+        public readonly VariableHandle<Vector3> AimDirection = Vector3.forward;
+        [SchematicDoc(@"{""name"": ""OrientCharacterToCamera"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""bool"", ""default"": ""false"", ""description"": ""Orient Character To Camera (bool) of Camera Operator.""}")]
+        public readonly VariableHandle<bool> OrientCharacterToCamera = false;
 
-        private float _xAxisInput;
-        private float _yAxisInput;
+        // Rotation state, read by the Camera Manager to keep inactive Operators in step with the active one.
+        [SchematicDoc(@"{""name"": ""XAxis"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""float"", ""default"": ""0f"", ""description"": ""X Axis (float) of Camera Operator.""}")]
+        public readonly VariableHandle<float> XAxis = 0f;
+        [SchematicDoc(@"{""name"": ""YAxis"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""float"", ""default"": ""0f"", ""description"": ""Y Axis (float) of Camera Operator.""}")]
+        public readonly VariableHandle<float> YAxis = 0f;
+        [SchematicDoc(@"{""name"": ""ActualXAxis"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""float"", ""default"": ""0f"", ""description"": ""Actual X Axis (float) of Camera Operator.""}")]
+        public readonly VariableHandle<float> ActualXAxis = 0f;
+        [SchematicDoc(@"{""name"": ""ActualYAxis"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""float"", ""default"": ""0f"", ""description"": ""Actual Y Axis (float) of Camera Operator.""}")]
+        public readonly VariableHandle<float> ActualYAxis = 0f;
 
-        /*[ReadOnly] */public float _xAxis;
-        /*[ReadOnly*/ public float _yAxis;
-        /*[ReadOnly] */public float _actualXAxis;
-        /*[ReadOnly] */public float _actualYAxis;
-        protected float _timeSinceInput = 0f;
-        protected Quaternion _goalRotation;
+        protected readonly VariableHandle<float> _xAxisInput = 0f;
+        protected readonly VariableHandle<float> _yAxisInput = 0f;
+        protected readonly VariableHandle<float> _timeSinceInput = 0f;
+        protected readonly VariableHandle<Quaternion> _goalRotation = Quaternion.identity;
 
-        private void OnEnable()
+        public float XAxisSpeed => Properties.Value != null ? Properties.Value.XAxisSpeed : 3f;
+        public float YAxisSpeed => Properties.Value != null ? Properties.Value.YAxisSpeed : 2f;
+        public float SmoothSpeed => Properties.Value != null ? Properties.Value.SmoothSpeed : 10f;
+        /// <summary>If True, the Camera Manager refers to this Operator's Current Volume for Camera Properties.</summary>
+        public bool UseVolumes => Properties.Value != null && Properties.Value.UseVolumes;
+
+        protected override void OnSetup(BehaviorSetupContext context)
         {
-            Camera.gameObject.GetComponent<Camera>().enabled = false;
-            CameraManager.SetCameraOperator(this);
+            // The rig: Root at the object, Camera on a boom behind it.
+            var root = new GameObject("Root").transform;
+            root.SetParent(context.Transform, false);
 
-            LookInput?.Subscribe(this, (Vector2 val) => Look(val));
-            SetObjectToFollow?.Subscribe(this, (GameObject val) => {
-                Follow = val.transform;
-            });
+            var camera = new GameObject("Camera").transform;
+            camera.gameObject.AddComponent<UnityEngine.Camera>();
+            camera.SetParent(root, false);
+            camera.localPosition = new Vector3(0, 0, -1);
+            camera.rotation = Quaternion.LookRotation(root.position - camera.position, Vector3.up);
+
+            if (!context.GameObject.TryGetComponent(out Rigidbody rigidbody))
+                rigidbody = context.GameObject.AddComponent<Rigidbody>();
+            rigidbody.isKinematic = true;
+            if (!context.GameObject.TryGetComponent(out SphereCollider _))
+                context.GameObject.AddComponent<SphereCollider>();
+
+            context.Set(Root, root);
+            context.Set(Camera, camera);
         }
 
-        private void OnDisable()
+        protected override void OnStart()
         {
-            LookInput?.Unsubscribe(this);
-            SetObjectToFollow?.Unsubscribe(this);
+            var instance = Self;
+            LookInput.Subscribe(axis => Look(instance, axis));
+            SetObjectToFollow.Subscribe(target => Follow.Value = target != null ? target.transform : null);
         }
 
-        private void Reset()
+        protected override void OnEnable()
         {
-            // Set up hierarchy
-            Root = new GameObject("Root").transform;
-            Root.parent = transform;
-            Root.localPosition = Vector3.zero;
+            var camera = Camera.Value;
+            if (camera != null && camera.TryGetComponent(out UnityEngine.Camera cameraComponent))
+                cameraComponent.enabled = false; // the Camera Manager's camera renders; this one is a target
 
-            Camera = new GameObject("Camera").transform;
-            Camera.gameObject.AddComponent<Camera>();
-            Camera.parent = Root;
-            Camera.localPosition = new Vector3(0, 0, -1);
-
-            var baseDirection = Root.position - Camera.position;
-            Camera.rotation = Quaternion.LookRotation(baseDirection, Vector3.up);
-
-            gameObject.AddComponent<Rigidbody>().isKinematic = true;
-            gameObject.AddComponent<SphereCollider>();
+            CameraManager.AddOperator(Self);
+            CameraManager.SetCameraOperator(Self);
         }
 
+        protected override void OnDisable()
+        {
+            CameraManager.RemoveOperator(Self);
+        }
+
+        /// <summary>Updates the selected Operator's aim direction and applies pending look input.</summary>
         public void UpdateAimDirection()
         {
-            AimDirection = Vector3.ProjectOnPlane(Camera.forward, Vector3.up).normalized;
-            AimDirectionOutput?.Invoke(AimDirection);
+            var camera = Camera.Value;
+            if (camera == null) return;
 
-            _xAxis += _xAxisInput * (XAxisSpeed * Time.deltaTime);
-            _yAxis = Mathf.Clamp(_yAxis - _yAxisInput * (YAxisSpeed * Time.deltaTime), -80f, 80f); // clamp pitch (Z axis rotation)
+            AimDirection.Value = Vector3.ProjectOnPlane(camera.forward, Vector3.up).normalized;
+            AimDirectionOutput.Invoke(AimDirection.Value);
 
-            _xAxisInput = 0;
-            _yAxisInput = 0;
+            XAxis.Value += _xAxisInput.Value * (XAxisSpeed * Time.deltaTime);
+            YAxis.Value = Mathf.Clamp(YAxis.Value - _yAxisInput.Value * (YAxisSpeed * Time.deltaTime), -80f, 80f); // clamp pitch
+
+            _xAxisInput.Value = 0;
+            _yAxisInput.Value = 0;
         }
 
-        public void ForceAxis(float xAxis, float yAxis)
+        /// <summary>Snaps an Operator's rotation.</summary>
+        public void ForceAxis(BehaviorInstance instance, float xAxis, float yAxis)
         {
-            _xAxis = xAxis;
-            _actualXAxis = xAxis;
-            _yAxis = yAxis;
-            _actualYAxis = yAxis;
+            XAxis[instance] = xAxis;
+            ActualXAxis[instance] = xAxis;
+            YAxis[instance] = yAxis;
+            ActualYAxis[instance] = yAxis;
         }
 
-        public void Look(Vector2 axis)
+        public void Look(BehaviorInstance instance, Vector2 axis)
         {
-            _xAxisInput = axis.x;
-            _yAxisInput = axis.y;
+            _xAxisInput[instance] = axis.x;
+            _yAxisInput[instance] = axis.y;
 
             if (axis != Vector2.zero)
-                _timeSinceInput = 0;
+                _timeSinceInput[instance] = 0;
         }
 
-
-#if UNITY_EDITOR
-        private void OnDrawGizmos()
+        // Camera Properties Volumes the Operator moves through.
+        protected override void OnTriggerEnter(Collider other)
         {
-            if (Root == null || Camera == null)
+            var volume = ExecutionContext.FindInstance(other.gameObject, typeof(CameraPropertiesVolume));
+            if (volume != null)
+                CurrentVolume.Value = volume;
+        }
+
+        protected override void OnTriggerExit(Collider other)
+        {
+            var volume = ExecutionContext.FindInstance(other.gameObject, typeof(CameraPropertiesVolume));
+            if (volume != null && volume == CurrentVolume.Value)
+                CurrentVolume.Value = null;
+        }
+
+        /// <summary>The selected Operator's current volume settings, if it is inside one.</summary>
+        protected bool TryGetVolume(out CameraPropertiesVolume volume, out BehaviorInstance volumeInstance)
+        {
+            volumeInstance = CurrentVolume.Value;
+            volume = volumeInstance != null && volumeInstance.IsSpawned ? (CameraPropertiesVolume)volumeInstance.Behavior : null;
+            return volume != null;
+        }
+
+        protected override void OnDrawGizmos(BehaviorGizmoContext context)
+        {
+            var root = context.Get(Root);
+            var camera = context.Get(Camera);
+            if (root == null || camera == null)
                 return;
 
-            // Draw wire cylinder for boom arm
-            Vector3 start = Root.position;
-            Vector3 end = Camera.position;
-            float radius = CameraCollisionRadius;
-
+            // Boom arm
             Gizmos.color = Color.cyan;
-            DrawWireCylinder(start, end, radius);
+            DrawWireCylinder(root.position, camera.position, context.Get(CameraCollisionRadius));
 
-            // Draw wire sphere at camera
+            // Camera
             Gizmos.color = Color.yellow;
-            Gizmos.DrawWireSphere(Camera.position, 0.2f);
+            Gizmos.DrawWireSphere(camera.position, 0.2f);
         }
 
-        void DrawWireCylinder(Vector3 start, Vector3 end, float radius)
+        private static void DrawWireCylinder(Vector3 start, Vector3 end, float radius)
         {
             const int segments = 20;
+            if (start == end) return;
             Vector3 up = (end - start).normalized;
-            Vector3 forward = Vector3.Slerp(up, -up, 0.5f);
-            Vector3 right = Vector3.Cross(up, forward).normalized;
 
             float height = Vector3.Distance(start, end);
             Quaternion rotation = Quaternion.LookRotation(end - start);
@@ -161,14 +206,8 @@ namespace Remedy.Cameras
                 int next = (i + 1) % segments;
                 Gizmos.DrawLine(points[i], points[next]);
                 Gizmos.DrawLine(points[i], points[i] + up * height);
-            }
-
-            for (int i = 0; i < segments; i++)
-            {
-                int next = (i + 1) % segments;
                 Gizmos.DrawLine(points[i] + up * height, points[next] + up * height);
             }
         }
-#endif
     }
 }

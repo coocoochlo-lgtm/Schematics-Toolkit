@@ -1,0 +1,26 @@
+{
+    "name": "Remedy.UVSExtensions",
+    "rootNamespace": "",
+    "references": [
+        "Remedy.Core",
+        "Unity.VisualScripting.Core",
+        "Unity.VisualScripting.Flow"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "REMEDY_UVS"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.unity.visualscripting",
+            "expression": "",
+            "define": "REMEDY_UVS"
+        }
+    ],
+    "noEngineReferences": false
+}

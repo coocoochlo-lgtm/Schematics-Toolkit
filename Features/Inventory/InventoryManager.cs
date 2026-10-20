@@ -13,22 +13,22 @@ namespace Remedy.Inventories
         private Dictionary<GameObject, int> _collectableInventories;
         public static Dictionary<GameObject, int> CollectableInventories => Instance._collectableInventories ??= new();
 
-        public static void AddInventory(Inventory inventory)
+        public static void AddInventory(BehaviorInstance inventory, int inventoryLayer)
         {
-            Inventories.Add(inventory.gameObject, inventory.InventoryLayer);
+            Inventories[inventory.GameObject] = inventoryLayer;
         }
-        public static void RemoveInventory(Inventory inventory)
+        public static void RemoveInventory(BehaviorInstance inventory)
         {
-            Inventories.Remove(inventory.gameObject);
+            Inventories.Remove(inventory.GameObject);
         }
 
-        public static void AddCollectableInventory(CollectableInventory collectableInventory)
+        public static void AddCollectableInventory(BehaviorInstance collectableInventory, int inventoryLayer)
         {
-            Inventories.Add(collectableInventory.gameObject, collectableInventory.CollectionData.InventoryLayer);
+            CollectableInventories[collectableInventory.GameObject] = inventoryLayer;
         }
-        public static void RemoveCollectableInventory(CollectableInventory collectableInventory)
+        public static void RemoveCollectableInventory(BehaviorInstance collectableInventory)
         {
-            Inventories.Remove(collectableInventory.gameObject);
+            CollectableInventories.Remove(collectableInventory.GameObject);
         }
 
         /// <summary>

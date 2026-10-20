@@ -1,11 +1,19 @@
+using Remedy.Framework;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using Remedy.Schematics.Utils;
 using System.Data.SqlTypes;
 
-public class SignalData : ScriptableObject
+public partial class SignalData : ScriptableObject, Remedy.Schematics.ISchematicAsset
 {
+    [SerializeField, HideInInspector]
+    private string _uid;
+
+    /// <summary>This Signal's permanent id (see <see cref="Remedy.Schematics.ISchematicAsset"/>).</summary>
+    public string Uid => Remedy.Schematics.SchematicUid.Ensure(ref _uid, this);
+
+    public void RegenerateUid() => _uid = Remedy.Schematics.SchematicUid.New();
+
     public string Name;
     private static Dictionary<int, UnityEngine.Object> _allSubscribers;
     public static Dictionary<int, UnityEngine.Object> AllSubscribers
@@ -25,6 +33,41 @@ public class SignalData : ScriptableObject
     /// If true, the Schematics system will use the original Scriptable Event Asset instead of instantiating one per instance that contains it. 
     /// </summary>
     public bool Global = false;
+
+    /// <summary>
+    /// Network Sync: when this Signal is sent on one peer, it fires on every other player's copy of the target object too
+    /// (or everywhere, for Signals sent to everyone). Needs the object's Network Sync on (a NetworkObject and a Schematic
+    /// Network Graph); off, or offline, the Signal stays local as usual.
+    /// </summary>
+    [Tooltip("Network Sync: fire this Signal for every player when it's sent (see Sender for who may send it).")]
+    public bool Networked;
+
+    /// <summary>Who may send this Signal when it's <see cref="Networked"/>.</summary>
+    [Tooltip("Who may send it: the object's authority, its owner (checked by the authority), or anyone.")]
+    public Remedy.Schematics.SignalNetworkSender Sender = Remedy.Schematics.SignalNetworkSender.Authority;
+
+    [SerializeField, HideInInspector]
+    private Remedy.Schematics.GraphSignalDirection _graphDirection;
+
+    /// <summary>
+    /// For a Signal a Schematic Graph declares: Input (other graphs send it, the graph reacts) or Output (the graph
+    /// sends it, other graphs react). Unspecified for every other Signal. See <see cref="Remedy.Schematics.GraphSignalRules"/>.
+    /// </summary>
+    public Remedy.Schematics.GraphSignalDirection GraphDirection
+    {
+        get => _graphDirection;
+        set => _graphDirection = value;
+    }
+
+    /// <summary>Whether this Signal already has its saved id (asking <see cref="Uid"/> would make one).</summary>
+    public bool HasUid => !string.IsNullOrEmpty(_uid);
+
+    void OnEnable()
+    {
+        // So Signals arriving from other peers can be found by id.
+        if (!string.IsNullOrEmpty(_uid))
+            Remedy.Schematics.SignalNetwork.Register(this, _uid);
+    }
 
     /// <summary>
     /// All Active Subscription to this Event.
@@ -119,6 +162,9 @@ public class SignalData : ScriptableObject
         }
     }
 
+    // Unity creates ScriptableObjects through the parameterless constructor.
+    public SignalData() { }
+
     public SignalData(string name)
     {
         Name = name;
@@ -132,7 +178,8 @@ public class SignalData : ScriptableObject
     /// <returns></returns>
     protected void AddGlobalSubscriberID(UnityEngine.Object instance)
     {
-        int instanceID = instance.GetInstanceID();
+        // Object.GetHashCode is the object's identity (GetInstanceID is obsolete in Unity 6).
+        int instanceID = instance.GetHashCode();
         if (!AllSubscribers.ContainsKey(instanceID))
             AllSubscribers[instanceID] = instance;
     }
@@ -145,16 +192,7 @@ public class SignalData : ScriptableObject
     {
         if (!Application.isPlaying) return;
 
-        int last = 0;
-        for(int i = 0; i < _subs.Count; i++)
-        {
-            if (_subs[i].Parent != monoBehaviour)
-            {
-                _subs[i] = _subs[last];
-            }
-            last = i;
-        }
-        _subscribersCount--;
+        _subscribersCount -= _subs.RemoveAll(sub => ReferenceEquals(sub.Parent, monoBehaviour));
     }
 
 
@@ -288,38 +326,23 @@ public class SignalData : ScriptableObject
 
     protected void FinalInvoke(UnityEngine.Object target, Union[] args = default)
     {
-        var isGlobal = target == null;
-        var isMono = false;
-        var isMonoEnabled = false;
+        // No target means a global invoke that reaches every subscriber. A destroyed target is not "no target".
+        bool isGlobal = ReferenceEquals(target, null);
 
-        if (target is MonoBehaviour mb)
-        {
-            isMono = true;
-            isMonoEnabled = mb.enabled;
-        }
+        // A disabled MonoBehaviour doesn't send.
+        if (target is MonoBehaviour mb && !mb.enabled)
+            return;
 
-        foreach (var sub in _subs)
+        // Indexed, so subscriptions added by a callback don't break the loop.
+        for (int i = 0; i < _subs.Count; i++)
         {
-            if(isGlobal)
-            {
+            var sub = _subs[i];
+            if (isGlobal || ReferenceEquals(sub.Parent, target))
                 sub?.Invoke(args);
-            }
-            else if (isMono)
-            {
-                if (isMonoEnabled && )
-                {
-                    if (ReferenceEquals(sub.Parent, target))
-                        sub?.Invoke(args);
-                }
-                else
-                    Unsubscribe(target);
-            }
-            else
-            {
-                if (ReferenceEquals(sub.Parent, target))
-                    sub?.Invoke(args);
-            }
         }
+
+        // Schematic Behaviors and Graphs listen by the UID of the object the target component belongs to.
+        DeliverComponentInvokeToListeners(target, args);
     }
 
     public void Subscribe(UnityEngine.Object instance, Action action)
@@ -440,7 +463,7 @@ public class SignalData : ScriptableObject
                 if (mb.enabled)
                     action?.Invoke();
                 else
-                    Unsubscribe(mb);
+                    return; // disabled MonoBehaviours don't receive
             }
             else
                 action?.Invoke();
@@ -460,7 +483,7 @@ public class SignalData : ScriptableObject
                         values[0].GetValue<T1>()
                     );
                 else
-                    Unsubscribe(mb);
+                    return; // disabled MonoBehaviours don't receive
             }
             else
                 action?.Invoke(
@@ -483,7 +506,7 @@ public class SignalData : ScriptableObject
                         values[1].GetValue<T2>()
                     );
                 else
-                    Unsubscribe(mb);
+                    return; // disabled MonoBehaviours don't receive
             }
             else
                 action?.Invoke(
@@ -508,7 +531,7 @@ public class SignalData : ScriptableObject
                         values[2].GetValue<T3>()
                     );
                 else
-                    Unsubscribe(mb);
+                    return; // disabled MonoBehaviours don't receive
             }
             else
                 action?.Invoke(
@@ -534,7 +557,7 @@ public class SignalData : ScriptableObject
                         values[3].GetValue<T4>()
                     );
                 else
-                    Unsubscribe(mb);
+                    return; // disabled MonoBehaviours don't receive
             }
             else
                 action?.Invoke(
@@ -563,7 +586,7 @@ public class SignalData : ScriptableObject
                         values[4].GetValue<T5>()
                     );
                 else
-                    Unsubscribe(mb);
+                    return; // disabled MonoBehaviours don't receive
             }
             else
                 action(
@@ -594,7 +617,7 @@ public class SignalData : ScriptableObject
                         values[5].GetValue<T6>()
                     );
                 else
-                    Unsubscribe(mb);
+                    return; // disabled MonoBehaviours don't receive
             }
             else
                 action?.Invoke(
@@ -627,7 +650,7 @@ public class SignalData : ScriptableObject
                         values[6].GetValue<T7>()
                     );
                 else
-                    Unsubscribe(mb);
+                    return; // disabled MonoBehaviours don't receive
             }
             else
                 action?.Invoke(
@@ -662,7 +685,7 @@ public class SignalData : ScriptableObject
                         values[7].GetValue<T8>()
                     );
                 else
-                    Unsubscribe(mb);
+                    return; // disabled MonoBehaviours don't receive
             }
             else
                 action?.Invoke(
@@ -699,7 +722,7 @@ public class SignalData : ScriptableObject
                         values[8].GetValue<T9>()
                     );
                 else
-                    Unsubscribe(mb);
+                    return; // disabled MonoBehaviours don't receive
             }
             else
                 action?.Invoke(
@@ -738,7 +761,7 @@ public class SignalData : ScriptableObject
                         values[9].GetValue<T10>()
                     );
                 else
-                    Unsubscribe(mb);
+                    return; // disabled MonoBehaviours don't receive
             }
             else
                 action?.Invoke(

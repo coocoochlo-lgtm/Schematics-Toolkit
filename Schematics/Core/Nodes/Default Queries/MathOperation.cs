@@ -5,6 +5,7 @@ using UnityEngine;
 namespace Remedy.Schematics
 {
     [Serializable]
+    [NodeColor(NodeColors.Math)]
     [Node(Path = "Math"), Tags("Default")]
     public class MathOperation : SchematicGraphNode
     {
