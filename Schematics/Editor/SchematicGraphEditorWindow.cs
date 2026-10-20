@@ -389,6 +389,8 @@ public class SchematicGraphEditorWindow : GraphEditorWindow
         {
             if (nodeView.Target != null && nodeView.Target is SendSignalNode invokeFlowNode)
             {
+                nodeView.AddToClassList("send-signal-node");
+
                 if (invokeFlowNode.Signal != null && TargetEventMap.ContainsKey(invokeFlowNode.Signal))
                 {
                     var signal = invokeFlowNode.Signal;
