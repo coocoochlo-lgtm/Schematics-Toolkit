@@ -2,6 +2,7 @@ using Remedy.Framework;
 using BlueGraph;
 using Remedy.Schematics;
 using System;
+using System.Linq;
 using UnityEngine;
 
 /// <summary>
@@ -9,7 +10,7 @@ using UnityEngine;
 /// Has an input pin per Signal parameter (added by the editor when the Signal is dropped in), and a "To" pin to send it
 /// to another object instead.
 /// </summary>
-[SchematicDoc(@"{""name"": ""Send a Signal"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""ScriptableEvents/Events"", ""description"": ""Sends its Signal to the object running this graph, where Schematic Behaviors and other graphs hear it. Has an input pin per Signal parameter (added by the editor when the Signal is dropped in)."", ""use_for"": [""tell a Behavior to do something (its Input Signals)"", ""notify other graphs"", ""pass values like damage amounts or targets"", ""send a Signal to another object (wire it into To)""], ""notes"": ""Wire an object into To to send it there instead of to this object. Runs when flow reaches it: connect an arrow into it, and from it to what runs next. Made by dragging a Signal from the IO Dock. An action: wire flow into it; its inputs are the Signal's parameters.""}")]
+[SchematicDoc(@"{""name"": ""Send a Signal"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""ScriptableEvents/Events"", ""description"": ""Sends its Signal to the object running this graph, where Schematic Behaviors and other graphs hear it. Has an input pin per Signal parameter (added by the editor when the Signal is dropped in)."", ""use_for"": [""tell a Behavior to do something (its Input Signals)"", ""notify other graphs"", ""pass values like damage amounts or targets"", ""send a Signal to another object (wire it into To)""], ""notes"": ""Wire an object into To to send it there instead of to this object. Runs when flow reaches it, then ends the flow. Made by dragging a Signal from the IO Dock. An action: wire flow into it; its inputs are the Signal's parameters.""}")]
 [Serializable]
 [NodeColor(NodeColors.Schematic)]
 [Node(Name = "Send a Signal", Path = "ScriptableEvents/Events"), Tags("Object")]
@@ -29,10 +30,25 @@ public class SendSignalNode : SchematicActionNode
     /// </summary>
     public override void OnValidate()
     {
+        RemoveFlowOutputs();
         base.OnValidate();
         string error = GraphSignalRules.SendError(Graph as SchematicGraph, Signal);
         if (Error != error)
             Error = error;
+    }
+
+    public override void OnAddedToGraph()
+    {
+        RemoveFlowOutputs();
+        base.OnAddedToGraph();
+    }
+
+    private void RemoveFlowOutputs()
+    {
+        foreach (var port in Ports.Values
+                     .Where(port => port.Type == typeof(ActionPort) && port.Direction == PortDirection.Output)
+                     .ToList())
+            RemovePort(port);
     }
 
     protected override void OnTrigger(GameObject instance, bool awaiting = false)
