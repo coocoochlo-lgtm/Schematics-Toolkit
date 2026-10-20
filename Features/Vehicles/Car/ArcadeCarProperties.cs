@@ -182,9 +182,9 @@ namespace Remedy.Vehicles
         public float InertiaScale = 1.3f;
 
         [Header("Staying Upright")]
-        [Tooltip("While on the ground, how hard the car leans back onto its wheels (towards the ground's angle). 0 = pure physics. Higher = harder to roll over in corners.")]
+        [Tooltip("At low speed, how hard the car levels toward the support-weighted ground normal. Fades to zero at Max Speed and while fewer than about half the tires support the car. Compensates torque from tire forces. 0 = pure physics.")]
         public float StabilizeStrength = 8f;
-        [Tooltip("Damps the car's roll and pitch wobble while on the ground.")]
+        [Tooltip("At low speed, damps roll and pitch while the tires meaningfully support the car. Fades to zero at Max Speed.")]
         public float StabilizeDamping = 2f;
         [Range(0f, 1f)]
         [Tooltip("Minimum fraction of Max Speed before sticky force applies to grounded tires.")]

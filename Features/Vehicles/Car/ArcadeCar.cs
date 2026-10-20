@@ -485,6 +485,9 @@ namespace Remedy.Vehicles
             float massShare = mass / Mathf.Max(1f, wheelCount);
 
             float targetSpeedMultiplier = 1f;
+            float supportedWheelLoad = 0f;
+            Vector3 supportNormalSum = Vector3.zero;
+            Vector3 wheelForceTorque = Vector3.zero;
             for (int i = 0; i < state.Wheels.Length; i++)
             {
                 ref var wheelState = ref state.Wheels[i];
@@ -640,7 +643,9 @@ namespace Remedy.Vehicles
                 Vector3 hubVelocity = native.GetWorldPointVelocity(origin);
                 float suspensionSpeed = Vector3.Dot(hubVelocity, up);
                 float springAcceleration = Mathf.Clamp(p.SpringStiffness * compression - p.SpringDamping * suspensionSpeed, 0f, p.MaxSuspensionAcceleration);
-                native.ApplyForce(up * (springAcceleration * massShare), origin, true);
+                Vector3 suspensionForce = up * (springAcceleration * massShare);
+                native.ApplyForce(suspensionForce, origin, true);
+                wheelForceTorque += Vector3.Cross(origin - centerOfMass, suspensionForce);
 
                 // How much weight the tyre carries (1 = its share of the car at rest): more weight, more grip.
                 float load = p.GripScalesWithLoad && g > 0.001f ? Mathf.Clamp(springAcceleration / g, 0f, 2f) : 1f;
@@ -651,8 +656,13 @@ namespace Remedy.Vehicles
                 Vector3 rollDirection = Vector3.ProjectOnPlane(wheelForward, normal).normalized;
                 Vector3 sideDirection = Vector3.Cross(normal, rollDirection);
                 Vector3 contactVelocity = native.GetWorldPointVelocity(hit.point);
+                Vector3 stickyForce = Vector3.zero;
                 if (p.StickyForce > 0f && speedFraction >= Mathf.Clamp01(p.StickyThreshold))
-                    native.ApplyForce(-up * (p.StickyForce * Mathf.Abs(forwardSpeed) * massShare), hit.point, true);
+                {
+                    stickyForce = -up * (p.StickyForce * Mathf.Abs(forwardSpeed) * massShare);
+                    native.ApplyForce(stickyForce, hit.point, true);
+                    wheelForceTorque += Vector3.Cross(hit.point - centerOfMass, stickyForce);
+                }
                 if (!wasGrounded)
                 {
                     float landingSpeed = Mathf.Max(0f, -Vector3.Dot(contactVelocity, normal));
@@ -686,11 +696,25 @@ namespace Remedy.Vehicles
                 // Pushed somewhere between the road (rolls the car) and the centre of mass height (doesn't).
                 float heightToCenter = Vector3.Dot(centerOfMass - hit.point, up);
                 Vector3 at = hit.point + up * (heightToCenter * p.TyreForceHeight);
-                native.ApplyForce((rollDirection * rollAcceleration + sideDirection * sideAcceleration) * massShare, at, true);
+                Vector3 tyreForce = (rollDirection * rollAcceleration + sideDirection * sideAcceleration) * massShare;
+                native.ApplyForce(tyreForce, at, true);
+                wheelForceTorque += Vector3.Cross(at - centerOfMass, tyreForce);
+
+                float normalSupport = Mathf.Max(0f, Vector3.Dot(suspensionForce, normal))
+                    + Mathf.Abs(Vector3.Dot(stickyForce + tyreForce, normal));
+                if (massShare > 0f && g > 0.001f)
+                {
+                    float tireSupport = Mathf.Clamp01(normalSupport / (massShare * g));
+                    supportedWheelLoad += tireSupport;
+                    supportNormalSum += normal * normalSupport;
+                }
             }
 
             bool isGrounded = grounded > 0;
             Vector3 groundNormal = isGrounded ? normalSum.normalized : worldUp;
+            Vector3 stabilizationNormal = supportNormalSum.sqrMagnitude > 0.001f
+                ? supportNormalSum.normalized
+                : groundNormal;
             IsGrounded.Value = isGrounded;
             GroundedWheels.Value = grounded;
 
@@ -700,8 +724,18 @@ namespace Remedy.Vehicles
 
             if (isGrounded)
             {
-                if (p.StabilizeStrength > 0f || p.StabilizeDamping > 0f)
-                    angular += UprightError(up, groundNormal, forward) * p.StabilizeStrength - rollPitchVelocity * p.StabilizeDamping;
+                float supportFraction = supportedWheelLoad / Mathf.Max(1f, wheelCount);
+                float supportFactor = Mathf.InverseLerp(0.25f, 0.75f, supportFraction);
+                float speedFactor = 1f - Mathf.Clamp01(velocity.magnitude / Mathf.Max(0.1f, p.MaxSpeed));
+                float stabilizationFactor = supportFactor * speedFactor;
+                if (stabilizationFactor > 0f && (p.StabilizeStrength > 0f || p.StabilizeDamping > 0f))
+                {
+                    angular += (UprightError(up, stabilizationNormal, forward) * p.StabilizeStrength
+                        - rollPitchVelocity * p.StabilizeDamping) * stabilizationFactor;
+                    // The wheel forces already contribute this moment to the body; cancel their unsupported
+                    // portion before adding the leveling correction.
+                    native.ApplyTorque(-wheelForceTorque * stabilizationFactor, true);
+                }
             }
             else if (IsAirborne(body, centerOfMass, worldUp, p))
             {
