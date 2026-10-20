@@ -274,14 +274,19 @@ public partial class SignalData
     }
 
     // Reused for Union conversions at the outermost invoke; nested invokes get their own arrays.
-    private Union[] _scratch1, _scratch2, _scratch3, _scratch4;
+    // Reused argument arrays. Not kept through a script reload: Unity would bring a null one back as an empty array
+    // (which "??=" then kept, so sending a value threw IndexOutOfRange), so the size is checked too.
+    [NonSerialized] private Union[] _scratch1, _scratch2, _scratch3, _scratch4;
     private Union[] Scratch(int count) => count switch
     {
-        1 => _scratch1 ??= new Union[1],
-        2 => _scratch2 ??= new Union[2],
-        3 => _scratch3 ??= new Union[3],
-        _ => _scratch4 ??= new Union[4],
+        1 => Sized(ref _scratch1, 1),
+        2 => Sized(ref _scratch2, 2),
+        3 => Sized(ref _scratch3, 3),
+        _ => Sized(ref _scratch4, 4),
     };
+
+    private static Union[] Sized(ref Union[] array, int count)
+        => array != null && array.Length == count ? array : (array = new Union[count]);
 
     private bool HasComponentSubscribers => _subs.Count > 0;
 
