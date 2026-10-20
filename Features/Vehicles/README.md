@@ -138,8 +138,12 @@ The body is a real Box3D body, so it can roll, tumble and land on its roof. How 
   crashes.
 - **Center Of Mass Offset**: lower (negative y) is harder to roll. **Inertia Scale**: higher is heavier to spin.
 - **Stabilize Strength / Damping**: levels toward a support-load-weighted ground normal and damps roll/pitch. Both
-  fade to zero at **Max Speed**, and weak or sparse tire support fades stabilization out. The controller compensates
-  for the torque from grounded tires' suspension, traction and sticky forces; 0 strength and damping = pure physics.
+  fade to zero at **Max Speed**, and weak or sparse tire support fades stabilization out. **Stabilize Transition
+  Time** smooths the correction's fade and direction changes as the car moves between ramps and airborne states. The
+  controller compensates for the torque from grounded tires' suspension, traction and sticky forces; 0 strength and
+  damping = pure physics.
+- **Ground Cast Extra Distance** extends each wheel's ground probe past its normal suspension reach, helping contact
+  persist briefly over crests and small gaps. It doesn't extend the spring or suspension travel.
 - **Sticky Threshold / Sticky Force**: above the speed threshold, each grounded tire gets a force along the car's
   local -up direction, proportional to forward speed. This can press the car onto walls or ceilings when its wheels
   are oriented toward them; no force is applied by ungrounded tires.

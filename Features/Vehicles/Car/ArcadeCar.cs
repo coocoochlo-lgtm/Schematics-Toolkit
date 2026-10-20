@@ -623,7 +623,7 @@ namespace Remedy.Vehicles
 
                 bool wasGrounded = w.Grounded;
                 w.Grounded = SchematicPhysics.SphereCast(origin, 0f, -up, out var hit, out _,
-                    rest + radius, p.GroundLayers, body);
+                    rest + radius + Mathf.Max(0f, p.GroundCastExtraDistance), p.GroundLayers, body);
                 if (!w.Grounded)
                 {
                     w.Extension = rest;
@@ -721,30 +721,55 @@ namespace Remedy.Vehicles
             // Rotation helpers, as angular accelerations (turned into torque with the body's own inertia below).
             Vector3 angular = Vector3.zero;
             Vector3 rollPitchVelocity = angularVelocity - up * Vector3.Dot(angularVelocity, up);
+            float supportFraction = supportedWheelLoad / Mathf.Max(1f, wheelCount);
+            float supportFactor = Mathf.InverseLerp(0.25f, 0.75f, supportFraction);
+            float speedFactor = 1f - Mathf.Clamp01(velocity.magnitude / Mathf.Max(0.1f, p.MaxSpeed));
+            float stabilizationFactor = isGrounded ? supportFactor * speedFactor : 0f;
+            bool airborne = !isGrounded && IsAirborne(body, centerOfMass, worldUp, p);
+            bool groundLeveling = isGrounded && (p.StabilizeStrength > 0f || p.StabilizeDamping > 0f);
+            bool airLeveling = airborne && (p.AirLevelStrength > 0f || p.AirLevelDamping > 0f);
+            Vector3 targetUp = isGrounded ? stabilizationNormal : worldUp;
+            if (targetUp.sqrMagnitude < 0.001f)
+                targetUp = up;
+            float transitionTime = Mathf.Max(0f, p.StabilizeTransitionTime);
+            float blendStep = transitionTime > 0f ? dt / transitionTime : 1f;
 
-            if (isGrounded)
+            if (groundLeveling || airLeveling)
             {
-                float supportFraction = supportedWheelLoad / Mathf.Max(1f, wheelCount);
-                float supportFactor = Mathf.InverseLerp(0.25f, 0.75f, supportFraction);
-                float speedFactor = 1f - Mathf.Clamp01(velocity.magnitude / Mathf.Max(0.1f, p.MaxSpeed));
-                float stabilizationFactor = supportFactor * speedFactor;
-                if (stabilizationFactor > 0f && (p.StabilizeStrength > 0f || p.StabilizeDamping > 0f))
-                {
-                    angular += (UprightError(up, stabilizationNormal, forward) * p.StabilizeStrength
-                        - rollPitchVelocity * p.StabilizeDamping) * stabilizationFactor;
-                    // The wheel forces already contribute this moment to the body; cancel their unsupported
-                    // portion before adding the leveling correction.
-                    native.ApplyTorque(-wheelForceTorque * stabilizationFactor, true);
-                }
+                if (state.UprightNormal.sqrMagnitude < 0.001f)
+                    state.UprightNormal = targetUp;
+                else if (transitionTime <= 0f)
+                    state.UprightNormal = targetUp;
+                else
+                    state.UprightNormal = Vector3.RotateTowards(state.UprightNormal, targetUp,
+                        Mathf.PI * blendStep, 0f).normalized;
             }
-            else if (IsAirborne(body, centerOfMass, worldUp, p))
+            state.UprightBlend = Mathf.MoveTowards(state.UprightBlend,
+                groundLeveling || airLeveling ? 1f : 0f, blendStep);
+            state.UprightSupportBlend = Mathf.MoveTowards(state.UprightSupportBlend,
+                stabilizationFactor, blendStep);
+            state.UprightAirBlend = Mathf.MoveTowards(state.UprightAirBlend,
+                airLeveling ? 1f : 0f, blendStep);
+
+            float uprightStrength = Mathf.Lerp(p.StabilizeStrength, p.AirLevelStrength, state.UprightAirBlend);
+            float uprightDamping = Mathf.Lerp(p.StabilizeDamping, p.AirLevelDamping, state.UprightAirBlend);
+            float uprightSupport = Mathf.Lerp(state.UprightSupportBlend, 1f, state.UprightAirBlend);
+            if (state.UprightBlend > 0f)
+            {
+                angular += (UprightError(up, state.UprightNormal, forward) * uprightStrength
+                    - rollPitchVelocity * uprightDamping) * (uprightSupport * state.UprightBlend);
+                // Fade out the grounded-wheel torque compensation with the ground leveling contribution.
+                float compensation = state.UprightSupportBlend * (1f - state.UprightAirBlend) * state.UprightBlend;
+                if (compensation > 0f)
+                    native.ApplyTorque(-wheelForceTorque * compensation, true);
+            }
+
+            if (airborne)
             {
                 // Really in the air (not just lying on its roof or side with the wheels off the ground).
                 if (active && p.AirControl > 0f)
                     ApplyAirWheelControl(native, wheels, state.Wheels, centerOfMass, up, right, forward,
                         steerInput, effectiveTargetSpeed, p.AirControl, rotation, state);
-                if (p.AirLevelStrength > 0f || p.AirLevelDamping > 0f)
-                    angular += UprightError(up, worldUp, forward) * p.AirLevelStrength - rollPitchVelocity * p.AirLevelDamping;
             }
 
             // Drift: the steering swings the tail, the counter-steer stops a spin, and the speed follows the nose.
@@ -1160,9 +1185,10 @@ namespace Remedy.Vehicles
                     var w = live ? state.Wheels[i] : default;
                     Vector3 origin = wheel.Anchor.position;
 
-                    // The suspension ray: green on the ground, red in the air, cyan in Edit Mode.
+                    // The ground probe: green on the ground, red in the air, cyan in Edit Mode.
                     Gizmos.color = !live ? Color.cyan : w.Grounded ? Color.green : Color.red;
-                    Gizmos.DrawLine(origin, origin - up * (rest + radius));
+                    Gizmos.DrawLine(origin, origin - up * (rest + radius
+                        + Mathf.Max(0f, p != null ? p.GroundCastExtraDistance : 0.25f)));
                     Gizmos.DrawWireSphere(origin, 0.04f);
 
                     // The wheel, steered.
@@ -1230,6 +1256,8 @@ namespace Remedy.Vehicles
 
         public float AirTime;
         public bool WasGrounded = true;
+        public Vector3 UprightNormal;
+        public float UprightBlend, UprightAirBlend, UprightSupportBlend;
 
         public bool BodyConfigured;
         public Vector3 InertiaX, InertiaY, InertiaZ;

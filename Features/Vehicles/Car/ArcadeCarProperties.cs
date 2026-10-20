@@ -56,6 +56,9 @@ namespace Remedy.Vehicles
         [Header("Suspension")]
         [Tooltip("How far each wheel hangs below its anchor when nothing presses on it (metres). Longer = softer, more body roll, bigger jumps soaked up.")]
         public float SuspensionRestLength = 0.45f;
+        [Min(0f)]
+        [Tooltip("Extra distance beyond the normal suspension reach that wheel ground casts check. Helps retain contact over small gaps and ramp crests; does not lengthen the suspension.")]
+        public float GroundCastExtraDistance = 0.25f;
         [Tooltip("Spring stiffness: m/s² of push per metre compressed. ~10 / Stiffness is how far the car sags at rest (60 → 17 cm). Higher = stiffer, twitchier.")]
         public float SpringStiffness = 60f;
         [Tooltip("Spring damping: stops the car bouncing. ~2 × √Stiffness × 0.5 is a good start. Too low bounces, too high feels like bricks.")]
@@ -186,6 +189,9 @@ namespace Remedy.Vehicles
         public float StabilizeStrength = 8f;
         [Tooltip("At low speed, damps roll and pitch while the tires meaningfully support the car. Fades to zero at Max Speed.")]
         public float StabilizeDamping = 2f;
+        [Min(0f)]
+        [Tooltip("Time for tilt correction to fade in/out and turn toward a new support normal. Softens changes in tire contact over ramps; 0 is immediate.")]
+        public float StabilizeTransitionTime = 0.25f;
         [Range(0f, 1f)]
         [Tooltip("Minimum fraction of Max Speed before sticky force applies to grounded tires.")]
         public float StickyThreshold = 0.1f;
