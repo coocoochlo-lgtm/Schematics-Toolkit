@@ -62,6 +62,7 @@ namespace Remedy.Audio
             _player.DistanceOverride = _distance;
             // Audio files are read again, in case they were reimported.
             SoundClipCache.Clear();
+            SoundCueVoicePool.Clear(cue);
             _player.Play();
             _dirtyCount = EditorUtility.GetDirtyCount(cue);
             Changed?.Invoke();

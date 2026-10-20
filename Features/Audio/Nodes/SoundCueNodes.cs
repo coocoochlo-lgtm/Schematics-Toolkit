@@ -109,4 +109,22 @@ namespace Remedy.Audio
                 found.SetParameter(name, value);
         }
     }
+
+    [SchematicDoc(@"{""name"": ""Preload Sound Cue"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Audio"", ""description"": ""Gets a Sound Cue ready so its first plays don't hitch: reads its audio files, makes its Generators' sounds and builds Voices players ahead of time. Run it while a level loads (On Start, or behind a loading screen) for cues played often or right away."", ""inputs"": [{""name"": ""Cue"", ""type"": ""SoundCueGraph""}, {""name"": ""Voices"", ""type"": ""int""}], ""notes"": ""Runs when flow reaches it. Sound Cue Players placed in a scene preload their own cue.""}")]
+    [Serializable]
+    [NodeColor(NodeColors.Audio)]
+    [Node(Name = "Preload Sound Cue", Path = "Audio"), Tags("Default")]
+    public class PreloadSoundCueNode : SchematicActionNode
+    {
+        [Input("Cue", Editable = true)] public SoundCueGraph Cue;
+        /// <summary>How many plays at once to get ready for (a rapid-fire weapon might want 4 or more).</summary>
+        [Input("Voices", Editable = true)] public int Voices = 2;
+
+        protected override void OnTrigger(GameObject instance, bool awaiting = false)
+        {
+            var cue = GetInputValue("Cue", Cue);
+            if (cue != null)
+                cue.Preload(Mathf.Clamp(GetInputValue("Voices", Voices), 0, SoundCueVoicePool.MaxIdlePerCue));
+        }
+    }
 }

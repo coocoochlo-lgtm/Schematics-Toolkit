@@ -183,6 +183,12 @@ namespace Remedy.Audio
             private float _b0, _b1, _b2, _a1, _a2, _x1, _x2, _y1, _y2;
             private float _lastCutoff = -1f, _lastQ = -1f;
 
+            public override void Reset(SoundContext context)
+            {
+                _x1 = _x2 = _y1 = _y2 = 0f;
+                _lastCutoff = _lastQ = -1f;
+            }
+
             public override void Process(SoundContext context, int count)
             {
                 var o = Output("Out");
@@ -224,7 +230,7 @@ namespace Remedy.Audio
         }
     }
 
-    [SchematicDoc(@"{""name"": ""Delay"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Effects"", ""description"": ""An echo: the audio again after Delay seconds (up to 2), each echo Feedback times as loud as the last (0 one echo, near 1 many). Mix is how much echo is heard (0 none, 1 only echo)."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Delay"", ""type"": ""float""}, {""name"": ""Feedback"", ""type"": ""float""}, {""name"": ""Mix"", ""type"": ""float""}], ""outputs"": [{""name"": ""Out"", ""type"": ""audio""}]}")]
+    [SchematicDoc(@"{""name"": ""Delay"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Effects"", ""description"": ""An echo: the audio again after Delay seconds (up to 2; a typed-in Delay only keeps as much memory as it needs), each echo Feedback times as loud as the last (0 one echo, near 1 many). Mix is how much echo is heard (0 none, 1 only echo)."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Delay"", ""type"": ""float""}, {""name"": ""Feedback"", ""type"": ""float""}, {""name"": ""Mix"", ""type"": ""float""}], ""outputs"": [{""name"": ""Out"", ""type"": ""audio""}]}")]
     [Serializable]
     [Node(Name = "Delay", Path = "Effects"), Tags(SoundNode.Tag)]
     public class SoundDelayNode : SoundNode
@@ -243,13 +249,20 @@ namespace Remedy.Audio
             Delay = builder.Input(this, "Delay", Delay),
             Feedback = builder.Input(this, "Feedback", Feedback),
             Mix = builder.Input(this, "Mix", Mix),
-            Line = new float[(int)(MaxDelay * builder.SampleRate) + 2],
+            // Only as long as it needs: the typed-in delay, or the most a connected (changing) one can be.
+            Line = new float[(int)(Mathf.Clamp(builder.IsConnected(this, "Delay") ? MaxDelay : Delay, 0.001f, MaxDelay) * builder.SampleRate) + 4],
         };
 
         private sealed class Processor : SoundProcessor
         {
             public float[] In, Delay, Feedback, Mix, Line;
             private int _write;
+
+            public override void Reset(SoundContext context)
+            {
+                Array.Clear(Line, 0, Line.Length);
+                _write = 0;
+            }
 
             public override void Process(SoundContext context, int count)
             {
@@ -332,6 +345,8 @@ namespace Remedy.Audio
             public float[] In, Bits, Downsample;
             private float _held, _counter;
 
+            public override void Reset(SoundContext context) => _held = _counter = 0f;
+
             public override void Process(SoundContext context, int count)
             {
                 var o = Output("Out");
@@ -350,7 +365,7 @@ namespace Remedy.Audio
         }
     }
 
-    [SchematicDoc(@"{""name"": ""Reverb"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Effects"", ""description"": ""Room echo: Room Size (0 small, 1 a cathedral), Damping (how soon the high end dies away: 0 bright, 1 dull), Mix (0 dry, 1 only the room)."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Room Size"", ""type"": ""float""}, {""name"": ""Damping"", ""type"": ""float""}, {""name"": ""Mix"", ""type"": ""float""}], ""outputs"": [{""name"": ""Out"", ""type"": ""audio""}]}")]
+    [SchematicDoc(@"{""name"": ""Reverb"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Effects"", ""description"": ""Room echo: Room Size (0 small, 1 a cathedral), Damping (how soon the high end dies away: 0 bright, 1 dull), Mix (0 dry, 1 only the room). Mode Shared sends to the scene's reverb (Reverb Zones) instead of running its own: far cheaper for sounds played often or many at once (Room Size and Damping then come from the zone)."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Room Size"", ""type"": ""float""}, {""name"": ""Damping"", ""type"": ""float""}, {""name"": ""Mix"", ""type"": ""float""}], ""outputs"": [{""name"": ""Out"", ""type"": ""audio""}]}")]
     [Serializable]
     [Node(Name = "Reverb", Path = "Effects"), Tags(SoundNode.Tag)]
     public class SoundReverbNode : SoundNode
@@ -359,15 +374,45 @@ namespace Remedy.Audio
         [Input("Room Size", Editable = true)] public float RoomSize = 0.6f;
         [Input("Damping", Editable = true)] public float Damping = 0.4f;
         [Input("Mix", Editable = true)] public float Mix = 0.3f;
+        /// <summary>
+        /// Own: this voice runs its own reverb (Room Size and Damping apply). Shared: it sends to the scene's reverb
+        /// (Unity's Reverb Zones), which runs once for every sound, however many play: much cheaper for sounds played
+        /// often or many at once. Previews (outside Play Mode) use Own either way, so it can be heard.
+        /// </summary>
+        [Editable] public ReverbMode Mode = ReverbMode.Own;
         [Output("Out")] public float Out;
 
-        public override SoundProcessor CreateProcessor(SoundCueBuilder builder) => new Processor(builder.SampleRate)
+        public enum ReverbMode { Own, Shared }
+
+        public override SoundProcessor CreateProcessor(SoundCueBuilder builder)
         {
-            In = builder.Input(this, "Audio", 0f),
-            RoomSize = builder.Input(this, "Room Size", RoomSize),
-            Damping = builder.Input(this, "Damping", Damping),
-            Mix = builder.Input(this, "Mix", Mix),
-        };
+            if (Mode == ReverbMode.Shared && Application.isPlaying)
+            {
+                builder.Context.UsesSharedReverb = true;
+                SoundCueReverbZone.Ensure();
+                return new SendProcessor { In = builder.Input(this, "Audio", 0f), Mix = builder.Input(this, "Mix", Mix) };
+            }
+            return new Processor(builder.SampleRate)
+            {
+                In = builder.Input(this, "Audio", 0f),
+                RoomSize = builder.Input(this, "Room Size", RoomSize),
+                Damping = builder.Input(this, "Damping", Damping),
+                Mix = builder.Input(this, "Mix", Mix),
+            };
+        }
+
+        // Shared: the audio passes through dry, and Mix becomes how much the player sends to the scene's reverb.
+        private sealed class SendProcessor : SoundProcessor
+        {
+            public float[] In, Mix;
+
+            public override void Process(SoundContext context, int count)
+            {
+                Array.Copy(In, Output("Out"), count);
+                // Reverb Zone Mix goes 0 to 1.1; a Mix of 1 sends fully.
+                context.ReverbSend = count > 0 ? Mathf.Clamp(Mix[count - 1], 0f, 1.1f) : 0f;
+            }
+        }
 
         // Freeverb's mono path: eight damped feedback combs in parallel, then four allpasses in series.
         private sealed class Processor : SoundProcessor
@@ -379,6 +424,15 @@ namespace Remedy.Audio
             private readonly float[][] _combs, _allpasses;
             private readonly int[] _combIndex, _allpassIndex;
             private readonly float[] _combStore;
+
+            public override void Reset(SoundContext context)
+            {
+                foreach (var line in _combs) Array.Clear(line, 0, line.Length);
+                foreach (var line in _allpasses) Array.Clear(line, 0, line.Length);
+                Array.Clear(_combIndex, 0, _combIndex.Length);
+                Array.Clear(_allpassIndex, 0, _allpassIndex.Length);
+                Array.Clear(_combStore, 0, _combStore.Length);
+            }
 
             public Processor(int sampleRate)
             {

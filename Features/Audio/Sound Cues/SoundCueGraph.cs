@@ -22,7 +22,7 @@ namespace Remedy.Audio
     [SchematicType("Audio", Order = 30, Icon = "AudioSource Icon", NewAssetName = "New Sound Cue", DefaultFolder = SoundCueGraph.Folder)]
     [IncludeTags(SoundNode.Tag)]
     [RequireNode(typeof(SoundCueOutput), "Output", 400, 0)]
-    public class SoundCueGraph : SchematicGraph
+    public partial class SoundCueGraph : SchematicGraph
     {
         /// <summary>Where new Sound Cues go: shown by the Audio page (Sound Cues) and the Schematics page (Audio).</summary>
         public const string Folder = "Assets/Content/Audio/Sound Cues";
@@ -75,6 +75,12 @@ namespace Remedy.Audio
 
         /// <summary>Fills the first <paramref name="count"/> samples of the outputs (audio thread).</summary>
         public abstract void Process(SoundContext context, int count);
+
+        /// <summary>
+        /// Back to how it was when built, for a voice played again (filters' memory, delay lines, random picks...).
+        /// Called before every play, on the main thread, while the voice isn't rendering.
+        /// </summary>
+        public virtual void Reset(SoundContext context) { }
     }
 
     /// <summary>A processor with nothing to do (its outputs are filled by someone else, or are constants).</summary>
@@ -97,6 +103,13 @@ namespace Remedy.Audio
         public float[] Parameters = Array.Empty<float>();
         /// <summary>Random numbers for this voice (seeded per play).</summary>
         public System.Random Random = new();
+        /// <summary>
+        /// True when a Reverb sends to the scene's shared reverb (Reverb Zones) rather than running its own; the player
+        /// then sets its AudioSource's Reverb Zone Mix to <see cref="ReverbSend"/>.
+        /// </summary>
+        public bool UsesSharedReverb;
+        /// <summary>How much goes to the shared reverb (0 to 1.1, Unity's Reverb Zone Mix), set by a shared Reverb.</summary>
+        public volatile float ReverbSend;
     }
 
     /// <summary>
@@ -242,8 +255,20 @@ namespace Remedy.Audio
         private readonly SoundProcessor[] _order;
         private readonly float[] _audio, _volume;
         private readonly Dictionary<string, int> _parameters;
+        private readonly float[] _parameterDefaults;
         private volatile bool _finished;
         private bool _failed;
+
+        /// <summary>
+        /// Too far away (or too quiet) to be heard: the player sets it, and rendering is skipped while it's on, the
+        /// cue's time still running so it carries on from the right place when it's heard again.
+        /// </summary>
+        public volatile bool Culled;
+
+        /// <summary>The cue's state when this voice was built (editor: its edit count), so a pooled voice of an edited cue isn't reused.</summary>
+        internal int BuiltVersion;
+        /// <summary>The sample rate it was built for.</summary>
+        public int SampleRate => Context.SampleRate;
 
         /// <summary>True once it has played its whole length.</summary>
         public bool Finished => _finished;
@@ -261,7 +286,8 @@ namespace Remedy.Audio
             LengthSamples = length;
             Warnings = builder.Warnings;
             _parameters = new Dictionary<string, int>(builder.Parameters, StringComparer.OrdinalIgnoreCase);
-            context.Parameters = builder.ParameterDefaults;
+            _parameterDefaults = builder.ParameterDefaults;
+            context.Parameters = (float[])_parameterDefaults.Clone();
             _time = builder.Time;
             _progress = builder.Progress;
         }
@@ -303,7 +329,27 @@ namespace Remedy.Audio
                 context.Duration = Mathf.Max(0f, seconds);
                 length = (long)Math.Ceiling(context.Duration * sampleRate);
             }
-            return new SoundCueVoice(cue, context, builder, audio, volume, length);
+            var voice = new SoundCueVoice(cue, context, builder, audio, volume, length) { BuiltVersion = SoundCueVoicePool.Version(cue) };
+            voice.Restart(seed);
+            return voice;
+        }
+
+        /// <summary>
+        /// Back to the start, to be played again without being built again (main thread, while it isn't rendering):
+        /// time, parameters, random picks and every node's memory.
+        /// </summary>
+        public void Restart(int seed = 0)
+        {
+            Context.SamplePosition = 0;
+            Context.Distance = 0f;
+            Context.ReverbSend = 0f;
+            Context.Random = seed != 0 ? new System.Random(seed) : new System.Random();
+            Array.Copy(_parameterDefaults, Context.Parameters, _parameterDefaults.Length);
+            _finished = false;
+            _failed = false;
+            Culled = false;
+            foreach (var processor in _order)
+                processor.Reset(Context);
         }
 
         /// <summary>Sets a parameter (a Parameter node's value) by name. Unknown names are ignored.</summary>
@@ -325,6 +371,15 @@ namespace Remedy.Audio
             if (_failed)
             {
                 Array.Clear(data, offset, count);
+                return;
+            }
+            if (Culled)
+            {
+                // Not heard: silence, but time goes on (and the end comes when it should).
+                Array.Clear(data, offset, count);
+                Context.SamplePosition += count;
+                if (LengthSamples > 0 && Context.SamplePosition >= LengthSamples)
+                    _finished = true;
                 return;
             }
             int written = 0;

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Remedy.Audio
@@ -9,6 +10,11 @@ namespace Remedy.Audio
     /// samples a little ahead), and keeps track of where it is in the sound. Made by the Play Sound Cue node, or add it
     /// yourself.
     /// </summary>
+    /// <remarks>
+    /// Cheap to play often: voices come from <see cref="SoundCueVoicePool"/> (built once, then reused), its streamed
+    /// clip is kept between plays, and one-shot players (<see cref="PlayAt"/>) are pooled objects rather than made and
+    /// destroyed each time. A voice too far away to be heard isn't rendered (its time carries on).
+    /// </remarks>
     [AddComponentMenu("Remedy/Audio/Sound Cue Player")]
     [RequireComponent(typeof(AudioSource))]
     public class SoundCuePlayer : MonoBehaviour
@@ -17,12 +23,20 @@ namespace Remedy.Audio
         public SoundCueGraph Cue;
         [Tooltip("Play when the object is enabled.")]
         public bool PlayOnEnable;
-        [Tooltip("Destroy this object once the cue has finished (for one-shot players the Play Sound Cue node makes).")]
+        [Tooltip("Destroy this object once the cue has finished.")]
         public bool DestroyWhenDone;
+        [Tooltip("Voices built for the cue when this player is created, so its first plays don't build them (0: none).")]
+        public int PreloadVoices = 1;
+
+        /// <summary>Below this loudness (about -60 dB, after distance falloff) a voice isn't rendered.</summary>
+        public const float CullBelow = 0.001f;
 
         private AudioSource _source;
         private AudioClip _clip;
+        private int _clipRate, _clipLength;
+        private bool _clipLoops;
         private volatile SoundCueVoice _voice;
+        private bool _pooled; // a one-shot host from PlayAt: back to the pool when done
         private static AudioListener _listener;
         private static float _nextListenerSearch;
 
@@ -40,6 +54,12 @@ namespace Remedy.Audio
         /// </summary>
         [NonSerialized] public float? DistanceOverride;
 
+        private void Awake()
+        {
+            if (Cue != null && PreloadVoices > 0 && Application.isPlaying)
+                Cue.Preload(PreloadVoices);
+        }
+
         private void OnEnable()
         {
             if (PlayOnEnable && Cue != null)
@@ -47,6 +67,17 @@ namespace Remedy.Audio
         }
 
         private void OnDisable() => Stop();
+
+        private void OnDestroy()
+        {
+            Stop();
+            if (_clip != null)
+            {
+                if (Application.isPlaying) Destroy(_clip);
+                else DestroyImmediate(_clip);
+                _clip = null;
+            }
+        }
 
         /// <summary>Plays the cue from the start (stopping it first if it's playing).</summary>
         public void Play()
@@ -56,7 +87,7 @@ namespace Remedy.Audio
                 return;
 
             int rate = AudioSettings.outputSampleRate > 0 ? AudioSettings.outputSampleRate : 48000;
-            var voice = SoundCueVoice.Create(Cue, rate);
+            var voice = SoundCueVoicePool.Rent(Cue, rate);
             if (voice == null)
                 return;
             foreach (var warning in voice.Warnings)
@@ -64,31 +95,36 @@ namespace Remedy.Audio
             voice.Context.Distance = CurrentDistance();
             _voice = voice;
 
-            // Endless cues: a long clip that loops (the voice keeps counting time across loops).
+            // Endless cues: a long clip that loops (the voice keeps counting time across loops). The clip is kept
+            // and reused while its rate and length stay the same.
             bool endless = voice.LengthSamples <= 0;
             int length = endless ? rate * 10 : (int)Math.Min(int.MaxValue, Math.Max(1, voice.LengthSamples));
-            _clip = AudioClip.Create($"Sound Cue: {Cue.name}", length, 1, rate, true, Read);
+            if (_clip == null || _clipRate != rate || _clipLength != length || _clipLoops != endless)
+            {
+                if (_clip != null)
+                {
+                    if (Application.isPlaying) Destroy(_clip);
+                    else DestroyImmediate(_clip);
+                }
+                _clip = AudioClip.Create($"Sound Cue: {Cue.name}", length, 1, rate, true, Read, _ => { });
+                _clipRate = rate;
+                _clipLength = length;
+                _clipLoops = endless;
+            }
             Source.clip = _clip;
             Source.loop = endless;
+            UpdateControls(voice);
             Source.Play();
         }
 
-        /// <summary>Stops the cue.</summary>
+        /// <summary>Stops the cue (its voice goes back to the pool).</summary>
         public void Stop()
         {
+            var voice = _voice;
             _voice = null;
             if (_source != null)
-            {
                 _source.Stop();
-                if (_source.clip == _clip)
-                    _source.clip = null;
-            }
-            if (_clip != null)
-            {
-                if (Application.isPlaying) Destroy(_clip);
-                else DestroyImmediate(_clip);
-                _clip = null;
-            }
+            SoundCueVoicePool.Return(voice);
         }
 
         /// <summary>Sets one of the cue's Parameters while it plays.</summary>
@@ -109,17 +145,56 @@ namespace Remedy.Audio
             var voice = _voice;
             if (voice == null)
             {
-                if (DestroyWhenDone && Application.isPlaying)
-                    Destroy(gameObject);
+                if (_pooled || (DestroyWhenDone && Application.isPlaying))
+                    Finish();
                 return;
             }
-            voice.Context.Distance = CurrentDistance();
+            UpdateControls(voice);
             if (voice.Finished && !Source.isPlaying)
             {
                 Stop();
-                if (DestroyWhenDone && Application.isPlaying)
-                    Destroy(gameObject);
+                if (_pooled || (DestroyWhenDone && Application.isPlaying))
+                    Finish();
             }
+        }
+
+        // What the voice reads from the world (distance), whether it's heard at all, and its shared reverb send.
+        private void UpdateControls(SoundCueVoice voice)
+        {
+            float distance = CurrentDistance();
+            voice.Context.Distance = distance;
+            voice.Culled = !DistanceOverride.HasValue && Inaudible(distance);
+            if (voice.Context.UsesSharedReverb)
+                Source.reverbZoneMix = voice.Context.ReverbSend;
+        }
+
+        // Whether the source's own distance falloff (and volume) leaves the cue too quiet to hear.
+        private bool Inaudible(float distance)
+        {
+            var source = Source;
+            if (source.mute)
+                return true;
+            float gain = source.volume;
+            if (source.spatialBlend >= 0.99f && _listener != null)
+            {
+                float min = Mathf.Max(0.01f, source.minDistance), max = Mathf.Max(min, source.maxDistance);
+                switch (source.rolloffMode)
+                {
+                    case AudioRolloffMode.Linear:
+                        gain *= Mathf.Clamp01(1f - (distance - min) / Mathf.Max(0.001f, max - min));
+                        break;
+                    case AudioRolloffMode.Logarithmic:
+                        // Unity stops attenuating past Max Distance, so it's never silent: just very quiet.
+                        gain *= min / Mathf.Clamp(distance, min, max);
+                        break;
+                    default:
+                        var curve = source.GetCustomCurve(AudioSourceCurveType.CustomRolloff);
+                        if (curve != null)
+                            gain *= curve.Evaluate(Mathf.Clamp01(distance / max));
+                        break;
+                }
+            }
+            return gain < CullBelow;
         }
 
         private float CurrentDistance()
@@ -134,36 +209,92 @@ namespace Remedy.Audio
             return _listener != null ? Vector3.Distance(transform.position, _listener.transform.position) : 0f;
         }
 
+        #region One-shot players (pooled)
+
+        private static readonly Stack<SoundCuePlayer> _idleHosts = new();
+        private static Transform _poolRoot;
+
         /// <summary>
-        /// Makes a player for a cue at a position (following <paramref name="follow"/> when given), set up like the Audio
-        /// Data's SFX source (its mixer group and 3D settings) when there is one, and plays it. It's destroyed when the
-        /// cue ends.
+        /// Plays a cue at a position (following <paramref name="follow"/> when given) on a pooled player, set up like
+        /// the Audio Data's SFX source (its mixer group and 3D settings) when there is one. It goes back to the pool
+        /// when the cue ends.
         /// </summary>
         public static SoundCuePlayer PlayAt(SoundCueGraph cue, Vector3 position, Transform follow = null, float volume = 1f, float spatialBlend = 1f)
         {
             if (cue == null)
                 return null;
 
+            var player = TakeHost(cue);
+            var host = player.gameObject;
+            host.transform.SetParent(follow, worldPositionStays: false);
+            host.transform.position = position;
+            host.SetActive(true);
+
+            var source = player.Source;
+            source.volume = volume;
+            source.spatialBlend = spatialBlend;
+            player.Cue = cue;
+            player.Play();
+            return player;
+        }
+
+        private static SoundCuePlayer TakeHost(SoundCueGraph cue)
+        {
+            while (_idleHosts.Count > 0)
+            {
+                var idle = _idleHosts.Pop();
+                if (idle != null)
+                {
+                    idle.name = $"Sound Cue: {cue.name}";
+                    return idle;
+                }
+            }
+
             GameObject host = null;
             var prefab = SfxPrefab();
             if (prefab != null && prefab.GetComponent<AudioSource>() != null)
+            {
                 host = Instantiate(prefab);
+            }
             host ??= new GameObject();
+            host.SetActive(false);
             host.name = $"Sound Cue: {cue.name}";
-            host.transform.position = position;
-            if (follow != null)
-                host.transform.SetParent(follow, worldPositionStays: true);
-
             var source = host.GetComponent<AudioSource>() ?? host.AddComponent<AudioSource>();
             source.playOnAwake = false;
-            source.volume = volume;
-            source.spatialBlend = spatialBlend;
-
             var player = host.GetComponent<SoundCuePlayer>() ?? host.AddComponent<SoundCuePlayer>();
-            player.Cue = cue;
-            player.DestroyWhenDone = true;
-            player.Play();
+            player._pooled = true;
+            player.PreloadVoices = 0;
             return player;
+        }
+
+        // A pooled one-shot is parked for reuse; anything else is destroyed (Destroy When Done).
+        private void Finish()
+        {
+            if (!_pooled)
+            {
+                Destroy(gameObject);
+                return;
+            }
+            if (!Application.isPlaying)
+                return;
+            if (_poolRoot == null)
+            {
+                var root = new GameObject("Sound Cue Players (idle)");
+                DontDestroyOnLoad(root);
+                _poolRoot = root.transform;
+            }
+            Cue = null;
+            transform.SetParent(_poolRoot, worldPositionStays: false);
+            gameObject.SetActive(false);
+            if (!_idleHosts.Contains(this))
+                _idleHosts.Push(this);
+        }
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void NewSession()
+        {
+            _idleHosts.Clear();
+            _poolRoot = null;
         }
 
         private static GameObject SfxPrefab()
@@ -171,5 +302,7 @@ namespace Remedy.Audio
             try { return AudioData.SFXSourcePrefab; }
             catch { return null; } // no Audio Data in the project yet
         }
+
+        #endregion
     }
 }

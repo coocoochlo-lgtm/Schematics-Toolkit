@@ -111,12 +111,22 @@ namespace Remedy.Audio
         [Editable] public float Max = 1.1f;
         [Output("Value")] public float Value;
 
-        public override SoundProcessor CreateProcessor(SoundCueBuilder builder)
+        public override SoundProcessor CreateProcessor(SoundCueBuilder builder) => new Processor { Min = Min, Max = Max };
+
+        // Picked when the voice starts (and again each time a pooled voice is played again).
+        private sealed class Processor : SoundProcessor
         {
-            float value = Mathf.Lerp(Min, Max, (float)builder.Context.Random.NextDouble());
-            var processor = new StaticProcessor();
-            processor.Outputs["Value"] = builder.Constant(value);
-            return processor;
+            public float Min, Max;
+
+            public override void Reset(SoundContext context)
+            {
+                var output = Output("Value");
+                float value = Mathf.Lerp(Min, Max, (float)context.Random.NextDouble());
+                for (int i = 0; i < output.Length; i++)
+                    output[i] = value;
+            }
+
+            public override void Process(SoundContext context, int count) { }
         }
     }
 
@@ -308,6 +318,8 @@ namespace Remedy.Audio
             public float[] Time, Frequency, Amplitude, Offset;
             public Shape Wave;
             public System.Random Random;
+
+            public override void Reset(SoundContext context) => Random = new System.Random(context.Random.Next());
 
             public override void Process(SoundContext context, int count)
             {
