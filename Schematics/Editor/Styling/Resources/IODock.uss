@@ -644,6 +644,19 @@ EventContainerRenderer
 	display: none;
 }
 
+.node-Send-a-Signal #node-border #input,
+.node-Send-a-Signal #node-border #input PortView
+{
+	background-image: none;
+	background-color: rgba(0,0,0,0);
+}
+
+.node-Send-a-Signal #node-border #input PortView
+{
+	margin-right: 0;
+	padding-right: 0;
+}
+
 .node-Send-a-Signal #node-border #extension
 {
 	position: absolute;
@@ -668,7 +681,7 @@ EventContainerRenderer
 	position: absolute;
 	left: 0;
 	bottom: 0;
-	width: 134px;
+	width: 126px;
 	height: 24px;
 }
 
