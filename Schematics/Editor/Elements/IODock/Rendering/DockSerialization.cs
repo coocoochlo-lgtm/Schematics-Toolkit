@@ -39,6 +39,58 @@ public static class DockSerializedObjects
         return serializedObject;
     }
 
+    // When each object's SerializedObject was last made again (see FindProperty), so it never happens every frame.
+    private static readonly Dictionary<UnityEngine.Object, double> _renewedAt = new();
+
+    /// <summary>
+    /// The property at <paramref name="path"/>, from <paramref name="target"/>'s SerializedObject brought up to date.
+    /// If the object holds something at that path the SerializedObject doesn't know about (an item the dock just added
+    /// to a list, like a new Remedy Input), the SerializedObject is made again so it does; at most once a second, so
+    /// drawers holding on to the old one aren't pulled out from under every frame. Null if it isn't there.
+    /// </summary>
+    public static SerializedProperty FindProperty(UnityEngine.Object target, string path)
+    {
+        var serializedObject = Get(target);
+        if (serializedObject == null || string.IsNullOrEmpty(path))
+            return null;
+        Refresh(serializedObject);
+        var property = serializedObject.FindProperty(path);
+        if (property != null || ManagedPath.Resolve(target, path) == null)
+            return property;
+
+        // Paths a fresh SerializedObject didn't have either aren't saved by Unity at all: never worth renewing for.
+        if (_unserialized.Contains((target, path)))
+            return null;
+        double now = EditorApplication.timeSinceStartup;
+        if (_renewedAt.TryGetValue(target, out double last) && now - last < 1.0)
+            return null;
+        _renewedAt[target] = now;
+
+        serializedObject = new SerializedObject(target);
+        _objects[target] = serializedObject;
+        property = serializedObject.FindProperty(path);
+        if (property == null)
+            _unserialized.Add((target, path));
+        return property;
+    }
+
+    private static readonly HashSet<(UnityEngine.Object, string)> _unserialized = new();
+
+    /// <summary>
+    /// Brings a shared SerializedObject up to date with its object, keeping changes made through it that aren't saved
+    /// yet. Every drawer in the dock shares it, and Unity's own (the Input Action's binding tree) change it from menu
+    /// callbacks and leave the saving to the next draw: a plain Update() from another drawer first threw those away,
+    /// so a binding just added vanished under its row ("SerializedProperty ... has disappeared!" on double-click).
+    /// </summary>
+    public static void Refresh(SerializedObject serializedObject)
+    {
+        if (serializedObject == null)
+            return;
+        if (serializedObject.hasModifiedProperties)
+            serializedObject.ApplyModifiedProperties();
+        serializedObject.Update();
+    }
+
     private static bool IsAlive(SerializedObject serializedObject)
     {
         try { return serializedObject != null && serializedObject.targetObject != null; }

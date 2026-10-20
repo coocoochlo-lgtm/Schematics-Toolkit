@@ -437,13 +437,10 @@ public class SignalRenderer : FieldRenderer
         if (signal == null || _object == null || !typeof(SignalData).IsAssignableFrom(_field.MemberType))
             return;
 
-        var serializedObject = DockSerializedObjects.Get(_object);
-        if (serializedObject == null)
-            return;
-        serializedObject.Update();
-        var property = serializedObject.FindProperty(string.IsNullOrEmpty(_path) ? _field.Name : _path + "." + _field.Name);
+        var property = DockSerializedObjects.FindProperty(_object, string.IsNullOrEmpty(_path) ? _field.Name : _path + "." + _field.Name);
         if (property == null || property.propertyType != SerializedPropertyType.ObjectReference || property.objectReferenceValue != null)
             return;
+        var serializedObject = property.serializedObject;
 
         property.objectReferenceValue = signal;
         serializedObject.ApplyModifiedPropertiesWithoutUndo();

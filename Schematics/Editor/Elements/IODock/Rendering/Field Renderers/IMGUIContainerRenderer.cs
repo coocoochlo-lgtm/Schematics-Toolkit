@@ -18,8 +18,6 @@ public class IMGUIContainerRenderer : FieldRenderer
         // The object's one long-lived SerializedObject (see DockSerializedObjects), not a new one per redraw: Unity's own
         // drawers (the Input Action's bindings popup) keep its properties between frames, and a SerializedObject that's
         // replaced or disposed under them fails with "SerializedProperty ... has disappeared!".
-        SerializedObject seriializedObject = DockSerializedObjects.Get(_object);
-
         FieldPath = _path + "." + _field.Name;
 
         var imguiContainerContainer = new VisualElement();
@@ -35,11 +33,11 @@ public class IMGUIContainerRenderer : FieldRenderer
 
         imguiContainer.onGUIHandler = () =>
         {
-            seriializedObject.Update();
-
-            // Found again every frame, so it's never one left over from before the list or object changed.
-            var property = seriializedObject.FindProperty(FieldPath);
+            // Found again every frame, so it's never one left over from before the list or object changed. (A list item
+            // just added, like a new input, is picked up even if the dock's SerializedObject hadn't seen it yet.)
+            var property = DockSerializedObjects.FindProperty(_object, FieldPath);
             if (property == null) return;
+            var seriializedObject = property.serializedObject;
 
             EditorGUILayout.PropertyField(property);
 
