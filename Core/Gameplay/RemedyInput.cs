@@ -81,6 +81,7 @@ public class RemedyInput : SingletonData<RemedyInput>
             if (action == null || _boundHandlers.ContainsKey(action))
                 continue;
 
+            InputActionEvent.ForgetStaleBindings(action);
             if (action.bindings.Count == 0)
                 Debug.LogWarning($"Remedy Input: the input \"{inputEventCollection.Name}\" of map \"{map.Name}\" has no bindings, so it can't be pressed. Add one in the Schematic window's Global tab (Input System).");
 
@@ -311,7 +312,8 @@ public class RemedyInput : SingletonData<RemedyInput>
                 return typeof(bool);
 
             // Otherwise from its bindings: a WASD composite is a Vector2, a 1D axis a float...
-            foreach (var binding in action.bindings)
+            var bindings = SavedBindingsOf(action);
+            foreach (var binding in bindings)
             {
                 if (!binding.isComposite)
                     continue;
@@ -324,7 +326,7 @@ public class RemedyInput : SingletonData<RemedyInput>
                     case "onemodifier": case "twomodifiers": return typeof(bool);
                 }
             }
-            foreach (var binding in action.bindings)
+            foreach (var binding in bindings)
             {
                 if (binding.isComposite || binding.isPartOfComposite || string.IsNullOrEmpty(binding.path))
                     continue;
@@ -339,6 +341,39 @@ public class RemedyInput : SingletonData<RemedyInput>
                     return valueType;
             }
             return null;
+        }
+
+        private static readonly System.Reflection.FieldInfo _savedBindings = typeof(InputAction).GetField("m_SingletonActionBindings",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+
+        /// <summary>
+        /// The action's bindings as saved, read without side effects. Not InputAction.bindings: on a standalone action
+        /// that builds a hidden action map holding the bindings as they are at that moment, and it isn't rebuilt when
+        /// bindings are added later, so an input read before it had any could never be pressed ("has no bindings").
+        /// </summary>
+        private static InputBinding[] SavedBindingsOf(InputAction action)
+            => _savedBindings?.GetValue(action) as InputBinding[] ?? Array.Empty<InputBinding>();
+
+        private static readonly System.Reflection.FieldInfo _hiddenMap = typeof(InputAction).GetField("m_ActionMap",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+
+        /// <summary>
+        /// Drops a standalone action's hidden action map when it holds other bindings than the saved ones (it was made
+        /// before they were edited, e.g. in an earlier Play session with domain reload off), so the action is rebuilt
+        /// from what's saved when it's enabled. Only for disabled actions.
+        /// </summary>
+        internal static void ForgetStaleBindings(InputAction action)
+        {
+            if (action == null || action.enabled || _hiddenMap == null || _hiddenMap.GetValue(action) == null)
+                return;
+            var saved = SavedBindingsOf(action);
+            var current = action.bindings;
+            bool same = current.Count == saved.Length;
+            for (int i = 0; same && i < saved.Length; i++)
+                same = current[i].path == saved[i].path && current[i].isComposite == saved[i].isComposite
+                    && current[i].isPartOfComposite == saved[i].isPartOfComposite;
+            if (!same)
+                _hiddenMap.SetValue(action, null);
         }
 
         private static Type ValueTypeOfControl(string controlType)
