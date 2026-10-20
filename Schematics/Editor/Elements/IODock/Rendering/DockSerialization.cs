@@ -39,14 +39,12 @@ public static class DockSerializedObjects
         return serializedObject;
     }
 
-    // When each object's SerializedObject was last made again (see FindProperty), so it never happens every frame.
-    private static readonly Dictionary<UnityEngine.Object, double> _renewedAt = new();
-
     /// <summary>
     /// The property at <paramref name="path"/>, from <paramref name="target"/>'s SerializedObject brought up to date.
-    /// If the object holds something at that path the SerializedObject doesn't know about (an item the dock just added
-    /// to a list, like a new Remedy Input), the SerializedObject is made again so it does; at most once a second, so
-    /// drawers holding on to the old one aren't pulled out from under every frame. Null if it isn't there.
+    /// If the object holds something at that path the SerializedObject didn't pick up (an item the dock just added to
+    /// a list from code, like a new Remedy Input), the object is marked changed and read again. The same
+    /// SerializedObject is kept: a second one for the same object would write its stale copy back over the other's
+    /// changes. Null if it isn't there.
     /// </summary>
     public static SerializedProperty FindProperty(UnityEngine.Object target, string path)
     {
@@ -55,23 +53,30 @@ public static class DockSerializedObjects
             return null;
         Refresh(serializedObject);
         var property = serializedObject.FindProperty(path);
-        if (property != null || ManagedPath.Resolve(target, path) == null)
+        if (property != null || _unserialized.Contains((target, path)) || ManagedPath.Resolve(target, path) == null)
             return property;
 
-        // Paths a fresh SerializedObject didn't have either aren't saved by Unity at all: never worth renewing for.
-        if (_unserialized.Contains((target, path)))
-            return null;
-        double now = EditorApplication.timeSinceStartup;
-        if (_renewedAt.TryGetValue(target, out double last) && now - last < 1.0)
-            return null;
-        _renewedAt[target] = now;
-
-        serializedObject = new SerializedObject(target);
-        _objects[target] = serializedObject;
+        EditorUtility.SetDirty(target);
+        serializedObject.Update();
         property = serializedObject.FindProperty(path);
+        // Still not there: Unity doesn't save it at all, so don't keep trying (each try marks the object changed).
         if (property == null)
             _unserialized.Add((target, path));
         return property;
+    }
+
+    /// <summary>
+    /// Replaces the object's SerializedObject with a fresh one, for when a drawer is left holding properties that no
+    /// longer match the data (Unity's Input Action tree, after its bindings changed under it): drawers rebuild
+    /// themselves when they see a different SerializedObject. Saves anything pending on the old one first.
+    /// </summary>
+    public static void Renew(UnityEngine.Object target)
+    {
+        if (target == null)
+            return;
+        if (_objects.TryGetValue(target, out var old) && IsAlive(old) && old.hasModifiedProperties)
+            old.ApplyModifiedProperties();
+        _objects[target] = new SerializedObject(target);
     }
 
     private static readonly HashSet<(UnityEngine.Object, string)> _unserialized = new();

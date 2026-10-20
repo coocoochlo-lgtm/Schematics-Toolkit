@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using UnityEditor;
+using UnityEngine;
 using UnityEngine.UIElements;
 
 [FieldRendererTarget(typeof(IMGUIContainerRendererAttribute))]
@@ -39,11 +40,19 @@ public class IMGUIContainerRenderer : FieldRenderer
             if (property == null) return;
             var seriializedObject = property.serializedObject;
 
-            EditorGUILayout.PropertyField(property);
-
-            // Ensure the value of the property is not null
-            if (property.boxedValue == null)
-                property.boxedValue = default;
+            try
+            {
+                EditorGUILayout.PropertyField(property);
+            }
+            catch (Exception e) when (e is ObjectDisposedException || e is InvalidOperationException || e is NullReferenceException)
+            {
+                // A drawer (the Input Action's binding tree) held properties that no longer match the data, e.g. a
+                // binding row clicked after the bindings changed under it. A fresh SerializedObject makes it rebuild
+                // from the data as it is; the click can then be made again.
+                DockSerializedObjects.Renew(_object);
+                imguiContainer.MarkDirtyRepaint();
+                GUIUtility.ExitGUI();
+            }
 
             seriializedObject.ApplyModifiedProperties();
 
