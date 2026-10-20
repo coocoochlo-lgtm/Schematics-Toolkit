@@ -622,8 +622,9 @@ namespace Remedy.Vehicles
                 w.SteerAngle = wheel.Steers ? steerAngle : 0f;
 
                 bool wasGrounded = w.Grounded;
+                float groundCheckDistance = Mathf.Max(0f, p.GroundCheckDistance);
                 w.Grounded = SchematicPhysics.SphereCast(origin, 0f, -up, out var hit, out _,
-                    rest + radius + Mathf.Max(0f, p.GroundCastExtraDistance), p.GroundLayers, body);
+                    groundCheckDistance, p.GroundLayers, body);
                 if (!w.Grounded)
                 {
                     w.Extension = rest;
@@ -637,7 +638,9 @@ namespace Remedy.Vehicles
                 w.Normal = hit.normal;
 
                 // Spring and damper along the suspension, pushing at the wheel.
-                float extension = Mathf.Clamp(hit.distance - radius, 0f, rest);
+                float placementDistance = groundCheckDistance * Mathf.Clamp01(p.TirePlacementThreshold);
+                float maxExtension = Mathf.Clamp(placementDistance - radius, 0f, rest);
+                float extension = Mathf.Clamp(hit.distance - radius, 0f, maxExtension);
                 float compression = rest - extension;
                 w.Extension = extension;
                 Vector3 hubVelocity = native.GetWorldPointVelocity(origin);
@@ -1187,8 +1190,7 @@ namespace Remedy.Vehicles
 
                     // The ground probe: green on the ground, red in the air, cyan in Edit Mode.
                     Gizmos.color = !live ? Color.cyan : w.Grounded ? Color.green : Color.red;
-                    Gizmos.DrawLine(origin, origin - up * (rest + radius
-                        + Mathf.Max(0f, p != null ? p.GroundCastExtraDistance : 0.25f)));
+                    Gizmos.DrawLine(origin, origin - up * Mathf.Max(0f, p != null ? p.GroundCheckDistance : 1.6f));
                     Gizmos.DrawWireSphere(origin, 0.04f);
 
                     // The wheel, steered.

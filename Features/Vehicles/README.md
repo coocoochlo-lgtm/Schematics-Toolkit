@@ -142,8 +142,9 @@ The body is a real Box3D body, so it can roll, tumble and land on its roof. How 
   Time** smooths the correction's fade and direction changes as the car moves between ramps and airborne states. The
   controller compensates for the torque from grounded tires' suspension, traction and sticky forces; 0 strength and
   damping = pure physics.
-- **Ground Cast Extra Distance** extends each wheel's ground probe past its normal suspension reach, helping contact
-  persist briefly over crests and small gaps. It doesn't extend the spring or suspension travel.
+- **Ground Check Distance** sets the full wheel ground-probe length. **Tire Placement Threshold** (0..1) caps
+  suspension and visual placement to that fraction of the probe (0.5 places the tire halfway along it), while ground
+  remains detected out to the full length. **Suspension Rest Length** is a further cap on travel.
 - **Sticky Threshold / Sticky Force**: above the speed threshold, each grounded tire gets a force along the car's
   local -up direction, proportional to forward speed. This can press the car onto walls or ceilings when its wheels
   are oriented toward them; no force is applied by ungrounded tires.

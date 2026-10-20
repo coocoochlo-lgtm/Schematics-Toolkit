@@ -57,8 +57,11 @@ namespace Remedy.Vehicles
         [Tooltip("How far each wheel hangs below its anchor when nothing presses on it (metres). Longer = softer, more body roll, bigger jumps soaked up.")]
         public float SuspensionRestLength = 0.45f;
         [Min(0f)]
-        [Tooltip("Extra distance beyond the normal suspension reach that wheel ground casts check. Helps retain contact over small gaps and ramp crests; does not lengthen the suspension.")]
-        public float GroundCastExtraDistance = 0.25f;
+        [Tooltip("Total distance from each wheel anchor checked for ground (metres).")]
+        public float GroundCheckDistance = 1.6f;
+        [Range(0f, 1f)]
+        [Tooltip("Maximum wheel/suspension placement as a fraction of Ground Check Distance. Ground can still be detected beyond this point; placement is also capped by Suspension Rest Length.")]
+        public float TirePlacementThreshold = 0.5f;
         [Tooltip("Spring stiffness: m/s² of push per metre compressed. ~10 / Stiffness is how far the car sags at rest (60 → 17 cm). Higher = stiffer, twitchier.")]
         public float SpringStiffness = 60f;
         [Tooltip("Spring damping: stops the car bouncing. ~2 × √Stiffness × 0.5 is a good start. Too low bounces, too high feels like bricks.")]
