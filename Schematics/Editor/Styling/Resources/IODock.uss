@@ -641,6 +641,12 @@ EventContainerRenderer
 	overflow: visible;
 }
 
+.node-Send-a-Signal #node-border #contents
+{
+	background-image: none;
+	background-color: rgba(0,0,0,0);
+}
+
 .node-Send-a-Signal #node-border #divider
 {
 	display: none;
@@ -656,6 +662,7 @@ EventContainerRenderer
 .node-Send-a-Signal #node-border #input
 {
 	padding-bottom: 28px;
+	margin-top: -8px;
 }
 
 .node-Send-a-Signal #node-border #input PortView
