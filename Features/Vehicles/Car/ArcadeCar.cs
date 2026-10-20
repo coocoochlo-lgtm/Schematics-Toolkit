@@ -489,14 +489,14 @@ namespace Remedy.Vehicles
             float driveAcceleration = 0f, brakeDeceleration = 0f;
             if (throttle > 0.01f)
             {
-                if (forwardSpeed < -0.5f)
+                if (forwardSpeed < 0f)
                     brakeDeceleration = p.BrakeDeceleration * throttle; // rolling backwards: throttle brakes first
                 else if (forwardSpeed < topSpeed)
                     driveAcceleration = p.Acceleration * p.AccelerationCurve.Evaluate(speedFraction) * throttle;
             }
             if (brake > 0.01f)
             {
-                if (forwardSpeed > 0.5f)
+                if (forwardSpeed > 0f)
                     brakeDeceleration = Mathf.Max(brakeDeceleration, p.BrakeDeceleration * brake);
                 else if (-forwardSpeed < p.MaxReverseSpeed)
                     driveAcceleration -= p.ReverseAcceleration * brake;
