@@ -217,9 +217,18 @@ public class RemedyInput : SingletonData<RemedyInput>
     {
         if (_currentActionMap == null) return;
 
-        foreach(var inputEvents in _actionsToUpdate.Values)
+        foreach (var entry in _actionsToUpdate.ToArray())
         {
-            foreach (var inputEvent in inputEvents)
+            var action = entry.Key;
+            if (action.phase != InputActionPhase.Started && action.phase != InputActionPhase.Performed)
+            {
+                _actionsToUpdate.Remove(action);
+                foreach (var inputEvent in entry.Value)
+                    Release(inputEvent);
+                continue;
+            }
+
+            foreach (var inputEvent in entry.Value)
             {
                 var output = inputEvent.Output;
                 if (output != null && _currentInput.TryGetValue(output, out var value))
