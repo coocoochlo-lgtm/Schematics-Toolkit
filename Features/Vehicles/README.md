@@ -77,6 +77,9 @@ Vehicles don't know about players: a graph routes input while someone sits in a 
 - Or from a graph: on the vehicle's graph, forward input to **Throttle / Brake / Steer / Drive / Handbrake / Boost**
   while **Has Driver** is on. AI does the same (or calls `SetInputs` from C#).
 
+**Throttle** accepts one signed float from -1 to 1: positive accelerates, negative brakes (and reverses once stopped),
+and 0 releases both. Use **Brake** separately if you want independent throttle and brake controls.
+
 A typical player graph: on the interact button, if not seated send **Enter** (self) to the vehicle in front of you,
 else **Exit**. On the vehicle's **On Driver Changed**, switch the input map (`RemedyInput.Instance.SetInputMap`) and the camera
 target. Without Vehicle Seats the car is always active; with them it only drives while someone's in a driver seat

@@ -117,8 +117,8 @@ namespace Remedy.Vehicles
 
         #region Signals
 
-        [SchematicDoc(@"{""name"": ""Throttle"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""input"", ""params"": [{""name"": ""Amount"", ""type"": ""float""}], ""description"": ""Accelerate, 0..1. The value holds until the next one, so send 0 to let go."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock), e.g. from an input or an AI graph.""}")]
-        [Tooltip("Accelerate, 0..1. The value holds until the next one, so send 0 to let go.")]
+        [SchematicDoc(@"{""name"": ""Throttle"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""input"", ""params"": [{""name"": ""Amount"", ""type"": ""float""}], ""description"": ""A signed drive axis: positive accelerates, negative brakes (and reverses once stopped), and 0 lets go. Values are clamped to -1..1; the value holds until the next one."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock), e.g. from an input or an AI graph.""}")]
+        [Tooltip("Signed drive axis: positive accelerates, negative brakes (and reverses once stopped), 0 lets go. Clamped to -1..1.")]
         [InputSignal, NetworkSync(SignalSender.OwnerToAuthority)]
         [Parameter("Amount", typeof(float))]
         public readonly SignalHandle<float> Throttle;
@@ -246,7 +246,7 @@ namespace Remedy.Vehicles
             }
             _state.Value = state;
 
-            Throttle.Subscribe(value => state.Throttle = Mathf.Clamp01(value));
+            Throttle.Subscribe(value => state.SetThrottleAndBrake(value));
             Brake.Subscribe(value => state.Brake = Mathf.Clamp01(value));
             Steer.Subscribe(value => state.SteerInput = Mathf.Clamp(value, -1f, 1f));
             Drive.Subscribe(value => state.SetStick(value));
@@ -1027,8 +1027,14 @@ namespace Remedy.Vehicles
         public void SetStick(Vector2 stick)
         {
             SteerInput = Mathf.Clamp(stick.x, -1f, 1f);
-            Throttle = Mathf.Clamp01(stick.y);
-            Brake = Mathf.Clamp01(-stick.y);
+            SetThrottleAndBrake(stick.y);
+        }
+
+        public void SetThrottleAndBrake(float axis)
+        {
+            axis = Mathf.Clamp(axis, -1f, 1f);
+            Throttle = Mathf.Max(axis, 0f);
+            Brake = Mathf.Max(-axis, 0f);
         }
 
         public void ClearInputs()
@@ -1050,9 +1056,7 @@ namespace Remedy.Vehicles
                     SteerInput = Mathf.Clamp(steer * sign, -1f, 1f);
                     break;
                 case VehicleInputAction.ThrottleAndBrake:
-                    float axis = VehicleInput.ToFloat(value) * sign;
-                    Throttle = Mathf.Clamp01(axis);
-                    Brake = Mathf.Clamp01(-axis);
+                    SetThrottleAndBrake(VehicleInput.ToFloat(value) * sign);
                     break;
                 case VehicleInputAction.Drive: SetStick(VehicleInput.ToVector2(value) * sign); break;
                 case VehicleInputAction.Handbrake: Handbrake = VehicleInput.ToBool(value) != binding.Invert; break;
