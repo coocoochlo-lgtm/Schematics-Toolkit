@@ -118,6 +118,22 @@ public class SignalRenderer : FieldRenderer
         if (existingSignal == null)
             AssignToEmptyField(signalData);
 
+        // Signals named and typed by their owner (Remedy Input's): brought up to date before they're drawn.
+        var owner = Owner();
+        string ownerName = MemberValue(owner, _evAttr.NameFrom) as string;
+        bool namedByOwner = !string.IsNullOrEmpty(_evAttr.NameFrom) && owner != null;
+        if (namedByOwner && !string.IsNullOrWhiteSpace(ownerName) && signalData != null && signalData.Name != ownerName)
+        {
+            var renamed = signalData;
+            string to = ownerName;
+            EditorApplication.delayCall += () => { if (renamed != null) renamed.EditorRename(to); };
+        }
+        var decidedType = MemberValue(owner, _evAttr.ParameterTypeFrom) as Type;
+        if (decidedType != null && signalData != null && signalData.SetSingleParameter(decidedType))
+            EditorUtility.SetDirty(signalData);
+        if (_evAttr.Outgoing && signalData != null)
+            OutgoingSignals.Add(signalData);
+
         var column = new VisualElement
         {
             style =
@@ -143,7 +159,7 @@ public class SignalRenderer : FieldRenderer
         };
 
         // Name field
-        var nameField = new TextField { value = _field.Name, style = { flexGrow = 1, paddingLeft = 0 } };
+        var nameField = new TextField { value = namedByOwner && !string.IsNullOrWhiteSpace(ownerName) ? ownerName : _field.Name, style = { flexGrow = 1, paddingLeft = 0 } };
 
         nameField.Children().ElementAt(0).AddToClassList("event-name");
 
@@ -168,7 +184,23 @@ public class SignalRenderer : FieldRenderer
         nameField.RegisterCallback<FocusOutEvent>((EventCallback<FocusOutEvent>)(evt =>
         {
             Undo.RecordObject(_window, "Edit Event Name");
-            if (handler != null)
+            if (namedByOwner)
+            {
+                // Renamed here, renamed on the owner too (the input it belongs to), and the other way around.
+                newName = newName?.Trim();
+                if (!string.IsNullOrEmpty(newName) && newName != oldName)
+                {
+                    var live = Owner() ?? owner;
+                    if (_object != null)
+                        Undo.RecordObject(_object, "Rename Signal");
+                    SetMemberValue(live, _evAttr.NameFrom, newName);
+                    if (_object != null)
+                        EditorUtility.SetDirty(_object);
+                    signalData.EditorRename(newName);
+                    EditorApplication.delayCall += () => { if (_window != null) _window.RedrawIODock(true); };
+                }
+            }
+            else if (handler != null)
                 handler.ChangeName(oldName, newName);
             else if (!ownedByBehavior && oldName != newName && !string.IsNullOrWhiteSpace(newName))
             {
@@ -193,7 +225,7 @@ public class SignalRenderer : FieldRenderer
             _window.Canvas.Reload();
         });
 
-        bool signalType = _field.Attributes.Any(attr => attr.AttributeType == typeof(OutputSignalAttribute));
+        bool signalType = _evAttr.Outgoing || _field.Attributes.Any(attr => attr.AttributeType == typeof(OutputSignalAttribute));
 
         // Drag Handle
         Texture2D myTexture = signalType ? myTexture = _outputIcon : myTexture = _inputIcon;
@@ -289,7 +321,9 @@ public class SignalRenderer : FieldRenderer
                                                     t => t?.Name ?? "???"
                                                 );
 
-                                                typePopup.SetEnabled(_evAttr.ParamTypeModifiable);
+                                                typePopup.SetEnabled(_evAttr.ParamTypeModifiable && decidedType == null);
+                                                if (decidedType != null)
+                                                    typePopup.tooltip = "Set by the Input Action's control type.";
 
                                                 var nameField = new TextField { value = ((SignalData.Parameter)value).Name , style = { flexGrow = 1, paddingLeft = 0 } };
 
@@ -336,7 +370,7 @@ public class SignalRenderer : FieldRenderer
                                                 return paramRow;
                                             },
                                             getItemName: (object item) => { return ((SignalData.Parameter)item).Name; },
-                                            contentModifiable: _evAttr.ParametersEditable,
+                                            contentModifiable: _evAttr.ParametersEditable && decidedType == null,
                                             startExpanded: true
                                             );
 
@@ -348,6 +382,51 @@ public class SignalRenderer : FieldRenderer
         Add(column);
     }
 
+
+    /// <summary>
+    /// Signals the code sends and graphs react to (<see cref="SignalContainerRendererAttribute.Outgoing"/>), so a graph
+    /// they're dropped into makes On Received for them without asking.
+    /// </summary>
+    internal static readonly HashSet<SignalData> OutgoingSignals = new();
+
+    // The object holding the Signal field right now (an input of Remedy Input's), found by its path when possible.
+    private object Owner()
+    {
+        object resolved = null;
+        try { resolved = string.IsNullOrEmpty(_path) ? _object : ManagedPath.Resolve(_object, _path); }
+        catch { }
+        if (resolved != null && Member(resolved.GetType(), _field.Name) != null)
+            return resolved;
+        return _parent;
+    }
+
+    private static System.Reflection.MemberInfo Member(Type type, string name)
+    {
+        if (type == null || string.IsNullOrEmpty(name))
+            return null;
+        const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+        return (System.Reflection.MemberInfo)type.GetField(name, flags) ?? type.GetProperty(name, flags);
+    }
+
+    private static object MemberValue(object owner, string name)
+    {
+        switch (Member(owner?.GetType(), name))
+        {
+            case System.Reflection.FieldInfo field: return field.GetValue(owner);
+            case System.Reflection.PropertyInfo property when property.CanRead:
+                try { return property.GetValue(owner); } catch { return null; }
+            default: return null;
+        }
+    }
+
+    private static void SetMemberValue(object owner, string name, object value)
+    {
+        switch (Member(owner?.GetType(), name))
+        {
+            case System.Reflection.FieldInfo field: field.SetValue(owner, value); break;
+            case System.Reflection.PropertyInfo property when property.CanWrite: property.SetValue(owner, value); break;
+        }
+    }
 
     /// <summary>
     /// A <see cref="SignalData"/> field that's still empty is given the Signal made for it, so the code that sends it

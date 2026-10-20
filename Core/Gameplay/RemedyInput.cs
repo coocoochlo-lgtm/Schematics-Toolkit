@@ -170,6 +170,8 @@ public class RemedyInput : SingletonData<RemedyInput>
             {
                 Union.ValueType.Bool => context.ReadValueAsButton(),
                 Union.ValueType.Float => context.ReadValue<float>(),
+                Union.ValueType.Int => context.ReadValue<int>(),
+                Union.ValueType.Quaternion => context.ReadValue<Quaternion>(),
                 Union.ValueType.Vector2 => context.ReadValue<Vector2>(),
                 Union.ValueType.Vector3 => context.ReadValue<Vector3>(),
                 _ => context.ReadValueAsObject(),
@@ -185,6 +187,30 @@ public class RemedyInput : SingletonData<RemedyInput>
         _currentInput[output] = value;
         output.Broadcast(value);
     }
+
+#if UNITY_EDITOR
+    // Editing an input (its Input Action's control type, say) brings its Signal up to date. After the edit is applied:
+    // renaming a Signal's file can't happen in the middle of OnValidate.
+    private void OnValidate()
+    {
+        UnityEditor.EditorApplication.delayCall -= SyncSignals;
+        UnityEditor.EditorApplication.delayCall += SyncSignals;
+    }
+
+    /// <summary>
+    /// Editor only: names every input's Signal after the input, and gives it the parameter its Input Action's control
+    /// type calls for (see <see cref="InputActionEvent.ValueType"/>).
+    /// </summary>
+    public void SyncSignals()
+    {
+        if (this == null || InputMaps == null)
+            return;
+        foreach (var map in InputMaps)
+            if (map?.Inputs != null)
+                foreach (var input in map.Inputs)
+                    input?.SyncSignal();
+    }
+#endif
 
     public void UpdateInputs()
     {
@@ -257,12 +283,101 @@ public class RemedyInput : SingletonData<RemedyInput>
         /// Global tab. Graphs react to it with On Received.
         /// </summary>
         [SignalContainerRenderer(typeof(SignalData), nameof(EventName), parametersEditable: true, paramTypeModifiable: true, paramNameModifiable: true,
-            Outgoing = true, MaxParameters = 1)]
+            Outgoing = true, MaxParameters = 1, NameFrom = nameof(Name), ParameterTypeFrom = nameof(ValueType))]
         public SignalData Output;
 
         [IMGUIContainerRenderer]
         [Tooltip("If true, the Output Event is not called again on update, although it will be called if the value for the Input has been updated (InputActionPhase.Performed).")]
         public bool OneShot = false;
+
+        /// <summary>
+        /// The type of value this input gives, from its Input Action: bool for buttons, float for axes and triggers,
+        /// Vector2 for sticks, WASD and the mouse, and so on. Its Signal carries one of these. Null when the action
+        /// doesn't say (a pass-through with no control type or bindings to go by): then the Signal's type is picked by
+        /// hand.
+        /// </summary>
+        public Type ValueType => ValueTypeOf(Input);
+
+        public static Type ValueTypeOf(InputAction action)
+        {
+            if (action == null)
+                return null;
+
+            // The control type it expects, when it says ("Button", "Axis", "Vector2", "Stick", "Dpad"...).
+            var fromControl = ValueTypeOfControl(action.expectedControlType);
+            if (fromControl != null)
+                return fromControl;
+            if (action.type == InputActionType.Button)
+                return typeof(bool);
+
+            // Otherwise from its bindings: a WASD composite is a Vector2, a 1D axis a float...
+            foreach (var binding in action.bindings)
+            {
+                if (!binding.isComposite)
+                    continue;
+                switch (NameOf(binding.path))
+                {
+                    case "2dvector": case "dpad": return typeof(Vector2);
+                    case "3dvector": return typeof(Vector3);
+                    case "1daxis": case "axis": return typeof(float);
+                    case "buttonwithonemodifier": case "buttonwithtwomodifiers":
+                    case "onemodifier": case "twomodifiers": return typeof(bool);
+                }
+            }
+            foreach (var binding in action.bindings)
+            {
+                if (binding.isComposite || binding.isPartOfComposite || string.IsNullOrEmpty(binding.path))
+                    continue;
+                // A single control: what it is, by its path ("<Gamepad>/leftStick", "<Mouse>/delta", "<Keyboard>/space").
+                var control = InputSystem.FindControl(binding.path);
+                // (A Value action reads a key or trigger as a float, so this goes by the value, not the control type.)
+                var valueType = control?.valueType;
+                if (valueType == typeof(double))
+                    return typeof(float);
+                if (valueType == typeof(float) || valueType == typeof(int) || valueType == typeof(Vector2)
+                    || valueType == typeof(Vector3) || valueType == typeof(Quaternion))
+                    return valueType;
+            }
+            return null;
+        }
+
+        private static Type ValueTypeOfControl(string controlType)
+        {
+            switch ((controlType ?? "").Trim().ToLowerInvariant())
+            {
+                case "button": case "key": case "digital": case "touchpress": return typeof(bool);
+                case "axis": case "analog": case "double": return typeof(float);
+                case "integer": return typeof(int);
+                case "vector2": case "stick": case "dpad": case "delta": return typeof(Vector2);
+                case "vector3": return typeof(Vector3);
+                case "quaternion": return typeof(Quaternion);
+                default: return null;
+            }
+        }
+
+        // "2DVector(mode=2)" -> "2dvector"
+        private static string NameOf(string compositePath)
+        {
+            if (string.IsNullOrEmpty(compositePath))
+                return "";
+            int paren = compositePath.IndexOf('(');
+            return (paren >= 0 ? compositePath.Substring(0, paren) : compositePath).Trim().ToLowerInvariant();
+        }
+
+#if UNITY_EDITOR
+        /// <summary>
+        /// Editor only: names the Signal after this input and gives it the parameter <see cref="ValueType"/> calls for.
+        /// </summary>
+        public void SyncSignal()
+        {
+            if (Output == null)
+                return;
+            if (!string.IsNullOrWhiteSpace(Name))
+                Output.EditorRename(Name);
+            if (Output.SetSingleParameter(ValueType))
+                UnityEditor.EditorUtility.SetDirty(Output);
+        }
+#endif
 
         public InputActionEvent() 
         {

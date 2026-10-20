@@ -1048,6 +1048,9 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
             foreach (var definition in metadata.Signals)
                 if (definition.Asset == signal)
                     return definition.Direction;
+        // Signals the code sends (Remedy Input's): graphs react to them.
+        if (signal != null && SignalRenderer.OutgoingSignals.Contains(signal))
+            return SignalDirection.Output;
         return SignalDirection.Unspecified;
     }
 

@@ -26,6 +26,16 @@ public class SignalContainerRendererAttribute : CustomFieldRendererAttribute
     /// makes On Received. False: graphs send it, and the code listens.
     /// </summary>
     public bool Outgoing;
+    /// <summary>
+    /// A string member of the field's owner the Signal's name is kept the same as, both ways: renaming either renames
+    /// the other (Remedy Input's Signals take their input's name).
+    /// </summary>
+    public string NameFrom;
+    /// <summary>
+    /// A member of the field's owner giving the type (System.Type) of the one value the Signal carries, or null to
+    /// let it be picked by hand (Remedy Input's come from the Input Action's control type).
+    /// </summary>
+    public string ParameterTypeFrom;
     public SignalData IOBase;
 
     public SignalContainerRendererAttribute(Type defaultType, string defaultName, bool parametersEditable, bool paramTypeModifiable = false, bool paramNameModifiable = false)
