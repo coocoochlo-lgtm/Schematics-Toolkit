@@ -25,8 +25,8 @@ namespace Remedy.LevelDesigner
     /// 0.25 m subdivisions) starting at each face's bottom-left corner, labels every 1 m cell with how far along the
     /// face it is ("x3 y2": the third meter across, the second up), and colours the shape by its
     /// <see cref="Category"/>. The total size is shown above the shape in the Scene view when it's selected.<br/>
-    /// The mesh is generated (and saved in the scene); collision is a static Box3D mesh shape so characters driven by
-    /// the toolkit's physics can run on the blockout straight away.
+    /// The mesh is generated (and saved in the scene); collision is a static Box3D mesh shape on its own static body
+    /// so characters driven by the toolkit's physics can run on the blockout straight away.
     /// </summary>
     [ExecuteAlways]
     [SelectionBase]
@@ -170,6 +170,10 @@ namespace Remedy.LevelDesigner
                 ApplyRendering();
             }
 
+            // Existing scene meshes also need their Box3D collision restored/validated on load.
+            if (_mesh != null)
+                SyncCollision();
+
             if (Application.isPlaying && HideRenderersInPlayMode && TryGetComponent<MeshRenderer>(out var meshRenderer))
                 meshRenderer.enabled = false;
         }
@@ -271,14 +275,15 @@ namespace Remedy.LevelDesigner
             var shape = GetComponent<Box3DMeshShape>();
             if (Collision)
             {
-                // Our own static body, unless the shape is part of a bigger body (a compound) further up.
+                // Mesh shapes are static-only, so keep the blockout on its own body even under another body.
                 var body = GetComponent<Box3DBody>();
-                if (body == null && GetComponentInParent<Box3DBody>() == null)
+                if (body == null)
                 {
                     body = gameObject.AddComponent<Box3DBody>();
-                    body.BodyType = Box3DBodyType.Static;
-                    MarkDirty(body);
                 }
+                if (body.BodyType != Box3DBodyType.Static)
+                    body.BodyType = Box3DBodyType.Static;
+                MarkDirty(body);
                 if (shape == null)
                 {
                     shape = gameObject.AddComponent<Box3DMeshShape>();

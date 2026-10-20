@@ -146,7 +146,8 @@ Size** fixes a scaled one).
   directions (a ramp's slope) show the number without a letter ("x2,4"). The total size is in the box above a
   selected shape. All without textures. *World-Aligned Grid* on the material switches back to a world grid; *Show
   Dimensions* on a shape turns its cell labels off.
-- **Collision**: a static Box3D mesh shape, so characters on the toolkit's physics can play the blockout at once.
+- **Collision**: a Box3D mesh shape on its own static body, so characters on the toolkit's physics can play the
+  blockout at once (even when the blockout is parented under another body).
 
 ### Rulers
 
