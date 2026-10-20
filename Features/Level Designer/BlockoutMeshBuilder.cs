@@ -19,6 +19,8 @@ namespace Remedy.LevelDesigner
         Arch,
         /// <summary>A curved ramp (like a skate ramp) rising along +Z, flat at the bottom and steep at the top.</summary>
         QuarterPipe,
+        /// <summary>A closed 360-degree driving loop in the Y-Z plane; Size.x is width, Size.y/z are loop diameters.</summary>
+        Loop,
     }
 
     /// <summary>
@@ -77,6 +79,7 @@ namespace Remedy.LevelDesigner
                 case BlockoutShapeKind.Wedge: builder.Wedge(size); break;
                 case BlockoutShapeKind.Arch: builder.Arch(size, segments, archOpening); break;
                 case BlockoutShapeKind.QuarterPipe: builder.QuarterPipe(size, segments); break;
+                case BlockoutShapeKind.Loop: builder.Loop(size, segments); break;
                 default: builder.Box(size); break;
             }
 
@@ -415,6 +418,39 @@ namespace Remedy.LevelDesigner
                 sideInfo.LabelCenter = new Vector2(side > 0 ? s.z * 0.75f : s.z * 0.25f, s.y * 0.25f);
                 AddPolygon(poly, new Vector3(side, 0, 0), Vector3.up, sideInfo);
             }
+        }
+
+        private void Loop(Vector3 s, int segments)
+        {
+            int steps = Mathf.Max(24, segments * 2);
+            float radiusY = s.y * 0.5f;
+            float radiusZ = s.z * 0.5f;
+            float halfWidth = s.x * 0.5f;
+            float arcLength = 0f;
+            var points = new Vector3[steps + 1, 2];
+            var normals = new Vector3[steps + 1, 2];
+            var uvs = new Vector2[steps + 1, 2];
+
+            Vector3 PointAt(float angle) => new Vector3(0f, radiusY * (1f - Mathf.Cos(angle)), radiusZ * Mathf.Sin(angle));
+            for (int i = 0; i <= steps; i++)
+            {
+                float angle = (float)i / steps * Mathf.PI * 2f;
+                Vector3 center = PointAt(angle);
+                if (i > 0)
+                    arcLength += Vector3.Distance(PointAt((float)(i - 1) / steps * Mathf.PI * 2f), center);
+
+                // The driving surface faces the inside of the loop.
+                Vector3 normal = new Vector3(0f, Mathf.Cos(angle) / radiusY, -Mathf.Sin(angle) / radiusZ).normalized;
+                for (int side = 0; side < 2; side++)
+                {
+                    float x = side == 0 ? -halfWidth : halfWidth;
+                    points[i, side] = center + Vector3.right * x;
+                    normals[i, side] = normal;
+                    uvs[i, side] = new Vector2(side == 0 ? 0f : s.x, arcLength);
+                }
+            }
+
+            AddSmoothGrid(points, normals, uvs, new Vector2(s.x, arcLength), 1);
         }
 
         private void Arch(Vector3 s, int segments, float opening)

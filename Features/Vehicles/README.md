@@ -143,8 +143,9 @@ The body is a real Box3D body, so it can roll, tumble and land on its roof. How 
 - **Sticky Threshold / Sticky Force**: above the speed threshold, each grounded tire gets a force along the car's
   local -up direction, proportional to forward speed. This can press the car onto walls or ceilings when its wheels
   are oriented toward them; no force is applied by ungrounded tires.
-- **Air Level Strength / Damping** and **Air Control**: levelling and steering in the air (only when really
-  airborne, not when lying on its roof).
+- **Air Level Strength / Damping**: levelling and damping in the air. **Air Control** applies steering as roll about
+  the car's forward axis and signed Target Speed as pitch about its right axis, using forces at ungrounded tire
+  anchors; it only runs when really airborne, not when lying on its roof.
 - **Self Right Strength / Delay / Max Speed / Lift**: a car lying flipped (past **Flipped Tilt**) and nearly
   stopped turns back over after the delay. 0 = flips stay; send **Unflip** (a "reset car" button) to right it
   anyway. Signals: **On Flipped**, **On Righted**; variable **Is Flipped**.

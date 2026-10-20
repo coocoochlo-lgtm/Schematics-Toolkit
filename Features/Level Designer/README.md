@@ -83,7 +83,7 @@ Scene view shows the **Blockout Tools** toolbar:
 
 | Button | Left click | Right click |
 | --- | --- | --- |
-| **Primitive** | places the last primitive used | a searchable list: Box, Floor, Wall, Platform, Ramp, Stairs, Pillar, Sphere, Wedge, Arch, Quarter Pipe, Hazard, Water |
+| **Primitive** | places the last primitive used | a searchable list: Box, Floor, Wall, Platform, Ramp, Stairs, Pillar, Sphere, Wedge, Arch, Quarter Pipe, Loop, Hazard, Water |
 | **Rulers** | places the last ruler used | Distance, Jump Arc, Run 1 s, Run 3 s |
 | **Colour swatch** | the palette menu: Auto, the palette, any colour, + Palette, Paint Selected, Paint Bucket, Edit Palette… | |
 | **Paint** | the paint bucket tool (on/off) | |
@@ -134,8 +134,8 @@ red verdict).
 
 ### Blockout shapes
 
-**Blockout Shape** (`BlockoutShape`) is a procedural Box, Ramp, Stairs, Cylinder, Sphere, Wedge, Arch or Quarter
-Pipe with its **Size in meters** (width x height x length; the pivot is the centre of the bottom face). Select one
+**Blockout Shape** (`BlockoutShape`) is a procedural Box, Ramp, Stairs, Cylinder, Sphere, Wedge, Arch, Quarter
+Pipe or full 360-degree **Loop** with its **Size in meters** (width x height x length; the pivot is the centre of the bottom face). For a Loop, X is track width and Y/Z are its vertical/forward diameters (make them equal for a circle). Select one
 to resize it with the face handles (snapped; the opposite face stays put). Prefer Size over scaling (**Apply Scale to
 Size** fixes a scaled one).
 

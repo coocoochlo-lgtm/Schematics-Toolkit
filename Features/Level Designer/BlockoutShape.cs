@@ -20,7 +20,7 @@ namespace Remedy.LevelDesigner
     }
 
     /// <summary>
-    /// A grey-box building block: a box, ramp, stairs, cylinder, sphere, wedge, arch or quarter pipe whose size is set
+    /// A grey-box building block: a box, ramp, stairs, cylinder, sphere, wedge, arch, quarter pipe or loop whose size is set
     /// in meters (not by scaling), so its measurements are always exact. The blockout shader draws a 1 m grid (with
     /// 0.25 m subdivisions) starting at each face's bottom-left corner, labels every 1 m cell with how far along the
     /// face it is ("x3 y2": the third meter across, the second up), and colours the shape by its

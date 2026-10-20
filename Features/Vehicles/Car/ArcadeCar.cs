@@ -741,7 +741,8 @@ namespace Remedy.Vehicles
             {
                 // Really in the air (not just lying on its roof or side with the wheels off the ground).
                 if (active && p.AirControl > 0f)
-                    angular += (right * (throttle - brake) + up * steerInput) * p.AirControl;
+                    ApplyAirWheelControl(native, wheels, state.Wheels, centerOfMass, up, right, forward,
+                        steerInput, effectiveTargetSpeed, p.AirControl, rotation, state);
                 if (p.AirLevelStrength > 0f || p.AirLevelDamping > 0f)
                     angular += UprightError(up, worldUp, forward) * p.AirLevelStrength - rollPitchVelocity * p.AirLevelDamping;
             }
@@ -963,6 +964,55 @@ namespace Remedy.Vehicles
             Vector3 local = Quaternion.Inverse(rotation) * angularAcceleration;
             Vector3 localTorque = state.InertiaX * local.x + state.InertiaY * local.y + state.InertiaZ * local.z;
             return rotation * localTorque;
+        }
+
+        private static void ApplyAirWheelControl(Body body, Wheel[] wheels, WheelState[] wheelStates,
+            Vector3 centerOfMass, Vector3 up, Vector3 right, Vector3 forward, float steer, float targetSpeed,
+            float strength, Quaternion rotation, CarState state)
+        {
+            float rollMoment = Vector3.Dot((Vector3)Torque(forward * (steer * strength), rotation, state), forward);
+            float pitchMoment = Vector3.Dot((Vector3)Torque(right * (targetSpeed * strength), rotation, state), right);
+
+            float rightArmSquared = 0f;
+            float forwardArmSquared = 0f;
+            float armCross = 0f;
+            for (int i = 0; i < wheels.Length; i++)
+            {
+                if (wheels[i]?.Anchor == null || wheelStates[i].Grounded)
+                    continue;
+
+                Vector3 offset = wheels[i].Anchor.position - centerOfMass;
+                float rightArm = Vector3.Dot(offset, right);
+                float forwardArm = Vector3.Dot(offset, forward);
+                rightArmSquared += rightArm * rightArm;
+                forwardArmSquared += forwardArm * forwardArm;
+                armCross += rightArm * forwardArm;
+            }
+
+            float determinant = rightArmSquared * forwardArmSquared - armCross * armCross;
+            if (determinant < 1e-6f)
+                return;
+
+            float rightCoefficient = (rollMoment * forwardArmSquared + pitchMoment * armCross) / determinant;
+            float forwardCoefficient = (-pitchMoment * rightArmSquared - rollMoment * armCross) / determinant;
+            Vector3 totalForce = Vector3.zero;
+            for (int i = 0; i < wheels.Length; i++)
+            {
+                if (wheels[i]?.Anchor == null || wheelStates[i].Grounded)
+                    continue;
+
+                Vector3 anchor = wheels[i].Anchor.position;
+                Vector3 offset = anchor - centerOfMass;
+                float verticalForce = rightCoefficient * Vector3.Dot(offset, right)
+                    + forwardCoefficient * Vector3.Dot(offset, forward);
+                Vector3 force = up * verticalForce;
+                body.ApplyForce(force, anchor, true);
+                totalForce += force;
+            }
+
+            // Keep the per-tire forces a pure rotational control rather than also accelerating the chassis.
+            if (totalForce.sqrMagnitude > 0f)
+                body.ApplyForceToCenter(-totalForce, true);
         }
 
         // Mass, centre of mass and inertia from the Properties, on top of what the shapes give (so it's the same every spawn).

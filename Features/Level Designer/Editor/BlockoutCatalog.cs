@@ -68,6 +68,7 @@ namespace Remedy.LevelDesigner.Editor
             AddPrimitive("wedge", "Wedge", BlockoutShapeKind.Wedge, new Vector3(4, 2, 4), BlockoutCategory.Wall);
             AddPrimitive("arch", "Arch", BlockoutShapeKind.Arch, new Vector3(4, 4, 1), BlockoutCategory.Wall);
             AddPrimitive("quarterpipe", "Quarter Pipe", BlockoutShapeKind.QuarterPipe, new Vector3(4, 3, 3), BlockoutCategory.Floor);
+            AddPrimitive("loop", "Loop", BlockoutShapeKind.Loop, new Vector3(4, 8, 8), BlockoutCategory.Floor);
             AddPrimitive("hazard", "Hazard", BlockoutShapeKind.Box, new Vector3(2, 0.25f, 2), BlockoutCategory.Hazard);
             AddPrimitive("water", "Water", BlockoutShapeKind.Box, new Vector3(6, 0.5f, 6), BlockoutCategory.Water);
 

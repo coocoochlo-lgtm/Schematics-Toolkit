@@ -196,7 +196,7 @@ namespace Remedy.Vehicles
         public float AirLevelStrength = 2f;
         [Tooltip("Damps roll and pitch spin in the air.")]
         public float AirLevelDamping = 1f;
-        [Tooltip("In the air, the driver can pitch (throttle/brake) and yaw (steer) the car, in rad/s². 0 = no air control.")]
+        [Tooltip("In the air, grounded tires are ignored; forces at ungrounded tire anchors roll the car with steer and pitch it with signed Target Speed, in rad/s². 0 = no air control.")]
         public float AirControl = 4f;
         [Tooltip("The car counts as flipped when tilted more than this (degrees from upright).")]
         public float FlippedTilt = 100f;
