@@ -651,6 +651,8 @@ namespace Remedy.Vehicles
                 Vector3 rollDirection = Vector3.ProjectOnPlane(wheelForward, normal).normalized;
                 Vector3 sideDirection = Vector3.Cross(normal, rollDirection);
                 Vector3 contactVelocity = native.GetWorldPointVelocity(hit.point);
+                if (p.StickyForce > 0f && speedFraction >= Mathf.Clamp01(p.StickyThreshold))
+                    native.ApplyForce(-up * (p.StickyForce * Mathf.Abs(forwardSpeed) * massShare), hit.point, true);
                 if (!wasGrounded)
                 {
                     float landingSpeed = Mathf.Max(0f, -Vector3.Dot(contactVelocity, normal));
@@ -691,10 +693,6 @@ namespace Remedy.Vehicles
             Vector3 groundNormal = isGrounded ? normalSum.normalized : worldUp;
             IsGrounded.Value = isGrounded;
             GroundedWheels.Value = grounded;
-
-            // Downforce: glued to the road at speed.
-            if (isGrounded && p.Downforce > 0f)
-                native.ApplyForceToCenter(-up * (p.Downforce * Mathf.Abs(forwardSpeed) * mass), true);
 
             // Rotation helpers, as angular accelerations (turned into torque with the body's own inertia below).
             Vector3 angular = Vector3.zero;

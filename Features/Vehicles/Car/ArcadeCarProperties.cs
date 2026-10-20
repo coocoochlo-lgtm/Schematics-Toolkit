@@ -1,5 +1,6 @@
 using System;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace Remedy.Vehicles
 {
@@ -185,8 +186,12 @@ namespace Remedy.Vehicles
         public float StabilizeStrength = 8f;
         [Tooltip("Damps the car's roll and pitch wobble while on the ground.")]
         public float StabilizeDamping = 2f;
-        [Tooltip("Pushes the car into the ground the faster it goes (m/s² per m/s of speed): glues it to the road at speed, and over crests.")]
-        public float Downforce = 0.15f;
+        [Range(0f, 1f)]
+        [Tooltip("Minimum fraction of Max Speed before sticky force applies to grounded tires.")]
+        public float StickyThreshold = 0.1f;
+        [FormerlySerializedAs("Downforce")]
+        [Tooltip("Pushes each grounded tire along the car's -up direction. Force scales linearly with forward speed (m/s² per m/s); can press tires onto walls or ceilings when the car is oriented to them.")]
+        public float StickyForce = 0.15f;
         [Tooltip("In the air, how hard the car levels itself (towards world up). Makes landings land on the wheels. 0 = it keeps whatever spin it had.")]
         public float AirLevelStrength = 2f;
         [Tooltip("Damps roll and pitch spin in the air.")]
@@ -228,7 +233,7 @@ namespace Remedy.Vehicles
             MiniTurbo = false;
             BoostAcceleration = 14f; BoostDuration = 2f; BoostMaxSpeedBonus = 15f;
             Mass = 1300f; CenterOfMassOffset = new Vector3(0f, -0.3f, 0.05f); InertiaScale = 1.4f;
-            StabilizeStrength = 6f; StabilizeDamping = 2f; Downforce = 0.2f;
+            StabilizeStrength = 6f; StabilizeDamping = 2f; StickyForce = 0.2f;
             AirLevelStrength = 1.5f; AirControl = 2f; SelfRightStrength = 12f; SelfRightDelay = 2f;
             UnityEditor.EditorUtility.SetDirty(this);
         }
@@ -248,7 +253,7 @@ namespace Remedy.Vehicles
             MiniTurbo = true; ChargeRate = 1f; TightTurnChargeBonus = 1f;
             BoostAcceleration = 12f; BoostDuration = 1.2f; BoostMaxSpeedBonus = 10f;
             Mass = 300f; CenterOfMassOffset = new Vector3(0f, -0.25f, 0f); InertiaScale = 1.2f;
-            StabilizeStrength = 14f; StabilizeDamping = 3f; Downforce = 0.25f;
+            StabilizeStrength = 14f; StabilizeDamping = 3f; StickyForce = 0.25f;
             AirLevelStrength = 4f; AirControl = 3f; SelfRightStrength = 20f; SelfRightDelay = 0.75f;
             UnityEditor.EditorUtility.SetDirty(this);
         }
@@ -261,7 +266,7 @@ namespace Remedy.Vehicles
             DriftEntry = DriftEntryMode.Off; MiniTurbo = false;
             DriftMomentumKeep = 0f; DriftCounterSteer = 0f;
             CenterOfMassOffset = new Vector3(0f, -0.1f, 0f); InertiaScale = 1f;
-            StabilizeStrength = 0f; StabilizeDamping = 0.5f; Downforce = 0.05f;
+            StabilizeStrength = 0f; StabilizeDamping = 0.5f; StickyForce = 0.05f;
             AirLevelStrength = 0f; AirControl = 0f; SelfRightStrength = 0f;
             UnityEditor.EditorUtility.SetDirty(this);
         }
