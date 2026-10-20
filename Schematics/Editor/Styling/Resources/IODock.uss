@@ -653,7 +653,8 @@ EventContainerRenderer
 }
 
 .node-Send-a-Signal #node-border #input,
-.node-Send-a-Signal #node-border #input PortView
+.node-Send-a-Signal #node-border #contents #top #input,
+.node-Send-a-Signal #node-border #contents #top #input PortView
 {
 	background-image: none;
 	background-color: rgba(0,0,0,0);
@@ -662,7 +663,7 @@ EventContainerRenderer
 .node-Send-a-Signal #node-border #input
 {
 	padding-bottom: 28px;
-	margin-top: -8px;
+	margin-top: -20px;
 }
 
 .node-Send-a-Signal #node-border #input PortView
