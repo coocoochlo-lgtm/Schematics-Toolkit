@@ -238,6 +238,7 @@ namespace Remedy.Vehicles
                 var wheel = wheels[i];
                 state.Wheels[i].Extension = properties != null ? properties.SuspensionRestLength : 0.45f;
                 state.Wheels[i].VisualRest = Quaternion.identity;
+                state.Wheels[i].TargetSpeedMultiplier = 1f;
                 if (wheel?.Anchor == null)
                     continue;
                 state.Wheels[i].IsFront = car.InverseTransformPoint(wheel.Anchor.position).z >= 0f;
@@ -337,6 +338,13 @@ namespace Remedy.Vehicles
                 state.SentTargetSpeed = state.TargetSpeed;
                 state.SentTargetSpeedEnabled = true;
                 TargetSpeed.Invoke(instance, state.TargetSpeed);
+                changed = true;
+            }
+            else if (!state.UseTargetSpeed && state.SentTargetSpeedEnabled)
+            {
+                state.SentTargetSpeed = 0f;
+                state.SentTargetSpeedEnabled = false;
+                TargetSpeed.Invoke(instance, 0f);
                 changed = true;
             }
             if (!Mathf.Approximately(state.Brake, state.SentBrake)) { state.SentBrake = state.Brake; Brake.Invoke(instance, state.Brake); changed = true; }
@@ -466,15 +474,40 @@ namespace Remedy.Vehicles
             float driftAngle = planarSpeed > 1f ? Vector3.SignedAngle(forward, planarVelocity, up) : 0f;
             float inverseMaxSpeed = 1f / Mathf.Max(0.1f, p.MaxSpeed);
             float speedFraction = Mathf.Clamp01(Mathf.Abs(forwardSpeed) * inverseMaxSpeed);
+            int driveCount = 0, handbrakeCount = 0;
+            foreach (var wheel in wheels)
+            {
+                if (wheel?.Anchor == null) continue;
+                if (wheel.Drives) driveCount++;
+                if (wheel.HasHandbrake) handbrakeCount++;
+            }
+            float wheelCount = wheels.Length;
+            float massShare = mass / Mathf.Max(1f, wheelCount);
+
+            float targetSpeedMultiplier = 1f;
+            for (int i = 0; i < state.Wheels.Length; i++)
+            {
+                ref var wheelState = ref state.Wheels[i];
+                if (!wheelState.Grounded)
+                    wheelState.TargetSpeedMultiplier = 1f;
+                else
+                {
+                    float resistance = 1f + Mathf.Max(0f, p.GroundMaterialResistance);
+                    wheelState.TargetSpeedMultiplier = Mathf.MoveTowards(wheelState.TargetSpeedMultiplier, 1f,
+                        Mathf.Max(0f, p.TargetSpeedGroundRecovery) * dt / resistance);
+                }
+                targetSpeedMultiplier *= wheelState.TargetSpeedMultiplier;
+            }
 
             // Inputs: nobody driving means no input (and the parking brake).
             bool active = IsActive(instance);
             if (!active && state.WasActive)
                 state.ClearInputs();
             state.WasActive = active;
-            float throttle = active && state.UseTargetSpeed ? Mathf.Max(state.TargetSpeed, 0f) : 0f;
+            float effectiveTargetSpeed = state.TargetSpeed * targetSpeedMultiplier;
+            float throttle = active && state.UseTargetSpeed ? Mathf.Max(effectiveTargetSpeed, 0f) : 0f;
             float brakeInput = active ? state.Brake : 0f;
-            float brake = Mathf.Max(brakeInput, active && state.UseTargetSpeed ? Mathf.Max(-state.TargetSpeed, 0f) : 0f);
+            float brake = Mathf.Max(brakeInput, active && state.UseTargetSpeed ? Mathf.Max(-effectiveTargetSpeed, 0f) : 0f);
             float steerInput = active ? state.SteerInput : 0f;
             bool handbrake = active && state.Handbrake;
             bool parked = !active && ParkWhenEmpty.Value;
@@ -499,7 +532,7 @@ namespace Remedy.Vehicles
             float driftThrottle = throttle;
             if (active && state.UseTargetSpeed)
             {
-                float targetSpeed = state.TargetSpeed;
+                float targetSpeed = effectiveTargetSpeed;
                 float inverseForwardLimit = 1f / Mathf.Max(0.1f, topSpeed);
                 float inverseReverseLimit = 1f / Mathf.Max(0.1f, p.MaxReverseSpeed);
                 float normalizedSpeed = forwardSpeed >= 0f
@@ -532,7 +565,7 @@ namespace Remedy.Vehicles
                         driveAcceleration = p.Acceleration * p.AccelerationCurve.Evaluate(speedFraction) * targetDrive;
                 }
                 brakeDeceleration = p.BrakeDeceleration * targetBrake;
-                driftThrottle = Mathf.Max(driftThrottle, Mathf.Max(targetSpeed, 0f));
+                driftThrottle = Mathf.Max(driftThrottle, Mathf.Max(effectiveTargetSpeed, 0f));
             }
             else
             {
@@ -546,17 +579,27 @@ namespace Remedy.Vehicles
 
             UpdateDrift(instance, p, state, active, handbrake, steerInput, driftThrottle, planarSpeed, forwardSpeed, driftAngle, mass, dt, up);
             bool drifting = IsDrifting.Value;
+            bool forcedDrift = drifting && handbrake;
+            if (forcedDrift)
+            {
+                Vector3 carHeading = Vector3.ProjectOnPlane(forward, up).normalized;
+                if (!state.ForcedDriftActive || state.ForcedDriftHeading.sqrMagnitude < 0.001f)
+                    state.ForcedDriftHeading = carHeading;
+                float targetMagnitude = Mathf.Abs(effectiveTargetSpeed);
+                float actualSpeedFraction = forwardSpeed >= 0f
+                    ? forwardSpeed / Mathf.Max(0.1f, topSpeed)
+                    : -forwardSpeed / Mathf.Max(0.1f, p.MaxReverseSpeed);
+                float speedRatio = targetMagnitude > 0.001f
+                    ? Mathf.Clamp01(actualSpeedFraction / targetMagnitude)
+                    : 0f;
+                float realignRate = p.ForcedDriftRealignSpeed
+                    * Mathf.Lerp(1f, Mathf.Clamp01(p.ForcedDriftMinRealignFraction), speedRatio);
+                state.ForcedDriftHeading = Vector3.RotateTowards(state.ForcedDriftHeading, carHeading,
+                    realignRate * Mathf.Deg2Rad * dt, 0f).normalized;
+            }
+            state.ForcedDriftActive = forcedDrift;
 
             // Wheels.
-            int driveCount = 0, handbrakeCount = 0;
-            foreach (var wheel in wheels)
-            {
-                if (wheel?.Anchor == null) continue;
-                if (wheel.Drives) driveCount++;
-                if (wheel.HasHandbrake) handbrakeCount++;
-            }
-            float wheelCount = wheels.Length;
-            float massShare = mass / Mathf.Max(1f, wheelCount);
             int grounded = 0;
             Vector3 normalSum = Vector3.zero;
 
@@ -575,11 +618,14 @@ namespace Remedy.Vehicles
                 float rest = Mathf.Max(0.01f, p.SuspensionRestLength);
                 w.SteerAngle = wheel.Steers ? steerAngle : 0f;
 
-                w.Grounded = SchematicPhysics.Raycast(origin, -up, out var hit, rest + radius, p.GroundLayers, body);
+                bool wasGrounded = w.Grounded;
+                w.Grounded = SchematicPhysics.SphereCast(origin, 0f, -up, out var hit, out _,
+                    rest + radius, p.GroundLayers, body);
                 if (!w.Grounded)
                 {
                     w.Extension = rest;
                     w.RollSpeed *= 0.99f;
+                    w.TargetSpeedMultiplier = 1f;
                     continue;
                 }
                 grounded++;
@@ -605,6 +651,12 @@ namespace Remedy.Vehicles
                 Vector3 rollDirection = Vector3.ProjectOnPlane(wheelForward, normal).normalized;
                 Vector3 sideDirection = Vector3.Cross(normal, rollDirection);
                 Vector3 contactVelocity = native.GetWorldPointVelocity(hit.point);
+                if (!wasGrounded)
+                {
+                    float landingSpeed = Mathf.Max(0f, -Vector3.Dot(contactVelocity, normal));
+                    ApplyWheelTargetSpeedLoss(ref w, landingSpeed, massShare, p,
+                        1f + Mathf.Max(0f, p.GroundMaterialResistance));
+                }
                 float sideSpeed = Vector3.Dot(contactVelocity, sideDirection);
                 float rollSpeed = Vector3.Dot(contactVelocity, rollDirection);
                 w.RollSpeed = rollSpeed;
@@ -673,7 +725,10 @@ namespace Remedy.Vehicles
 
                 if (p.DriftMomentumKeep > 0f && planarSpeed > 1f)
                 {
-                    Vector3 heading = Vector3.ProjectOnPlane(forward, up).normalized * planarSpeed;
+                    Vector3 headingDirection = forcedDrift
+                        ? state.ForcedDriftHeading
+                        : Vector3.ProjectOnPlane(forward, up).normalized;
+                    Vector3 heading = headingDirection * planarSpeed;
                     Vector3 change = (heading - planarVelocity) * Mathf.Min(1f, p.DriftMomentumKeep * dt);
                     native.ApplyForceToCenter(change * (mass / dt), true);
                 }
@@ -905,9 +960,48 @@ namespace Remedy.Vehicles
         protected override void OnImpact(PhysicsImpact impact)
         {
             var p = Properties.Value;
+            var wheels = Wheels.Value;
+            var state = _state.Value;
+            if (p != null && wheels != null && state != null && state.Wheels.Length == wheels.Length
+                && wheels.Length > 0 && !IsProxy(Self))
+            {
+                int nearestWheel = -1;
+                float nearestDistance = float.MaxValue;
+                for (int i = 0; i < wheels.Length; i++)
+                {
+                    if (wheels[i]?.Anchor == null) continue;
+                    float distance = (wheels[i].Anchor.position - impact.Point).sqrMagnitude;
+                    if (distance < nearestDistance)
+                    {
+                        nearestDistance = distance;
+                        nearestWheel = i;
+                    }
+                }
+                if (nearestWheel >= 0)
+                {
+                    var body = Self.GetComponent<Box3DBody>();
+                    float mass = p.Mass > 0f ? p.Mass : body != null && body.IsLive() ? body.Body.GetMass() : 0f;
+                    float massShare = mass / wheels.Length;
+                    ApplyWheelTargetSpeedLoss(ref state.Wheels[nearestWheel], impact.Speed, massShare, p, 1f);
+                }
+            }
             // Whoever simulates the car reports crashes (OnCrash is networked), so proxies don't add their own.
             if (p != null && impact.Speed >= p.MinCrashSpeed && !IsProxy(Self))
                 OnCrash.Invoke(Self, impact.Speed);
+        }
+
+        private static void ApplyWheelTargetSpeedLoss(ref WheelState wheel, float impactSpeed, float wheelMass,
+            ArcadeCarProperties properties, float resistance)
+        {
+            if (impactSpeed <= 0f || wheelMass <= 0f)
+                return;
+
+            float maximumSpeed = Mathf.Max(0.1f, properties.MaxSpeed);
+            float impactEnergy = 0.5f * wheelMass * impactSpeed * impactSpeed;
+            float maximumEnergy = 0.5f * wheelMass * maximumSpeed * maximumSpeed;
+            float normalizedEnergy = impactEnergy / maximumEnergy;
+            float loss = Mathf.Clamp01(normalizedEnergy * properties.ImpactTargetSpeedLoss * resistance);
+            wheel.TargetSpeedMultiplier *= 1f - loss;
         }
 
         #endregion
@@ -1039,7 +1133,8 @@ namespace Remedy.Vehicles
     internal sealed class CarState
     {
         public float Brake, SteerInput, Steer, TargetSpeed, SentTargetSpeed;
-        public bool UseTargetSpeed, SentTargetSpeedEnabled;
+        public bool UseTargetSpeed, SentTargetSpeedEnabled, ForcedDriftActive;
+        public Vector3 ForcedDriftHeading;
         public bool Handbrake, BoostQueued, UnflipQueued;
         public bool WasActive;
 
@@ -1081,7 +1176,6 @@ namespace Remedy.Vehicles
         {
             Brake = SteerInput = TargetSpeed = 0f;
             UseTargetSpeed = false;
-            SentTargetSpeedEnabled = false;
             Handbrake = false;
         }
 
@@ -1113,6 +1207,7 @@ namespace Remedy.Vehicles
     internal struct WheelState
     {
         public bool Grounded;
+        public float TargetSpeedMultiplier;
         public bool IsFront;
         public float Extension;
         public float SteerAngle;

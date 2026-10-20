@@ -77,6 +77,14 @@ namespace Remedy.Vehicles
         public float BrakeDeceleration = 25f;
         [Tooltip("How quickly the car coasts to a stop off the throttle, per second (0.25 loses a quarter of its speed per second).")]
         public float RollingResistance = 0.25f;
+        [Tooltip("How quickly a wheel's impact-induced target-speed loss recovers while grounded, per second. Wheels recover immediately while airborne.")]
+        public float TargetSpeedGroundRecovery = 0.5f;
+        [Range(0f, 1f)]
+        [Tooltip("Placeholder ground-material resistance (0..1) until the vehicle surface-material system is available. Increases target-speed loss on landing and slows recovery.")]
+        public float GroundMaterialResistance = 0.5f;
+        [Range(0f, 1f)]
+        [Tooltip("How strongly normalized impact kinetic energy reduces the struck wheel's target speed (0..1).")]
+        public float ImpactTargetSpeedLoss = 0.5f;
 
         [Header("Steering")]
         [Tooltip("Front wheel angle at full lock, in degrees.")]
@@ -131,8 +139,13 @@ namespace Remedy.Vehicles
         public float DriftMaxAngle = 45f;
         [Tooltip("How hard the car is pulled back when the slide goes past Drift Max Angle (an automatic counter-steer). 0 lets it spin.")]
         public float DriftCounterSteer = 8f;
-        [Tooltip("How quickly the car's speed swings round to where its nose points while drifting (per second). Higher keeps your speed through drifts (arcade); 0 = pure physics, sliding scrubs speed.")]
+        [Tooltip("How quickly the car's speed swings round to its drift heading while drifting (per second). Higher keeps your speed through drifts (arcade); 0 = pure physics, sliding scrubs speed.")]
         public float DriftMomentumKeep = 1.5f;
+        [Tooltip("During a handbrake drift, how quickly its movement heading realigns toward the car's forward direction (degrees per second).")]
+        public float ForcedDriftRealignSpeed = 180f;
+        [Range(0f, 1f)]
+        [Tooltip("Minimum fraction of Forced Drift Realign Speed when actual speed reaches its target. Lower values keep the drift heading longer.")]
+        public float ForcedDriftMinRealignFraction = 0.1f;
         [Tooltip("NFS-style drifts end once the slide angle drops under this (degrees).")]
         public float DriftExitAngle = 8f;
 

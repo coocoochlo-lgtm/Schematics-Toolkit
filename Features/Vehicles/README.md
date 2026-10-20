@@ -85,6 +85,12 @@ motion, it brakes until current speed is within 20% of the current direction's m
 way. The value holds until changed. **Brake** remains available as an independent brake override and never requests
 reverse.
 
+Impacts reduce the target-speed multiplier for the nearest wheel based on normalized impact kinetic energy; landings
+apply the same effect to the contacting wheel. The wheel multipliers combine to scale the requested target speed.
+They recover while grounded and reset while airborne. **Ground Material Resistance** is a temporary placeholder until
+surface materials are available; it increases landing loss and slows recovery. During handbrake drifts, the movement
+heading lags behind the car's forward heading, with realignment slowing as actual speed approaches the target.
+
 A typical player graph: on the interact button, if not seated send **Enter** (self) to the vehicle in front of you,
 else **Exit**. On the vehicle's **On Driver Changed**, switch the input map (`RemedyInput.Instance.SetInputMap`) and the camera
 target. Without Vehicle Seats the car is always active; with them it only drives while someone's in a driver seat
