@@ -431,12 +431,13 @@ namespace Remedy.LevelDesigner
             approachLength = Mathf.Clamp(Mathf.Max(0f, approachLength), 0f, Mathf.Max(0f, s.z * 0.5f - 0.05f));
             float diameterZ = Mathf.Max(0.1f, s.z - 2f * approachLength);
             float radiusZ = diameterZ * 0.5f;
-            float halfWidth = s.x * 0.5f;
+            float halfWidth = s.x * 0.25f;
+            float lateralOffset = halfWidth;
             thickness = Mathf.Max(0.05f, thickness);
-            var profile = new List<(Vector3 point, Vector3 normal, float distance)>();
+            var profile = new List<(Vector3 point, Vector3 normal, Vector3 across, float distance)>();
             float distance = 0f;
 
-            void AddProfilePoint(Vector3 point, Vector3 normal)
+            void AddProfilePoint(Vector3 point, Vector3 normal, Vector3 across)
             {
                 if (profile.Count > 0)
                 {
@@ -444,22 +445,28 @@ namespace Remedy.LevelDesigner
                         return;
                     distance += Vector3.Distance(profile[^1].point, point);
                 }
-                profile.Add((point, normal.normalized, distance));
+                profile.Add((point, normal.normalized, across.normalized, distance));
             }
 
-            // The open, level approach meets the loop at its bottom tangent.
-            AddProfilePoint(new Vector3(0f, 0f, -approachLength), Vector3.up);
+            // Offset the approach and exit on opposite sides so they don't overlap at the loop's bottom.
+            AddProfilePoint(new Vector3(-lateralOffset, 0f, -approachLength), Vector3.up, Vector3.right);
             for (int i = 0; i <= steps; i++)
             {
-                float angle = (float)i / steps * Mathf.PI * 2f;
-                var point = new Vector3(0f, radiusY * (1f - Mathf.Cos(angle)), radiusZ * Mathf.Sin(angle));
-                var normal = new Vector3(0f, Mathf.Cos(angle) / radiusY, -Mathf.Sin(angle) / radiusZ);
-                AddProfilePoint(point, normal);
+                float t = (float)i / steps;
+                float angle = t * Mathf.PI * 2f;
+                float eased = t * t * (3f - 2f * t);
+                float x = Mathf.Lerp(-lateralOffset, lateralOffset, eased);
+                float dx = 6f * lateralOffset / Mathf.PI * t * (1f - t);
+                var point = new Vector3(x, radiusY * (1f - Mathf.Cos(angle)), radiusZ * Mathf.Sin(angle));
+                var tangent = new Vector3(dx, radiusY * Mathf.Sin(angle), radiusZ * Mathf.Cos(angle)).normalized;
+                var radial = new Vector3(0f, Mathf.Cos(angle) / radiusY, -Mathf.Sin(angle) / radiusZ);
+                var normal = (radial - tangent * Vector3.Dot(radial, tangent)).normalized;
+                var across = Vector3.Cross(normal, tangent).normalized;
+                AddProfilePoint(point, normal, across);
             }
-            // Continue straight from the same bottom tangent; the ends remain open to drive through.
-            AddProfilePoint(new Vector3(0f, 0f, approachLength), Vector3.up);
+            AddProfilePoint(new Vector3(lateralOffset, 0f, approachLength), Vector3.up, Vector3.right);
 
-            AddSolidTrack(profile, halfWidth, thickness, new Vector2(s.x, distance));
+            AddSolidTrack(profile, halfWidth, thickness, new Vector2(halfWidth * 2f, distance));
         }
 
         private void HalfPipe(Vector3 s, int segments, float thickness)
@@ -520,7 +527,7 @@ namespace Remedy.LevelDesigner
             }
         }
 
-        private void AddSolidTrack(IReadOnlyList<(Vector3 point, Vector3 normal, float distance)> profile,
+        private void AddSolidTrack(IReadOnlyList<(Vector3 point, Vector3 normal, Vector3 across, float distance)> profile,
             float halfWidth, float thickness, Vector2 faceSize)
         {
             int count = profile.Count;
@@ -533,9 +540,9 @@ namespace Remedy.LevelDesigner
             for (int i = 0; i < count; i++)
             for (int side = 0; side < 2; side++)
             {
-                var (point, normal, alongPath) = profile[i];
-                float x = side == 0 ? -halfWidth : halfWidth;
-                inner[i, side] = point + Vector3.right * x;
+                var (point, normal, across, alongPath) = profile[i];
+                float offset = side == 0 ? -halfWidth : halfWidth;
+                inner[i, side] = point + across * offset;
                 outer[i, side] = inner[i, side] - normal * thickness;
                 innerNormals[i, side] = normal;
                 outerNormals[i, side] = -normal;
@@ -549,9 +556,9 @@ namespace Remedy.LevelDesigner
                 var wall = new Vector3[count, 2];
                 var normals = new Vector3[count, 2];
                 var uvs = new Vector2[count, 2];
-                Vector3 normal = side == 0 ? Vector3.left : Vector3.right;
                 for (int i = 0; i < count; i++)
                 {
+                    Vector3 normal = side == 0 ? -profile[i].across : profile[i].across;
                     wall[i, 0] = inner[i, side];
                     wall[i, 1] = outer[i, side];
                     normals[i, 0] = normals[i, 1] = normal;

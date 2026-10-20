@@ -78,7 +78,7 @@ namespace Remedy.LevelDesigner
         [SerializeField, HideInInspector] private int _meshVersion;
 
         /// <summary>Bumped whenever the mesh layout or procedural shape geometry changes.</summary>
-        private const int MeshVersion = 3;
+        private const int MeshVersion = 4;
 
         /// <summary>
         /// Set by a <see cref="VariantScene"/> that brings its blockout into Play Mode for collision only: shapes

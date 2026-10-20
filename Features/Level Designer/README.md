@@ -137,9 +137,10 @@ red verdict).
 **Blockout Shape** (`BlockoutShape`) is a procedural Box, Ramp, Stairs, Cylinder, Sphere, Wedge, Arch, Quarter
 Pipe, full 360-degree **Loop**, or **Half Pipe** with its **Size in meters** (width x height x length; the pivot is
 the centre of the bottom face). A Loop has open, straight approach and exit tracks; set **Loop Approach Length** to
-control each one, and set **Curved Track Thickness** for its solid back and sidewalls. Its height is the vertical loop
-diameter; length is the loop depth plus both approaches. The Half Pipe is a U-shaped trough running along +Z, open at
-both ends, with solid backing and sidewalls. Select one
+control each one, and set **Curved Track Thickness** for its solid back and sidewalls. The entry and exit are offset
+across X, with the track shifting between them through the full loop so they remain separate. Its height is the
+vertical loop diameter; length is the loop depth plus both approaches. The Half Pipe is a U-shaped trough running
+along +Z, open at both ends, with solid backing and sidewalls. Select one
 to resize it with the face handles (snapped; the opposite face stays put). Prefer Size over scaling (**Apply Scale to
 Size** fixes a scaled one).
 
