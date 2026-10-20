@@ -77,8 +77,9 @@ Thumbnail of the Active Scene** takes one on demand.
 
 ## Blockouts
 
-A blockout is any scene with a **Blockout Scene** marker. While one is the active scene, the Scene view shows the
-**Blockout Tools** toolbar:
+A blockout is any scene with a **Blockout Scene** marker. Cameras and lights in that scene are automatically removed
+in Edit Mode; put presentation lighting and cameras in a variant instead. While a blockout is the active scene, the
+Scene view shows the **Blockout Tools** toolbar:
 
 | Button | Left click | Right click |
 | --- | --- | --- |
