@@ -987,7 +987,13 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
     /// </summary>
     private bool DropAsset(UnityEngine.Object asset, Vector2 position)
     {
-        var matches = AssetNodes.For(asset);
+        // Only nodes this kind of graph offers: an audio file is a Sound Wave in a Sound Cue, Play SFX elsewhere.
+        var include = SchematicGraph != null
+            ? SchematicGraph.GetType().GetCustomAttributes(typeof(IncludeTagsAttribute), true).SelectMany(a => ((IncludeTagsAttribute)a).Tags ?? Array.Empty<string>()).ToList()
+            : new List<string>();
+        var matches = AssetNodes.For(asset)
+            .Where(m => DefaultSearchProvider.Allows(include, NodeReflection.GetNodeType(m.NodeType)?.Tags))
+            .ToList();
         if (matches.Count == 0)
             return false;
         if (matches.Count == 1)

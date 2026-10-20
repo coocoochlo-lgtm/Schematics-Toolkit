@@ -46,15 +46,24 @@ namespace BlueGraph.Editor
         /// list has more than one tag, OR if our allow list is empty.
         /// </summary>
         private bool IsInSupportedTags(IEnumerable<string> supported, IEnumerable<string> tags)
-        {
-            // If we have no include list, allow anything.
-            if (supported.Count() < 1)
-            {
-                return true;
-            }
+            => Allows(supported, tags);
 
-            // Otherwise - only allow if at least one tag intersects. 
-            return supported.Intersect(tags).Count() > 0;
+        /// <summary>
+        /// Tags whose nodes only belong in graphs that include them by name ([IncludeTags]): kept out of graphs with
+        /// no include list (which otherwise offer every node). Sound Cue nodes, for example.
+        /// </summary>
+        public static readonly HashSet<string> ExclusiveTags = new HashSet<string>();
+
+        /// <summary>
+        /// Whether a node with <paramref name="tags"/> belongs in a graph including <paramref name="supported"/>: one
+        /// tag in common, or (with no include list) any node without an exclusive tag.
+        /// </summary>
+        public static bool Allows(IEnumerable<string> supported, IEnumerable<string> tags)
+        {
+            tags ??= Enumerable.Empty<string>();
+            if (supported == null || !supported.Any())
+                return !tags.Any(ExclusiveTags.Contains);
+            return supported.Intersect(tags).Any();
         }
 
         private bool IsCompatible(Port sourcePort, NodeReflectionData node)

@@ -1,0 +1,476 @@
+using BlueGraph;
+using Remedy.Schematics;
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace Remedy.Audio
+{
+    /// <summary>
+    /// A Sound Cue: a sound built like a shader. Every wire carries a value per sample, the way a shader's wires carry a
+    /// value per pixel. A playback Time (seconds since the cue started) runs through math into the Time input of a
+    /// Sound Wave (an audio file) or a Generator (sfxr-style synth), which read themselves at that time like a texture
+    /// read at a UV. Their audio then runs through effects (filters, delay, reverb...) and mixers into the Output. Any
+    /// input can be driven by a control (distance from the listener, a curve over time, a gameplay parameter, an
+    /// oscillator...) or left as the number typed on the node.
+    /// </summary>
+    /// <remarks>
+    /// Played by a <see cref="SoundCuePlayer"/> (the Play Sound Cue node makes one). Each play compiles the graph into a
+    /// <see cref="SoundCueVoice"/>, which renders blocks of samples on the audio thread: per block, every node runs once
+    /// over the whole block, so the graph costs a little per block rather than per sample.
+    /// </remarks>
+    [SchematicType("Audio", Order = 30, Icon = "AudioSource Icon", NewAssetName = "New Sound Cue", DefaultFolder = SoundCueGraph.Folder)]
+    [IncludeTags(SoundNode.Tag)]
+    [RequireNode(typeof(SoundCueOutput), "Output", 400, 0)]
+    public class SoundCueGraph : SchematicGraph
+    {
+        /// <summary>Where new Sound Cues go: shown by the Audio page (Sound Cues) and the Schematics page (Audio).</summary>
+        public const string Folder = "Assets/Content/Audio/Sound Cues";
+
+        public override string Title => "SOUND CUE";
+
+        /// <summary>The cue's Output node (the first one, if there are several).</summary>
+        public SoundCueOutput Output
+        {
+            get
+            {
+                foreach (var node in Nodes)
+                    if (node is SoundCueOutput output)
+                        return output;
+                return null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// A node in a Sound Cue. It makes a <see cref="SoundProcessor"/> for each voice that plays the cue, which fills its
+    /// outputs a block of samples at a time from its inputs' blocks.
+    /// </summary>
+    [Serializable]
+    [NodeColor(NodeColors.Audio)]
+    public abstract class SoundNode : SchematicGraphNode
+    {
+        /// <summary>The tag every Sound Cue node has: Sound Cue graphs only offer nodes with it.</summary>
+        public const string Tag = "Sound Cue";
+
+        /// <summary>Makes this node's processor for one voice, asking the builder for its inputs (main thread).</summary>
+        public abstract SoundProcessor CreateProcessor(SoundCueBuilder builder);
+
+        // Sound Cue nodes aren't run by Schematic flows.
+        public override object OnRequestValue(Port port) => null;
+    }
+
+    /// <summary>One node's work for one voice: fills its output blocks from its input blocks.</summary>
+    public abstract class SoundProcessor
+    {
+        internal readonly Dictionary<string, float[]> Outputs = new();
+
+        /// <summary>The block this processor writes an output into (made the first time it's asked for).</summary>
+        public float[] Output(string port)
+        {
+            if (!Outputs.TryGetValue(port, out var buffer))
+                Outputs[port] = buffer = new float[SoundCueBuilder.BlockSize];
+            return buffer;
+        }
+
+        /// <summary>Fills the first <paramref name="count"/> samples of the outputs (audio thread).</summary>
+        public abstract void Process(SoundContext context, int count);
+    }
+
+    /// <summary>A processor with nothing to do (its outputs are filled by someone else, or are constants).</summary>
+    public sealed class StaticProcessor : SoundProcessor
+    {
+        public override void Process(SoundContext context, int count) { }
+    }
+
+    /// <summary>What a voice's processors share while rendering: the sample rate, where it is, and its controls.</summary>
+    public sealed class SoundContext
+    {
+        public int SampleRate;
+        /// <summary>The first sample of the block being rendered, counted from the start of the cue.</summary>
+        public long SamplePosition;
+        /// <summary>How long the cue plays, in seconds (0 when it plays until it's stopped).</summary>
+        public float Duration;
+        /// <summary>Distance from the voice to the Audio Listener, in meters (set by the player each frame).</summary>
+        public volatile float Distance;
+        /// <summary>The cue's parameters' values, by index (see <see cref="SoundCueBuilder.ParameterIndex"/>).</summary>
+        public float[] Parameters = Array.Empty<float>();
+        /// <summary>Random numbers for this voice (seeded per play).</summary>
+        public System.Random Random = new();
+    }
+
+    /// <summary>
+    /// Compiles a Sound Cue into processors for one voice: each node once, in an order where every node comes after
+    /// the nodes it reads (main thread).
+    /// </summary>
+    public sealed class SoundCueBuilder
+    {
+        /// <summary>The most samples a block holds.</summary>
+        public const int BlockSize = 1024;
+
+        public readonly int SampleRate;
+        public readonly SoundContext Context;
+        internal readonly List<SoundProcessor> Order = new();
+
+        /// <summary>The cue's playback time in seconds, per sample (what an unconnected Time input reads).</summary>
+        public readonly float[] Time = new float[BlockSize];
+        /// <summary>Time / Duration (0 to 1), per sample; 0 when the cue has no set length.</summary>
+        public readonly float[] Progress = new float[BlockSize];
+
+        /// <summary>The longest Sound Wave or Generator the cue plays (for Auto length), in seconds.</summary>
+        public float LongestSource { get; private set; }
+
+        /// <summary>Problems found while building (shown in the graph window).</summary>
+        public readonly List<string> Warnings = new();
+
+        private readonly Dictionary<SoundNode, SoundProcessor> _built = new();
+        private readonly HashSet<SoundNode> _building = new();
+        private readonly Dictionary<string, int> _parameters = new(StringComparer.OrdinalIgnoreCase);
+        private readonly List<float> _parameterDefaults = new();
+
+        public SoundCueBuilder(int sampleRate, SoundContext context)
+        {
+            SampleRate = sampleRate;
+            Context = context;
+        }
+
+        /// <summary>
+        /// The block an input reads: the output it's connected to, or a block of its typed-in value.
+        /// </summary>
+        public float[] Input(SoundNode node, string port, float constant)
+            => Connected(node, port) ?? Constant(constant);
+
+        /// <summary>A Time input: the output it's connected to, or the cue's own playback time.</summary>
+        public float[] TimeInput(SoundNode node, string port)
+            => Connected(node, port) ?? Time;
+
+        /// <summary>Whether something is connected to an input.</summary>
+        public bool IsConnected(SoundNode node, string port)
+        {
+            var input = node.GetPort(port);
+            if (input == null)
+                return false;
+            foreach (var source in input.ConnectedPorts)
+                if (source?.Node is SoundNode)
+                    return true;
+            return false;
+        }
+
+        /// <summary>A block holding one value (for unconnected inputs).</summary>
+        public float[] Constant(float value)
+        {
+            var buffer = new float[BlockSize];
+            if (value != 0f)
+                for (int i = 0; i < buffer.Length; i++)
+                    buffer[i] = value;
+            return buffer;
+        }
+
+        /// <summary>The slot a named parameter's value is kept in (made the first time it's asked for).</summary>
+        public int ParameterIndex(string name, float defaultValue)
+        {
+            name = (name ?? "").Trim();
+            if (_parameters.TryGetValue(name, out int index))
+                return index;
+            index = _parameterDefaults.Count;
+            _parameters[name] = index;
+            _parameterDefaults.Add(defaultValue);
+            return index;
+        }
+
+        internal IReadOnlyDictionary<string, int> Parameters => _parameters;
+        internal float[] ParameterDefaults => _parameterDefaults.ToArray();
+
+        /// <summary>Notes a source's length (a Sound Wave's clip, a Generator's sound) for Auto length.</summary>
+        public void NoteSourceLength(float seconds)
+        {
+            if (seconds > LongestSource)
+                LongestSource = seconds;
+        }
+
+        private float[] Connected(SoundNode node, string port)
+        {
+            var input = node.GetPort(port);
+            if (input == null)
+                return null;
+            foreach (var source in input.ConnectedPorts)
+                if (source?.Node is SoundNode sourceNode)
+                    return Build(sourceNode)?.Output(source.Name);
+            return null;
+        }
+
+        /// <summary>A node's processor for this voice (built the first time it's asked for).</summary>
+        public SoundProcessor Build(SoundNode node)
+        {
+            if (_built.TryGetValue(node, out var built))
+                return built;
+            if (!_building.Add(node))
+            {
+                Warnings.Add($"\"{node.Name}\" is wired into a loop (it ends up reading its own output): that wire reads silence.");
+                return null;
+            }
+            SoundProcessor processor;
+            try
+            {
+                processor = node.CreateProcessor(this) ?? new StaticProcessor();
+            }
+            catch (Exception exception)
+            {
+                Warnings.Add($"\"{node.Name}\" couldn't be built: {exception.Message}");
+                Debug.LogException(exception);
+                processor = new StaticProcessor();
+            }
+            _building.Remove(node);
+            _built[node] = processor;
+            Order.Add(processor);
+            return processor;
+        }
+    }
+
+    /// <summary>
+    /// One playing instance of a Sound Cue: its compiled processors and where it is in the sound. Made on the main
+    /// thread (<see cref="Create"/>), rendered on the audio thread (<see cref="Render"/>).
+    /// </summary>
+    public sealed class SoundCueVoice
+    {
+        public readonly SoundCueGraph Cue;
+        public readonly SoundContext Context;
+        /// <summary>How long it plays, in samples (0: until it's stopped).</summary>
+        public readonly long LengthSamples;
+        public readonly IReadOnlyList<string> Warnings;
+
+        private readonly SoundProcessor[] _order;
+        private readonly float[] _audio, _volume;
+        private readonly Dictionary<string, int> _parameters;
+        private volatile bool _finished;
+        private bool _failed;
+
+        /// <summary>True once it has played its whole length.</summary>
+        public bool Finished => _finished;
+
+        /// <summary>Seconds played so far.</summary>
+        public float Time => Context.SampleRate > 0 ? (float)(Context.SamplePosition / (double)Context.SampleRate) : 0f;
+
+        private SoundCueVoice(SoundCueGraph cue, SoundContext context, SoundCueBuilder builder, float[] audio, float[] volume, long length)
+        {
+            Cue = cue;
+            Context = context;
+            _order = builder.Order.ToArray();
+            _audio = audio;
+            _volume = volume;
+            LengthSamples = length;
+            Warnings = builder.Warnings;
+            _parameters = new Dictionary<string, int>(builder.Parameters, StringComparer.OrdinalIgnoreCase);
+            context.Parameters = builder.ParameterDefaults;
+            _time = builder.Time;
+            _progress = builder.Progress;
+        }
+
+        /// <summary>Compiles a cue for playing at a sample rate (main thread). Null when there's no cue.</summary>
+        public static SoundCueVoice Create(SoundCueGraph cue, int sampleRate, int seed = 0)
+        {
+            if (cue == null)
+                return null;
+            sampleRate = Mathf.Max(8000, sampleRate);
+            var context = new SoundContext
+            {
+                SampleRate = sampleRate,
+                Random = seed != 0 ? new System.Random(seed) : new System.Random(),
+            };
+            var builder = new SoundCueBuilder(sampleRate, context);
+
+            var output = cue.Output;
+            float[] audio, volume;
+            long length = 0;
+            if (output == null)
+            {
+                builder.Warnings.Add("The cue has no Output node, so it's silent.");
+                audio = builder.Constant(0f);
+                volume = builder.Constant(0f);
+            }
+            else
+            {
+                audio = builder.Input(output, SoundCueOutput.AudioPort, 0f);
+                volume = builder.Input(output, SoundCueOutput.VolumePort, output.Volume);
+                float seconds = output.Length switch
+                {
+                    SoundCueOutput.LengthMode.Fixed => output.Duration,
+                    SoundCueOutput.LengthMode.Auto => builder.LongestSource,
+                    _ => 0f,
+                };
+                if (output.Length == SoundCueOutput.LengthMode.Auto && seconds <= 0f)
+                    builder.Warnings.Add("Length is Auto but nothing in the cue has a length (no Sound Wave or Generator), so it plays until it's stopped.");
+                context.Duration = Mathf.Max(0f, seconds);
+                length = (long)Math.Ceiling(context.Duration * sampleRate);
+            }
+            return new SoundCueVoice(cue, context, builder, audio, volume, length);
+        }
+
+        /// <summary>Sets a parameter (a Parameter node's value) by name. Unknown names are ignored.</summary>
+        public void SetParameter(string name, float value)
+        {
+            if (name != null && _parameters.TryGetValue(name.Trim(), out int index) && index < Context.Parameters.Length)
+                Context.Parameters[index] = value;
+        }
+
+        /// <summary>Whether the cue has a parameter with this name.</summary>
+        public bool HasParameter(string name) => name != null && _parameters.ContainsKey(name.Trim());
+
+        /// <summary>
+        /// Writes the next <paramref name="count"/> mono samples into <paramref name="data"/> from
+        /// <paramref name="offset"/> (audio thread). Silence past the cue's end.
+        /// </summary>
+        public void Render(float[] data, int offset, int count)
+        {
+            if (_failed)
+            {
+                Array.Clear(data, offset, count);
+                return;
+            }
+            int written = 0;
+            try
+            {
+                while (written < count)
+                {
+                    int n = Math.Min(SoundCueBuilder.BlockSize, count - written);
+                    if (LengthSamples > 0)
+                    {
+                        long left = LengthSamples - Context.SamplePosition;
+                        if (left <= 0)
+                        {
+                            _finished = true;
+                            break;
+                        }
+                        if (left < n)
+                            n = (int)left;
+                    }
+
+                    FillTime(n);
+                    for (int p = 0; p < _order.Length; p++)
+                        _order[p].Process(Context, n);
+                    for (int i = 0; i < n; i++)
+                    {
+                        float sample = _audio[i] * _volume[i];
+                        // NaN or infinite (a divide by zero upstream) would break the whole mix: silence instead.
+                        data[offset + written + i] = float.IsNaN(sample) || float.IsInfinity(sample) ? 0f : sample;
+                    }
+                    Context.SamplePosition += n;
+                    written += n;
+                }
+            }
+            catch (Exception exception)
+            {
+                _failed = true;
+                Debug.LogException(exception);
+            }
+            if (written < count)
+                Array.Clear(data, offset + written, count - written);
+        }
+
+        // The cue's time (and progress) for the block: the builder's shared blocks, which unconnected Time inputs and
+        // the Time node read.
+        private readonly float[] _time, _progress;
+        private void FillTime(int count)
+        {
+            double rate = Context.SampleRate;
+            float duration = Context.Duration;
+            for (int i = 0; i < count; i++)
+            {
+                double t = (Context.SamplePosition + i) / rate;
+                _time[i] = (float)t;
+                _progress[i] = duration > 0f ? Mathf.Clamp01((float)(t / duration)) : 0f;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Audio files as samples: each clip read once (mixed down to mono) and kept, since clips can only be read on the
+    /// main thread and voices read them on the audio thread.
+    /// </summary>
+    public static class SoundClipCache
+    {
+        public sealed class Entry
+        {
+            public float[] Samples;
+            public int Frequency;
+            public float Length => Frequency > 0 ? Samples.Length / (float)Frequency : 0f;
+        }
+
+        private static readonly Dictionary<AudioClip, Entry> _entries = new();
+
+        /// <summary>A clip's samples (main thread). Null when it can't be read (see the warning it logs).</summary>
+        public static Entry Get(AudioClip clip)
+        {
+            if (clip == null)
+                return null;
+            if (_entries.TryGetValue(clip, out var entry))
+                return entry;
+
+            if (clip.loadState != AudioDataLoadState.Loaded)
+                clip.LoadAudioData();
+            int channels = Mathf.Max(1, clip.channels);
+            var interleaved = new float[clip.samples * channels];
+            if (clip.samples == 0 || !clip.GetData(interleaved, 0))
+            {
+                Debug.LogWarning($"Sound Cue: couldn't read \"{clip.name}\". Set its Load Type to Decompress On Load (and untick Load In Background) in its import settings.", clip);
+                return null;
+            }
+            var mono = new float[clip.samples];
+            for (int i = 0; i < mono.Length; i++)
+            {
+                float sum = 0f;
+                for (int c = 0; c < channels; c++)
+                    sum += interleaved[i * channels + c];
+                mono[i] = sum / channels;
+            }
+            return _entries[clip] = new Entry { Samples = mono, Frequency = clip.frequency };
+        }
+
+        /// <summary>Forgets a clip (after it's reimported).</summary>
+        public static void Forget(AudioClip clip)
+        {
+            if (clip != null)
+                _entries.Remove(clip);
+        }
+
+        public static void Clear() => _entries.Clear();
+    }
+
+    /// <summary>
+    /// An AnimationCurve as a lookup table, so the audio thread can read it (curves can only be evaluated safely on the
+    /// main thread). Linear between 512 points across the curve's keys.
+    /// </summary>
+    public sealed class CurveTable
+    {
+        private const int Points = 512;
+        private readonly float[] _values = new float[Points];
+        private readonly float _start, _end;
+
+        public CurveTable(AnimationCurve curve)
+        {
+            if (curve == null || curve.length == 0)
+            {
+                _start = 0f;
+                _end = 1f;
+                return;
+            }
+            _start = curve.keys[0].time;
+            _end = curve.keys[curve.length - 1].time;
+            if (_end <= _start)
+                _end = _start + 1f;
+            for (int i = 0; i < Points; i++)
+                _values[i] = curve.Evaluate(Mathf.Lerp(_start, _end, i / (float)(Points - 1)));
+        }
+
+        /// <summary>The curve's value at x (held at its first and last values outside its keys).</summary>
+        public float Evaluate(float x)
+        {
+            float u = (x - _start) / (_end - _start) * (Points - 1);
+            if (!(u > 0f)) return _values[0]; // also NaN
+            if (u >= Points - 1) return _values[Points - 1];
+            int i = (int)u;
+            float f = u - i;
+            return _values[i] + (_values[i + 1] - _values[i]) * f;
+        }
+    }
+}

@@ -17,11 +17,13 @@ namespace Remedy.Schematics.Browsers
         internal const string AudioRoot = "Assets/Content/Audio";
         internal const string MusicRoot = AudioRoot + "/Music";
         internal const string SfxRoot = AudioRoot + "/SFX";
+        internal const string CueRoot = Remedy.Audio.SoundCueGraph.Folder;
         private const string AudioPrefs = "Remedy.AudioClipBrowser";
         private const int WaveformWidth = 512;
         private const int WaveformHeight = 128;
 
         private readonly List<AudioClip> _clips = new();
+        private readonly List<Remedy.Audio.SoundCueGraph> _cues = new();
         private readonly List<PlayerControls> _players = new();
         private readonly Dictionary<AudioClip, Texture2D> _waveforms = new();
         private readonly HashSet<Texture2D> _ownedWaveforms = new();
@@ -169,6 +171,7 @@ namespace Remedy.Schematics.Browsers
             {
                 new ProjectFolderTree.Group { Key = "Music", Label = "Music", Icon = "AudioClip Icon", Root = MusicRoot, ShowAllSubfolders = true },
                 new ProjectFolderTree.Group { Key = "SFX", Label = "SFX", Icon = "AudioSource Icon", Root = SfxRoot, ShowAllSubfolders = true },
+                new ProjectFolderTree.Group { Key = "Cues", Label = "Sound Cues", Icon = "AudioMixerController Icon", Root = CueRoot, ShowAllSubfolders = true },
             });
             _folderTree.SelectionChanged += () =>
             {
@@ -253,6 +256,13 @@ namespace Remedy.Schematics.Browsers
                 if (clip != null)
                     _clips.Add(clip);
             }
+            _cues.Clear();
+            foreach (var guid in AssetDatabase.FindAssets("t:" + nameof(Remedy.Audio.SoundCueGraph), new[] { CueRoot }))
+            {
+                var cue = AssetDatabase.LoadAssetAtPath<Remedy.Audio.SoundCueGraph>(AssetDatabase.GUIDToAssetPath(guid));
+                if (cue != null)
+                    _cues.Add(cue);
+            }
             RebuildAudioData();
             // The page is hosted in Project Manager (this window's own root stays empty), so check the page itself.
             if (_page != null && _folderTree != null)
@@ -293,15 +303,19 @@ namespace Remedy.Schematics.Browsers
                 _clipGrid.Clear();
                 _players.Clear();
                 _nameLabels.Clear();
-                _clipGrid.Add(BuildImportCard());
+                _clipGrid.Add(InCues ? BuildNewCueCard() : BuildImportCard());
                 var folders = FolderView ? FoldersInView().Where(f => MatchesSearch(Path.GetFileName(f))).ToList() : new List<string>();
                 foreach (var folder in folders)
                     _clipGrid.Add(BuildFolderCard(folder));
                 var visible = _clips.Where(IsVisible).ToList();
                 foreach (var clip in visible)
                     _clipGrid.Add(BuildCard(clip));
+                var cues = _cues.Where(IsVisible).ToList();
+                foreach (var cue in cues)
+                    _clipGrid.Add(BuildCueCard(cue));
                 if (_status != null)
                     _status.text = $"{visible.Count} clip{(visible.Count == 1 ? "" : "s")}"
+                        + (cues.Count > 0 ? $", {cues.Count} Sound Cue{(cues.Count == 1 ? "" : "s")}" : "")
                         + (folders.Count > 0 ? $", {folders.Count} folder{(folders.Count == 1 ? "" : "s")}" : "");
             }
             finally
@@ -322,6 +336,145 @@ namespace Remedy.Schematics.Browsers
             return tile;
         }
 
+        #region Sound Cues
+
+        private static readonly Color CueColor = new(0.42f, 0.22f, 0.4f, 1f);
+
+        // Whether the open folder is the Sound Cues folder (or one in it).
+        private bool InCues => _selectedFolder.StartsWith(CueRoot, StringComparison.OrdinalIgnoreCase);
+
+        // Where new Sound Cues go: the open folder when it's in Sound Cues, else Sound Cues itself.
+        private string CueTarget => InCues ? _selectedFolder : CueRoot;
+
+        private bool IsVisible(Remedy.Audio.SoundCueGraph cue)
+        {
+            if (!MatchesSearch(cue.name))
+                return false;
+            var path = AssetDatabase.GetAssetPath(cue);
+            if (FolderView)
+                return _selectedFolder != AudioRoot
+                    && string.Equals(Path.GetDirectoryName(path)?.Replace('\\', '/'), _selectedFolder, StringComparison.OrdinalIgnoreCase);
+            return _selectedFolder == AudioRoot || path.StartsWith(_selectedFolder.TrimEnd('/') + "/", StringComparison.OrdinalIgnoreCase);
+        }
+
+        // The "+" card in Sound Cues: makes a new cue (a Sound Wave wired to its Output) and opens it.
+        private VisualElement BuildNewCueCard()
+        {
+            var tile = new ActionTile("New Sound Cue", $"Make a Sound Cue in {CueTarget}: a sound built from audio files, generators, effects and controls, like a shader.",
+                () => EditorApplication.delayCall += CreateCue);
+            tile.Resize(TileSize);
+            return tile;
+        }
+
+        private void CreateCue()
+        {
+            var info = SchematicTypes.Of(typeof(Remedy.Audio.SoundCueGraph));
+            if (info == null)
+                return;
+            string folder = CueTarget;
+            CreateAssetFolder(folder);
+            var made = SchematicTypes.Create(info, folder);
+            if (made == null)
+                return;
+            ReloadAssets();
+            Ping(made);
+            AssetDatabase.OpenAsset(made);
+        }
+
+        // A Sound Cue's card: click to hear it, double-click to open it, drag it into a graph for Play Sound Cue.
+        private VisualElement BuildCueCard(Remedy.Audio.SoundCueGraph cue)
+        {
+            var card = new VisualElement { tooltip = $"{cue.name}\nClick to hear it, double-click to open it, drag it into a graph to play it." };
+            card.AddToClassList("audio-browser__card");
+            SizeCard(card, TileSize);
+            card.style.flexDirection = FlexDirection.Column;
+            card.style.justifyContent = Justify.SpaceBetween;
+            card.style.backgroundColor = CueColor;
+            card.style.borderTopColor = card.style.borderRightColor = card.style.borderBottomColor = card.style.borderLeftColor =
+                EditorGUIUtility.isProSkin ? new Color(1f, 1f, 1f, 0.35f) : new Color(0f, 0f, 0f, 0.35f);
+
+            var icon = new Image { image = EditorGUIUtility.IconContent("AudioMixerController Icon").image, pickingMode = PickingMode.Ignore };
+            icon.style.width = icon.style.height = 20;
+            icon.style.marginLeft = icon.style.marginTop = 6;
+            card.Add(icon);
+
+            var play = new Label { pickingMode = PickingMode.Ignore };
+            play.style.fontSize = 28;
+            play.style.unityTextAlign = TextAnchor.MiddleCenter;
+            play.style.color = Color.white;
+            play.style.flexGrow = 1;
+            void Paint() => play.text = Remedy.Audio.SoundCuePreview.Playing == cue ? "■" : "▶";
+            Paint();
+            card.Add(play);
+            Remedy.Audio.SoundCuePreview.Changed += Paint;
+            card.RegisterCallback<DetachFromPanelEvent>(_ => Remedy.Audio.SoundCuePreview.Changed -= Paint);
+
+            var name = new Label(cue.name) { pickingMode = PickingMode.Ignore };
+            name.style.color = Color.white;
+            name.style.unityTextAlign = TextAnchor.MiddleCenter;
+            name.style.whiteSpace = WhiteSpace.Normal;
+            name.style.marginBottom = 6;
+            name.style.paddingLeft = name.style.paddingRight = 4;
+            card.Add(name);
+
+            Vector2 down = default;
+            bool pressed = false;
+            card.RegisterCallback<PointerDownEvent>(evt =>
+            {
+                if (evt.button != 0) return;
+                if (evt.clickCount == 2)
+                {
+                    Remedy.Audio.SoundCuePreview.Stop();
+                    AssetDatabase.OpenAsset(cue);
+                    evt.StopPropagation();
+                    return;
+                }
+                pressed = true;
+                down = evt.position;
+            });
+            card.RegisterCallback<PointerMoveEvent>(evt =>
+            {
+                if (!pressed || ((Vector2)evt.position - down).sqrMagnitude < 36f) return;
+                pressed = false;
+                DragAndDrop.PrepareStartDrag();
+                DragAndDrop.objectReferences = new UnityEngine.Object[] { cue };
+                DragAndDrop.paths = new[] { AssetDatabase.GetAssetPath(cue) };
+                DragAndDrop.StartDrag(cue.name);
+            });
+            card.RegisterCallback<PointerUpEvent>(evt =>
+            {
+                if (!pressed || evt.button != 0) return;
+                pressed = false;
+                if (Remedy.Audio.SoundCuePreview.Playing == cue) Remedy.Audio.SoundCuePreview.Stop();
+                else Remedy.Audio.SoundCuePreview.Play(cue);
+                Selection.activeObject = cue;
+            });
+            card.AddManipulator(new ContextualMenuManipulator(evt =>
+            {
+                evt.menu.AppendAction("Open", _ => AssetDatabase.OpenAsset(cue));
+                evt.menu.AppendAction(Remedy.Audio.SoundCuePreview.Playing == cue ? "Stop Preview" : "Preview", _ =>
+                {
+                    if (Remedy.Audio.SoundCuePreview.Playing == cue) Remedy.Audio.SoundCuePreview.Stop();
+                    else Remedy.Audio.SoundCuePreview.Play(cue);
+                });
+                evt.menu.AppendSeparator();
+                evt.menu.AppendAction("Show in Project", _ => Ping(cue));
+                evt.menu.AppendAction("Delete Sound Cue…", _ =>
+                {
+                    string path = AssetDatabase.GetAssetPath(cue);
+                    if (!EditorUtility.DisplayDialog("Delete Sound Cue", $"Delete \"{cue.name}\"? This can't be undone.", "Delete", "Cancel"))
+                        return;
+                    if (Remedy.Audio.SoundCuePreview.Playing == cue) Remedy.Audio.SoundCuePreview.Stop();
+                    AssetDatabase.DeleteAsset(path);
+                    ReloadAssets();
+                });
+                evt.StopPropagation();
+            }));
+            return card;
+        }
+
+        #endregion
+
         // Right-clicking the grid's empty space: what the Project window offers there, for audio.
         private void BuildBackgroundMenu(ContextualMenuPopulateEvent evt)
         {
@@ -333,6 +486,7 @@ namespace Remedy.Schematics.Browsers
             menu.AppendAction("Import Folder…", _ => ImportFolder());
             menu.AppendSeparator();
             menu.AppendAction("Create/Folder", _ => CreateFolder());
+            menu.AppendAction("Create/Sound Cue", _ => CreateCue());
             menu.AppendAction("Create/Tag…", _ => AssetTagWindow.Open(TagSection, null));
             menu.AppendSeparator();
             string folder = _selectedFolder;
@@ -351,7 +505,7 @@ namespace Remedy.Schematics.Browsers
         private IEnumerable<string> FoldersInView()
         {
             if (_selectedFolder == AudioRoot)
-                return new[] { MusicRoot, SfxRoot };
+                return new[] { MusicRoot, SfxRoot, CueRoot };
             return AssetDatabase.IsValidFolder(_selectedFolder)
                 ? AssetDatabase.GetSubFolders(_selectedFolder).OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
                 : Enumerable.Empty<string>();
@@ -1195,6 +1349,7 @@ namespace Remedy.Schematics.Browsers
             CreateAssetFolder(AudioRoot);
             CreateAssetFolder(MusicRoot);
             CreateAssetFolder(SfxRoot);
+            CreateAssetFolder(CueRoot);
         }
 
         private static void CreateAssetFolder(string path)
