@@ -24,7 +24,7 @@ namespace Remedy.LevelDesigner
 #if UNITY_EDITOR
             if (Application.isPlaying || UnityEditor.EditorApplication.isPlayingOrWillChangePlaymode
                 || !gameObject.scene.IsValid() || !gameObject.scene.isLoaded
-                || UnityEditor.PrefabStageUtility.GetPrefabStage(gameObject) != null)
+                || UnityEditor.SceneManagement.PrefabStageUtility.GetPrefabStage(gameObject) != null)
                 return;
 
             var scene = gameObject.scene;
