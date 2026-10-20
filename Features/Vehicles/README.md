@@ -71,14 +71,19 @@ From C#: `VehicleSeats.TryEnter(vehicle, occupant, seat)`, `VehicleSeats.ExitVeh
 Vehicles don't know about players: a graph routes input while someone sits in a driver seat. Two ways:
 
 - **Driver Inputs** on Arcade Car (like the Weapon Holder's Weapon Inputs): add an entry per input, pick the
-  Signal (e.g. an Input Map's *Input Accelerate*) and what it does (Throttle, Brake, Steer, Throttle And Brake,
-  Drive (a Vector2 stick), Handbrake, Boost, Unflip). The car listens itself, but only while the player drives it
-  (**Player Driver Only**: the driver has the player tag), so parked and AI cars ignore the keys.
-- Or from a graph: on the vehicle's graph, forward input to **Throttle / Brake / Steer / Drive / Handbrake / Boost**
+  Signal (e.g. an Input Map's *Input Accelerate*) and what it does (Throttle for forward target speed, Brake override,
+  Steer, signed Target Speed, Drive (a Vector2 stick), Handbrake, Boost, Unflip). The car listens itself, but only
+  while the player drives it (**Player Driver Only**: the driver has the player tag), so parked and AI cars ignore the
+  keys.
+- Or from a graph: on the vehicle's graph, forward input to **Target Speed / Brake / Steer / Drive / Handbrake / Boost**
   while **Has Driver** is on. AI does the same (or calls `SetInputs` from C#).
 
-**Throttle** accepts one signed float from -1 to 1: positive accelerates, negative brakes (and reverses once stopped),
-and 0 releases both. Use **Brake** separately if you want independent throttle and brake controls.
+**Target Speed** accepts one signed float from -1 to 1: -1 targets maximum reverse speed, 1 targets maximum forward
+speed, and 0 targets a stop. The car scales actual forward/reverse speed by the corresponding direction's maximum,
+then applies throttle or brake in proportion to the difference from the target. If the requested direction opposes
+motion, it brakes until current speed is within 20% of the current direction's maximum before accelerating the other
+way. The value holds until changed. **Brake** remains available as an independent brake override and never requests
+reverse.
 
 A typical player graph: on the interact button, if not seated send **Enter** (self) to the vehicle in front of you,
 else **Exit**. On the vehicle's **On Driver Changed**, switch the input map (`RemedyInput.Instance.SetInputMap`) and the camera
@@ -180,7 +185,7 @@ Network Graph. Then, with nothing else to wire:
   sees a kinematic proxy. In distributed authority the owner hands it over (the NetworkObject's Ownership needs
   *Transferable*).
 - **Inputs come from the driver.** Driver Inputs only listen on the driver's own machine (`VehicleInput` checks the
-  driver is controlled locally), and **Throttle / Brake / Steer / Drive / Handbrake / Boost / Unflip** are networked
+  driver is controlled locally), and **Target Speed / Brake / Steer / Drive / Handbrake / Boost / Unflip** are networked
   *Owner → Authority*: only the vehicle's owner can send them, the authority checks and passes them on. The owner also
   mirrors its current inputs through them up to 15 times a second when they change, so proxies turn their front wheels
   and the server has them if it takes the car back.

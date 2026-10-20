@@ -73,7 +73,7 @@ namespace Remedy.Vehicles
         public float MaxReverseSpeed = 12f;
         [Tooltip("Acceleration in reverse, in m/s².")]
         public float ReverseAcceleration = 8f;
-        [Tooltip("Braking, in m/s² (the brake input reverses once the car has stopped).")]
+        [Tooltip("Maximum braking deceleration, in m/s². Scales with Brake input and the Target Speed controller.")]
         public float BrakeDeceleration = 25f;
         [Tooltip("How quickly the car coasts to a stop off the throttle, per second (0.25 loses a quarter of its speed per second).")]
         public float RollingResistance = 0.25f;

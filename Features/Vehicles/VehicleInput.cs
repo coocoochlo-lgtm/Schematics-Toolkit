@@ -8,15 +8,15 @@ namespace Remedy.Vehicles
     /// <summary>What a driver input Signal does to a vehicle.</summary>
     public enum VehicleInputAction
     {
-        /// <summary>Go (0..1).</summary>
+        /// <summary>Set target forward speed (0..1).</summary>
         Throttle,
-        /// <summary>Brake, then reverse once stopped (0..1).</summary>
+        /// <summary>Apply a brake override (0..1).</summary>
         Brake,
         /// <summary>Left (-1) to right (1).</summary>
         Steer,
-        /// <summary>One axis for both: positive throttles, negative brakes/reverses (a trigger pair or W/S).</summary>
-        ThrottleAndBrake,
-        /// <summary>A Vector2 stick: x steers, y throttles (+) or brakes (-).</summary>
+        /// <summary>Target signed speed: -1 reverse, 1 forward, 0 stop.</summary>
+        TargetSpeed,
+        /// <summary>A Vector2 stick: x steers, y sets the signed target speed.</summary>
         Drive,
         /// <summary>Handbrake / drift button (held).</summary>
         Handbrake,

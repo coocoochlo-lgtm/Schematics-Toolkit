@@ -30,7 +30,7 @@ namespace Remedy.Vehicles
     /// player (proxies
     /// also update Is Drifting, Drift Level, Is Boosting and Is Flipped from them).
     /// </remarks>
-    [SchematicDoc(@"{""name"": ""Arcade Car"", ""kind"": ""behavior"", ""menu"": ""Vehicles/Arcade Car"", ""description"": ""An arcade car on a real Box3D body: NFS Underground / Mario Kart handling (drifts, mini-turbos, a car that wants to stay on its wheels) while crashes and rollovers are still physics. Raycast wheels; everything tunable in its Properties asset."", ""variables"": [""Properties"", ""Wheels"", ""AlwaysActive"", ""ParkWhenEmpty"", ""DriverInputs"", ""PlayerDriverOnly"", ""Speed"", ""ForwardSpeed"", ""IsGrounded"", ""GroundedWheels"", ""IsDrifting"", ""DriftAngle"", ""DriftCharge"", ""DriftLevel"", ""IsBoosting"", ""IsFlipped"", ""AirTime""], ""signals"": [""Throttle"", ""Brake"", ""Steer"", ""Drive"", ""Handbrake"", ""Boost"", ""Unflip"", ""OnDriftStarted"", ""OnDriftEnded"", ""OnDriftLevel"", ""OnBoost"", ""OnLanded"", ""OnFlipped"", ""OnRighted"", ""OnCrash""], ""use_for"": [""drivable cars and karts"", ""racing games"", ""AI traffic""], ""notes"": ""Needs a Box3D Body and a shape (added for you). Add Vehicle Seats so it only drives with a driver. Multiplayer: the driver owns and simulates the car; its input Signals are networked from the owner, and drift/boost/flip/crash Signals reach every player for effects.""}")]
+    [SchematicDoc(@"{""name"": ""Arcade Car"", ""kind"": ""behavior"", ""menu"": ""Vehicles/Arcade Car"", ""description"": ""An arcade car on a real Box3D body: NFS Underground / Mario Kart handling (drifts, mini-turbos, a car that wants to stay on its wheels) while crashes and rollovers are still physics. Raycast wheels; everything tunable in its Properties asset."", ""variables"": [""Properties"", ""Wheels"", ""AlwaysActive"", ""ParkWhenEmpty"", ""DriverInputs"", ""PlayerDriverOnly"", ""Speed"", ""ForwardSpeed"", ""IsGrounded"", ""GroundedWheels"", ""IsDrifting"", ""DriftAngle"", ""DriftCharge"", ""DriftLevel"", ""IsBoosting"", ""IsFlipped"", ""AirTime""], ""signals"": [""Target Speed"", ""Brake"", ""Steer"", ""Drive"", ""Handbrake"", ""Boost"", ""Unflip"", ""OnDriftStarted"", ""OnDriftEnded"", ""OnDriftLevel"", ""OnBoost"", ""OnLanded"", ""OnFlipped"", ""OnRighted"", ""OnCrash""], ""use_for"": [""drivable cars and karts"", ""racing games"", ""AI traffic""], ""notes"": ""Needs a Box3D Body and a shape (added for you). Add Vehicle Seats so it only drives with a driver. Multiplayer: the driver owns and simulates the car; its input Signals are networked from the owner, and drift/boost/flip/crash Signals reach every player for effects.""}")]
     [SchematicBehaviorPath("Vehicles/Arcade Car")]
     [NetworkOwnerSimulated]
     [RequireComponent(typeof(Box3DBody), typeof(Box3DBoxShape), typeof(SchematicImpactRelay))]
@@ -55,7 +55,7 @@ namespace Remedy.Vehicles
         [Tooltip("Brakes hold the car still while nobody drives it, so a parked car doesn't roll away.")]
         public readonly VariableHandle<bool> ParkWhenEmpty = true;
 
-        [SchematicDoc(@"{""name"": ""DriverInputs"", ""kind"": ""variable"", ""behavior"": ""Arcade Car"", ""type"": ""VehicleInputBinding[]"", ""default"": ""null"", ""description"": ""Input Signals the car listens to itself while the player drives (like the Weapon Holder's Weapon Inputs): pick a Signal (e.g. an Input Map's) and what it does. Optional: a graph can send Throttle/Steer/... instead.""}")]
+        [SchematicDoc(@"{""name"": ""DriverInputs"", ""kind"": ""variable"", ""behavior"": ""Arcade Car"", ""type"": ""VehicleInputBinding[]"", ""default"": ""null"", ""description"": ""Input Signals the car listens to itself while the player drives (like the Weapon Holder's Weapon Inputs): pick a Signal (e.g. an Input Map's) and what it does. Optional: a graph can send Target Speed/Steer/... instead.""}")]
         [Tooltip("Input Signals the car listens to itself while the player drives: pick a Signal (e.g. an Input Map's) and what it does.")]
         public readonly VariableHandle<VehicleInputBinding[]> DriverInputs = (VehicleInputBinding[])null;
 
@@ -117,14 +117,14 @@ namespace Remedy.Vehicles
 
         #region Signals
 
-        [SchematicDoc(@"{""name"": ""Throttle"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""input"", ""params"": [{""name"": ""Amount"", ""type"": ""float""}], ""description"": ""A signed drive axis: positive accelerates, negative brakes (and reverses once stopped), and 0 lets go. Values are clamped to -1..1; the value holds until the next one."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock), e.g. from an input or an AI graph.""}")]
-        [Tooltip("Signed drive axis: positive accelerates, negative brakes (and reverses once stopped), 0 lets go. Clamped to -1..1.")]
+        [SchematicDoc(@"{""name"": ""Target Speed"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""input"", ""params"": [{""name"": ""Speed"", ""type"": ""float""}], ""description"": ""Desired signed speed as a fraction of the car's maximum in that direction: -1 is maximum reverse, 1 is maximum forward, and 0 targets a stop. The car accelerates or brakes to approach it; when changing direction it brakes until current speed is within 20% of its current direction's maximum, then accelerates the other way. Values are clamped to -1..1 and hold until changed."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock), e.g. from an input or an AI graph.""}")]
+        [Tooltip("Desired signed speed: -1 is maximum reverse, 1 is maximum forward, 0 targets a stop. The car accelerates or brakes to approach it; it brakes before reversing until within 20% of the current direction's maximum speed. Clamped to -1..1.")]
         [InputSignal, NetworkSync(SignalSender.OwnerToAuthority)]
-        [Parameter("Amount", typeof(float))]
-        public readonly SignalHandle<float> Throttle;
+        [Parameter("Speed", typeof(float))]
+        public readonly SignalHandle<float> TargetSpeed;
 
-        [SchematicDoc(@"{""name"": ""Brake"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""input"", ""params"": [{""name"": ""Amount"", ""type"": ""float""}], ""description"": ""Brake, 0..1; reverses once the car has stopped."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock).""}")]
-        [Tooltip("Brake, 0..1; reverses once the car has stopped.")]
+        [SchematicDoc(@"{""name"": ""Brake"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""input"", ""params"": [{""name"": ""Amount"", ""type"": ""float""}], ""description"": ""Independent brake override, 0..1. Use a negative Target Speed to reverse."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock).""}")]
+        [Tooltip("Independent brake override, 0..1. Use a negative Target Speed to reverse.")]
         [InputSignal, NetworkSync(SignalSender.OwnerToAuthority)]
         [Parameter("Amount", typeof(float))]
         public readonly SignalHandle<float> Brake;
@@ -246,7 +246,7 @@ namespace Remedy.Vehicles
             }
             _state.Value = state;
 
-            Throttle.Subscribe(value => state.SetThrottleAndBrake(value));
+            TargetSpeed.Subscribe(value => state.SetTargetSpeed(value));
             Brake.Subscribe(value => state.Brake = Mathf.Clamp01(value));
             Steer.Subscribe(value => state.SteerInput = Mathf.Clamp(value, -1f, 1f));
             Drive.Subscribe(value => state.SetStick(value));
@@ -309,6 +309,7 @@ namespace Remedy.Vehicles
 
         /// <summary>How many times a second the owner sends its Driver Inputs (as the input Signals) to everyone else.</summary>
         public const float InputSendRate = 15f;
+        private const float DirectionChangeBrakeThreshold = 0.2f;
 
         // The owner mirrors its inputs to everyone else, at most InputSendRate times a second and only when they change,
         // through the (networked) input Signals: proxies show the steering, and the authority has them if it takes over.
@@ -331,7 +332,13 @@ namespace Remedy.Vehicles
             if (now < state.NextInputSend)
                 return;
             bool changed = false;
-            if (!Mathf.Approximately(state.Throttle, state.SentThrottle)) { state.SentThrottle = state.Throttle; Throttle.Invoke(instance, state.Throttle); changed = true; }
+            if (state.UseTargetSpeed && (!state.SentTargetSpeedEnabled || !Mathf.Approximately(state.TargetSpeed, state.SentTargetSpeed)))
+            {
+                state.SentTargetSpeed = state.TargetSpeed;
+                state.SentTargetSpeedEnabled = true;
+                TargetSpeed.Invoke(instance, state.TargetSpeed);
+                changed = true;
+            }
             if (!Mathf.Approximately(state.Brake, state.SentBrake)) { state.SentBrake = state.Brake; Brake.Invoke(instance, state.Brake); changed = true; }
             if (Mathf.Abs(state.SteerInput - state.SentSteer) > 0.01f || (state.SteerInput == 0f && state.SentSteer != 0f))
             {
@@ -379,12 +386,12 @@ namespace Remedy.Vehicles
 
         #region C# API
 
-        /// <summary>Sets all the driving inputs at once (for AI written in C#). Values hold until changed.</summary>
+        /// <summary>Sets target forward speed (0..1), brake, steering and handbrake for AI written in C#. Values hold until changed.</summary>
         public void SetInputs(BehaviorInstance instance, float throttle, float brake, float steer, bool handbrake = false)
         {
             var state = _state[instance];
             if (state == null) return;
-            state.Throttle = Mathf.Clamp01(throttle);
+            state.SetTargetSpeed(Mathf.Clamp01(throttle));
             state.Brake = Mathf.Clamp01(brake);
             state.SteerInput = Mathf.Clamp(steer, -1f, 1f);
             state.Handbrake = handbrake;
@@ -457,14 +464,17 @@ namespace Remedy.Vehicles
             Vector3 planarVelocity = Vector3.ProjectOnPlane(velocity, up);
             float planarSpeed = planarVelocity.magnitude;
             float driftAngle = planarSpeed > 1f ? Vector3.SignedAngle(forward, planarVelocity, up) : 0f;
+            float inverseMaxSpeed = 1f / Mathf.Max(0.1f, p.MaxSpeed);
+            float speedFraction = Mathf.Clamp01(Mathf.Abs(forwardSpeed) * inverseMaxSpeed);
 
             // Inputs: nobody driving means no input (and the parking brake).
             bool active = IsActive(instance);
             if (!active && state.WasActive)
                 state.ClearInputs();
             state.WasActive = active;
-            float throttle = active ? state.Throttle : 0f;
-            float brake = active ? state.Brake : 0f;
+            float throttle = active && state.UseTargetSpeed ? Mathf.Max(state.TargetSpeed, 0f) : 0f;
+            float brakeInput = active ? state.Brake : 0f;
+            float brake = Mathf.Max(brakeInput, active && state.UseTargetSpeed ? Mathf.Max(-state.TargetSpeed, 0f) : 0f);
             float steerInput = active ? state.SteerInput : 0f;
             bool handbrake = active && state.Handbrake;
             bool parked = !active && ParkWhenEmpty.Value;
@@ -472,7 +482,6 @@ namespace Remedy.Vehicles
             // Steering eases towards the input, with less lock at speed.
             bool turningIn = Mathf.Abs(steerInput) > Mathf.Abs(state.Steer) || Mathf.Sign(steerInput) != Mathf.Sign(state.Steer);
             state.Steer = Mathf.MoveTowards(state.Steer, steerInput, (turningIn ? p.SteerSpeed : p.SteerReturnSpeed) * dt);
-            float speedFraction = Mathf.Clamp01(Mathf.Abs(forwardSpeed) / Mathf.Max(0.1f, p.MaxSpeed));
             float steerAngle = state.Steer * p.MaxSteerAngle * p.SteerBySpeed.Evaluate(speedFraction);
 
             // Boosts.
@@ -487,24 +496,55 @@ namespace Remedy.Vehicles
 
             // What the engine and brakes want this step (m/s², for the whole car).
             float driveAcceleration = 0f, brakeDeceleration = 0f;
-            if (throttle > 0.01f)
+            float driftThrottle = throttle;
+            if (active && state.UseTargetSpeed)
             {
-                if (forwardSpeed < 0f)
-                    brakeDeceleration = p.BrakeDeceleration * throttle; // rolling backwards: throttle brakes first
-                else if (forwardSpeed < topSpeed)
-                    driveAcceleration = p.Acceleration * p.AccelerationCurve.Evaluate(speedFraction) * throttle;
+                float targetSpeed = state.TargetSpeed;
+                float inverseForwardLimit = 1f / Mathf.Max(0.1f, topSpeed);
+                float inverseReverseLimit = 1f / Mathf.Max(0.1f, p.MaxReverseSpeed);
+                float normalizedSpeed = forwardSpeed >= 0f
+                    ? forwardSpeed * inverseForwardLimit
+                    : forwardSpeed * inverseReverseLimit;
+                float speedError;
+                bool changingDirection = targetSpeed != 0f && normalizedSpeed * targetSpeed < 0f;
+                if (changingDirection && Mathf.Abs(normalizedSpeed) > DirectionChangeBrakeThreshold)
+                {
+                    speedError = -1f;
+                }
+                else
+                {
+                    speedError = Mathf.Abs(targetSpeed) - Mathf.Abs(normalizedSpeed);
+                }
+
+                float targetDrive = Mathf.Clamp01(speedError);
+                float targetBrake = Mathf.Clamp01(-speedError);
+                if (brakeInput > 0.01f)
+                {
+                    targetDrive = 0f;
+                    targetBrake = Mathf.Max(targetBrake, brakeInput);
+                }
+
+                if (targetDrive > 0f)
+                {
+                    if (targetSpeed < 0f)
+                        driveAcceleration = -p.ReverseAcceleration * targetDrive;
+                    else
+                        driveAcceleration = p.Acceleration * p.AccelerationCurve.Evaluate(speedFraction) * targetDrive;
+                }
+                brakeDeceleration = p.BrakeDeceleration * targetBrake;
+                driftThrottle = Mathf.Max(driftThrottle, Mathf.Max(targetSpeed, 0f));
             }
-            if (brake > 0.01f)
+            else
             {
-                if (forwardSpeed > 0f)
-                    brakeDeceleration = Mathf.Max(brakeDeceleration, p.BrakeDeceleration * brake);
-                else if (-forwardSpeed < p.MaxReverseSpeed)
-                    driveAcceleration -= p.ReverseAcceleration * brake;
+                if (brakeInput > 0.01f)
+                {
+                    brakeDeceleration = Mathf.Max(brakeDeceleration, p.BrakeDeceleration * brakeInput);
+                }
             }
             if (parked)
                 brakeDeceleration = p.BrakeDeceleration;
 
-            UpdateDrift(instance, p, state, active, handbrake, steerInput, throttle, planarSpeed, forwardSpeed, driftAngle, mass, dt, up);
+            UpdateDrift(instance, p, state, active, handbrake, steerInput, driftThrottle, planarSpeed, forwardSpeed, driftAngle, mass, dt, up);
             bool drifting = IsDrifting.Value;
 
             // Wheels.
@@ -998,7 +1038,8 @@ namespace Remedy.Vehicles
     /// <summary>One spawned car's changing state: inputs, drift, boost, wheels.</summary>
     internal sealed class CarState
     {
-        public float Throttle, Brake, SteerInput, Steer;
+        public float Brake, SteerInput, Steer, TargetSpeed, SentTargetSpeed;
+        public bool UseTargetSpeed, SentTargetSpeedEnabled;
         public bool Handbrake, BoostQueued, UnflipQueued;
         public bool WasActive;
 
@@ -1019,7 +1060,7 @@ namespace Remedy.Vehicles
         public WheelState[] Wheels;
 
         // Networking: what the owner last sent, and a proxy's motion.
-        public float SentThrottle, SentBrake, SentSteer, NextInputSend;
+        public float SentBrake, SentSteer, NextInputSend;
         public bool SentHandbrake;
         public Vector3 ProxyPosition, ProxyVelocity;
         public bool HasProxyPosition;
@@ -1027,19 +1068,20 @@ namespace Remedy.Vehicles
         public void SetStick(Vector2 stick)
         {
             SteerInput = Mathf.Clamp(stick.x, -1f, 1f);
-            SetThrottleAndBrake(stick.y);
+            SetTargetSpeed(stick.y);
         }
 
-        public void SetThrottleAndBrake(float axis)
+        public void SetTargetSpeed(float speed)
         {
-            axis = Mathf.Clamp(axis, -1f, 1f);
-            Throttle = Mathf.Max(axis, 0f);
-            Brake = Mathf.Max(-axis, 0f);
+            TargetSpeed = Mathf.Clamp(speed, -1f, 1f);
+            UseTargetSpeed = true;
         }
 
         public void ClearInputs()
         {
-            Throttle = Brake = SteerInput = 0f;
+            Brake = SteerInput = TargetSpeed = 0f;
+            UseTargetSpeed = false;
+            SentTargetSpeedEnabled = false;
             Handbrake = false;
         }
 
@@ -1049,14 +1091,14 @@ namespace Remedy.Vehicles
             float sign = binding.Invert ? -1f : 1f;
             switch (binding.Action)
             {
-                case VehicleInputAction.Throttle: Throttle = Mathf.Clamp01(VehicleInput.ToFloat(value) * sign); break;
+                case VehicleInputAction.Throttle: SetTargetSpeed(Mathf.Clamp01(VehicleInput.ToFloat(value) * sign)); break;
                 case VehicleInputAction.Brake: Brake = Mathf.Clamp01(VehicleInput.ToFloat(value) * sign); break;
                 case VehicleInputAction.Steer:
                     float steer = value is Vector2 stick ? stick.x : VehicleInput.ToFloat(value);
                     SteerInput = Mathf.Clamp(steer * sign, -1f, 1f);
                     break;
-                case VehicleInputAction.ThrottleAndBrake:
-                    SetThrottleAndBrake(VehicleInput.ToFloat(value) * sign);
+                case VehicleInputAction.TargetSpeed:
+                    SetTargetSpeed(VehicleInput.ToFloat(value) * sign);
                     break;
                 case VehicleInputAction.Drive: SetStick(VehicleInput.ToVector2(value) * sign); break;
                 case VehicleInputAction.Handbrake: Handbrake = VehicleInput.ToBool(value) != binding.Invert; break;
