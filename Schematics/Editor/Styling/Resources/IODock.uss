@@ -600,6 +600,58 @@ EventContainerRenderer
 	background-color: rgba(0,0,0,0);
 }
 
+.send-signal-node
+{
+	width: 160px;
+	height: 96px;
+	border-width: 0px;
+	background-image: url("Textures/graph-input.png");
+	background-size: 35% 50%;
+	background-position: 12px 12px;
+}
+
+.send-signal-node VisualElement
+{
+	overflow: visible;
+	border-width: 0px;
+}
+
+.send-signal-node #node-border
+{
+	opacity: 1;
+	height: 96px;
+	border-width: 1px;
+	border-color: rgba(155,155,255,0.75);
+	background-color: rgba(255,255,255,0.2);
+	background-image: url("Textures/io-graph-gradient.png");
+}
+
+.send-signal-node #node-border #title
+{
+	opacity: 0;
+}
+
+.send-signal-node #node-border VisualElement
+{
+	opacity: 1;
+	background-image: none;
+	background-color: rgba(0,0,0,0);
+	overflow: visible;
+}
+
+.send-signal-node #node-border #divider
+{
+	display: none;
+}
+
+.send-signal-node #node-border #collapsible-area,
+.send-signal-node #node-border #collapsible-area VisualElement
+{
+	opacity: 1;
+	background-image: none;
+	background-color: rgba(0,0,0,0);
+}
+
 Button
 {
 	padding: 2px;
