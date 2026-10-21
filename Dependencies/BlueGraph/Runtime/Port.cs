@@ -187,9 +187,10 @@ namespace BlueGraph
             // value from connected port.
             if (Direction == PortDirection.Input)
             {
-                if (connections.Count > 0)
+                var source = connections.Count > 0 ? connections[0].Port : null;
+                if (source != null)
                 {
-                    return connections[0].Port.GetValue<T>();
+                    return source.GetValue<T>();
                 }
 
                 return defaultValue;
@@ -235,7 +236,9 @@ namespace BlueGraph
             {
                 for (var i = 0; i < connections.Count; i++)
                 {
-                    yield return connections[i].Port.GetValue<T>();
+                    // (A link whose other end is missing has no port: skipped.)
+                    if (connections[i].Port != null)
+                        yield return connections[i].Port.GetValue<T>();
                 }
             }
         }
@@ -245,11 +248,15 @@ namespace BlueGraph
         /// </summary>
         internal void DisconnectAll()
         {
-            // Remove ourselves from all other connected ports
+            // Remove ourselves from all other connected ports. (A link whose other end is missing, a deleted node or
+            // a pin that's gone, has no port to tell: it just goes.)
+            var nodeId = Node?.ID;
             foreach (var port in ConnectedPorts)
             {
+                if (port?.connections == null)
+                    continue;
                 port.connections.RemoveAll((edge) =>
-                    edge.NodeID == Node.ID && edge.PortName == Name
+                    edge == null || edge.Port == this || (edge.NodeID == nodeId && edge.PortName == Name)
                 );
             }
 
@@ -318,15 +325,18 @@ namespace BlueGraph
         /// </summary>
         internal void UpdateConnections()
         {
-            if (hasLoadedConnections || Node == null)
+            if (hasLoadedConnections || Node == null || Node.Graph == null)
             {
                 return;
             }
 
             var graph = Node.Graph;
+            bool resolved = true;
             for (var i = 0; i < connections.Count; i++)
             {
                 var edge = connections[i];
+                if (edge == null)
+                    continue;
                 var connected = graph.GetNodeById(edge.NodeID);
                 if (connected == null)
                 {
@@ -338,10 +348,12 @@ namespace BlueGraph
                 {
                     edge.Port = connected.GetPort(edge.PortName);
                     connections[i] = edge;
+                    // A pin the other node makes for itself later (its dynamic pins): tried again next time.
+                    resolved &= edge.Port != null;
                 }
             }
 
-            hasLoadedConnections = true;
+            hasLoadedConnections = resolved;
         }
 
         // Explicit non-serialized so that editor reloads wipe it
@@ -365,6 +377,8 @@ namespace BlueGraph
             for (var i = 0; i < connections.Count; i++)
             {
                 var port = connections[i].Port;
+                if (port == null)
+                    continue;
 
                 // This is inbound, so we need to update the connection
                 // entry for the *other* port.

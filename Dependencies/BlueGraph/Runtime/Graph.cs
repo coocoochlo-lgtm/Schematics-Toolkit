@@ -203,7 +203,7 @@ namespace BlueGraph
         /// </summary>
         public Node GetNodeById(string id)
         {
-            return nodes.Find((node) => node.ID == id);
+            return nodes.Find((node) => node != null && node.ID == id);
         }
 
         /// <summary>
@@ -298,10 +298,25 @@ namespace BlueGraph
         /// </summary>
         public void RemoveNode(Node node)
         {
-            node.Disable();
-            node.OnRemovedFromGraph();
+            if (node == null)
+            {
+                nodes.RemoveAll((n) => n == null);
+                return;
+            }
 
-            node.DisconnectAllPorts();
+            // Removed whatever its callbacks or broken links throw, so a damaged node can always be deleted
+            // (a throw used to leave it disabled but still in the graph: a node that could neither run nor go).
+            try
+            {
+                node.Disable();
+                node.OnRemovedFromGraph();
+                node.DisconnectAllPorts();
+            }
+            catch (Exception e)
+            {
+                Debug.LogException(e);
+            }
+
             nodes.Remove(node);
             node.Graph = null;
         }

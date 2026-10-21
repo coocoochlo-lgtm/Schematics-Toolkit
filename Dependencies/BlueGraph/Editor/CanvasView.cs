@@ -470,7 +470,8 @@ namespace BlueGraph.Editor
         {
             Undo.RegisterCompleteObjectUndo(Graph, $"Delete Node {node.name}");
 
-            Graph.RemoveNode(node.Target);
+            if (node.Target != null)
+                Graph.RemoveNode(node.Target);
             serializedGraph.Update();
             EditorUtility.SetDirty(Graph);
 
