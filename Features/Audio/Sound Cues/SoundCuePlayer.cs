@@ -479,9 +479,12 @@ namespace Remedy.Audio
             host ??= new GameObject();
             host.SetActive(false);
             host.name = $"Sound Cue: {cue.name}";
-            var source = host.GetComponent<AudioSource>() ?? host.AddComponent<AudioSource>();
+            // (Not "GetComponent() ?? AddComponent()": a missing component isn't C# null in the editor, so ?? never adds it.)
+            if (!host.TryGetComponent<AudioSource>(out var source))
+                source = host.AddComponent<AudioSource>();
             source.playOnAwake = false;
-            var player = host.GetComponent<SoundCuePlayer>() ?? host.AddComponent<SoundCuePlayer>();
+            if (!host.TryGetComponent<SoundCuePlayer>(out var player))
+                player = host.AddComponent<SoundCuePlayer>();
             player._pooled = true;
             player.PreloadVoices = 0;
             return player;
