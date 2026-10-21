@@ -280,6 +280,35 @@ namespace Remedy.Audio
             return null;
         }
 
+        /// <summary>
+        /// The processors of every node feeding an input, however far back (each built if it isn't yet). A Spatial
+        /// effect finds the Trails before it this way.
+        /// </summary>
+        public List<SoundProcessor> Upstream(SoundNode node, string port)
+        {
+            var found = new List<SoundProcessor>();
+            var seen = new HashSet<SoundNode> { node };
+            var waiting = new Stack<Port>();
+            var first = node.GetPort(port);
+            if (first != null)
+                waiting.Push(first);
+            while (waiting.Count > 0)
+            {
+                foreach (var source in waiting.Pop().ConnectedPorts)
+                {
+                    if (!(source?.Node is SoundNode sourceNode) || !seen.Add(sourceNode))
+                        continue;
+                    var built = Build(sourceNode);
+                    if (built != null)
+                        found.Add(built);
+                    foreach (var other in sourceNode.Ports.Values)
+                        if (other.Direction == PortDirection.Input)
+                            waiting.Push(other);
+                }
+            }
+            return found;
+        }
+
         /// <summary>A node's processor for this voice (built the first time it's asked for).</summary>
         public SoundProcessor Build(SoundNode node)
         {

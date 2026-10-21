@@ -443,6 +443,16 @@ namespace Remedy.Audio
                         painter.Stroke();
                     }
                     painter.lineWidth = 1f;
+                    // Tails and trails: the spots left ringing where the sound has been (brighter the louder).
+                    foreach (var bus in simulation.Tails.Buses)
+                    {
+                        if (bus == null || !(bus.Owner is TailPool.Spot spot)) continue;
+                        float glow = Mathf.Clamp01(bus.Peak * 4f);
+                        painter.fillColor = new Color(0.95f, 0.45f, 0.75f, 0.12f + 0.6f * glow);
+                        painter.BeginPath();
+                        painter.Arc(ToPad(new Vector2(spot.Position.x, spot.Position.z)), 2.5f + 3f * glow, Angle.Degrees(0f), Angle.Degrees(360f));
+                        painter.Fill();
+                    }
                 }
 
                 // The listener: a little arrow pointing ahead.

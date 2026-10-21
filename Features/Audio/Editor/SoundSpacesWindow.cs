@@ -63,6 +63,7 @@ namespace Remedy.Audio
             }
 
             var spaces = SoundSpaces.Current;
+            Voices(spaces);
             var listenerObject = FindFirstObjectByType<AudioListener>();
             var listener = listenerObject != null ? listenerObject.transform.position : Vector3.zero;
 
@@ -105,6 +106,23 @@ namespace Remedy.Audio
                 Dim("None: no sound has been heard off an echo surface yet (or none is in reach).");
 
             End(labelWidth);
+        }
+
+        // How many of Unity's real voices the spaces hold: past its limit, sounds start going silent.
+        private static void Voices(SoundSpaces spaces)
+        {
+            Section("Voices");
+            int playing = 0;
+            if (spaces != null)
+            {
+                foreach (var bus in spaces.RoomBuses) if (bus != null && bus.Source.isPlaying) playing++;
+                foreach (var bus in spaces.EchoBuses) if (bus != null && bus.Source.isPlaying) playing++;
+                foreach (var bus in spaces.Tails.Buses) if (bus != null && bus.Source.isPlaying) playing++;
+            }
+            int real = AudioSettings.GetConfiguration().numRealVoices;
+            Row("Rooms, walls and spots playing", $"{playing} of Unity's {real} real voices");
+            if (playing * 2 > real)
+                Verdict($"Spatial effects are using over half of Unity's voices: other sounds may be cut. Raise Max Real Voices (Project Settings > Audio) to 64 or more.");
         }
 
         // Why a Spatial sound where the listener is sounds the way it does, in a sentence.

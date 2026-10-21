@@ -135,8 +135,7 @@ namespace Remedy.Audio
             source.spatialBlend = 1f;
             source.dopplerLevel = 0f;
             source.rolloffMode = AudioRolloffMode.Logarithmic;
-            // Ahead of ordinary sounds when Unity runs short of voices: dropping a room or wall drops every sound's share.
-            source.priority = 32;
+            source.priority = IdlePriority;
             try
             {
                 var prefab = AudioData.SFXSourcePrefab;
@@ -151,10 +150,19 @@ namespace Remedy.Audio
             bus._allpassA = new float[Mathf.Max(1, (int)(0.0071f * rate))];
             bus._allpassB = new float[Mathf.Max(1, (int)(0.0117f * rate))];
             bus._allpassC = new float[Mathf.Max(1, (int)(0.0173f * rate))];
-            // Always running, silent while unused: its clock is ready for the first send whenever it's taken.
-            source.Play();
+            // Not playing until it's taken: an idle bus mustn't hold one of Unity's real voices (only 32 by default),
+            // or enough of them silence every other sound in the game.
             return bus;
         }
+
+        /// <summary>
+        /// Where buses stand when Unity runs short of real voices (lower is kept first; ordinary sounds are 128): a room
+        /// carries every sound in it, an echo wall many, a tail or trail spot one sound's ringing. Idle: last.
+        /// </summary>
+        public const int RoomPriority = 64, EchoPriority = 100, SpotPriority = 160, IdlePriority = 256;
+
+        /// <summary>Its place when Unity runs short of real voices (see <see cref="RoomPriority"/>).</summary>
+        internal void SetPriority(int priority) => Source.priority = Mathf.Clamp(priority, 0, 256);
 
         // A clip of ones: Unity places and attenuates it, and the filter below multiplies in the bus's own sound, so it
         // comes out placed and attenuated the same.
@@ -174,6 +182,7 @@ namespace Remedy.Audio
         {
             Begin(owner, position);
             Kind = BusKind.Room;
+            Source.priority = RoomPriority;
             Source.minDistance = Mathf.Max(2f, radius);
             Source.maxDistance = Source.minDistance * 10f + 60f;
             Source.spread = 180f;
@@ -185,6 +194,7 @@ namespace Remedy.Audio
         {
             Begin(owner, position);
             Kind = BusKind.Echo;
+            Source.priority = EchoPriority;
             Source.minDistance = Mathf.Clamp(size, 3f, 40f);
             Source.maxDistance = 600f;
             Source.spread = 60f;
@@ -195,6 +205,7 @@ namespace Remedy.Audio
         private void Begin(object owner, Vector3 position)
         {
             Owner = owner;
+            _begunAt = Time.realtimeSinceStartup;
             transform.position = position;
             lock (_lock)
             {
@@ -206,6 +217,7 @@ namespace Remedy.Audio
                 Array.Clear(_allpassB, 0, _allpassB.Length);
                 Array.Clear(_allpassC, 0, _allpassC.Length);
                 _partner = null;
+                _forward = null;
             }
             Interlocked.Exchange(ref _lastWrite, long.MinValue);
             Interlocked.Exchange(ref _accepted, 0);
@@ -214,7 +226,7 @@ namespace Remedy.Audio
             Volatile.Write(ref _peak, 0f);
         }
 
-        /// <summary>Lets it go: silent and empty, but still running, ready to be taken again.</summary>
+        /// <summary>Lets it go: stopped (freeing its voice) and empty, ready to be taken again.</summary>
         internal void End()
         {
             Owner = null;
@@ -223,6 +235,14 @@ namespace Remedy.Audio
                 Array.Clear(_ring, 0, _ring.Length);
                 _reverb.Clear();
                 _partner = null;
+                _forward = null;
+                // Its clock starts again from the audio clock when it's next played.
+                _readHead = -1;
+            }
+            if (Source != null)
+            {
+                Source.Stop();
+                Source.priority = IdlePriority;
             }
         }
 
@@ -232,14 +252,15 @@ namespace Remedy.Audio
             Begin(owner, position);
             lock (_lock)
             {
-                // (Under the lock: the audio thread reads the line.)
-                if (_slapLine.Length < (int)(1.6f * _rate))
-                    _slapLine = new float[(int)(1.6f * _rate)];
+                // (Under the lock: the audio thread reads the line.) Long enough for a Delay node's longest.
+                if (_slapLine.Length < (int)(2.1f * _rate))
+                    _slapLine = new float[(int)(2.1f * _rate)];
                 Array.Clear(_slapLine, 0, _slapLine.Length);
                 _slapWrite = 0;
                 _slapLow = 0f;
             }
             Kind = BusKind.Slap;
+            Source.priority = SpotPriority;
             Source.minDistance = 2f;
             Source.maxDistance = 300f;
             Source.spread = 60f;
@@ -250,7 +271,7 @@ namespace Remedy.Audio
         internal void SetSlap(float delay, float feedback, float damping)
         {
             _slapDelay = Mathf.Clamp((int)(delay * _rate), 1, Mathf.Max(1, _slapLine.Length - 2));
-            _slapFeedback = Mathf.Clamp(feedback, 0f, 0.6f);
+            _slapFeedback = Mathf.Clamp(feedback, 0f, 0.95f); // (a place's is at most 0.5; a Trail's is its Delay node's)
             float cutoff = Mathf.Lerp(9000f, 1500f, Mathf.Clamp01(damping));
             _slapLowAmount = 1f - Mathf.Exp(-2f * Mathf.PI * cutoff / Mathf.Max(8000, _rate));
         }
@@ -258,9 +279,15 @@ namespace Remedy.Audio
         /// <summary>Nothing sent to it for longer than <paramref name="tail"/> seconds (and a bit): it has rung out.</summary>
         public bool IsQuiet(float tail)
         {
+            float hold = tail * 1.2f + 0.5f;
             long last = LastWrite, head = ReadHead;
-            return last == long.MinValue || head < 0 || head - last > (long)((tail * 1.2f + 0.5f) * _rate);
+            // Not started yet, or nothing sent: quiet once it's been that long since it was taken.
+            if (last == long.MinValue || head < 0)
+                return Time.realtimeSinceStartup - _begunAt > hold;
+            return head - last > (long)(hold * _rate);
         }
+
+        private float _begunAt;
 
         /// <summary>
         /// Heard flat, panned and at a set volume, instead of placed in 3D (the editor's preview, which has no listener
@@ -276,7 +303,7 @@ namespace Remedy.Audio
         /// <summary>A room's reverb: <paramref name="feedback"/> (how long) and <paramref name="damping"/> (0 bright, 1 dull).</summary>
         internal void SetRoom(float feedback, float damping)
         {
-            _feedback = Mathf.Clamp(feedback, 0f, 0.95f);
+            _feedback = Mathf.Clamp(feedback, 0f, 0.98f); // (a place's is at most 0.95; a Trail's is its Reverb node's)
             _damp = Mathf.Clamp01(damping) * 0.4f;
         }
 
@@ -297,6 +324,21 @@ namespace Remedy.Audio
                 _partnerGain = gain;
             }
         }
+
+        // A Trail spot heard by a Spatial effect after it: what the spot plays goes on to the place's room, echo walls and
+        // tail spot too (as the Spatial node sends its sound), scaled by the node's Mix.
+        private SpaceSends _forward;
+        private float _forwardMix;
+
+        /// <summary>Sends what it plays on to <paramref name="sends"/> (null: nowhere), times <paramref name="mix"/>.</summary>
+        internal void SetForward(SpaceSends sends, float mix)
+        {
+            Volatile.Write(ref _forwardMix, mix);
+            Volatile.Write(ref _forward, sends);
+        }
+
+        /// <summary>How far ahead of what it's playing a forwarded block is sent: past what the others are playing.</summary>
+        private const int ForwardLead = 2048;
 
         /// <summary>The audio-clock sample it's playing now (below 0 before it starts).</summary>
         public long ReadHead => Interlocked.Read(ref _readHead);
@@ -339,8 +381,12 @@ namespace Remedy.Audio
                 return;
             lock (_lock)
             {
-                // Before its first callback, the audio clock itself says what "now" is.
-                long head = _readHead >= 0 ? _readHead : (long)Math.Round(AudioSettings.dspTime * _rate);
+                // Before its first callback, the audio clock itself says what "now" is. Long unread (Unity set it aside,
+                // and its clock stopped): back in step first, or sends would be judged against a stale moment.
+                long now = (long)Math.Round(AudioSettings.dspTime * _rate);
+                if (_readHead >= 0 && now - _readHead > RingSize / 4)
+                    Resync(now);
+                long head = _readHead >= 0 ? _readHead : now;
                 if (at < head)
                 {
                     Interlocked.Increment(ref _late);
@@ -381,12 +427,7 @@ namespace Remedy.Audio
                 if (_readHead < 0)
                     _readHead = now;
                 else if (now - _readHead > frames * 2L)
-                {
-                    long gap = Math.Min(now - _readHead, RingSize);
-                    for (long i = 0; i < gap; i++)
-                        _ring[(_readHead + i) & RingMask] = 0f;
-                    _readHead = now;
-                }
+                    Resync(now);
                 head = _readHead;
                 // Unused (in the pool): silent, and nothing to work out (its clock still runs, ready for the next use).
                 if (Owner == null)
@@ -437,6 +478,8 @@ namespace Remedy.Audio
                 partnerDelay = _partnerDelay;
                 partnerGain = _partnerGain;
             }
+            var forward = Volatile.Read(ref _forward);
+            float forwardMix = Volatile.Read(ref _forwardMix);
             float peak = Volatile.Read(ref _peak) * 0.9f;
             for (int f = 0; f < frames; f++)
                 peak = Mathf.Max(peak, Mathf.Abs(_scratch[f]));
@@ -450,6 +493,30 @@ namespace Remedy.Audio
             // A canyon: the echo carries on to the facing wall (outside this bus's lock).
             if (partner != null && partnerGain > 0f)
                 partner.Add(head + partnerDelay, _scratch, frames, partnerGain, partnerGain);
+            // A Trail spot: on to the place's effects (outside this bus's lock, as above).
+            if (forward != null && forwardMix > 0f)
+            {
+                long at = head + Math.Max(ForwardLead, frames * 2);
+                Forward(forward.Room, at, forward.RoomGain * forwardMix, frames);
+                Forward(forward.Tail, at, forward.TailGain * forwardMix, frames);
+                Forward(forward.EchoA, head + Math.Max(forward.DelayA, ForwardLead), forward.GainA * forwardMix, frames);
+                Forward(forward.EchoB, head + Math.Max(forward.DelayB, ForwardLead), forward.GainB * forwardMix, frames);
+            }
+        }
+
+        private void Forward(SpaceBus target, long at, float gain, int frames)
+        {
+            if (target != null && target != this && gain > 0f)
+                target.Add(at, _scratch, frames, gain, gain);
+        }
+
+        // Back in step with the audio clock after its reads stopped: what it missed is cleared (under the lock).
+        private void Resync(long now)
+        {
+            long gap = Math.Min(now - _readHead, RingSize);
+            for (long i = 0; i < gap; i++)
+                _ring[(_readHead + i) & RingMask] = 0f;
+            _readHead = now;
         }
 
         private static float Allpass(float x, float[] line, ref int index)
@@ -473,12 +540,17 @@ namespace Remedy.Audio
         /// <summary>How far a sound moves before it leaves a tail behind and starts a new one, in meters.</summary>
         public const float Handoff = 4f;
 
-        /// <summary>A tail spot: what it is, where, and how long it takes to ring out.</summary>
+        /// <summary>
+        /// A tail spot: what it is, where, how long it takes to ring out, and whose Trail it is (null: a place's tail,
+        /// shared by every sound there).
+        /// </summary>
         public sealed class Spot
         {
             public SpaceBus.BusKind Kind;
             public Vector3 Position;
             public float RingsFor;
+            public object Trail;
+            public float TakenAt;
         }
 
         private readonly Transform _parent;
@@ -487,7 +559,7 @@ namespace Remedy.Audio
         private readonly int _max;
         private readonly List<SpaceBus> _buses = new();
 
-        public TailPool(Transform parent, int rate, bool flat, int max = 24)
+        public TailPool(Transform parent, int rate, bool flat, int max = 32)
         {
             _parent = parent;
             _rate = rate;
@@ -497,21 +569,30 @@ namespace Remedy.Audio
 
         public IReadOnlyList<SpaceBus> Buses => _buses;
 
-        /// <summary>A reverb spot at a position (the one there, or a new one), shaped by the place there.</summary>
-        public SpaceBus Reverb(Vector3 position, float feedback, float damping, float ringsFor)
+        /// <summary>
+        /// A reverb spot at a position (the one there, or a new one), ringing as set. For a <paramref name="trail"/>:
+        /// its own spots, a new one every <paramref name="spacing"/> meters, at most <paramref name="maxSpots"/> of them
+        /// (its oldest is taken for the next).
+        /// </summary>
+        public SpaceBus Reverb(Vector3 position, float feedback, float damping, float ringsFor, object trail = null, float spacing = Handoff, int maxSpots = 0)
         {
-            var bus = Acquire(SpaceBus.BusKind.Room, position, ringsFor, out bool fresh);
+            var bus = Acquire(SpaceBus.BusKind.Room, position, ringsFor, trail, spacing, maxSpots, out bool fresh);
             if (bus == null) return null;
-            if (fresh) bus.BeginRoom(bus.Owner, position, 3f);
+            if (fresh)
+            {
+                bus.BeginRoom(bus.Owner, position, 3f);
+                bus.SetPriority(SpaceBus.SpotPriority);
+            }
             bus.SetRoom(feedback, damping);
             Place(bus, position);
             return bus;
         }
 
-        /// <summary>A slapback spot at a position (the one there, or a new one).</summary>
-        public SpaceBus Slap(Vector3 position, float delay, float feedback, float damping)
+        /// <summary>A slapback spot at a position (the one there, or a new one); a Trail's as for <see cref="Reverb"/>.</summary>
+        public SpaceBus Slap(Vector3 position, float delay, float feedback, float damping, object trail = null, float spacing = Handoff, int maxSpots = 0)
         {
-            var bus = Acquire(SpaceBus.BusKind.Slap, position, delay * 6f + 0.5f, out bool fresh);
+            float ringsFor = delay * (feedback > 0.01f ? Mathf.Clamp(Mathf.Log(0.001f) / Mathf.Log(Mathf.Min(feedback, 0.95f)), 1f, 40f) : 1f) + 0.5f;
+            var bus = Acquire(SpaceBus.BusKind.Slap, position, ringsFor, trail, spacing, maxSpots, out bool fresh);
             if (bus == null) return null;
             if (fresh) bus.BeginSlap(bus.Owner, position);
             bus.SetSlap(delay, feedback, damping);
@@ -519,30 +600,41 @@ namespace Remedy.Audio
             return bus;
         }
 
-        private SpaceBus Acquire(SpaceBus.BusKind kind, Vector3 position, float ringsFor, out bool fresh)
+        private SpaceBus Acquire(SpaceBus.BusKind kind, Vector3 position, float ringsFor, object trail, float spacing, int maxSpots, out bool fresh)
         {
             fresh = false;
-            SpaceBus nearest = null;
-            float best = Handoff;
+            SpaceBus nearest = null, oldest = null;
+            float best = Mathf.Max(0.1f, spacing), oldestAt = float.MaxValue;
+            int own = 0;
             foreach (var bus in _buses)
-                if (bus.Owner is Spot spot && spot.Kind == kind)
+                if (bus.Owner is Spot spot && spot.Kind == kind && spot.Trail == trail)
                 {
+                    own++;
+                    if (spot.TakenAt < oldestAt) { oldestAt = spot.TakenAt; oldest = bus; }
                     float distance = Vector3.Distance(spot.Position, position);
                     if (distance < best) { best = distance; nearest = bus; }
                 }
             if (nearest != null)
             {
-                ((Spot)nearest.Owner).RingsFor = Mathf.Max(((Spot)nearest.Owner).RingsFor, ringsFor);
+                // A Trail's spot is set again each time (the node's settings can change); a place's keeps its longest.
+                var spot = (Spot)nearest.Owner;
+                spot.RingsFor = trail != null ? ringsFor : Mathf.Max(spot.RingsFor, ringsFor);
                 return nearest;
             }
             SpaceBus free = null;
-            foreach (var bus in _buses)
-                if (bus.Owner == null) { free = bus; break; }
+            // A Trail at its most spots: its oldest goes on to the next.
+            if (trail != null && maxSpots > 0 && own >= maxSpots)
+                free = oldest;
+            if (free == null)
+                foreach (var bus in _buses)
+                    if (bus.Owner == null) { free = bus; break; }
             if (free == null && _buses.Count < _max)
                 _buses.Add(free = SpaceBus.Create(_parent, _rate));
+            if (free == null && trail != null)
+                free = oldest; // the pool's full: the trail carries on with its own oldest
             if (free == null)
                 return null; // all ringing: the sound keeps its own effect for now
-            free.Owner = new Spot { Kind = kind, Position = position, RingsFor = ringsFor };
+            free.Owner = new Spot { Kind = kind, Position = position, RingsFor = ringsFor, Trail = trail, TakenAt = Time.realtimeSinceStartup };
             fresh = true;
             return free;
         }

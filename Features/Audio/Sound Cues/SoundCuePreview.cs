@@ -239,7 +239,8 @@ namespace Remedy.Audio
 
         /// <summary>
         /// The surroundings the preview plays in: Spatial Reverb and Delay hear them like a baked Sound Field (rooms ring
-        /// from where they are, echoes come off the walls). None: they use their own settings. Changing it replays.
+        /// from where they are, echoes come off the walls). None: they use their own settings (Trails still trail).
+        /// Changing it replays.
         /// </summary>
         public static PreviewSpace Space
         {
@@ -271,14 +272,12 @@ namespace Remedy.Audio
             if (Simulation != null && Simulation.Space == space && _spaceRoot != null)
                 return;
             ClearSpace();
-            if (space != PreviewSpace.None)
-            {
-                _spaceRoot = new GameObject("Sound Cue Preview Space") { hideFlags = HideFlags.HideAndDontSave };
-                Simulation = new PreviewSpaceSimulation(space, _spaceRoot.transform);
-            }
+            // Made for None too (no walls, no room): Trails leave their spots in it.
+            _spaceRoot = new GameObject("Sound Cue Preview Space") { hideFlags = HideFlags.HideAndDontSave };
+            Simulation = new PreviewSpaceSimulation(space, _spaceRoot.transform);
             SoundSpaceSimulation.Current = Simulation;
             if (_player != null)
-                _player.ScheduleInEditor = Simulation != null;
+                _player.ScheduleInEditor = true;
         }
 
         private static void ClearSpace()

@@ -374,7 +374,7 @@ namespace Remedy.Audio
         }
     }
 
-    [SchematicDoc(@"{""name"": ""Delay"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Effects"", ""description"": ""An echo: the audio again after Delay seconds (up to 2; a typed-in Delay only keeps as much memory as it needs), each echo Feedback times as loud as the last (0 one echo, near 1 many). Mix is how much echo is heard (0 none, 1 only echo). Mode Spatial echoes the place the sound is in, from the Sound Field baked there: a slapback off the nearest wall (fluttering between parallel hard walls), and, in the game, the echo walls nearby (cliffs, canyon sides, a hall's far wall: Echoes sets how much), each as late as sound takes to get there and back. Mix then scales the place's amount. Outside every Sound Field it's open air (no slapback); in the preview with Space set to None it uses its own Delay and Feedback."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Delay"", ""type"": ""float""}, {""name"": ""Feedback"", ""type"": ""float""}, {""name"": ""Mix"", ""type"": ""float""}], ""outputs"": [{""name"": ""Out"", ""type"": ""audio""}]}")]
+    [SchematicDoc(@"{""name"": ""Delay"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Effects"", ""description"": ""An echo: the audio again after Delay seconds (up to 2; a typed-in Delay only keeps as much memory as it needs), each echo Feedback times as loud as the last (0 one echo, near 1 many). Mix is how much echo is heard (0 none, 1 only echo). Mode Spatial echoes the place the sound is in, from the Sound Field baked there: a slapback off the nearest wall (fluttering between parallel hard walls), and, in the game, the echo walls nearby (cliffs, canyon sides, a hall's far wall: Echoes sets how much), each as late as sound takes to get there and back. Mix then scales the place's amount. Outside every Sound Field it's open air (no slapback); in the preview with Space set to None it uses its own Delay and Feedback. Mode Trail leaves its own echo (Delay and Feedback) repeating where the sound has been, a new spot every Trail Spacing meters, so the echoes trail behind a moving sound; a Spatial Reverb or Delay after it sends the trail on to the place too."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Delay"", ""type"": ""float""}, {""name"": ""Feedback"", ""type"": ""float""}, {""name"": ""Mix"", ""type"": ""float""}], ""outputs"": [{""name"": ""Out"", ""type"": ""audio""}]}")]
     [Serializable]
     [Node(Name = "Delay", Path = "Effects"), Tags(SoundNode.Tag)]
     public class SoundDelayNode : SoundNode
@@ -390,27 +390,35 @@ namespace Remedy.Audio
         /// wall (Delay is the trip there and back; Feedback how reflective and closed in it is: parallel hard walls
         /// flutter), and the echo walls it can be heard by, each as late as sound takes to get there and to the
         /// listener. Mix scales the place's amount. Outside every Sound Field it's open air (no slapback); in the preview with Space
-        /// set to None, Own's settings apply.
+        /// set to None, Own's settings apply. Trail: its own echo (Delay and Feedback), left repeating where the sound
+        /// has been: a new spot every Trail Spacing meters, so the echoes trail behind a moving sound (in the game and the
+        /// preview). A Spatial effect after a Trail sends the trail on to the place too.
         /// </summary>
         [Editable] public DelayMode Mode = DelayMode.Own;
         /// <summary>Spatial: how much echo walls (cliffs, canyon sides, buildings, a hall's far wall) throw the sound back, 0 to 1.</summary>
         [Editable] public float Echoes = 1f;
+        [Editable, Tooltip("Trail: meters the sound moves before it leaves a new echo spot behind (smaller: a smoother trail, more spots).")]
+        public float TrailSpacing = 1f;
+        [Editable, Tooltip("Trail: the most spots repeating at once for one playing sound; past this its oldest is taken for the next.")]
+        public int MaxTrailSpots = 16;
         [Output("Out")] public float Out;
 
-        public enum DelayMode { Own, Spatial }
+        public enum DelayMode { Own, Spatial, Trail }
 
         public override SoundProcessor CreateProcessor(SoundCueBuilder builder)
         {
             if (Mode == DelayMode.Spatial)
             {
-                var probe = new PlaceProbe { Node = this, Targets = new float[3] };
+                // What it hears first (so Trails before it are built, and their probes run before this one's).
+                var audio = builder.Input(this, "Audio", 0f);
+                var probe = new PlaceProbe { Node = this, Targets = new float[3], Trails = TrailProbe.Among(builder.Upstream(this, "Audio")) };
                 probe.Fallback();
                 builder.Context.Probes.Add(probe);
                 var place = new ProbedProcessor { Ports = new[] { "Delay", "Feedback", "Wet" }, Targets = probe.Targets, Smoothing = 0.5f };
                 builder.AddHelper(place);
                 return new Processor(builder.SampleRate)
                 {
-                    In = builder.Input(this, "Audio", 0f),
+                    In = audio,
                     Delay = place.Output("Delay"),
                     Feedback = place.Output("Feedback"),
                     WetScale = place.Output("Wet"),
@@ -418,6 +426,12 @@ namespace Remedy.Audio
                     Line = new float[(int)(MaxDelay * builder.SampleRate) + 4],
                     Place = probe,
                 };
+            }
+            TrailProbe trail = null;
+            if (Mode == DelayMode.Trail)
+            {
+                trail = new TrailProbe { Kind = SpaceBus.BusKind.Slap, Spacing = Mathf.Max(0.1f, TrailSpacing), MaxSpots = Mathf.Max(1, MaxTrailSpots), A = Mathf.Clamp(Delay, 0.001f, MaxDelay), B = Mathf.Clamp(Feedback, 0f, 0.95f) };
+                builder.Context.Probes.Add(trail);
             }
             return new Processor(builder.SampleRate)
             {
@@ -427,6 +441,7 @@ namespace Remedy.Audio
                 Mix = builder.Input(this, "Mix", Mix),
                 // Only as long as it needs: the typed-in delay, or the most a connected (changing) one can be.
                 Line = new float[(int)(Mathf.Clamp(builder.IsConnected(this, "Delay") ? MaxDelay : Delay, 0.001f, MaxDelay) * builder.SampleRate) + 4],
+                Trail = trail,
             };
         }
 
@@ -460,12 +475,15 @@ namespace Remedy.Audio
             }
         }
 
-        private sealed class Processor : SoundProcessor
+        private sealed class Processor : SoundProcessor, ITrailed
         {
             public float[] In, Delay, Feedback, Mix, Line;
             // Spatial: the place's amount (which Mix scales), and the sends to echo walls.
             public float[] WetScale;
             public PlaceProbe Place;
+            // Trail: the echo repeats at the trail's spots instead (the sound only sends to them), when it can leave them.
+            public TrailProbe Trail;
+            TrailProbe ITrailed.Trail => Trail;
             private readonly SpatialSender _sender;
             private int _write;
 
@@ -481,6 +499,19 @@ namespace Remedy.Audio
             public override void Process(SoundContext context, int count)
             {
                 var o = Output("Out");
+                if (Trail != null && count > 0)
+                {
+                    Volatile.Write(ref Trail.A, Mathf.Clamp(Delay[count - 1], 0.001f, MaxDelay));
+                    Volatile.Write(ref Trail.B, Mathf.Clamp(Feedback[count - 1], 0f, 0.95f));
+                    var sends = Volatile.Read(ref Trail.Sends);
+                    if (sends != null && context.HeardStart >= 0)
+                    {
+                        for (int i = 0; i < count; i++)
+                            o[i] = In[i] * (1f - Mathf.Clamp01(Mix[i]));
+                        _sender.Send(sends, context, In, count, Mathf.Clamp01(Mix[count - 1]));
+                        return;
+                    }
+                }
                 int length = Line.Length;
                 for (int i = 0; i < count; i++)
                 {
@@ -587,7 +618,7 @@ namespace Remedy.Audio
         }
     }
 
-    [SchematicDoc(@"{""name"": ""Reverb"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Effects"", ""description"": ""Room echo: Room Size (0 small, 1 a cathedral), Damping (how soon the high end dies away: 0 bright, 1 dull), Mix (0 dry, 1 only the room). Mode Shared sends to the scene's reverb (Reverb Zones) instead of running its own: far cheaper for sounds played often or many at once (Room Size and Damping then come from the zone). Mode Spatial rings like the place the sound is in, from the Sound Field baked there: a small tiled bathroom, a dead carpeted office, a huge stone hall, open air (Mix then scales the place's reverb: 1 is as much as the place makes; outside every Sound Field it's open air, nearly dry; in the preview with Space set to None the place is this node's Room Size and Damping). In the game, Spatial sounds in a room make the room itself ring (heard from the room, carrying on after the sound moves away or stops), and in the open they're thrown back by the echo walls nearby (cliffs, canyon sides, buildings: Echoes sets how much), as late as sound takes to get there and back."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Room Size"", ""type"": ""float""}, {""name"": ""Damping"", ""type"": ""float""}, {""name"": ""Mix"", ""type"": ""float""}], ""outputs"": [{""name"": ""Out"", ""type"": ""audio""}]}")]
+    [SchematicDoc(@"{""name"": ""Reverb"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Effects"", ""description"": ""Room echo: Room Size (0 small, 1 a cathedral), Damping (how soon the high end dies away: 0 bright, 1 dull), Mix (0 dry, 1 only the room). Mode Shared sends to the scene's reverb (Reverb Zones) instead of running its own: far cheaper for sounds played often or many at once (Room Size and Damping then come from the zone). Mode Spatial rings like the place the sound is in, from the Sound Field baked there: a small tiled bathroom, a dead carpeted office, a huge stone hall, open air (Mix then scales the place's reverb: 1 is as much as the place makes; outside every Sound Field it's open air, nearly dry; in the preview with Space set to None the place is this node's Room Size and Damping). In the game, Spatial sounds in a room make the room itself ring (heard from the room, carrying on after the sound moves away or stops), and in the open they're thrown back by the echo walls nearby (cliffs, canyon sides, buildings: Echoes sets how much), as late as sound takes to get there and back. Mode Trail leaves its own reverb (Room Size and Damping) ringing where the sound has been, a new spot every Trail Spacing meters, so the tail trails behind a moving sound (Mix 1: only the trail); a Spatial Reverb or Delay after it rings the place with the trail too."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Room Size"", ""type"": ""float""}, {""name"": ""Damping"", ""type"": ""float""}, {""name"": ""Mix"", ""type"": ""float""}], ""outputs"": [{""name"": ""Out"", ""type"": ""audio""}]}")]
     [Serializable]
     [Node(Name = "Reverb", Path = "Effects"), Tags(SoundNode.Tag)]
     public class SoundReverbNode : SoundNode
@@ -600,14 +631,20 @@ namespace Remedy.Audio
         /// Own: this voice runs its own reverb (Room Size and Damping apply). Shared: it sends to the scene's reverb
         /// (Unity's Reverb Zones), which runs once for every sound, however many play: much cheaper for sounds played
         /// often or many at once. Spatial: its own reverb, shaped by the <see cref="SoundField"/> where the sound is
-        /// (how long, how dark, how much), following it as it moves. Previews (outside Play Mode) use Own's settings.
+        /// (how long, how dark, how much), following it as it moves. Trail: its own reverb (Room Size and Damping), left
+        /// ringing where the sound has been: a new spot every Trail Spacing meters, so the tail trails behind a moving
+        /// sound (in the game and the preview). A Spatial effect after a Trail rings the place with the trail too.
         /// </summary>
         [Editable] public ReverbMode Mode = ReverbMode.Own;
         /// <summary>Spatial: how much echo walls (cliffs, canyon sides, buildings) throw the sound back in the open, 0 to 1.</summary>
         [Editable] public float Echoes = 1f;
+        [Editable, Tooltip("Trail: meters the sound moves before it leaves a new reverb spot behind (smaller: a smoother trail, more spots).")]
+        public float TrailSpacing = 1f;
+        [Editable, Tooltip("Trail: the most spots ringing at once for one playing sound; past this its oldest is taken for the next.")]
+        public int MaxTrailSpots = 16;
         [Output("Out")] public float Out;
 
-        public enum ReverbMode { Own, Shared, Spatial }
+        public enum ReverbMode { Own, Shared, Spatial, Trail }
 
         public override SoundProcessor CreateProcessor(SoundCueBuilder builder)
         {
@@ -619,20 +656,35 @@ namespace Remedy.Audio
             }
             if (Mode == ReverbMode.Spatial)
             {
+                // What it hears first (so Trails before it are built, and their probes run before this one's).
+                var audio = builder.Input(this, "Audio", 0f);
                 // The place's reverb, asked of the Sound Field by the player (main thread) and glided between.
-                var probe = new PlaceProbe { Node = this, Targets = new float[3] };
+                var probe = new PlaceProbe { Node = this, Targets = new float[3], Trails = TrailProbe.Among(builder.Upstream(this, "Audio")) };
                 probe.Fallback();
                 builder.Context.Probes.Add(probe);
                 var place = new ProbedProcessor { Ports = new[] { "Feedback", "Damping", "Wet" }, Targets = probe.Targets, Smoothing = 0.5f };
                 builder.AddHelper(place);
                 return new Processor(builder.SampleRate)
                 {
-                    In = builder.Input(this, "Audio", 0f),
+                    In = audio,
                     Feedback = place.Output("Feedback"),
                     Damping = place.Output("Damping"),
                     WetScale = place.Output("Wet"),
                     Mix = builder.Input(this, "Mix", Mix),
                     Place = probe,
+                };
+            }
+            if (Mode == ReverbMode.Trail)
+            {
+                var trail = new TrailProbe { Kind = SpaceBus.BusKind.Room, Spacing = Mathf.Max(0.1f, TrailSpacing), MaxSpots = Mathf.Max(1, MaxTrailSpots), A = FeedbackFor(RoomSize), B = Mathf.Clamp01(Damping) };
+                builder.Context.Probes.Add(trail);
+                return new Processor(builder.SampleRate)
+                {
+                    In = builder.Input(this, "Audio", 0f),
+                    RoomSize = builder.Input(this, "Room Size", RoomSize),
+                    Damping = builder.Input(this, "Damping", Damping),
+                    Mix = builder.Input(this, "Mix", Mix),
+                    Trail = trail,
                 };
             }
             return new Processor(builder.SampleRate)
@@ -645,7 +697,7 @@ namespace Remedy.Audio
         }
 
         /// <summary>The comb feedback a Room Size makes (Own mode's mapping).</summary>
-        private static float FeedbackFor(float roomSize) => 0.7f + Mathf.Clamp01(roomSize) * 0.28f;
+        internal static float FeedbackFor(float roomSize) => 0.7f + Mathf.Clamp01(roomSize) * 0.28f;
 
         // Spatial: the place's reverb where the sound is -- feedback (its length), damping, and how much is heard -- and
         // the room it rings (in a room the sound's own reverb fades: the room's carries it) or, in the open, the echo walls.
@@ -692,13 +744,16 @@ namespace Remedy.Audio
             }
         }
 
-        // Freeverb (ReverbCore). Spatial: shaped by the place, and sending to the place's room or echo walls.
-        private sealed class Processor : SoundProcessor
+        // Freeverb (ReverbCore). Spatial: shaped by the place, and sending to the place's room or echo walls. Trail: the
+        // reverb is made at the trail's spots instead (the sound only sends to them), when it can leave them.
+        private sealed class Processor : SoundProcessor, ITrailed
         {
             public float[] In, RoomSize, Damping, Mix;
             // Spatial: the feedback itself (instead of Room Size), the place's amount (which Mix scales), and the sends.
             public float[] Feedback, WetScale;
             public PlaceProbe Place;
+            public TrailProbe Trail;
+            TrailProbe ITrailed.Trail => Trail;
             private readonly ReverbCore _core;
             private readonly SpatialSender _sender;
 
@@ -717,6 +772,22 @@ namespace Remedy.Audio
             public override void Process(SoundContext context, int count)
             {
                 var o = Output("Out");
+                if (Trail != null && count > 0)
+                {
+                    // The node's settings for the spot (the world side sets them on it).
+                    Volatile.Write(ref Trail.A, FeedbackFor(RoomSize[count - 1]));
+                    Volatile.Write(ref Trail.B, Mathf.Clamp01(Damping[count - 1]));
+                    var sends = Volatile.Read(ref Trail.Sends);
+                    if (sends != null && context.HeardStart >= 0)
+                    {
+                        // Only the dry part here: the reverb rings at the spot, from the part sent to it.
+                        for (int i = 0; i < count; i++)
+                            o[i] = In[i] * (1f - Mathf.Clamp01(Mix[i]));
+                        _sender.Send(sends, context, In, count, Mathf.Clamp01(Mix[count - 1]));
+                        return;
+                    }
+                    // No spot to leave (a pitched source, the pool's full): its own reverb, as Own.
+                }
                 for (int i = 0; i < count; i++)
                 {
                     float feedback = Feedback != null ? Mathf.Clamp(Feedback[i], 0f, 0.985f) : FeedbackFor(RoomSize[i]);
