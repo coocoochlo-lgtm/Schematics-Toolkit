@@ -71,11 +71,9 @@ namespace Remedy.Cameras
 
         private readonly VariableHandle<float> _targetScale = 1f;
         private readonly VariableHandle<float> _currentScale = 1f;
-        private readonly VariableHandle<Vector3> _horPos = Vector3.zero;
-        private readonly VariableHandle<Vector3> _vertPos = Vector3.zero;
         private readonly VariableHandle<bool> _lookingDown = false;
         private readonly VariableHandle<float> _currentYOffset = 0f;
-        private readonly VariableHandle<float> _lastFloorHit = 0f;
+        private readonly VariableHandle<Vector3> _lastFloorPoint = Vector3.zero;
 
         protected override void OnUpdate()
         {
@@ -87,9 +85,13 @@ namespace Remedy.Cameras
             float dt = Time.deltaTime;
             var collisionLayers = CollisionLayers.Value;
             var body = BodyOf(follow, Body.Value);
+            // Everything below is measured in the camera's frame: "up" is its eased up (the target's, on slopes, walls
+            // and loops), "height" is along it, "falling" is moving down it, and headings turn around it.
             var frame = UpFrame(follow);
+            var up = CameraUp;
             var velocity = body.GetVelocity();
-            var followOffset = FollowOffset.Value;
+            float upSpeed = Vector3.Dot(velocity, up);
+            var followOffset = frame * FollowOffset.Value;
             float yDistanceAllowance = YDistanceAllowance.Value;
 
             ref float xAxis = ref XAxis.Ref;
@@ -97,34 +99,31 @@ namespace Remedy.Cameras
             ref float actualXAxis = ref ActualXAxis.Ref;
             ref float actualYAxis = ref ActualYAxis.Ref;
             ref float timeSinceInput = ref _timeSinceInput.Ref;
-            ref var horPos = ref _horPos.Ref;
-            ref var vertPos = ref _vertPos.Ref;
             ref float currentYOffset = ref _currentYOffset.Ref;
-            ref float lastFloorHit = ref _lastFloorHit.Ref;
+            ref var lastFloorPoint = ref _lastFloorPoint.Ref;
 
             if (SchematicPhysics.Raycast(camera.position, camera.forward, out RaycastHit aimHit, AimDistance, ~0, body))
                 AimPosition.Invoke(aimHit.point);
 
             KeepObjectAtRoot(root, follow);
 
-            horPos.x = Mathf.Lerp(root.position.x, follow.position.x + followOffset.x, HorizontalFollowSpeed.Value * dt);
-            horPos.z = Mathf.Lerp(root.position.z, follow.position.z + followOffset.z, HorizontalFollowSpeed.Value * dt);
-
+            // The ground "below" the target (down its up). Near it, the camera keeps to a set height above it; off it,
+            // it follows the target's own height.
             // TODO: Apply an Offset Grace Period (Transition between the two different offsets so the camera doesn't jump up and down)
-            if (SchematicPhysics.SphereCast(follow.position + Vector3.up, 0.5f, Vector3.down, out RaycastHit floorHit, out _, yDistanceAllowance, collisionLayers, body))
+            bool grounded = SchematicPhysics.SphereCast(follow.position + up, 0.5f, -up, out RaycastHit floorHit, out _, yDistanceAllowance, collisionLayers, body);
+            if (grounded)
             {
                 currentYOffset = Mathf.Lerp(currentYOffset, 0f, YOffsetTransitionSpeed.Value * dt);
-                lastFloorHit = floorHit.point.y + GroundedOffset.Value.y;
+                lastFloorPoint = floorHit.point;
             }
             else
             {
                 currentYOffset = Mathf.Lerp(currentYOffset, 1f, YOffsetTransitionSpeed.Value * dt);
             }
-
-            float goalY = Mathf.Lerp(lastFloorHit, follow.position.y + followOffset.y, currentYOffset);
-            vertPos.y = Mathf.Lerp(root.position.y, goalY, VerticalFollowSpeed.Value * dt);
-
-            root.position = horPos + vertPos;
+            var target = follow.position + followOffset;
+            float floorHeight = Vector3.Dot(lastFloorPoint, up) + GroundedOffset.Value.y;
+            float goalHeight = Mathf.Lerp(floorHeight, Vector3.Dot(target, up), currentYOffset);
+            root.position = FollowAcrossAndAlong(root.position, target, goalHeight, up, HorizontalFollowSpeed.Value, VerticalFollowSpeed.Value, dt);
 
             // Rotation smoothing
             actualXAxis = Mathf.Lerp(actualXAxis, xAxis, SmoothSpeed * dt);
@@ -143,29 +142,26 @@ namespace Remedy.Cameras
                     yAxis = Mathf.Lerp(yAxis, restingAngle, AutoLevelSpeed.Value * dt);
                 }
 
-                // Lookahead in the direction the character is moving
-                if (body != null && (Mathf.Abs(velocity.x) > 1 || Mathf.Abs(velocity.z) > 1))
+                // Lookahead: turn toward where the character faces while it's moving (across the up).
+                if (body != null && Vector3.ProjectOnPlane(velocity, up).sqrMagnitude > 1f)
                 {
-                    actualXAxis = Mathf.LerpAngle(actualXAxis, body.transform.eulerAngles.y, LookaheadOrientationStrength.Value * dt);
-                    xAxis = Mathf.LerpAngle(xAxis, body.transform.eulerAngles.y, LookaheadOrientationStrength.Value * dt);
+                    float facing = YawIn(frame, body.transform.forward);
+                    actualXAxis = Mathf.LerpAngle(actualXAxis, facing, LookaheadOrientationStrength.Value * dt);
+                    xAxis = Mathf.LerpAngle(xAxis, facing, LookaheadOrientationStrength.Value * dt);
                 }
 
                 // Orient relative to walls
                 if (SchematicPhysics.SphereCast(follow.position, 0.25f, follow.right, out RaycastHit wallHit, out _, OptimalDistance.Value, collisionLayers, body))
                 {
-                    Vector3 projectedForward = Vector3.ProjectOnPlane(follow.right, wallHit.normal).normalized;
-                    var euler = Quaternion.LookRotation(projectedForward, Vector3.up).eulerAngles.y;
-
-                    if (Mathf.Abs(Mathf.DeltaAngle(euler, root.eulerAngles.y)) < 60)
-                        xAxis = Mathf.LerpAngle(xAxis, euler, OptimalDistancePush.Value * dt);
+                    float heading = YawIn(frame, Vector3.ProjectOnPlane(follow.right, wallHit.normal));
+                    if (Mathf.Abs(Mathf.DeltaAngle(heading, actualXAxis)) < 60)
+                        xAxis = Mathf.LerpAngle(xAxis, heading, OptimalDistancePush.Value * dt);
                 }
                 else if (SchematicPhysics.SphereCast(follow.position, 0.25f, -follow.right, out wallHit, out _, OptimalDistance.Value, collisionLayers, body))
                 {
-                    Vector3 projectedForward = Vector3.ProjectOnPlane(-follow.right, wallHit.normal).normalized;
-                    var euler = Quaternion.LookRotation(projectedForward, Vector3.up).eulerAngles.y;
-
-                    if (Mathf.Abs(Mathf.DeltaAngle(euler, root.eulerAngles.y)) < 100)
-                        xAxis = Mathf.LerpAngle(xAxis, euler, OptimalDistancePush.Value * dt);
+                    float heading = YawIn(frame, Vector3.ProjectOnPlane(-follow.right, wallHit.normal));
+                    if (Mathf.Abs(Mathf.DeltaAngle(heading, actualXAxis)) < 100)
+                        xAxis = Mathf.LerpAngle(xAxis, heading, OptimalDistancePush.Value * dt);
                 }
             }
             else
@@ -173,21 +169,21 @@ namespace Remedy.Cameras
                 actualYAxis = Mathf.Lerp(actualYAxis, yAxis, SmoothSpeed * dt);
             }
 
-            // Aim down when falling
-            if (!SchematicPhysics.SphereCast(follow.position + Vector3.up, 0.5f, Vector3.down, out floorHit, out _, yDistanceAllowance, collisionLayers, body))
+            // Aim down when falling (down the up), up when rising
+            if (!grounded)
             {
                 _lookingDown.Value = true;
 
-                if (body != null && velocity.y <= 0)
+                if (body != null && upSpeed <= 0)
                 {
-                    float t = Mathf.Clamp(Mathf.Abs(velocity.y) / LookdownOrientationMaxVelocity.Value, 0.2f, 1f);
+                    float t = Mathf.Clamp(Mathf.Abs(upSpeed) / LookdownOrientationMaxVelocity.Value, 0.2f, 1f);
                     float angle = Mathf.Lerp(0, LookdownOrientationMaxAngle.Value, t);
                     yAxis = Mathf.Lerp(yAxis, angle, LookdownOrientationSpeed.Value * dt);
                     actualYAxis = Mathf.Lerp(actualYAxis, angle, LookdownOrientationSpeed.Value * dt);
                 }
-                else if (body != null && velocity.y > 0)
+                else if (body != null && upSpeed > 0)
                 {
-                    float t = Mathf.Clamp(Mathf.Abs(velocity.y) / LookupOrientationMaxVelocity.Value, 0f, 1f);
+                    float t = Mathf.Clamp(Mathf.Abs(upSpeed) / LookupOrientationMaxVelocity.Value, 0f, 1f);
                     float angle = Mathf.Lerp(0, -LookupOrientationMaxAngle.Value, t);
                     yAxis = Mathf.Lerp(yAxis, angle, LookdownOrientationSpeed.Value * dt);
                     actualYAxis = Mathf.Lerp(actualYAxis, angle, LookdownOrientationSpeed.Value * dt);
@@ -215,7 +211,7 @@ namespace Remedy.Cameras
             root.localScale = new Vector3(1, 1, _currentScale.Value);
 
             var dir = root.position - camera.position;
-            camera.rotation = Quaternion.Slerp(camera.rotation, Quaternion.LookRotation(dir, CameraUp), 20f * dt);
+            camera.rotation = Quaternion.Slerp(camera.rotation, Quaternion.LookRotation(dir, up), 20f * dt);
             camera.localPosition = Vector3.Lerp(camera.localPosition, new Vector3(0, 0, -1), 20f * dt);
 
             UpdateAimDirection();

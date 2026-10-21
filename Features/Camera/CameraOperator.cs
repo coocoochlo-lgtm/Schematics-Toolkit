@@ -70,25 +70,63 @@ namespace Remedy.Cameras
         [Tooltip("How quickly the camera's up follows the target's (higher is snappier).")]
         public readonly VariableHandle<float> UpAlignSpeed = 3f;
 
-        // The camera's up, easing toward the target's.
+        // The camera's up, easing toward the target's, and the frame it carries: rolled along with the up a little
+        // each frame (never rebuilt from world up), so headings stay continuous on walls, ceilings and loops.
         protected readonly VariableHandle<Vector3> _up = Vector3.up;
+        protected readonly VariableHandle<Quaternion> _frame = Quaternion.identity;
 
         /// <summary>
         /// Eases the camera's up toward the target's (world up with Align To Target Up off) and returns the frame
-        /// the rig's yaw and pitch are built in: <c>frame * Quaternion.Euler(pitch, yaw, 0)</c>.
+        /// the rig's yaw and pitch are built in: <c>frame * Quaternion.Euler(pitch, yaw, 0)</c>. The frame's up is
+        /// <see cref="CameraUp"/>; "height", "falling" and "level" are all measured along it.
         /// </summary>
         protected Quaternion UpFrame(Transform follow)
         {
             ref var up = ref _up.Ref;
+            ref var frame = ref _frame.Ref;
             if (up.sqrMagnitude < 0.5f)
+            {
                 up = Vector3.up;
+                frame = Quaternion.identity;
+            }
             var goal = AlignToTargetUp.Value && follow != null ? follow.up : Vector3.up;
-            up = Vector3.Slerp(up, goal, 1f - Mathf.Exp(-UpAlignSpeed.Value * Time.deltaTime)).normalized;
-            return Quaternion.FromToRotation(Vector3.up, up);
+            var next = Vector3.Slerp(up, goal, 1f - Mathf.Exp(-UpAlignSpeed.Value * Time.deltaTime)).normalized;
+            frame = (Quaternion.FromToRotation(up, next) * frame).normalized;
+            up = next;
+            return frame;
         }
 
         /// <summary>The camera's current (eased) up.</summary>
         protected Vector3 CameraUp => _up.Value.sqrMagnitude > 0.5f ? _up.Value : Vector3.up;
+
+        /// <summary>A direction's heading (degrees) in a frame: what XAxis would be to face it.</summary>
+        protected static float YawIn(Quaternion frame, Vector3 direction)
+        {
+            var local = Quaternion.Inverse(frame) * direction;
+            return Mathf.Atan2(local.x, local.z) * Mathf.Rad2Deg;
+        }
+
+        /// <summary>
+        /// A direction's heading (degrees) in an Operator's current frame: what its XAxis would be to face it (the
+        /// Camera Manager hands a Reference Camera's heading back with it).
+        /// </summary>
+        public float FrameYaw(BehaviorInstance instance, Vector3 direction)
+        {
+            var frame = _frame[instance];
+            return YawIn(frame.w == 0f && frame.x == 0f && frame.y == 0f && frame.z == 0f ? Quaternion.identity : frame, direction);
+        }
+
+        /// <summary>
+        /// Moves a position toward a target, across the camera's up at one speed and along it (toward
+        /// <paramref name="goalHeight"/>, measured along the up) at another.
+        /// </summary>
+        protected static Vector3 FollowAcrossAndAlong(Vector3 position, Vector3 target, float goalHeight, Vector3 up,
+            float acrossSpeed, float alongSpeed, float dt)
+        {
+            var across = Vector3.Lerp(Vector3.ProjectOnPlane(position, up), Vector3.ProjectOnPlane(target, up), acrossSpeed * dt);
+            float height = Mathf.Lerp(Vector3.Dot(position, up), goalHeight, alongSpeed * dt);
+            return across + up * height;
+        }
 
         public float XAxisSpeed => Properties.Value != null ? Properties.Value.XAxisSpeed : 3f;
         public float YAxisSpeed => Properties.Value != null ? Properties.Value.YAxisSpeed : 2f;
@@ -164,13 +202,16 @@ namespace Remedy.Cameras
                 Object.Destroy(root.gameObject);
         }
 
-        /// <summary>Updates the selected Operator's aim direction and applies pending look input.</summary>
+        /// <summary>
+        /// Updates the selected Operator's aim direction (level with the camera's up, so it runs along walls and slopes)
+        /// and applies pending look input.
+        /// </summary>
         public void UpdateAimDirection()
         {
             var camera = Camera.Value;
             if (camera == null) return;
 
-            AimDirection.Value = Vector3.ProjectOnPlane(camera.forward, Vector3.up).normalized;
+            AimDirection.Value = Vector3.ProjectOnPlane(camera.forward, CameraUp).normalized;
             AimDirectionOutput.Invoke(AimDirection.Value);
 
             XAxis.Value += _xAxisInput.Value * (XAxisSpeed * Time.deltaTime);

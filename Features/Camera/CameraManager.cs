@@ -147,7 +147,7 @@ namespace Remedy.Cameras
                 cameraTransform.position = Vector3.Lerp(cameraTransform.position, goalPos, t);
 
                 // The Operator turns to face the same way, so leaving the volume doesn't swing the camera around.
-                op.ForceAxis(CurrentOperator, cameraTransform.eulerAngles.y, 0);
+                op.ForceAxis(CurrentOperator, op.FrameYaw(CurrentOperator, cameraTransform.forward), 0);
                 _followingReference = true;
             }
             else

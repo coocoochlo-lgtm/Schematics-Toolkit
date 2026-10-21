@@ -69,8 +69,6 @@ namespace Remedy.Cameras
 
         private readonly VariableHandle<float> _targetScale = 1f;
         private readonly VariableHandle<float> _currentScale = 1f;
-        private readonly VariableHandle<Vector3> _horPos = Vector3.zero;
-        private readonly VariableHandle<Vector3> _vertPos = Vector3.zero;
         private readonly VariableHandle<Vector3> _shoulderPosition = Vector3.zero;
 
         protected override void OnUpdate()
@@ -80,20 +78,20 @@ namespace Remedy.Cameras
             var camera = Camera.Value;
             if (follow == null || root == null || camera == null) return;
             var body = BodyOf(follow, Body.Value);
+            // Measured in the camera's frame: its eased up (the target's, on slopes, walls and loops).
             var frame = UpFrame(follow);
+            var up = CameraUp;
 
             float dt = Time.deltaTime;
             var collisionLayers = CollisionLayers.Value;
             ref var shoulder = ref Shoulder.Ref;
             ref var shoulderPosition = ref _shoulderPosition.Ref;
-            ref var horPos = ref _horPos.Ref;
-            ref var vertPos = ref _vertPos.Ref;
-            var followOffset = FollowOffset.Value;
+            var followOffset = frame * FollowOffset.Value;
 
             if (AutoSwitch.Value)
             {
                 var side = shoulder == Shoulders.Left ? -root.right : root.right;
-                if (SchematicPhysics.SphereCast(root.position + Vector3.up, 0.25f, side, out _, out _, 1, collisionLayers, body))
+                if (SchematicPhysics.SphereCast(root.position + up, 0.25f, side, out _, out _, 1, collisionLayers, body))
                     shoulder = shoulder == Shoulders.Left ? Shoulders.Right : Shoulders.Left;
             }
 
@@ -105,11 +103,8 @@ namespace Remedy.Cameras
 
             KeepObjectAtRoot(root, follow);
 
-            horPos.x = Mathf.Lerp(root.position.x, follow.position.x + followOffset.x, HorizontalFollowSpeed.Value * dt);
-            horPos.z = Mathf.Lerp(root.position.z, follow.position.z + followOffset.z, HorizontalFollowSpeed.Value * dt);
-            vertPos.y = Mathf.Lerp(root.position.y, follow.position.y + followOffset.y, VerticalFollowSpeed.Value * dt);
-
-            root.position = horPos + vertPos;
+            var target = follow.position + followOffset;
+            root.position = FollowAcrossAndAlong(root.position, target, Vector3.Dot(target, up), up, HorizontalFollowSpeed.Value, VerticalFollowSpeed.Value, dt);
 
             // Apply rotation to Root
             _goalRotation.Value = frame * Quaternion.Euler(YAxis.Value, XAxis.Value, 0);
