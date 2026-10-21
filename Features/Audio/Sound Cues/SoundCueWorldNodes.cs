@@ -234,4 +234,51 @@ namespace Remedy.Audio
             }
         }
     }
+    [SchematicDoc(@"{""name"": ""Acoustics"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Controls"", ""description"": ""What the place the sound is in sounds like, from the Sound Field baked there: In Field (1 inside one), Reverb Time (seconds for a reverb to die away), Wet (how much reverb the place makes, 0 to 0.65), Size (how far the surfaces around are, meters), Enclosure (0 open sky to 1 walled in), and the surfaces' Absorption, Hardness and Wetness. Drive anything with them: a Delay's Feedback by Size, a Filter by Hardness, a splash layer by Wetness."", ""outputs"": [{""name"": ""In Field"", ""type"": ""float""}, {""name"": ""Reverb Time"", ""type"": ""float""}, {""name"": ""Wet"", ""type"": ""float""}, {""name"": ""Size"", ""type"": ""float""}, {""name"": ""Enclosure"", ""type"": ""float""}, {""name"": ""Absorption"", ""type"": ""float""}, {""name"": ""Hardness"", ""type"": ""float""}, {""name"": ""Wetness"", ""type"": ""float""}], ""notes"": ""Checked about 10 times a second, gliding over Smoothing seconds. The editor's preview has no world: everything reads 0.""}")]
+    [Serializable]
+    [NodeColor(NodeColors.Physics)]
+    [Node(Name = "Acoustics", Path = "Controls"), Tags(SoundNode.Tag)]
+    public class SoundAcousticsNode : SoundNode
+    {
+        [Output("In Field")] public float InField;
+        [Output("Reverb Time")] public float ReverbTime;
+        [Output("Wet")] public float Wet;
+        [Output("Size")] public float Size;
+        [Output("Enclosure")] public float Enclosure;
+        [Output("Absorption")] public float Absorption;
+        [Output("Hardness")] public float Hardness;
+        [Output("Wetness")] public float Wetness;
+
+        [Editable, Tooltip("Seconds to glide to new values.")] public float Smoothing = 0.4f;
+
+        private static readonly string[] Ports = { "In Field", "Reverb Time", "Wet", "Size", "Enclosure", "Absorption", "Hardness", "Wetness" };
+
+        public override SoundProcessor CreateProcessor(SoundCueBuilder builder)
+        {
+            var probe = new Probe { Targets = new float[Ports.Length] };
+            builder.Context.Probes.Add(probe);
+            return new ProbedProcessor { Ports = Ports, Targets = probe.Targets, Smoothing = Smoothing };
+        }
+
+        private sealed class Probe : SoundProbe
+        {
+            public float[] Targets;
+
+            public override void Update(in SoundProbeWorld world)
+            {
+                var place = default(SoundAcoustics);
+                bool inField = !world.Previewing && SoundField.Sample(world.Position, out place);
+                if (!inField)
+                    place = default;
+                Volatile.Write(ref Targets[0], inField ? 1f : 0f);
+                Volatile.Write(ref Targets[1], inField ? place.ReverbTime : 0f);
+                Volatile.Write(ref Targets[2], inField ? place.Wet : 0f);
+                Volatile.Write(ref Targets[3], place.Size);
+                Volatile.Write(ref Targets[4], place.Enclosure);
+                Volatile.Write(ref Targets[5], place.Absorption);
+                Volatile.Write(ref Targets[6], place.Hardness);
+                Volatile.Write(ref Targets[7], place.Wetness);
+            }
+        }
+    }
 }

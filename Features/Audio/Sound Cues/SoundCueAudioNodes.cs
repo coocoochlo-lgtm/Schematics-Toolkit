@@ -508,7 +508,7 @@ namespace Remedy.Audio
         }
     }
 
-    [SchematicDoc(@"{""name"": ""Reverb"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Effects"", ""description"": ""Room echo: Room Size (0 small, 1 a cathedral), Damping (how soon the high end dies away: 0 bright, 1 dull), Mix (0 dry, 1 only the room). Mode Shared sends to the scene's reverb (Reverb Zones) instead of running its own: far cheaper for sounds played often or many at once (Room Size and Damping then come from the zone)."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Room Size"", ""type"": ""float""}, {""name"": ""Damping"", ""type"": ""float""}, {""name"": ""Mix"", ""type"": ""float""}], ""outputs"": [{""name"": ""Out"", ""type"": ""audio""}]}")]
+    [SchematicDoc(@"{""name"": ""Reverb"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Effects"", ""description"": ""Room echo: Room Size (0 small, 1 a cathedral), Damping (how soon the high end dies away: 0 bright, 1 dull), Mix (0 dry, 1 only the room). Mode Shared sends to the scene's reverb (Reverb Zones) instead of running its own: far cheaper for sounds played often or many at once (Room Size and Damping then come from the zone). Mode Spatial rings like the place the sound is in, from the Sound Field baked there: a small tiled bathroom, a dead carpeted office, a huge stone hall, open air (Mix then scales the place's reverb: 1 is as much as the place makes; outside any Sound Field the place is this node's Room Size and Damping)."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Room Size"", ""type"": ""float""}, {""name"": ""Damping"", ""type"": ""float""}, {""name"": ""Mix"", ""type"": ""float""}], ""outputs"": [{""name"": ""Out"", ""type"": ""audio""}]}")]
     [Serializable]
     [Node(Name = "Reverb", Path = "Effects"), Tags(SoundNode.Tag)]
     public class SoundReverbNode : SoundNode
@@ -520,12 +520,13 @@ namespace Remedy.Audio
         /// <summary>
         /// Own: this voice runs its own reverb (Room Size and Damping apply). Shared: it sends to the scene's reverb
         /// (Unity's Reverb Zones), which runs once for every sound, however many play: much cheaper for sounds played
-        /// often or many at once. Previews (outside Play Mode) use Own either way, so it can be heard.
+        /// often or many at once. Spatial: its own reverb, shaped by the <see cref="SoundField"/> where the sound is
+        /// (how long, how dark, how much), following it as it moves. Previews (outside Play Mode) use Own's settings.
         /// </summary>
         [Editable] public ReverbMode Mode = ReverbMode.Own;
         [Output("Out")] public float Out;
 
-        public enum ReverbMode { Own, Shared }
+        public enum ReverbMode { Own, Shared, Spatial }
 
         public override SoundProcessor CreateProcessor(SoundCueBuilder builder)
         {
@@ -535,6 +536,23 @@ namespace Remedy.Audio
                 SoundCueReverbZone.Ensure();
                 return new SendProcessor { In = builder.Input(this, "Audio", 0f), Mix = builder.Input(this, "Mix", Mix) };
             }
+            if (Mode == ReverbMode.Spatial)
+            {
+                // The place's reverb, asked of the Sound Field by the player (main thread) and glided between.
+                var probe = new PlaceProbe { Node = this, Targets = new float[3] };
+                probe.Fallback();
+                builder.Context.Probes.Add(probe);
+                var place = new ProbedProcessor { Ports = new[] { "Feedback", "Damping", "Wet" }, Targets = probe.Targets, Smoothing = 0.5f };
+                builder.AddHelper(place);
+                return new Processor(builder.SampleRate)
+                {
+                    In = builder.Input(this, "Audio", 0f),
+                    Feedback = place.Output("Feedback"),
+                    Damping = place.Output("Damping"),
+                    WetScale = place.Output("Wet"),
+                    Mix = builder.Input(this, "Mix", Mix),
+                };
+            }
             return new Processor(builder.SampleRate)
             {
                 In = builder.Input(this, "Audio", 0f),
@@ -542,6 +560,36 @@ namespace Remedy.Audio
                 Damping = builder.Input(this, "Damping", Damping),
                 Mix = builder.Input(this, "Mix", Mix),
             };
+        }
+
+        /// <summary>The comb feedback a Room Size makes (Own mode's mapping).</summary>
+        private static float FeedbackFor(float roomSize) => 0.7f + Mathf.Clamp01(roomSize) * 0.28f;
+
+        // Spatial: the place's reverb where the sound is -- feedback (its length), damping, and how much is heard.
+        private sealed class PlaceProbe : SoundProbe
+        {
+            public SoundReverbNode Node;
+            public float[] Targets;
+
+            public override void Update(in SoundProbeWorld world)
+            {
+                if (world.Previewing || !SoundField.Sample(world.Position, out var place))
+                {
+                    Fallback();
+                    return;
+                }
+                System.Threading.Volatile.Write(ref Targets[0], place.Feedback);
+                System.Threading.Volatile.Write(ref Targets[1], place.Damping);
+                System.Threading.Volatile.Write(ref Targets[2], place.Wet);
+            }
+
+            // No Sound Field here: the node's own Room Size and Damping, heard a modest amount.
+            public void Fallback()
+            {
+                System.Threading.Volatile.Write(ref Targets[0], FeedbackFor(Node.RoomSize));
+                System.Threading.Volatile.Write(ref Targets[1], Mathf.Clamp01(Node.Damping));
+                System.Threading.Volatile.Write(ref Targets[2], 0.3f);
+            }
         }
 
         // Shared: the audio passes through dry, and Mix becomes how much the player sends to the scene's reverb.
@@ -564,6 +612,8 @@ namespace Remedy.Audio
             private static readonly int[] AllpassTunings = { 556, 441, 341, 225 };
 
             public float[] In, RoomSize, Damping, Mix;
+            // Spatial: the feedback itself (instead of Room Size) and the place's amount, which Mix scales.
+            public float[] Feedback, WetScale;
             private readonly float[][] _combs, _allpasses;
             private readonly int[] _combIndex, _allpassIndex;
             private readonly float[] _combStore;
@@ -596,7 +646,7 @@ namespace Remedy.Audio
                 var o = Output("Out");
                 for (int i = 0; i < count; i++)
                 {
-                    float feedback = 0.7f + Mathf.Clamp01(RoomSize[i]) * 0.28f;
+                    float feedback = Feedback != null ? Mathf.Clamp(Feedback[i], 0f, 0.985f) : FeedbackFor(RoomSize[i]);
                     float damp = Mathf.Clamp01(Damping[i]) * 0.4f;
                     float x = In[i];
                     float input = x * 0.015f;
@@ -621,7 +671,7 @@ namespace Remedy.Audio
                         _allpassIndex[a] = (index + 1) % line.Length;
                         wet = output;
                     }
-                    float mix = Mathf.Clamp01(Mix[i]);
+                    float mix = Mathf.Clamp01(WetScale != null ? Mix[i] * WetScale[i] : Mix[i]);
                     o[i] = x * (1f - mix) + wet * 3f * mix;
                 }
             }

@@ -243,6 +243,16 @@ namespace Remedy.Audio
         internal IReadOnlyDictionary<string, int> Parameters => _parameters;
         internal float[] ParameterDefaults => _parameterDefaults.ToArray();
 
+        /// <summary>
+        /// Adds a helper processor to the voice (one a node makes for itself, not another node's), run before the
+        /// processor being built now: call it from <see cref="SoundNode.CreateProcessor"/> and read its outputs.
+        /// </summary>
+        public void AddHelper(SoundProcessor helper)
+        {
+            if (helper != null)
+                Order.Add(helper);
+        }
+
         /// <summary>Notes a source's length (a Sound Wave's clip, a Generator's sound) for Auto length.</summary>
         public void NoteSourceLength(float seconds)
         {
