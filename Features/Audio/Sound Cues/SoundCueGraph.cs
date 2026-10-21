@@ -2,6 +2,7 @@ using BlueGraph;
 using Remedy.Schematics;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace Remedy.Audio
@@ -43,6 +44,10 @@ namespace Remedy.Audio
 
         /// <summary>Whether the cue is heard placed in the world (Stereo) rather than flat (Mono).</summary>
         public bool IsSpatial => Channels == SoundCueChannels.Stereo;
+
+        /// <summary>Its Parameters, for Set Graph Parameters (and Play Sound Cue's pins).</summary>
+        public override IReadOnlyList<GraphParameter> GraphParameters
+            => ParameterList.Select(p => new GraphParameter(p.name, typeof(float), p.value)).ToList();
 
         /// <summary>The cue's Parameters (each name once), with their defaults: what a node that plays it can set.</summary>
         public List<(string name, float value)> ParameterList

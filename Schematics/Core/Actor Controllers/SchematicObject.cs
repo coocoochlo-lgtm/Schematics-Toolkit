@@ -10,9 +10,12 @@ namespace Remedy.Schematics
     /// Describes how instances of the Object should interface with the rest of the Schematic Toolkit
     /// </summary>
     [RequireComponent(typeof(ManagerHandshaker))]
-    public class SchematicObject : MonoBehaviour, IIntTagSource
+    public class SchematicObject : SchematicGraphRunner, IIntTagSource
     {
         public SchematicGraph SchematicGraph;
+
+        /// <summary>The object's graph (what a Graph Variable holding this object runs).</summary>
+        public override SchematicGraph RunningGraph => SchematicGraph;
 
         /// <summary>
         /// The Int Tags this object can be found by (<see cref="IntTagRegistry.Find"/>, the "Find With Tag" node). They're

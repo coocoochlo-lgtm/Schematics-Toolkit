@@ -132,7 +132,19 @@ public class ScopeItemInspectorEditor : Editor
             GraphScopeEditing.SetVariableType(graph, variable, types[picked].type);
 
         var type = variable.ValueType;
-        if (type != null && SchematicValueField.Draw(new GUIContent("Starting Value", "Every object running the graph starts with this (unless it overrides it)."), type, variable.Default?.Get(type), out var value))
+        // A Graph Variable: which graph it holds a running copy of (its Parameters become Set Graph Parameters' pins).
+        if (type != null && typeof(SchematicGraphRunner).IsAssignableFrom(type))
+        {
+            EditorGUI.BeginChangeCheck();
+            var held = (SchematicGraph)EditorGUILayout.ObjectField(new GUIContent("Graph", "The graph this Variable holds a running copy of (any kind: an object's graph, a Sound Cue...). Set Graph Parameters wired from it gets that graph's Parameters as pins."), variable.Graph, typeof(SchematicGraph), false);
+            if (EditorGUI.EndChangeCheck())
+            {
+                Undo.RecordObject(graph, "Set Graph Variable's Graph");
+                variable.Graph = held;
+                GraphScopeEditing.Commit(graph, structural: true);
+            }
+        }
+        else if (type != null && SchematicValueField.Draw(new GUIContent("Starting Value", "Every object running the graph starts with this (unless it overrides it)."), type, variable.Default?.Get(type), out var value))
             GraphScopeEditing.SetVariableDefault(graph, variable, value);
 
         EditorGUI.BeginChangeCheck();

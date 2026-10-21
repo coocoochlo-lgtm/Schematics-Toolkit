@@ -53,6 +53,12 @@ namespace Remedy.Schematics
         public List<GraphSignal> Signals => _signals ??= new();
 
         /// <summary>A graph Variable by id (or, failing that, by name).</summary>
+        /// <summary>
+        /// The graph's Parameters: values whatever runs it gives it, set with Set Graph Parameters (a Sound Cue's
+        /// Parameter nodes, say). None by default.
+        /// </summary>
+        public virtual IReadOnlyList<GraphParameter> GraphParameters => Array.Empty<GraphParameter>();
+
         public GraphVariable FindVariable(string idOrName)
         {
             if (string.IsNullOrEmpty(idOrName)) return null;

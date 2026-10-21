@@ -19,6 +19,8 @@ namespace Remedy.Schematics
         public SchematicValue Default = new(0f);
         [Tooltip("Sync this Variable over the network: the object's authority sends its value to everyone else.")]
         public bool Networked;
+        [Tooltip("A Graph Variable: the graph it holds a running copy of (any kind of graph). Set Graph Parameters wired from it gets that graph's Parameters as pins.")]
+        public SchematicGraph Graph;
         [TextArea(1, 4)]
         public string Description;
 

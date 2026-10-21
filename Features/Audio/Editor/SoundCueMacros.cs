@@ -5,7 +5,7 @@ namespace Remedy.Audio
 {
     /// <summary>
     /// Sound Cue macros (right-click in a cue: Macros): ready-made sounds built from nodes, with their settings as
-    /// Parameters (set from gameplay with Set Sound Cue Parameter) and plain numbers on the nodes to tune.
+    /// Parameters (set from gameplay with Set Graph Parameters) and plain numbers on the nodes to tune.
     /// </summary>
     [InitializeOnLoad]
     internal static class SoundCueMacros

@@ -31,6 +31,8 @@ public static class GraphScopeEditing
         ("Objects/Material", typeof(Material)), ("Objects/Sprite", typeof(Sprite)), ("Objects/Texture2D", typeof(Texture2D)),
         ("Objects/AudioClip", typeof(AudioClip)), ("Objects/AnimationClip", typeof(AnimationClip)),
         ("Objects/Scriptable Object", typeof(ScriptableObject)), ("Objects/Signal", typeof(SignalData)),
+        // A running graph of any kind (a Schematic Object's, a playing Sound Cue...): pick which graph in its inspector.
+        ("Graph", typeof(SchematicGraphRunner)),
     };
 
     /// <summary>Raised after any change, so open docks and inspectors redraw.</summary>

@@ -79,7 +79,7 @@ namespace Remedy.Audio
         }
     }
 
-    [SchematicDoc(@"{""name"": ""Parameter"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Controls"", ""description"": ""A value the game sets while the cue plays (Set Sound Cue Parameter node, or SoundCuePlayer.SetParameter), by Name: an engine's RPM, a character's speed, how hurt they are... It's Default until it's set."", ""outputs"": [{""name"": ""Value"", ""type"": ""float""}]}")]
+    [SchematicDoc(@"{""name"": ""Parameter"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Controls"", ""description"": ""A value the game sets while the cue plays (the Set Graph Parameters node on its Player, or SoundCuePlayer.SetParameter), by Name: an engine's RPM, a character's speed, how hurt they are... It's Default until it's set."", ""outputs"": [{""name"": ""Value"", ""type"": ""float""}]}")]
     [Serializable]
     [Node(Name = "Parameter", Path = "Controls"), Tags(SoundNode.Tag)]
     public class SoundParameterNode : SoundNode

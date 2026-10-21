@@ -1,3 +1,4 @@
+using Remedy.Schematics;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -18,7 +19,7 @@ namespace Remedy.Audio
     /// </remarks>
     [AddComponentMenu("Remedy/Audio/Sound Cue Player")]
     [RequireComponent(typeof(AudioSource))]
-    public class SoundCuePlayer : MonoBehaviour
+    public class SoundCuePlayer : SchematicGraphRunner
     {
         [Tooltip("The Sound Cue to play.")]
         public SoundCueGraph Cue;
@@ -241,6 +242,31 @@ namespace Remedy.Audio
 
         /// <summary>Sets one of the cue's Parameters while it plays.</summary>
         public void SetParameter(string name, float value) => _voice?.SetParameter(name, value);
+
+        /// <summary>The cue it plays (what a Graph Variable holding it runs).</summary>
+        public override SchematicGraph RunningGraph => Cue;
+
+        /// <summary>A one-shot following an object belongs to it.</summary>
+        public override GameObject BelongsTo => Follow != null ? Follow.gameObject : null;
+
+        /// <summary>Set Graph Parameters: a number (or true/false) for one of the cue's Parameters.</summary>
+        public override bool SetGraphParameter(string name, object value)
+        {
+            if (_voice == null || !_voice.HasParameter(name))
+                return false;
+            float number = value switch
+            {
+                float f => f,
+                int i => i,
+                double d => (float)d,
+                bool b => b ? 1f : 0f,
+                _ => float.NaN,
+            };
+            if (float.IsNaN(number))
+                return false;
+            _voice.SetParameter(name, number);
+            return true;
+        }
 
         // The streamed clip asks for its next samples (from the audio thread).
         private void Read(float[] data)
@@ -614,11 +640,16 @@ namespace Remedy.Audio
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void NewSession()
         {
+            // Pooled one-shots live under their own root: they're found for the objects they follow.
+            SchematicGraphRunner.Elsewhere -= BusyHosts;
+            SchematicGraphRunner.Elsewhere += BusyHosts;
             _idleHosts.Clear();
             _busyHosts.Clear();
             _poolRoot = null;
             _warnedNoListener = false;
         }
+
+        private static IEnumerable<SchematicGraphRunner> BusyHosts() => _busyHosts;
 
         private static GameObject SfxPrefab()
         {

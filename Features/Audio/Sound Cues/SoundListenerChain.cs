@@ -11,11 +11,11 @@ namespace Remedy.Audio
     /// A Sound Cue run on everything the player hears: it sits on the Audio Listener, and each channel of the game's
     /// whole mix goes into the cue through its Listener Input node and comes out of its Output. Ringing ears after an
     /// explosion, underwater, inside a helmet, low health: any Sound Cue node works on the whole mix. Its Parameters are
-    /// set from gameplay (Set Listener Parameter), so an effect can be faded in and out.
+    /// set from gameplay (Set Graph Parameters on the chain), so an effect can be faded in and out.
     /// </summary>
     [AddComponentMenu("Remedy/Audio/Listener Chain")]
     [DisallowMultipleComponent]
-    public sealed class SoundListenerChain : MonoBehaviour
+    public sealed class SoundListenerChain : SchematicGraphRunner
     {
         [Tooltip("The cue the whole mix runs through (it takes the mix in through a Listener Input node). None: the mix is untouched.")]
         public SoundCueGraph Cue;
@@ -66,6 +66,19 @@ namespace Remedy.Audio
             if (voices != null)
                 foreach (var voice in voices)
                     voice?.SetParameter(name, value);
+        }
+
+        /// <summary>The chain's cue (what a Graph Variable holding the chain runs).</summary>
+        public override SchematicGraph RunningGraph => Cue;
+
+        /// <summary>Set Graph Parameters: a number (or true/false) for one of the chain cue's Parameters (kept).</summary>
+        public override bool SetGraphParameter(string name, object value)
+        {
+            float? number = value switch { float f => f, int i => i, double d => (float)d, bool b => b ? 1f : 0f, _ => null };
+            if (number == null)
+                return false;
+            SetParameter(name, number.Value);
+            return true;
         }
 
         /// <summary>A Parameter's value as last set (or <paramref name="fallback"/>).</summary>

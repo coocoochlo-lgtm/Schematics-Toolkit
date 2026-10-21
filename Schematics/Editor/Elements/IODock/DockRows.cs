@@ -150,7 +150,7 @@ public static class DockRows
         if (type == null) return "?";
         if (type.IsArray) return TypeName(type.GetElementType()) + "[]";
         if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>)) return "List<" + TypeName(type.GetGenericArguments()[0]) + ">";
-        return type.Name switch { "Single" => "float", "Int32" => "int", "Boolean" => "bool", "String" => "string", _ => type.Name };
+        return type.Name switch { "Single" => "float", "Int32" => "int", "Boolean" => "bool", "String" => "string", "SchematicGraphRunner" => "Graph", _ => type.Name };
     }
 
     /// <summary>"float amount, GameObject target": a Signal's parameters for its row.</summary>
