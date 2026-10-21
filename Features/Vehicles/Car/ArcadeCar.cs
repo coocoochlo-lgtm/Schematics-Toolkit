@@ -468,6 +468,28 @@ namespace Remedy.Vehicles
             Vector3 centerOfMass = (Vector3)native.GetWorldCenterOfMass();
             Vector3 velocity = native.GetLinearVelocity();
             Vector3 angularVelocity = native.GetAngularVelocity();
+            if (state.HasDiagnosticAngularVelocity && dt > 0f)
+            {
+                Vector3 measuredAngularAcceleration = (angularVelocity - state.PreviousAngularVelocity) / dt;
+                Vector3 unexplainedAcceleration = measuredAngularAcceleration - state.LastGuardedAngularAcceleration;
+                float threshold = Mathf.Max(0f, p.TorqueGuardDiagnosticThreshold);
+                if (p.LogTorqueGuardDiagnostics && Time.time >= state.NextTorqueDiagnosticTime
+                    && Mathf.Max(measuredAngularAcceleration.magnitude, unexplainedAcceleration.magnitude) >= threshold)
+                {
+                    Debug.LogWarning(
+                        $"[Arcade Car torque] measured={measuredAngularAcceleration:F1} rad/s², "
+                        + $"unexplained={unexplainedAcceleration:F1}; prior guarded={state.LastGuardedAngularAcceleration:F1}; "
+                        + $"tire={state.LastTireAngularAcceleration:F1}, stabilization={state.LastStabilizationAngularAcceleration:F1}, "
+                        + $"rotation assists={state.LastRotationAssistAngularAcceleration:F1}, "
+                        + $"air control={state.LastAirControlAngularAcceleration:F1}; "
+                        + $"grounded tires={state.LastGroundedWheels}/{wheels.Length}. "
+                        + "Large unexplained values point to Box3D contacts or other forces outside the car controller.",
+                        instance.GameObject);
+                    state.NextTorqueDiagnosticTime = Time.time + 0.5f;
+                }
+            }
+            state.PreviousAngularVelocity = angularVelocity;
+            state.HasDiagnosticAngularVelocity = true;
             float forwardSpeed = Vector3.Dot(velocity, forward);
             Vector3 planarVelocity = Vector3.ProjectOnPlane(velocity, up);
             float planarSpeed = planarVelocity.magnitude;
@@ -890,7 +912,13 @@ namespace Remedy.Vehicles
 
             Vector3 requestedTorque = wheelForceTorque + stabilizationCompensation
                 + (Vector3)Torque(angular, rotation, state) + airControlTorque;
-            ApplyTorqueGuard(native, requestedTorque, p, dt, rotation, state);
+            Vector3 guardedAngularAcceleration = ApplyTorqueGuard(native, requestedTorque, p, dt, rotation, state);
+            state.LastGuardedAngularAcceleration = guardedAngularAcceleration;
+            state.LastTireAngularAcceleration = AngularAcceleration(wheelForceTorque, rotation, state);
+            state.LastStabilizationAngularAcceleration = AngularAcceleration(stabilizationCompensation, rotation, state);
+            state.LastRotationAssistAngularAcceleration = angular;
+            state.LastAirControlAngularAcceleration = AngularAcceleration(airControlTorque, rotation, state);
+            state.LastGroundedWheels = grounded;
 
             // Boost push along the road.
             if (boosting)
@@ -1083,7 +1111,7 @@ namespace Remedy.Vehicles
             return rotation * localAcceleration;
         }
 
-        private static void ApplyTorqueGuard(Body body, Vector3 requestedTorque, ArcadeCarProperties properties,
+        private static Vector3 ApplyTorqueGuard(Body body, Vector3 requestedTorque, ArcadeCarProperties properties,
             float dt, Quaternion rotation, CarState state)
         {
             float maximum = Mathf.Max(0f, properties.TorqueGuardMaxAngularAcceleration);
@@ -1118,6 +1146,7 @@ namespace Remedy.Vehicles
             Vector3 correction = guardedTorque - requestedTorque;
             if (correction.sqrMagnitude > 0f)
                 body.ApplyTorque(correction, true);
+            return guardedAcceleration;
         }
 
         private static Vector3 ApplyAirWheelControl(Body body, Wheel[] wheels, WheelState[] wheelStates,
@@ -1389,6 +1418,13 @@ namespace Remedy.Vehicles
         public Quaternion TorqueGuardAccelerationRotation;
         public float TorqueGuardAccelerationMagnitude;
         public bool HasTorqueGuardAcceleration;
+        public Vector3 PreviousAngularVelocity;
+        public bool HasDiagnosticAngularVelocity;
+        public float NextTorqueDiagnosticTime;
+        public Vector3 LastGuardedAngularAcceleration;
+        public Vector3 LastTireAngularAcceleration, LastStabilizationAngularAcceleration;
+        public Vector3 LastRotationAssistAngularAcceleration, LastAirControlAngularAcceleration;
+        public int LastGroundedWheels;
         public float UprightBlend, UprightAirBlend, UprightSupportBlend;
 
         public bool BodyConfigured;

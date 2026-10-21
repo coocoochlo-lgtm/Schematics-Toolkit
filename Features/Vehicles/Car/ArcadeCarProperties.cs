@@ -213,6 +213,11 @@ namespace Remedy.Vehicles
         [Min(0f)]
         [Tooltip("Time for the torque guard to blend toward its limited angular acceleration. 0 applies the limit immediately.")]
         public float TorqueGuardBlendTime = 0.15f;
+        [Tooltip("Log angular-acceleration spikes with the previous step's tire, stabilization, handling-assist and physics-residual contributions.")]
+        public bool LogTorqueGuardDiagnostics;
+        [Min(0f)]
+        [Tooltip("Minimum measured or unexplained angular acceleration that triggers a torque diagnostic log (rad/s²).")]
+        public float TorqueGuardDiagnosticThreshold = 30f;
         [Tooltip("The car counts as flipped when tilted more than this (degrees from upright).")]
         public float FlippedTilt = 100f;
         [Tooltip("How hard a flipped car turns itself back over (rad/s²). 0 = it stays flipped (send Unflip, or let the player get out and push).")]

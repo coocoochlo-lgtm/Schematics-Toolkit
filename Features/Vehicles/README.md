@@ -158,7 +158,9 @@ The body is a real Box3D body, so it can roll, tumble and land on its roof. How 
 - **Torque Guard Max Angular Acceleration / Blend Time** caps and smooths the combined rotational effect of the car's
   tire forces and handling assists. The requested rotation still contributes, but a sudden spike is limited and
   blended instead of jolting the chassis. 0 max acceleration disables the cap; external collision impulses are
-  unaffected.
+  unaffected. Enable **Log Torque Guard Diagnostics** to compare measured angular acceleration with the previous
+  step's guarded tire/controller contribution; the log separates tire, stabilization, rotation-assist, air-control
+  and unexplained physics acceleration.
 - **Self Right Strength / Delay / Max Speed / Lift**: a car lying flipped (past **Flipped Tilt**) and nearly
   stopped turns back over after the delay. 0 = flips stay; send **Unflip** (a "reset car" button) to right it
   anyway. Signals: **On Flipped**, **On Righted**; variable **Is Flipped**.
