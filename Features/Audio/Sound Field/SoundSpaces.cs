@@ -150,6 +150,7 @@ namespace Remedy.Audio
             bus._allpassA = new float[Mathf.Max(1, (int)(0.0071f * rate))];
             bus._allpassB = new float[Mathf.Max(1, (int)(0.0117f * rate))];
             bus._allpassC = new float[Mathf.Max(1, (int)(0.0173f * rate))];
+            bus.SetRingTime(MaxRingTime);
             // Not playing until it's taken: an idle bus mustn't hold one of Unity's real voices (only 32 by default),
             // or enough of them silence every other sound in the game.
             return bus;
@@ -218,8 +219,11 @@ namespace Remedy.Audio
                 Array.Clear(_allpassC, 0, _allpassC.Length);
                 _partner = null;
                 _forward = null;
+                _envelope = 1f;
+                _silenced = false;
             }
             Interlocked.Exchange(ref _lastWrite, long.MinValue);
+            Interlocked.Exchange(ref _resets, 0);
             Interlocked.Exchange(ref _accepted, 0);
             Interlocked.Exchange(ref _late, 0);
             Interlocked.Exchange(ref _early, 0);
@@ -272,6 +276,9 @@ namespace Remedy.Audio
         {
             _slapDelay = Mathf.Clamp((int)(delay * _rate), 1, Mathf.Max(1, _slapLine.Length - 2));
             _slapFeedback = Mathf.Clamp(feedback, 0f, 0.95f); // (a place's is at most 0.5; a Trail's is its Delay node's)
+            // Until its repeats have fallen 60 dB (and the first is back), at most MaxRingTime.
+            float repeats = _slapFeedback > 0.01f ? Mathf.Log(0.001f) / Mathf.Log(_slapFeedback) : 1f;
+            SetRingTime(delay * (repeats + 1f) + 0.1f);
             float cutoff = Mathf.Lerp(9000f, 1500f, Mathf.Clamp01(damping));
             _slapLowAmount = 1f - Mathf.Exp(-2f * Mathf.PI * cutoff / Mathf.Max(8000, _rate));
         }
@@ -304,6 +311,8 @@ namespace Remedy.Audio
         internal void SetRoom(float feedback, float damping)
         {
             _feedback = Mathf.Clamp(feedback, 0f, 0.98f); // (a place's is at most 0.95; a Trail's is its Reverb node's)
+            // Its reverb time (60 dB down; its combs average about 31 ms), at most MaxRingTime.
+            SetRingTime(3f * 0.0308f / Mathf.Max(1e-4f, -Mathf.Log10(Mathf.Max(0.01f, _feedback))));
             _damp = Mathf.Clamp01(damping) * 0.4f;
         }
 
@@ -312,6 +321,8 @@ namespace Remedy.Audio
         {
             float cutoff = Mathf.Lerp(1200f, 6000f, Mathf.Clamp01(hardness));
             _lowpassAmount = 1f - Mathf.Exp(-2f * Mathf.PI * cutoff / Mathf.Max(8000, _rate));
+            // Its smear and a canyon's flutter have died away by then.
+            SetRingTime(2.5f);
         }
 
         /// <summary>The wall this one echoes on to (a canyon's other side), how many samples later, and how much.</summary>
@@ -365,7 +376,10 @@ namespace Remedy.Audio
         /// </summary>
         public bool Healthy => Running && Late <= Accepted;
 
-        /// <summary>The audio-clock sample of the latest send (long.MinValue when none).</summary>
+        /// <summary>
+        /// The audio-clock sample the latest sound feeding it was heard until (long.MinValue when none). Blocks passed on
+        /// from other buses count as the sound behind them, not as new sound.
+        /// </summary>
         public long LastWrite => Interlocked.Read(ref _lastWrite);
 
         public int Rate => _rate;
@@ -376,8 +390,14 @@ namespace Remedy.Audio
         /// ahead: dropped.
         /// </summary>
         public void Add(long at, float[] block, int count, float gainFrom, float gainTo)
+            => Add(at, block, count, gainFrom, gainTo, at + count);
+
+        // fedUntil: when the sound behind this block was last heard. A sound's own block: its end. A block passed on
+        // from another bus (a facing wall, a Trail spot): that bus's, so buses feeding each other can't keep each other
+        // ringing past their sounds (see MaxRingTime).
+        private void Add(long at, float[] block, int count, float gainFrom, float gainTo, long fedUntil)
         {
-            if (count <= 0 || (gainFrom == 0f && gainTo == 0f))
+            if (count <= 0 || (gainFrom == 0f && gainTo == 0f) || fedUntil == long.MinValue)
                 return;
             lock (_lock)
             {
@@ -401,12 +421,48 @@ namespace Remedy.Audio
                 Volatile.Write(ref _lead, (at - head) / (float)Mathf.Max(1, _rate));
                 float step = (gainTo - gainFrom) / count;
                 for (int i = 0; i < count; i++)
-                    _ring[(at + i) & RingMask] += block[i] * (gainFrom + step * i);
+                {
+                    float value = block[i] * (gainFrom + step * i);
+                    // A glitch upstream (not a number, or infinite) would stick in the effect for good: dropped here.
+                    if (float.IsNaN(value) || float.IsInfinity(value)) value = 0f;
+                    _ring[(at + i) & RingMask] += value;
+                }
             }
-            long end = at + count;
             long last;
             do { last = Interlocked.Read(ref _lastWrite); }
-            while (end > last && Interlocked.CompareExchange(ref _lastWrite, end, last) != last);
+            while (fedUntil > last && Interlocked.CompareExchange(ref _lastWrite, fedUntil, last) != last);
+        }
+
+        /// <summary>
+        /// The longest anything rings after the sound that fed it was heard, in seconds, whatever its feedback: past its
+        /// own ring time (and at most this) it fades out and goes silent, so nothing can ever feed back for good.
+        /// </summary>
+        public const float MaxRingTime = 8f;
+        /// <summary>How long the fade at the end of its ring time takes, in seconds.</summary>
+        public const float RingFade = 0.25f;
+
+        // Its ring time (samples), its fade (1 playing, 0 silenced) and whether it's silenced until a sound feeds it.
+        private long _ringLimit = long.MaxValue;
+        private float _envelope = 1f;
+        private bool _silenced;
+        private long _resets;
+
+        /// <summary>Times it ran away (a glitch, or too loud) and was cleared.</summary>
+        public long Resets => Interlocked.Read(ref _resets);
+
+        // How long a ring can go on (seconds), capped.
+        private void SetRingTime(float seconds)
+            => Interlocked.Exchange(ref _ringLimit, (long)(Mathf.Clamp(seconds, 0.2f, MaxRingTime) * Mathf.Max(1, _rate)));
+
+        // Silent and empty (under the lock).
+        private void ClearEffect()
+        {
+            _reverb.Clear();
+            Array.Clear(_slapLine, 0, _slapLine.Length);
+            Array.Clear(_allpassA, 0, _allpassA.Length);
+            Array.Clear(_allpassB, 0, _allpassB.Length);
+            Array.Clear(_allpassC, 0, _allpassC.Length);
+            _slapLow = _lowpass = 0f;
         }
 
         private void OnAudioFilterRead(float[] data, int channels)
@@ -437,6 +493,25 @@ namespace Remedy.Audio
                     Volatile.Write(ref _peak, 0f);
                     return;
                 }
+                // Past its ring time since the sound that fed it was heard: it fades out, then stays silent (and costs
+                // nothing) until a sound feeds it again.
+                long fed = Interlocked.Read(ref _lastWrite);
+                bool over = fed != long.MinValue && head - fed > Interlocked.Read(ref _ringLimit);
+                if (!over)
+                {
+                    _envelope = 1f;
+                    _silenced = false;
+                }
+                if (_silenced)
+                {
+                    for (int f = 0; f < frames; f++)
+                        _ring[(head + f) & RingMask] = 0f;
+                    _readHead = head + frames;
+                    Array.Clear(data, 0, data.Length);
+                    Volatile.Write(ref _peak, 0f);
+                    return;
+                }
+                float fade = over ? 1f / (RingFade * Mathf.Max(1, _rate)) : 0f;
                 for (int f = 0; f < frames; f++)
                 {
                     int slot = (int)((head + f) & RingMask);
@@ -466,12 +541,17 @@ namespace Remedy.Audio
                     if (float.IsNaN(output) || float.IsInfinity(output) || Mathf.Abs(output) > 8f)
                     {
                         // Running away (it shouldn't): start clean rather than howl.
-                        _reverb.Clear();
-                        Array.Clear(_slapLine, 0, _slapLine.Length);
-                        _slapLow = _lowpass = 0f;
+                        ClearEffect();
+                        Interlocked.Increment(ref _resets);
                         output = 0f;
                     }
-                    _scratch[f] = output;
+                    _envelope = Mathf.Max(0f, _envelope - fade);
+                    _scratch[f] = output * _envelope;
+                }
+                if (over && _envelope <= 0f)
+                {
+                    ClearEffect();
+                    _silenced = true;
                 }
                 _readHead = head + frames;
                 partner = _partner;
@@ -491,23 +571,24 @@ namespace Remedy.Audio
                     data[f * channels + c] *= sample; // the DC clip's placed, attenuated ones, times the bus's sound
             }
             // A canyon: the echo carries on to the facing wall (outside this bus's lock).
+            long fedUntil = Interlocked.Read(ref _lastWrite);
             if (partner != null && partnerGain > 0f)
-                partner.Add(head + partnerDelay, _scratch, frames, partnerGain, partnerGain);
+                partner.Add(head + partnerDelay, _scratch, frames, partnerGain, partnerGain, fedUntil);
             // A Trail spot: on to the place's effects (outside this bus's lock, as above).
             if (forward != null && forwardMix > 0f)
             {
                 long at = head + Math.Max(ForwardLead, frames * 2);
-                Forward(forward.Room, at, forward.RoomGain * forwardMix, frames);
-                Forward(forward.Tail, at, forward.TailGain * forwardMix, frames);
-                Forward(forward.EchoA, head + Math.Max(forward.DelayA, ForwardLead), forward.GainA * forwardMix, frames);
-                Forward(forward.EchoB, head + Math.Max(forward.DelayB, ForwardLead), forward.GainB * forwardMix, frames);
+                Forward(forward.Room, at, forward.RoomGain * forwardMix, frames, fedUntil);
+                Forward(forward.Tail, at, forward.TailGain * forwardMix, frames, fedUntil);
+                Forward(forward.EchoA, head + Math.Max(forward.DelayA, ForwardLead), forward.GainA * forwardMix, frames, fedUntil);
+                Forward(forward.EchoB, head + Math.Max(forward.DelayB, ForwardLead), forward.GainB * forwardMix, frames, fedUntil);
             }
         }
 
-        private void Forward(SpaceBus target, long at, float gain, int frames)
+        private void Forward(SpaceBus target, long at, float gain, int frames, long fedUntil)
         {
             if (target != null && target != this && gain > 0f)
-                target.Add(at, _scratch, frames, gain, gain);
+                target.Add(at, _scratch, frames, gain, gain, fedUntil);
         }
 
         // Back in step with the audio clock after its reads stopped: what it missed is cleared (under the lock).

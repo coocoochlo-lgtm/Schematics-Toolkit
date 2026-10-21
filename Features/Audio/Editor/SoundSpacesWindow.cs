@@ -167,6 +167,8 @@ namespace Remedy.Audio
                 : bus.Late > bus.Accepted ? "SOUNDS ARRIVE TOO LATE"
                 : bus.Accepted == 0 ? "waiting for sounds"
                 : $"OK ({bus.Accepted:N0} in time, {bus.Late:N0} late)";
+            if (bus.Resets > 0)
+                state += $" · ran away {bus.Resets:N0}x (cleared)";
             GUI.Label(new Rect(rect.x + 78f, rect.y, rect.width - 78f, rect.height), $"{name} · {where} · {state}", _row);
         }
 
