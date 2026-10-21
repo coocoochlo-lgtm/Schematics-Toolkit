@@ -66,7 +66,7 @@ namespace Remedy.Audio
             if (target == null)
                 return;
             var cue = GetInputValue("Cue", Cue);
-            foreach (var found in target.GetComponentsInChildren<SoundCuePlayer>())
+            foreach (var found in SoundCuePlayer.On(target))
                 if (cue == null || found.Cue == cue)
                     Finish(found);
         }
@@ -105,7 +105,7 @@ namespace Remedy.Audio
                 target = instance;
             if (target == null)
                 return;
-            foreach (var found in target.GetComponentsInChildren<SoundCuePlayer>())
+            foreach (var found in SoundCuePlayer.On(target))
                 found.SetParameter(name, value);
         }
     }

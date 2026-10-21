@@ -101,6 +101,7 @@ namespace Remedy.Audio
         private void OnDestroy()
         {
             Stop();
+            _busyHosts.Remove(this);
             if (_clip != null)
             {
                 if (Application.isPlaying) Destroy(_clip);
@@ -285,6 +286,11 @@ namespace Remedy.Audio
             {
                 _listener = UnityEngine.Object.FindFirstObjectByType<AudioListener>();
                 _nextListenerSearch = Time.unscaledTime + 1f;
+                if (_listener == null && Application.isPlaying && !_warnedNoListener)
+                {
+                    _warnedNoListener = true;
+                    Debug.LogWarning("Sound Cues: there's no Audio Listener in the scene, so nothing can be heard. Add one (usually on the camera).");
+                }
             }
             return _listener != null ? Vector3.Distance(transform.position, _listener.transform.position) : 0f;
         }
@@ -390,7 +396,39 @@ namespace Remedy.Audio
         #region One-shot players (pooled)
 
         private static readonly Stack<SoundCuePlayer> _idleHosts = new();
+        private static readonly List<SoundCuePlayer> _busyHosts = new();
         private static Transform _poolRoot;
+        private static bool _warnedNoListener;
+
+        /// <summary>
+        /// What a one-shot player (<see cref="PlayAt"/>) moves with. It follows by copying the position each frame
+        /// rather than being parented, so the sound carries on (where it last was) when the object is destroyed: a
+        /// pickup or projectile that plays a sound and removes itself.
+        /// </summary>
+        [NonSerialized] public Transform Follow;
+
+        /// <summary>
+        /// The Sound Cue players on an object: on it and its children, and the one-shots following it (or a child).
+        /// </summary>
+        public static List<SoundCuePlayer> On(GameObject target)
+        {
+            var found = new List<SoundCuePlayer>();
+            if (target == null)
+                return found;
+            found.AddRange(target.GetComponentsInChildren<SoundCuePlayer>());
+            foreach (var host in _busyHosts)
+                if (host != null && host.Follow != null && host.Follow.IsChildOf(target.transform) && !found.Contains(host))
+                    found.Add(host);
+            return found;
+        }
+
+        private void LateUpdate()
+        {
+            if (Follow != null)
+                transform.position = Follow.position;
+            else if (!ReferenceEquals(Follow, null))
+                Follow = null; // destroyed: stay where it last was
+        }
 
         /// <summary>
         /// Plays a cue at a position (following <paramref name="follow"/> when given) on a pooled player, set up like
@@ -404,8 +442,11 @@ namespace Remedy.Audio
 
             var player = TakeHost(cue);
             var host = player.gameObject;
-            host.transform.SetParent(follow, worldPositionStays: false);
+            host.transform.SetParent(PoolRoot(), worldPositionStays: false);
             host.transform.position = position;
+            player.Follow = follow;
+            if (!_busyHosts.Contains(player))
+                _busyHosts.Add(player);
             host.SetActive(true);
 
             var source = player.Source;
@@ -456,24 +497,34 @@ namespace Remedy.Audio
             }
             if (!Application.isPlaying)
                 return;
-            if (_poolRoot == null)
-            {
-                var root = new GameObject("Sound Cue Players (idle)");
-                DontDestroyOnLoad(root);
-                _poolRoot = root.transform;
-            }
             Cue = null;
-            transform.SetParent(_poolRoot, worldPositionStays: false);
+            Follow = null;
+            _busyHosts.Remove(this);
+            transform.SetParent(PoolRoot(), worldPositionStays: false);
             gameObject.SetActive(false);
             if (!_idleHosts.Contains(this))
                 _idleHosts.Push(this);
+        }
+
+        // Where one-shot players live (kept across scene loads), playing or idle.
+        private static Transform PoolRoot()
+        {
+            if (_poolRoot == null)
+            {
+                var root = new GameObject("Sound Cue Players");
+                DontDestroyOnLoad(root);
+                _poolRoot = root.transform;
+            }
+            return _poolRoot;
         }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void NewSession()
         {
             _idleHosts.Clear();
+            _busyHosts.Clear();
             _poolRoot = null;
+            _warnedNoListener = false;
         }
 
         private static GameObject SfxPrefab()
