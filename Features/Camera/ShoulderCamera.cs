@@ -1,8 +1,10 @@
+using Box3D.Hybrid;
+using Remedy.Box3DPhysics;
 using UnityEngine;
 
 namespace Remedy.Cameras
 {
-    [SchematicDoc(@"{""name"": ""Shoulder Camera"", ""kind"": ""behavior"", ""menu"": ""Cameras/Shoulder"", ""description"": ""An over-the-shoulder camera that peers past the character's left or right shoulder, switching sides automatically near walls. Reports its look direction and aim position."", ""variables"": [""Shoulder"", ""ShoulderOffset"", ""ShoulderSwitchSpeed"", ""AutoSwitch"", ""SwitchDistance"", ""FollowOffset"", ""HorizontalFollowSpeed"", ""VerticalFollowSpeed"", ""YDistanceAllowance"", ""MaxDistance"", ""OptimalDistancePush"", ""OptimalDistance"", ""Rigidbody"", ""LookaheadOrientationStrength"", ""CollisionLayers"", ""CollisionReactSpeed""], ""signals"": [""ActualLookDirection"", ""GoalLookDirection"", ""AimPosition""], ""use_for"": [""third-person shooters"", ""aiming cameras""]}")]
+    [SchematicDoc(@"{""name"": ""Shoulder Camera"", ""kind"": ""behavior"", ""menu"": ""Cameras/Shoulder"", ""description"": ""An over-the-shoulder camera that peers past the character's left or right shoulder, switching sides automatically near walls. Reports its look direction and aim position."", ""variables"": [""Shoulder"", ""ShoulderOffset"", ""ShoulderSwitchSpeed"", ""AutoSwitch"", ""SwitchDistance"", ""FollowOffset"", ""HorizontalFollowSpeed"", ""VerticalFollowSpeed"", ""YDistanceAllowance"", ""MaxDistance"", ""OptimalDistancePush"", ""OptimalDistance"", ""Body"", ""LookaheadOrientationStrength"", ""CollisionLayers"", ""CollisionReactSpeed""], ""signals"": [""ActualLookDirection"", ""GoalLookDirection"", ""AimPosition""], ""use_for"": [""third-person shooters"", ""aiming cameras""]}")]
     [SchematicBehaviorPath("Cameras/Shoulder")]
     public class ShoulderCamera : CameraOperator
     {
@@ -54,7 +56,8 @@ namespace Remedy.Cameras
         public readonly VariableHandle<float> OptimalDistance = 10f;
 
         [SchematicDoc(@"{""name"": ""Rigidbody"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""Rigidbody"", ""default"": ""null"", ""description"": ""Rigidbody (Rigidbody) of Shoulder Camera.""}")]
-        public readonly VariableHandle<Rigidbody> Rigidbody = (Rigidbody)null;
+        [Tooltip("The followed character's physics body (look-ahead, tilting when falling). Empty: the one on what it follows.")]
+        public readonly VariableHandle<Box3DBody> Body = (Box3DBody)null;
         [SchematicDoc(@"{""name"": ""LookaheadOrientationStrength"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""float"", ""default"": ""1f"", ""description"": ""Lookahead Orientation Strength (float) of Shoulder Camera.""}")]
         public readonly VariableHandle<float> LookaheadOrientationStrength = 1f;
 
@@ -76,6 +79,7 @@ namespace Remedy.Cameras
             var root = Root.Value;
             var camera = Camera.Value;
             if (follow == null || root == null || camera == null) return;
+            var body = BodyOf(follow, Body.Value);
 
             float dt = Time.deltaTime;
             var collisionLayers = CollisionLayers.Value;
@@ -88,7 +92,7 @@ namespace Remedy.Cameras
             if (AutoSwitch.Value)
             {
                 var side = shoulder == Shoulders.Left ? -root.right : root.right;
-                if (Physics.SphereCast(root.position + Vector3.up, 0.25f, side, out _, 1, collisionLayers))
+                if (SchematicPhysics.SphereCast(root.position + Vector3.up, 0.25f, side, out _, out _, 1, collisionLayers, body))
                     shoulder = shoulder == Shoulders.Left ? Shoulders.Right : Shoulders.Left;
             }
 
@@ -122,7 +126,7 @@ namespace Remedy.Cameras
             Vector3 direction = -root.forward;
             float maxDistance = MaxDistance.Value;
 
-            if (Physics.SphereCast(origin, CameraCollisionRadius.Value, direction, out RaycastHit hit, maxDistance, collisionLayers, QueryTriggerInteraction.Ignore))
+            if (SchematicPhysics.SphereCast(origin, CameraCollisionRadius.Value, direction, out RaycastHit hit, out _, maxDistance, collisionLayers, body))
                 _targetScale.Value = Mathf.Clamp(hit.distance, 0.5f, maxDistance); // reduce distance based on hit
             else
                 _targetScale.Value = maxDistance;
@@ -136,7 +140,7 @@ namespace Remedy.Cameras
             GoalLookDirection.Invoke(_goalRotation.Value * Vector3.forward);
             ActualLookDirection.Invoke(root.forward);
 
-            if (Physics.Raycast(camera.position, camera.forward, out RaycastHit aimHit, Mathf.Infinity))
+            if (SchematicPhysics.Raycast(camera.position, camera.forward, out RaycastHit aimHit, AimDistance, ~0, body))
                 AimPosition.Invoke(aimHit.point);
         }
 

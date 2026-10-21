@@ -1,11 +1,16 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Remedy.Cameras
 {
     /// <summary>
-    /// A trigger volume that changes camera settings for Camera Operators inside it.
+    /// A box (its Box Collider's) that changes camera settings for Camera Operators whose target is inside it.
     /// Operators read the values with the volume's instance, e.g. <c>volume.Zoom[volumeInstance]</c>.
     /// </summary>
+    /// <remarks>
+    /// Being inside is worked out from the box itself each frame (<see cref="At"/>), not from physics triggers, so
+    /// volumes work whichever physics engine the scene uses (Box3D). Overlapping volumes: the smallest wins.
+    /// </remarks>
     [SchematicDoc(@"{""name"": ""Camera Properties Volume"", ""kind"": ""behavior"", ""menu"": ""Cameras/Camera Properties Volume"", ""description"": ""A trigger volume that changes camera settings for Camera Operators inside it. Operators read the values with the volume's instance, e.g. volume.Zoom[volumeInstance]."", ""variables"": [""ChangeZoom"", ""Zoom"", ""ChangeFOV"", ""FOV"", ""ChangeRestingAngle"", ""RestingAngle"", ""UseReferenceCam"", ""ReferenceCamera"", ""ReferenceCamPositionMask"", ""ReferenceCamAngleMask"", ""ReferenceCameraSpeed""], ""use_for"": [""changing camera zoom or angle in specific areas""]}")]
     [SchematicBehaviorPath("Cameras/Camera Properties Volume")]
     [RequireComponent(typeof(BoxCollider))]
@@ -41,6 +46,49 @@ namespace Remedy.Cameras
         {
             if (context.GameObject.TryGetComponent(out BoxCollider collider))
                 collider.isTrigger = true;
+        }
+
+        private static readonly List<BehaviorInstance> _active = new();
+
+        protected override void OnEnable()
+        {
+            if (!_active.Contains(Self))
+                _active.Add(Self);
+        }
+
+        protected override void OnDisable() => _active.Remove(Self);
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetStatics() => _active.Clear();
+
+        /// <summary>The volume a world position is inside (the smallest, where they overlap), or null.</summary>
+        public static BehaviorInstance At(Vector3 position)
+        {
+            BehaviorInstance best = null;
+            float bestSize = float.MaxValue;
+            for (int i = _active.Count - 1; i >= 0; i--)
+            {
+                var instance = _active[i];
+                if (instance == null || !instance.IsSpawned)
+                {
+                    _active.RemoveAt(i);
+                    continue;
+                }
+                if (!instance.GameObject.TryGetComponent(out BoxCollider box) || !box.enabled)
+                    continue;
+                var local = box.transform.InverseTransformPoint(position) - box.center;
+                var half = box.size * 0.5f;
+                if (Mathf.Abs(local.x) > half.x || Mathf.Abs(local.y) > half.y || Mathf.Abs(local.z) > half.z)
+                    continue;
+                var scale = box.transform.lossyScale;
+                float size = Mathf.Abs(box.size.x * scale.x * box.size.y * scale.y * box.size.z * scale.z);
+                if (size < bestSize)
+                {
+                    best = instance;
+                    bestSize = size;
+                }
+            }
+            return best;
         }
 
         protected override void OnCreate()

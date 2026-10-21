@@ -1,3 +1,4 @@
+using Box3D.Hybrid;
 using UnityEngine;
 
 namespace Remedy.Cameras
@@ -79,12 +80,6 @@ namespace Remedy.Cameras
             camera.localPosition = new Vector3(0, 0, -1);
             camera.rotation = Quaternion.LookRotation(root.position - camera.position, Vector3.up);
 
-            if (!context.GameObject.TryGetComponent(out Rigidbody rigidbody))
-                rigidbody = context.GameObject.AddComponent<Rigidbody>();
-            rigidbody.isKinematic = true;
-            if (!context.GameObject.TryGetComponent(out SphereCollider _))
-                context.GameObject.AddComponent<SphereCollider>();
-
             context.Set(Root, root);
             context.Set(Camera, camera);
         }
@@ -145,20 +140,18 @@ namespace Remedy.Cameras
                 _timeSinceInput[instance] = 0;
         }
 
-        // Camera Properties Volumes the Operator moves through.
-        protected override void OnTriggerEnter(Collider other)
-        {
-            var volume = ExecutionContext.FindInstance(other.gameObject, typeof(CameraPropertiesVolume));
-            if (volume != null)
-                CurrentVolume.Value = volume;
-        }
+        // Which Camera Properties Volume the Operator is in is set by the Camera Manager each frame (from the box
+        // around what it follows), so it works without physics triggers.
 
-        protected override void OnTriggerExit(Collider other)
-        {
-            var volume = ExecutionContext.FindInstance(other.gameObject, typeof(CameraPropertiesVolume));
-            if (volume != null && volume == CurrentVolume.Value)
-                CurrentVolume.Value = null;
-        }
+        /// <summary>
+        /// The Box3D body of what the Operator follows (the character), or <paramref name="assigned"/> when set: its
+        /// casts skip it (so the camera never hits the character), and its velocity drives look-ahead.
+        /// </summary>
+        /// <summary>How far the aim ray looks for what the camera's pointing at, in meters.</summary>
+        protected const float AimDistance = 1000f;
+
+        protected static Box3DBody BodyOf(Transform follow, Box3DBody assigned)
+            => assigned != null ? assigned : follow != null ? follow.GetComponentInParent<Box3DBody>() : null;
 
         /// <summary>The selected Operator's current volume settings, if it is inside one.</summary>
         protected bool TryGetVolume(out CameraPropertiesVolume volume, out BehaviorInstance volumeInstance)
