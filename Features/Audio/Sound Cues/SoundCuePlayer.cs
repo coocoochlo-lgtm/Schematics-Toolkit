@@ -77,7 +77,10 @@ namespace Remedy.Audio
             float distance = position.magnitude;
             DistanceOverride = distance;
             if (_voice != null)
+            {
                 _voice.Context.Distance = distance;
+                RunProbes(_voice);
+            }
             float gain = falloff ? 1f / Mathf.Max(1f, distance) : 1f;
             // Equal-power pan from the direction (right = +1); straight ahead or behind is centered.
             float pan = distance > 0.001f ? Mathf.Clamp(position.x / distance, -1f, 1f) : 0f;
@@ -128,6 +131,7 @@ namespace Remedy.Audio
                 Debug.LogWarning($"Sound Cue \"{Cue.name}\": {warning}", Cue);
             voice.Context.Distance = CurrentDistance();
             _voice = voice;
+            RunProbes(voice);
 
             // Endless cues: a long clip that loops (the voice keeps counting time across loops). The clip is kept
             // and reused while its rate and length stay the same.
@@ -228,6 +232,39 @@ namespace Remedy.Audio
             voice.Culled = !DistanceOverride.HasValue && Inaudible(distance);
             if (voice.Context.UsesSharedReverb)
                 Source.reverbZoneMix = voice.Context.ReverbSend;
+            if (voice.Context.Probes.Count > 0 && !voice.Culled && Time.unscaledTime >= _nextProbe)
+                RunProbes(voice);
+        }
+
+        /// <summary>How often the world is probed for the cue's Occlusion and Surface controls, in seconds.</summary>
+        public const float ProbeInterval = 0.1f;
+
+        private float _nextProbe;
+
+        // Answers the voice's questions about the world (main thread); in the preview, the nodes' preview values.
+        private void RunProbes(SoundCueVoice voice)
+        {
+            var probes = voice.Context.Probes;
+            if (probes.Count == 0)
+                return;
+            // Spread players' probes over the interval so they don't all cast on the same frame.
+            _nextProbe = Time.unscaledTime + ProbeInterval * UnityEngine.Random.Range(0.85f, 1.15f);
+            if (!DistanceOverride.HasValue)
+                CurrentDistance(); // finds the listener
+            var world = new SoundProbeWorld
+            {
+                Self = gameObject,
+                Position = transform.position,
+                Rotation = transform.rotation,
+                Listener = _listener != null ? _listener.gameObject : null,
+                ListenerPosition = _listener != null ? _listener.transform.position : transform.position,
+                Previewing = DistanceOverride.HasValue,
+            };
+            for (int i = 0; i < probes.Count; i++)
+            {
+                try { probes[i].Update(world); }
+                catch (Exception e) { Debug.LogException(e, this); }
+            }
         }
 
         // Whether the source's own distance falloff (and volume) leaves the cue too quiet to hear.

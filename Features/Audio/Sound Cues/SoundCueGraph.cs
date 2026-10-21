@@ -110,6 +110,38 @@ namespace Remedy.Audio
         public bool UsesSharedReverb;
         /// <summary>How much goes to the shared reverb (0 to 1.1, Unity's Reverb Zone Mix), set by a shared Reverb.</summary>
         public volatile float ReverbSend;
+        /// <summary>
+        /// Questions about the world the voice's nodes ask (what's between it and the listener, what it's standing on),
+        /// answered by the player on the main thread a few times a second (see <see cref="SoundProbe"/>).
+        /// </summary>
+        public readonly List<SoundProbe> Probes = new();
+    }
+
+    /// <summary>Where a playing voice is, for <see cref="SoundProbe"/>s.</summary>
+    public struct SoundProbeWorld
+    {
+        /// <summary>The player's object (its own body isn't hit by casts from it).</summary>
+        public GameObject Self;
+        public Vector3 Position;
+        /// <summary>The player's orientation (for local directions).</summary>
+        public Quaternion Rotation;
+        /// <summary>The Audio Listener's object (null when there isn't one).</summary>
+        public GameObject Listener;
+        public Vector3 ListenerPosition;
+        /// <summary>
+        /// True in the editor's preview, where there's no world: probes give their node's preview values.
+        /// </summary>
+        public bool Previewing;
+    }
+
+    /// <summary>
+    /// A question a Sound Cue node asks about the world (physics, surfaces...), which the audio thread can't: the
+    /// player calls <see cref="Update"/> on the main thread (when the cue starts, then about 10 times a second), and
+    /// the node's processor reads the answers it left in volatile fields, smoothing between them.
+    /// </summary>
+    public abstract class SoundProbe
+    {
+        public abstract void Update(in SoundProbeWorld world);
     }
 
     /// <summary>
