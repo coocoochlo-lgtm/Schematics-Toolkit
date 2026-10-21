@@ -87,6 +87,7 @@ namespace Remedy.Cameras
             float dt = Time.deltaTime;
             var collisionLayers = CollisionLayers.Value;
             var body = BodyOf(follow, Body.Value);
+            var frame = UpFrame(follow);
             var velocity = body.GetVelocity();
             var followOffset = FollowOffset.Value;
             float yDistanceAllowance = YDistanceAllowance.Value;
@@ -196,7 +197,7 @@ namespace Remedy.Cameras
                 _lookingDown.Value = false;
 
             // Apply rotation to Root
-            root.rotation = Quaternion.Euler(actualYAxis, actualXAxis, 0f);
+            root.rotation = frame * Quaternion.Euler(actualYAxis, actualXAxis, 0f);
 
             // SphereCast from Root to max range in the local -Z direction
             Vector3 origin = root.position;
@@ -214,7 +215,7 @@ namespace Remedy.Cameras
             root.localScale = new Vector3(1, 1, _currentScale.Value);
 
             var dir = root.position - camera.position;
-            camera.rotation = Quaternion.Slerp(camera.rotation, Quaternion.LookRotation(dir, Vector3.up), 20f * dt);
+            camera.rotation = Quaternion.Slerp(camera.rotation, Quaternion.LookRotation(dir, CameraUp), 20f * dt);
             camera.localPosition = Vector3.Lerp(camera.localPosition, new Vector3(0, 0, -1), 20f * dt);
 
             UpdateAimDirection();

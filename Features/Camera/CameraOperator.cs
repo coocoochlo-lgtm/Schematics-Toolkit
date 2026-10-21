@@ -7,7 +7,7 @@ namespace Remedy.Cameras
     /// The base of a camera rig: a Root that follows a target, with the Camera on a boom beneath it.
     /// The Camera Manager blends the scene camera toward the active Operator.
     /// </summary>
-    [SchematicDoc(@"{""name"": ""Camera Operator"", ""kind"": ""behavior"", ""description"": ""The base of a camera rig: a Root that follows a target, with the Camera on a boom beneath it. The Camera Manager blends the scene camera toward the active Operator."", ""variables"": [""Properties"", ""Follow"", ""Root"", ""Camera"", ""CameraCollisionRadius"", ""CurrentVolume"", ""AimDirection"", ""OrientCharacterToCamera"", ""XAxis"", ""YAxis"", ""ActualXAxis"", ""ActualYAxis""], ""signals"": [""SetObjectToFollow"", ""LookInput"", ""AimDirectionOutput"", ""OrientCharacterToCameraOutput""], ""use_for"": [""custom camera rigs""], ""notes"": ""Base of the camera Behaviors; use Third Person or Shoulder instead.""}")]
+    [SchematicDoc(@"{""name"": ""Camera Operator"", ""kind"": ""behavior"", ""description"": ""The base of a camera rig: a Root that follows a target, with the Camera on a boom beneath it. The Camera Manager blends the scene camera toward the active Operator."", ""variables"": [""Properties"", ""Follow"", ""Root"", ""Camera"", ""CameraCollisionRadius"", ""CurrentVolume"", ""AimDirection"", ""OrientCharacterToCamera"", ""XAxis"", ""YAxis"", ""ActualXAxis"", ""ActualYAxis"", ""AlignToTargetUp"", ""UpAlignSpeed""], ""signals"": [""SetObjectToFollow"", ""LookInput"", ""AimDirectionOutput"", ""OrientCharacterToCameraOutput""], ""use_for"": [""custom camera rigs""], ""notes"": ""Base of the camera Behaviors; use Third Person or Shoulder instead.""}")]
     public abstract class CameraOperator : SchematicBehavior
     {
         [SchematicDoc(@"{""name"": ""SetObjectToFollow"", ""kind"": ""signal"", ""behavior"": ""Camera Operator"", ""direction"": ""input"", ""params"": [{""name"": ""Target"", ""type"": ""GameObject""}], ""description"": ""Tells Camera Operator to act."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
@@ -62,6 +62,33 @@ namespace Remedy.Cameras
         protected readonly VariableHandle<float> _yAxisInput = 0f;
         protected readonly VariableHandle<float> _timeSinceInput = 0f;
         protected readonly VariableHandle<Quaternion> _goalRotation = Quaternion.identity;
+
+        [SchematicDoc(@"{""name"": ""AlignToTargetUp"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""bool"", ""default"": ""true"", ""description"": ""Tilt the camera with what it follows: its up turns toward the target's up over time, so on slopes, ramps and walls the camera leans with it.""}")]
+        [Tooltip("Tilt the camera with what it follows: its up turns toward the target's up over time, so on slopes, ramps and walls the camera leans with it.")]
+        public readonly VariableHandle<bool> AlignToTargetUp = true;
+        [SchematicDoc(@"{""name"": ""UpAlignSpeed"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""float"", ""default"": ""3f"", ""description"": ""How quickly the camera's up follows the target's (higher is snappier).""}")]
+        [Tooltip("How quickly the camera's up follows the target's (higher is snappier).")]
+        public readonly VariableHandle<float> UpAlignSpeed = 3f;
+
+        // The camera's up, easing toward the target's.
+        protected readonly VariableHandle<Vector3> _up = Vector3.up;
+
+        /// <summary>
+        /// Eases the camera's up toward the target's (world up with Align To Target Up off) and returns the frame
+        /// the rig's yaw and pitch are built in: <c>frame * Quaternion.Euler(pitch, yaw, 0)</c>.
+        /// </summary>
+        protected Quaternion UpFrame(Transform follow)
+        {
+            ref var up = ref _up.Ref;
+            if (up.sqrMagnitude < 0.5f)
+                up = Vector3.up;
+            var goal = AlignToTargetUp.Value && follow != null ? follow.up : Vector3.up;
+            up = Vector3.Slerp(up, goal, 1f - Mathf.Exp(-UpAlignSpeed.Value * Time.deltaTime)).normalized;
+            return Quaternion.FromToRotation(Vector3.up, up);
+        }
+
+        /// <summary>The camera's current (eased) up.</summary>
+        protected Vector3 CameraUp => _up.Value.sqrMagnitude > 0.5f ? _up.Value : Vector3.up;
 
         public float XAxisSpeed => Properties.Value != null ? Properties.Value.XAxisSpeed : 3f;
         public float YAxisSpeed => Properties.Value != null ? Properties.Value.YAxisSpeed : 2f;

@@ -80,6 +80,7 @@ namespace Remedy.Cameras
             var camera = Camera.Value;
             if (follow == null || root == null || camera == null) return;
             var body = BodyOf(follow, Body.Value);
+            var frame = UpFrame(follow);
 
             float dt = Time.deltaTime;
             var collisionLayers = CollisionLayers.Value;
@@ -111,13 +112,13 @@ namespace Remedy.Cameras
             root.position = horPos + vertPos;
 
             // Apply rotation to Root
-            _goalRotation.Value = Quaternion.Euler(YAxis.Value, XAxis.Value, 0);
+            _goalRotation.Value = frame * Quaternion.Euler(YAxis.Value, XAxis.Value, 0);
 
             // Rotation smoothing
             ActualYAxis.Value = Mathf.Lerp(ActualYAxis.Value, YAxis.Value, SmoothSpeed * dt);
             ActualXAxis.Value = Mathf.Lerp(ActualXAxis.Value, XAxis.Value, SmoothSpeed * dt);
 
-            root.rotation = Quaternion.Euler(ActualYAxis.Value, ActualXAxis.Value, 0);
+            root.rotation = frame * Quaternion.Euler(ActualYAxis.Value, ActualXAxis.Value, 0);
 
             Vector3 origin = root.position;
             Vector3 direction = -root.forward;
