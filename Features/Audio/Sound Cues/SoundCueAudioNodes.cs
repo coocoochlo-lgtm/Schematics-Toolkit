@@ -78,6 +78,108 @@ namespace Remedy.Audio
         }
     }
 
+    [SchematicDoc(@"{""name"": ""Sound Cue"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Sources"", ""description"": ""Another Sound Cue, played inside this one: after Delay seconds, at Volume, once or looping. Build sounds out of sounds: a footstep cue reused in a run cycle, a layered explosion made of smaller cues. The inner cue hears the same distance to the listener (and its Occlusion, Surface and Room controls still work). Length is how long the inner cue is."", ""inputs"": [{""name"": ""Volume"", ""type"": ""float""}], ""outputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Length"", ""type"": ""float""}], ""notes"": ""Drop a Sound Cue asset into a Sound Cue graph to make one. A cue that ends up inside itself plays silence (with a warning).""}")]
+    [Serializable]
+    [Node(Name = "Sound Cue", Path = "Sources"), Tags(SoundNode.Tag)]
+    [AssetNode(typeof(SoundCueGraph), Title = "Sound Cue: {0}", Field = nameof(Cue))]
+    public class SoundCueSourceNode : SoundNode
+    {
+        [Editable] public SoundCueGraph Cue;
+        [Input("Volume", Editable = true)] public float Volume = 1f;
+        [Editable, Tooltip("Seconds before it starts.")] public float Delay;
+        [Editable, Tooltip("Start it again each time it ends.")] public bool Loop;
+        [Output("Audio")] public float Audio;
+        [Output("Length")] public float Length;
+
+        // The cues being built right now, outermost first: a cue inside itself (A in B in A) is caught here.
+        [ThreadStatic] private static HashSet<SoundCueGraph> _building;
+
+        public override SoundProcessor CreateProcessor(SoundCueBuilder builder)
+        {
+            var silent = new StaticProcessor();
+            silent.Outputs["Audio"] = builder.Constant(0f);
+            silent.Outputs["Length"] = builder.Constant(0f);
+            if (Cue == null)
+            {
+                builder.Warnings.Add($"\"{Name}\" has no Sound Cue.");
+                return silent;
+            }
+            var outer = Graph as SoundCueGraph;
+            _building ??= new HashSet<SoundCueGraph>();
+            if (Cue == outer || _building.Contains(Cue))
+            {
+                builder.Warnings.Add($"\"{Name}\" plays \"{Cue.name}\", which is (or contains) this cue: it would play itself forever, so it's silent.");
+                return silent;
+            }
+
+            SoundCueVoice inner;
+            bool added = outer != null && _building.Add(outer);
+            try { inner = SoundCueVoice.Create(Cue, builder.SampleRate, builder.Context.Random.Next()); }
+            finally { if (added) _building.Remove(outer); }
+            if (inner == null)
+                return silent;
+
+            foreach (var warning in inner.Warnings)
+                builder.Warnings.Add($"In \"{Cue.name}\": {warning}");
+            // The inner cue's world controls (Occlusion, Surface, Room) are answered by this cue's player.
+            builder.Context.Probes.AddRange(inner.Context.Probes);
+
+            float length = inner.LengthSamples > 0 ? inner.LengthSamples / (float)builder.SampleRate : 0f;
+            float delay = Mathf.Max(0f, Delay);
+            if (!Loop && length > 0f)
+                builder.NoteSourceLength(delay + length);
+            var processor = new Processor
+            {
+                Inner = inner,
+                Volume = builder.Input(this, "Volume", Volume),
+                StartSample = (long)(delay * builder.SampleRate),
+                Loop = Loop,
+            };
+            processor.Outputs["Length"] = builder.Constant(length);
+            return processor;
+        }
+
+        private sealed class Processor : SoundProcessor
+        {
+            public SoundCueVoice Inner;
+            public float[] Volume;
+            public long StartSample;
+            public bool Loop;
+
+            public override void Reset(SoundContext context) => Inner.Restart(context.Random.Next());
+
+            public override void Process(SoundContext context, int count)
+            {
+                var output = Output("Audio");
+                // Before the delay's up: silence.
+                int i = (int)Math.Max(0L, Math.Min(count, StartSample - context.SamplePosition));
+                Array.Clear(output, 0, i);
+                Inner.Context.Distance = context.Distance;
+                while (i < count)
+                {
+                    long length = Inner.LengthSamples;
+                    bool ended = length > 0 && Inner.Context.SamplePosition >= length;
+                    if (ended)
+                    {
+                        if (!Loop)
+                        {
+                            Array.Clear(output, i, count - i);
+                            break;
+                        }
+                        Inner.Restart(context.Random.Next());
+                    }
+                    int n = count - i;
+                    if (length > 0)
+                        n = (int)Math.Min(n, length - Inner.Context.SamplePosition);
+                    Inner.Render(output, i, n);
+                    i += n;
+                }
+                for (int s = 0; s < count; s++)
+                    output[s] *= Volume[s];
+            }
+        }
+    }
+
     [SchematicDoc(@"{""name"": ""Generator"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Sources"", ""description"": ""A retro sound made from settings (sfxr style): pick a preset on the node (Pickup, Laser, Explosion, Power Up, Hit, Jump, Blip, Random), then Mutate or tweak its settings. Read at its Time input like a Sound Wave, so the same time math works on it. Length is how long the sound is."", ""inputs"": [{""name"": ""Time"", ""type"": ""float""}], ""outputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Length"", ""type"": ""float""}]}")]
     [Serializable]
     [Node(Name = "Generator", Path = "Sources"), Tags(SoundNode.Tag)]

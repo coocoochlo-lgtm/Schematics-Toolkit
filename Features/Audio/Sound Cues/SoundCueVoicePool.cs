@@ -25,11 +25,26 @@ namespace Remedy.Audio
         public static int Version(SoundCueGraph cue)
         {
 #if UNITY_EDITOR
-            return cue != null ? UnityEditor.EditorUtility.GetDirtyCount(cue) : 0;
+            return Version(cue, 0);
 #else
             return 0;
 #endif
         }
+
+#if UNITY_EDITOR
+        // The cue's edits and those of the cues played inside it (Sound Cue nodes), so editing an inner cue rebuilds
+        // the voices of cues that play it.
+        private static int Version(SoundCueGraph cue, int depth)
+        {
+            if (cue == null || depth > 8)
+                return 0;
+            int version = UnityEditor.EditorUtility.GetDirtyCount(cue);
+            foreach (var node in cue.Nodes)
+                if (node is SoundCueSourceNode inner && inner.Cue != null && inner.Cue != cue)
+                    version = version * 31 + Version(inner.Cue, depth + 1);
+            return version;
+        }
+#endif
 
         /// <summary>A voice for a cue, ready to play from the start: an idle one if there is one, else a new one.</summary>
         public static SoundCueVoice Rent(SoundCueGraph cue, int sampleRate)
