@@ -834,6 +834,8 @@ namespace Remedy.Vehicles
 
             bool isGrounded = grounded > 0;
             Vector3 groundNormal = isGrounded ? normalSum.normalized : worldUp;
+            if (groundNormal.sqrMagnitude < 0.001f)
+                groundNormal = up;
             bool slowSingleTireContact = grounded == 1
                 && velocity.magnitude <= Mathf.Max(0f, p.SingleTireRecoveryMaxSpeed)
                 && movementSpeed <= Mathf.Max(0f, p.SingleTireRecoveryMovementSpeed);
@@ -850,14 +852,19 @@ namespace Remedy.Vehicles
             Vector3 rollPitchVelocity = angularVelocity - up * Vector3.Dot(angularVelocity, up);
             float supportFraction = supportedWheelLoad / Mathf.Max(1f, wheelCount);
             float supportFactor = Mathf.InverseLerp(0.25f, 0.75f, supportFraction);
-            float speedFactor = 1f - Mathf.Clamp01(velocity.magnitude / Mathf.Max(0.1f, p.MaxSpeed));
-            float stabilizationFactor = isGrounded ? supportFactor * speedFactor : 0f;
+            float stabilizationFactor = isGrounded ? supportFactor : 0f;
             bool airborne = !isGrounded && IsAirborne(body, centerOfMass, worldUp, p);
             bool groundLeveling = (isGrounded && (p.StabilizeStrength > 0f || p.StabilizeDamping > 0f))
                 || singleTireRecovery;
             bool airLeveling = airborne && (p.AirLevelStrength > 0f || p.AirLevelDamping > 0f);
             Vector3 stabilizationCompensation = Vector3.zero;
             Vector3 targetUp = isGrounded ? groundNormal : worldUp;
+            if (isGrounded && !singleTireRecovery && p.GroundedTurnLeanAngle > 0f)
+            {
+                Vector3 planeForward = Vector3.ProjectOnPlane(forward, groundNormal).normalized;
+                if (planeForward.sqrMagnitude > 0.001f)
+                    targetUp = Quaternion.AngleAxis(-state.Steer * p.GroundedTurnLeanAngle, planeForward) * groundNormal;
+            }
             if (targetUp.sqrMagnitude < 0.001f)
                 targetUp = up;
             float transitionTime = Mathf.Max(0f, p.StabilizeTransitionTime);
@@ -893,10 +900,13 @@ namespace Remedy.Vehicles
             {
                 angular += (UprightError(up, state.UprightNormal, forward) * uprightStrength
                     - rollPitchVelocity * uprightDamping) * (uprightSupport * state.UprightBlend);
-                // Fade out the grounded-wheel torque compensation with the ground leveling contribution.
-                float compensation = state.UprightSupportBlend * (1f - state.UprightAirBlend) * state.UprightBlend;
-                if (compensation > 0f)
-                    stabilizationCompensation = -wheelForceTorque * compensation;
+            }
+            // Keep surface-following roll/pitch independent of suspension visuals and steering yaw.
+            if (isGrounded && p.GroundedTorqueCompensation > 0f)
+            {
+                float supportBlend = Mathf.InverseLerp(1f, 2f, grounded);
+                stabilizationCompensation = -Vector3.ProjectOnPlane(wheelForceTorque, groundNormal)
+                    * (Mathf.Clamp01(p.GroundedTorqueCompensation) * supportBlend);
             }
 
             Vector3 airControlTorque = Vector3.zero;

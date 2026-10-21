@@ -188,13 +188,19 @@ namespace Remedy.Vehicles
         public float InertiaScale = 1.3f;
 
         [Header("Staying Upright")]
-        [Tooltip("At low speed, how hard the car levels toward the averaged ground normal. Fades to zero at Max Speed and while fewer than about half the tires support the car. Compensates torque from tire forces. 0 = pure physics.")]
+        [Tooltip("How hard the grounded car levels toward the virtual plane formed by tire contacts. Scales down when fewer tires support the car. 0 disables orientation correction.")]
         public float StabilizeStrength = 8f;
-        [Tooltip("At low speed, damps roll and pitch while the tires meaningfully support the car. Fades to zero at Max Speed.")]
+        [Tooltip("Damps roll and pitch while the tires meaningfully support the car.")]
         public float StabilizeDamping = 2f;
         [Min(0f)]
         [Tooltip("Time for tilt correction to fade in/out and turn toward a new support normal. Softens changes in tire contact over ramps; 0 is immediate.")]
         public float StabilizeTransitionTime = 0.25f;
+        [Range(0f, 1f)]
+        [Tooltip("Cancels tire and suspension torque that would roll or pitch the chassis, while preserving yaw torque for steering. 1 keeps the chassis on the virtual tire-support plane.")]
+        public float GroundPlaneTorqueCompensation = 1f;
+        [Range(0f, 20f)]
+        [Tooltip("Maximum inward chassis lean toward the turn while grounded, in degrees. Wheel suspension movement and appearance are unaffected.")]
+        public float GroundedTurnLeanAngle = 5f;
         [Min(0f)]
         [Tooltip("When exactly one tire is grounded, maximum car speed for the stuck recovery timer (m/s).")]
         public float SingleTireRecoveryMaxSpeed = 1f;
@@ -268,7 +274,8 @@ namespace Remedy.Vehicles
             MiniTurbo = false;
             BoostAcceleration = 14f; BoostDuration = 2f; BoostMaxSpeedBonus = 15f;
             Mass = 1300f; CenterOfMassOffset = new Vector3(0f, -0.3f, 0.05f); InertiaScale = 1.4f;
-            StabilizeStrength = 6f; StabilizeDamping = 2f; StickyForce = 0.2f;
+            StabilizeStrength = 6f; StabilizeDamping = 2f; GroundPlaneTorqueCompensation = 1f;
+            GroundedTurnLeanAngle = 4f; StickyForce = 0.2f;
             AirLevelStrength = 1.5f; AirControl = 2f; SelfRightStrength = 12f; SelfRightDelay = 2f;
             UnityEditor.EditorUtility.SetDirty(this);
         }
@@ -288,7 +295,8 @@ namespace Remedy.Vehicles
             MiniTurbo = true; ChargeRate = 1f; TightTurnChargeBonus = 1f;
             BoostAcceleration = 12f; BoostDuration = 1.2f; BoostMaxSpeedBonus = 10f;
             Mass = 300f; CenterOfMassOffset = new Vector3(0f, -0.25f, 0f); InertiaScale = 1.2f;
-            StabilizeStrength = 14f; StabilizeDamping = 3f; StickyForce = 0.25f;
+            StabilizeStrength = 14f; StabilizeDamping = 3f; GroundPlaneTorqueCompensation = 1f;
+            GroundedTurnLeanAngle = 7f; StickyForce = 0.25f;
             AirLevelStrength = 4f; AirControl = 3f; SelfRightStrength = 20f; SelfRightDelay = 0.75f;
             UnityEditor.EditorUtility.SetDirty(this);
         }
@@ -301,7 +309,8 @@ namespace Remedy.Vehicles
             DriftEntry = DriftEntryMode.Off; MiniTurbo = false;
             DriftMomentumKeep = 0f; DriftCounterSteer = 0f;
             CenterOfMassOffset = new Vector3(0f, -0.1f, 0f); InertiaScale = 1f;
-            StabilizeStrength = 0f; StabilizeDamping = 0.5f; StickyForce = 0.05f;
+            StabilizeStrength = 0f; StabilizeDamping = 0.5f; GroundPlaneTorqueCompensation = 0f;
+            GroundedTurnLeanAngle = 0f; StickyForce = 0.05f;
             AirLevelStrength = 0f; AirControl = 0f; SelfRightStrength = 0f;
             UnityEditor.EditorUtility.SetDirty(this);
         }

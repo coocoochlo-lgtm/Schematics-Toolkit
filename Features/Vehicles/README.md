@@ -133,15 +133,17 @@ Rules of thumb: more front grip than rear means understeer (safe), the reverse o
 
 The body is a real Box3D body, so it can roll, tumble and land on its roof. How hard it fights that is up to you:
 
-- **Tyre Force Height** (the big one): where cornering grip pushes. 0 = at the road (realistic, the car leans
-  and rolls), 1 = at the centre of mass height (never rolls from cornering). 0.5-0.7 still flips on kerbs and in
-  crashes.
+- **Tyre Force Height**: where cornering grip pushes. 0 = at the road; 1 = at the centre of mass height. Grounded
+  torque compensation below keeps normal tire and suspension forces from rolling the chassis, but collision impacts
+  can still flip it.
 - **Center Of Mass Offset**: lower (negative y) is harder to roll. **Inertia Scale**: higher is heavier to spin.
-- **Stabilize Strength / Damping**: levels toward the averaged normal from grounded wheel casts and damps roll/pitch. Both
-  fade to zero at **Max Speed**, and weak or sparse tire support fades stabilization out. **Stabilize Transition
-  Time** smooths the correction's fade and direction changes as the car moves between ramps and airborne states. The
-  controller compensates for the torque from grounded tires' suspension, traction and sticky forces; 0 strength and
-  damping = pure physics.
+- **Stabilize Strength / Damping**: levels toward the virtual support plane formed by grounded tire contacts and damps
+  roll/pitch while grounded. Sparse tire support fades the correction; it remains active at speed so the chassis
+  follows the surface instead of rolling from cornering. **Ground Plane Torque Compensation** (0..1) cancels
+  roll/pitch torque from tire, suspension and sticky forces while preserving steering yaw. **Grounded Turn Lean Angle**
+  adds a small inward lean toward turns. **Stabilize Transition Time** smooths direction changes between surfaces.
+  Suspension travel and wheel appearance remain unchanged because the support plane is a chassis-orientation
+  reference, not a physical collider.
 - **Ground Check Distance** sets how far below the tire top each probe continues. The probe sweeps a sphere up to the
   tire's radius, starting at the top of the car body's bounds and going down along the car's local down axis. This
   avoids starting an underbody check inside the floor. **Tire Placement Threshold** (0..1) limits how far the tire
