@@ -11,7 +11,7 @@ using UnityEngine;
 
 namespace Remedy.Audio
 {
-    [SchematicDoc(@"{""name"": ""Play Sound Cue"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Audio"", ""description"": ""Plays a Sound Cue at an object (with nothing connected, the object running the graph), following it if Follow is on. Player is what's playing it, for Stop Sound Cue and Set Sound Cue Parameter. The cue's Parameters appear as pins: what's wired in is set as it starts (unwired: the cue's default); change them later with Set Sound Cue Parameter on Player, which a graph Variable can hold. Object is the playing cue's own object: send a Signal To it to fire the cue's Triggers. Dropping a Sound Cue into a graph makes one."", ""inputs"": [{""name"": ""Cue"", ""type"": ""SoundCueGraph""}, {""name"": ""Target"", ""type"": ""GameObject""}, {""name"": ""Volume"", ""type"": ""float""}, {""name"": ""Spatial Blend"", ""type"": ""float""}], ""outputs"": [{""name"": ""Player"", ""type"": ""SoundCuePlayer""}, {""name"": ""Object"", ""type"": ""GameObject""}], ""use_for"": [""designed sound effects"", ""engine and ambient loops driven by parameters""], ""notes"": ""Runs when flow reaches it.""}")]
+    [SchematicDoc(@"{""name"": ""Play Sound Cue"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Audio"", ""description"": ""Plays a Sound Cue at an object (with nothing connected, the object running the graph), following it if Follow is on. Player is what's playing it, for Stop Sound Cue and Set Sound Cue Parameter. The cue's Parameters appear as pins: what's wired in is set as it starts (unwired: the cue's default); they are read once, as it starts: change them while it plays with Set Sound Cue Parameters on Player (which a graph Variable can hold). Object is the playing cue's own object: send a Signal To it to fire the cue's Triggers. Dropping a Sound Cue into a graph makes one."", ""inputs"": [{""name"": ""Cue"", ""type"": ""SoundCueGraph""}, {""name"": ""Target"", ""type"": ""GameObject""}, {""name"": ""Volume"", ""type"": ""float""}, {""name"": ""Spatial Blend"", ""type"": ""float""}], ""outputs"": [{""name"": ""Player"", ""type"": ""SoundCuePlayer""}, {""name"": ""Object"", ""type"": ""GameObject""}], ""use_for"": [""designed sound effects"", ""engine and ambient loops driven by parameters""], ""notes"": ""Runs when flow reaches it.""}")]
     [Serializable]
     [NodeColor(NodeColors.Audio)]
     [Node(Name = "Play Sound Cue", Path = "Audio"), Tags("Default")]
@@ -140,6 +140,81 @@ namespace Remedy.Audio
                 return;
             foreach (var found in SoundCuePlayer.On(target))
                 found.SetParameter(name, value);
+        }
+    }
+
+    [SchematicDoc(@"{""name"": ""Set Sound Cue Parameters"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Audio"", ""description"": ""Sets a playing Sound Cue's Parameters: one pin for each of its cue's Parameters (the cue picked here, or the one the Play Sound Cue its Player comes from plays), and only the wired ones are set. On the Player a Play Sound Cue gave (or one kept in a Variable), or every copy of the cue playing on Target (and its children)."", ""inputs"": [{""name"": ""Player"", ""type"": ""SoundCuePlayer""}, {""name"": ""Target"", ""type"": ""GameObject""}, {""name"": ""Cue"", ""type"": ""SoundCueGraph""}], ""use_for"": [""an engine's RPM and Throttle every frame"", ""music intensity as a fight heats up""], ""notes"": ""Runs when flow reaches it: on On Update for values that keep changing, or when they change.""}")]
+    [Serializable]
+    [NodeColor(NodeColors.Audio)]
+    [Node(Name = "Set Sound Cue Parameters", Path = "Audio"), Tags("Default")]
+    public class SetSoundCueParametersNode : SchematicActionNode, IDynamicPorts
+    {
+        [Input("Player")] public SoundCuePlayer Player;
+        [Input("Target")] public GameObject Target;
+        [Editable, Tooltip("The cue whose Parameters get pins (empty: the one the Play Sound Cue wired into Player plays).")]
+        public SoundCueGraph Cue;
+
+        private static readonly string[] FixedInputs = { "Player", "Target" };
+
+        // The cue it's for: picked here, else the one the Play Sound Cue its Player comes from plays.
+        private SoundCueGraph CueFor()
+        {
+            if (Cue != null)
+                return Cue;
+            var player = GetPort("Player");
+            if (player != null)
+                foreach (var source in player.ConnectedPorts)
+                    if (source?.Node is PlaySoundCueNode play && play.Cue != null)
+                        return play.Cue;
+            return null;
+        }
+
+        public bool SyncPorts()
+        {
+            var cue = CueFor();
+            var parameters = cue != null ? cue.ParameterList : new List<(string name, float value)>();
+            return DynamicPorts.SyncInputs(this, parameters.Select(p => (PlaySoundCueNode.ParameterPort(p.name, FixedInputs), typeof(float))),
+                port => port.Type == typeof(float) && Array.IndexOf(FixedInputs, port.Name) < 0);
+        }
+
+        public override void OnValidate()
+        {
+            base.OnValidate();
+            if (SyncPorts())
+                DynamicPorts.Notify(this);
+        }
+
+        protected override void OnTrigger(GameObject instance, bool awaiting = false)
+        {
+            var player = GetInputValue<SoundCuePlayer>("Player", null);
+            var cue = CueFor() ?? (player != null ? player.Cue : null);
+            if (cue == null)
+                return;
+            // The wired pins' values, read once for every player they go to.
+            var values = new List<(string name, float value)>();
+            foreach (var (name, _) in cue.ParameterList)
+            {
+                string port = PlaySoundCueNode.ParameterPort(name, FixedInputs);
+                if (GetPort(port) != null && HasInputConnections(port))
+                    values.Add((name, GetInputValue(port, 0f)));
+            }
+            if (values.Count == 0)
+                return;
+            if (player != null)
+            {
+                foreach (var (name, value) in values)
+                    player.SetParameter(name, value);
+                return;
+            }
+            var target = GetInputValue("Target", Target);
+            if (target == null)
+                target = instance;
+            if (target == null)
+                return;
+            foreach (var found in SoundCuePlayer.On(target))
+                if (found.Cue == cue)
+                    foreach (var (name, value) in values)
+                        found.SetParameter(name, value);
         }
     }
 
