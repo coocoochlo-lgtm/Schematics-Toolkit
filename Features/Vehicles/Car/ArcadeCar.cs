@@ -13,10 +13,11 @@ namespace Remedy.Vehicles
     /// a car that wants to stay on its wheels) while crashes, ramps and rollovers are still physics.
     /// </summary>
     /// <remarks>
-    /// The wheels are rays: every physics step each one casts down from its anchor and pushes the body with a spring,
-    /// sideways grip and the engine, at that wheel. Drifting is a little state machine on top (less rear grip, a steer
-    /// assist that swings the tail, a counter-steer that stops spin-outs, speed carried round the slide). Staying
-    /// upright is a set of dials, all in the Properties: a lowered centre of mass, where the tyres push
+    /// The wheels are virtual tires: every physics step each one sweeps a tire-sized sphere down from its anchor and
+    /// pushes the body with a spring, sideways grip and the engine, at that wheel. Drifting is a little state machine
+    /// on top (less rear grip, a steer assist that swings the tail, a counter-steer that stops spin-outs, and speed
+    /// carried round the slide). Staying upright is a set of dials, all in the Properties: a lowered centre of mass,
+    /// where the tyres push
     /// (<see cref="ArcadeCarProperties.TyreForceHeight"/>), ground stabilizing, air levelling, and self-righting.
     /// Turn them all to 0 and you have a car that rolls like a real one.<br/>
     /// Works with or without <see cref="VehicleSeats"/>: with seats it only drives while someone's in a driver seat
@@ -30,7 +31,7 @@ namespace Remedy.Vehicles
     /// player (proxies
     /// also update Is Drifting, Drift Level, Is Boosting and Is Flipped from them).
     /// </remarks>
-    [SchematicDoc(@"{""name"": ""Arcade Car"", ""kind"": ""behavior"", ""menu"": ""Vehicles/Arcade Car"", ""description"": ""An arcade car on a real Box3D body: NFS Underground / Mario Kart handling (drifts, mini-turbos, a car that wants to stay on its wheels) while crashes and rollovers are still physics. Raycast wheels; everything tunable in its Properties asset."", ""variables"": [""Properties"", ""Wheels"", ""AlwaysActive"", ""ParkWhenEmpty"", ""DriverInputs"", ""PlayerDriverOnly"", ""Speed"", ""ForwardSpeed"", ""IsGrounded"", ""GroundedWheels"", ""IsDrifting"", ""DriftAngle"", ""DriftCharge"", ""DriftLevel"", ""IsBoosting"", ""IsFlipped"", ""AirTime""], ""signals"": [""Target Speed"", ""Brake"", ""Steer"", ""Drive"", ""Handbrake"", ""Boost"", ""Unflip"", ""OnDriftStarted"", ""OnDriftEnded"", ""OnDriftLevel"", ""OnBoost"", ""OnLanded"", ""OnFlipped"", ""OnRighted"", ""OnCrash""], ""use_for"": [""drivable cars and karts"", ""racing games"", ""AI traffic""], ""notes"": ""Needs a Box3D Body and a shape (added for you). Add Vehicle Seats so it only drives with a driver. Multiplayer: the driver owns and simulates the car; its input Signals are networked from the owner, and drift/boost/flip/crash Signals reach every player for effects.""}")]
+    [SchematicDoc(@"{""name"": ""Arcade Car"", ""kind"": ""behavior"", ""menu"": ""Vehicles/Arcade Car"", ""description"": ""An arcade car on a real Box3D body: NFS Underground / Mario Kart handling (drifts, mini-turbos, a car that wants to stay on its wheels) while crashes and rollovers are still physics. Tire-sized sphere probes; everything tunable in its Properties asset."", ""variables"": [""Properties"", ""Wheels"", ""AlwaysActive"", ""ParkWhenEmpty"", ""DriverInputs"", ""PlayerDriverOnly"", ""Speed"", ""ForwardSpeed"", ""IsGrounded"", ""GroundedWheels"", ""IsDrifting"", ""DriftAngle"", ""DriftCharge"", ""DriftLevel"", ""IsBoosting"", ""IsFlipped"", ""AirTime""], ""signals"": [""Target Speed"", ""Brake"", ""Steer"", ""Drive"", ""Handbrake"", ""Boost"", ""Unflip"", ""OnDriftStarted"", ""OnDriftEnded"", ""OnDriftLevel"", ""OnBoost"", ""OnLanded"", ""OnFlipped"", ""OnRighted"", ""OnCrash""], ""use_for"": [""drivable cars and karts"", ""racing games"", ""AI traffic""], ""notes"": ""Needs a Box3D Body and a shape (added for you). Add Vehicle Seats so it only drives with a driver. Multiplayer: the driver owns and simulates the car; its input Signals are networked from the owner, and drift/boost/flip/crash Signals reach every player for effects.""}")]
     [SchematicBehaviorPath("Vehicles/Arcade Car")]
     [NetworkOwnerSimulated]
     [RequireComponent(typeof(Box3DBody), typeof(Box3DBoxShape), typeof(SchematicImpactRelay))]
@@ -196,8 +197,8 @@ namespace Remedy.Vehicles
         [OutputSignal, NetworkSync(SignalSender.Anyone)]
         public readonly SignalHandle OnRighted;
 
-        [SchematicDoc(@"{""name"": ""OnCrash"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""output"", ""params"": [{""name"": ""Speed"", ""type"": ""float""}], ""description"": ""Sent when the direction-adjusted impact speed exceeds Properties' Min Crash Speed. Impacts aligned with the car's up/down axis count less. The adjusted speed is passed in m/s. For damage, sounds and camera shake."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock).""}")]
-        [Tooltip("Sent when the direction-adjusted impact speed exceeds Min Crash Speed. Impacts aligned with the car's up/down axis count less; the adjusted speed is passed in m/s.")]
+        [SchematicDoc(@"{""name"": ""OnCrash"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""output"", ""params"": [{""name"": ""Speed"", ""type"": ""float""}], ""description"": ""Sent when the direction-adjusted impact speed exceeds Properties' Min Crash Speed. Impacts aligned with the nearest tire's ground normal count less. The adjusted speed is passed in m/s. For damage, sounds and camera shake."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock).""}")]
+        [Tooltip("Sent when the direction-adjusted impact speed exceeds Min Crash Speed. Impacts aligned with the nearest tire's ground normal count less; the adjusted speed is passed in m/s.")]
         [OutputSignal, NetworkSync(SignalSender.Anyone)]
         [Parameter("Speed", typeof(float))]
         public readonly SignalHandle<float> OnCrash;
@@ -648,10 +649,14 @@ namespace Remedy.Vehicles
                 Vector3 origin = wheel.Anchor.position;
                 w.SteerAngle = wheel.Steers ? steerAngle : 0f;
                 w.WasGrounded = w.Grounded;
-                w.Grounded = SchematicPhysics.SphereCast(origin, 0f, -up, out w.GroundHit, out _,
-                    groundCheckDistanceForWheels, p.GroundLayers, body);
+                float tireRadius = Mathf.Max(0.05f, wheel.Radius);
+                float probeRadius = groundCheckDistanceForWheels > tireRadius ? tireRadius : 0f;
+                float castDistance = groundCheckDistanceForWheels - probeRadius;
+                w.Grounded = SchematicPhysics.SphereCast(origin, probeRadius, -up, out w.GroundHit, out _,
+                    castDistance, p.GroundLayers, body);
                 if (w.Grounded)
                 {
+                    w.GroundHit.distance += probeRadius;
                     grounded++;
                     Vector3 castNormal = w.GroundHit.normal;
                     w.GroundNormal = w.HasBlendedContact && contactTransitionTime > 0f
@@ -741,7 +746,7 @@ namespace Remedy.Vehicles
                 Vector3 normal = w.ContactNormal;
                 float contactDistance = w.ContactDistance;
                 float forceWeight = w.ContactForceWeight;
-                Vector3 contactPoint = origin - up * contactDistance;
+                Vector3 contactPoint = actualGrounded ? w.GroundHit.point : origin - up * contactDistance;
                 w.Point = contactPoint;
                 w.Normal = normal;
 
@@ -1228,8 +1233,28 @@ namespace Remedy.Vehicles
             var wheels = Wheels.Value;
             var state = _state.Value;
             Vector3 impactDirection = impact.Direction.normalized;
+            Vector3 groundNormal = Self.Transform.up;
+            float nearestGroundDistance = float.MaxValue;
+            if (wheels != null && state != null && state.Wheels.Length == wheels.Length)
+            {
+                for (int i = 0; i < wheels.Length; i++)
+                {
+                    if (wheels[i]?.Anchor == null) continue;
+                    ref var wheelState = ref state.Wheels[i];
+                    if (!wheelState.Grounded && (!wheelState.HasBlendedContact || wheelState.ContactForceWeight <= 0f))
+                        continue;
+                    Vector3 contactPoint = wheelState.Grounded ? wheelState.GroundHit.point : wheelState.Point;
+                    float distance = (contactPoint - impact.Point).sqrMagnitude;
+                    if (distance >= nearestGroundDistance)
+                        continue;
+                    nearestGroundDistance = distance;
+                    groundNormal = wheelState.Grounded ? wheelState.GroundNormal : wheelState.ContactNormal;
+                }
+            }
+            if (groundNormal.sqrMagnitude < 0.001f)
+                groundNormal = Self.Transform.up;
             float crashRatio = impactDirection.sqrMagnitude > 0.001f
-                ? Mathf.Clamp01(1f - Mathf.Abs(Vector3.Dot(impactDirection, Self.Transform.up)))
+                ? Mathf.Clamp01(1f - Mathf.Abs(Vector3.Dot(impactDirection, groundNormal.normalized)))
                 : 1f;
             float crashSpeed = impact.Speed * crashRatio;
             if (p != null && wheels != null && state != null && state.Wheels.Length == wheels.Length
@@ -1314,7 +1339,7 @@ namespace Remedy.Vehicles
             }
         }
 
-        // A visual that is the anchor (or holds it) would move the ray's origin with it, so it's left alone.
+        // A visual that is the anchor (or holds it) would move the probe's origin with it, so it's left alone.
         private static bool HasMovableVisual(Wheel wheel)
             => wheel != null && wheel.Anchor != null && wheel.Visual != null && wheel.Visual != wheel.Anchor && !wheel.Anchor.IsChildOf(wheel.Visual);
 
@@ -1356,9 +1381,15 @@ namespace Remedy.Vehicles
                     var w = live ? state.Wheels[i] : default;
                     Vector3 origin = wheel.Anchor.position;
 
-                    // The ground probe: green on the ground, red in the air, cyan in Edit Mode.
+                    // The tire-sized ground sweep: green on the ground, red in the air, cyan in Edit Mode.
                     Gizmos.color = !live ? Color.cyan : w.Grounded ? Color.green : Color.red;
-                    Gizmos.DrawLine(origin, origin - up * Mathf.Max(0f, p != null ? p.GroundCheckDistance : 1.6f));
+                    float checkDistance = Mathf.Max(0f, p != null ? p.GroundCheckDistance : 1.6f);
+                    float probeRadius = checkDistance > radius ? radius : 0f;
+                    float castDistance = checkDistance - probeRadius;
+                    Vector3 castEnd = origin - up * castDistance;
+                    Gizmos.DrawLine(origin, castEnd);
+                    if (probeRadius > 0f)
+                        Gizmos.DrawWireSphere(castEnd, probeRadius);
                     Gizmos.DrawWireSphere(origin, 0.04f);
 
                     // The wheel, steered.

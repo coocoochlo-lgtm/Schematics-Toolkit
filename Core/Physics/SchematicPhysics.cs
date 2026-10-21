@@ -61,6 +61,7 @@ namespace Remedy.Box3DPhysics
         {
             Vector3 translation = direction.normalized * distance;
             Span<float3> proxy = stackalloc float3[1];
+            proxy[0] = float3.zero;
             Span<RayHit> raw = stackalloc RayHit[RaycastHitBufferSize];
             int count = radius > 0f
                 ? World.CastShape(origin, proxy, radius, translation, FilterFor(mask), raw)
@@ -102,6 +103,9 @@ namespace Remedy.Box3DPhysics
                     return RaycastClosest(origin, direction, out hit, out hitObject, distance, mask);
                 return RaycastClosestIgnoringBody(origin, direction, out hit, out hitObject, distance, mask, ignore);
             }
+            if (ignore != null)
+                return SphereCastClosestIgnoringBody(origin, radius, direction, out hit, out hitObject,
+                    distance, mask, ignore);
 
             var hits = _single ??= new RaycastHit[RaycastHitBufferSize];
             var objects = _singleObjects ??= new GameObject[RaycastHitBufferSize];
@@ -120,6 +124,50 @@ namespace Remedy.Box3DPhysics
                 }
             }
             return count > 0;
+        }
+
+        private static bool SphereCastClosestIgnoringBody(Vector3 origin, float radius, Vector3 direction,
+            out RaycastHit hit, out GameObject hitObject, float distance, LayerMask mask, Box3DBody ignore)
+        {
+            hit = default;
+            hitObject = null;
+            if (distance <= 0f || direction.sqrMagnitude < 1e-8f)
+                return false;
+
+            Vector3 translation = direction.normalized * distance;
+            Span<float3> proxy = stackalloc float3[1];
+            proxy[0] = float3.zero;
+            var raw = _ignoredSphereHits ??= new RayHit[256];
+            int count = World.CastShape(origin, proxy, radius, translation, FilterFor(mask), raw);
+            while (count == raw.Length && raw.Length < MaxIgnoredCastHits)
+            {
+                Array.Resize(ref raw, Mathf.Min(raw.Length * 2, MaxIgnoredCastHits));
+                _ignoredSphereHits = raw;
+                count = World.CastShape(origin, proxy, radius, translation, FilterFor(mask), raw);
+            }
+
+            ulong ignoredBodyId = ignore.Body.IsValid ? ignore.Body.Id.ToUInt64() : 0UL;
+            float closestDistance = float.MaxValue;
+            for (int i = 0; i < count; i++)
+            {
+                var shape = new Shape { Id = raw[i].ShapeId };
+                if (ignoredBodyId != 0UL && shape.IsValid && shape.GetBody().Id.ToUInt64() == ignoredBodyId)
+                    continue;
+
+                float hitDistance = raw[i].Fraction * distance;
+                if (hitDistance >= closestDistance)
+                    continue;
+
+                closestDistance = hitDistance;
+                hit = new RaycastHit
+                {
+                    point = raw[i].Point,
+                    normal = raw[i].Normal,
+                    distance = hitDistance,
+                };
+                hitObject = GameObjectOf(raw[i].ShapeId);
+            }
+            return closestDistance < float.MaxValue;
         }
 
         private static bool RaycastClosest(Vector3 origin, Vector3 direction, out RaycastHit hit,
@@ -156,9 +204,9 @@ namespace Remedy.Box3DPhysics
             direction.Normalize();
             var raw = _ignoredRayHits ??= new RayHit[256];
             int count = World.CastRay(origin, direction * distance, FilterFor(mask), raw);
-            while (count == raw.Length && raw.Length < MaxIgnoredRayHits)
+            while (count == raw.Length && raw.Length < MaxIgnoredCastHits)
             {
-                Array.Resize(ref raw, Mathf.Min(raw.Length * 2, MaxIgnoredRayHits));
+                Array.Resize(ref raw, Mathf.Min(raw.Length * 2, MaxIgnoredCastHits));
                 _ignoredRayHits = raw;
                 count = World.CastRay(origin, direction * distance, FilterFor(mask), raw);
             }
@@ -188,9 +236,10 @@ namespace Remedy.Box3DPhysics
         }
 
         public const int RaycastHitBufferSize = 32;
-        private const int MaxIgnoredRayHits = 65536;
+        private const int MaxIgnoredCastHits = 65536;
         [ThreadStatic] private static RaycastHit[] _single;
         [ThreadStatic] private static GameObject[] _singleObjects;
         [ThreadStatic] private static RayHit[] _ignoredRayHits;
+        [ThreadStatic] private static RayHit[] _ignoredSphereHits;
     }
 }

@@ -142,9 +142,10 @@ The body is a real Box3D body, so it can roll, tumble and land on its roof. How 
   Time** smooths the correction's fade and direction changes as the car moves between ramps and airborne states. The
   controller compensates for the torque from grounded tires' suspension, traction and sticky forces; 0 strength and
   damping = pure physics.
-- **Ground Check Distance** sets the full wheel ground-probe length. **Tire Placement Threshold** (0..1) places the
-  tire's outer edge at that fraction of the probe when ground is farther away (0.5 places it halfway along); a nearer
-  hit moves the tire toward the surface. The full cast continues beyond the tire, including while it is airborne.
+- **Ground Check Distance** sets the full wheel ground-probe reach. Each probe sweeps a sphere up to the tire's radius
+  from its anchor along the car's local down axis, so curved surfaces and edges are detected around the tire
+  instead of only along a thin ray. **Tire Placement Threshold** (0..1) places the tire's outer edge at that fraction
+  of the probe when ground is farther away (0.5 places it halfway along); a nearer hit moves it toward the surface.
   **Suspension Rest Length** limits spring travel, not tire placement.
 - Ungrounded tires within the check distance borrow an averaged ground plane from the tires that did hit. Their
   suspension, grip, sticky and drive forces are blended in by the grounded-tire fraction, so the assist fades toward
@@ -158,10 +159,10 @@ The body is a real Box3D body, so it can roll, tumble and land on its roof. How 
 - **Air Level Strength / Damping**: levelling and damping in the air. **Air Control** applies steering as roll about
   the car's forward axis and signed Target Speed as pitch about its right axis, using forces at ungrounded tire
   anchors; it only runs when really airborne, not when lying on its roof.
-- **On Crash** uses a direction-adjusted impact speed: impacts aligned with the car's local up/down axis count less,
-  while side-on impacts retain their full speed. This helps prevent curved-ground contact from being treated as a
-  crash. **Min Crash Speed** is compared against this adjusted speed, which is also sent with the signal and used
-  for wheel impact slowdown.
+- **On Crash** uses a direction-adjusted impact speed: impacts aligned with the nearest tire's ground normal count
+  less, while side-on impacts retain their full speed. This helps prevent curved-ground contact from being treated
+  as a crash. If no tire has ground contact, the car's local up axis is used. **Min Crash Speed** is compared against
+  this adjusted speed, which is also sent with the signal and used for wheel impact slowdown.
 - **Torque Guard Max Angular Acceleration / Blend Time** caps and smooths the combined rotational effect of the car's
   tire forces and handling assists. The requested rotation still contributes, but a sudden spike is limited and
   blended instead of jolting the chassis. 0 max acceleration disables the cap; external collision impulses are
@@ -232,8 +233,8 @@ networked object (an NPC without a NetworkObject) as an empty seat: give such oc
 
 ## Notes
 
-- Wheels are raycasts against **Ground Layers**, ignoring the car's own body. A wheel visual that is its anchor
-  (or contains it) isn't moved, since that would move the ray.
+- Wheels use tire-radius sphere casts against **Ground Layers**, ignoring the car's own body. A wheel visual that is
+  its anchor (or contains it) isn't moved, since that would move the probe.
 - Mass, centre of mass and inertia come from the Properties on top of what the shapes give, each spawn.
 - Seat Signals are sent to the vehicle (its UID), so the vehicle's graph hears them. Copies of a vehicle prefab
   share its Seat Signals asset until you give a copy's seats new ones (**Create Signals** after clearing them).

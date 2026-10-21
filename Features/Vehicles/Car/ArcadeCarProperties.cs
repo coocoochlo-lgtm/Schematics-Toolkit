@@ -188,7 +188,7 @@ namespace Remedy.Vehicles
         public float InertiaScale = 1.3f;
 
         [Header("Staying Upright")]
-        [Tooltip("At low speed, how hard the car levels toward the support-weighted ground normal. Fades to zero at Max Speed and while fewer than about half the tires support the car. Compensates torque from tire forces. 0 = pure physics.")]
+        [Tooltip("At low speed, how hard the car levels toward the averaged ground normal. Fades to zero at Max Speed and while fewer than about half the tires support the car. Compensates torque from tire forces. 0 = pure physics.")]
         public float StabilizeStrength = 8f;
         [Tooltip("At low speed, damps roll and pitch while the tires meaningfully support the car. Fades to zero at Max Speed.")]
         public float StabilizeDamping = 2f;
@@ -230,7 +230,7 @@ namespace Remedy.Vehicles
         public float SelfRightLift = 3f;
 
         [Header("Feedback")]
-        [Tooltip("Direction-adjusted impacts slower than this (m/s) don't send On Crash. Impacts aligned with the car's up/down axis count less than side-on impacts.")]
+        [Tooltip("Direction-adjusted impacts slower than this (m/s) don't send On Crash. Impacts aligned with the nearest tire's ground normal count less than side-on impacts.")]
         public float MinCrashSpeed = 4f;
         [Tooltip("Shorter time in the air than this (seconds) doesn't send On Landed (bumps).")]
         public float MinAirTimeForLanding = 0.3f;
