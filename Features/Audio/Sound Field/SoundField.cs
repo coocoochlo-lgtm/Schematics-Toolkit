@@ -85,6 +85,38 @@ namespace Remedy.Audio
             return best != null && best.SampleLocal(best.transform.InverseTransformPoint(world), out acoustics);
         }
 
+        /// <summary>
+        /// The field (highest priority, then smallest) whose box holds a world position, and the cell it's in (open or
+        /// not). False outside every baked field.
+        /// </summary>
+        public static bool TryGetCell(Vector3 world, out SoundField field, out int cell)
+        {
+            field = null;
+            cell = -1;
+            float bestVolume = float.MaxValue;
+            foreach (var candidate in _fields)
+            {
+                if (candidate == null || !candidate.isActiveAndEnabled || !candidate.Contains(world))
+                    continue;
+                var size = candidate.Data.Box.size;
+                float volume = size.x * size.y * size.z;
+                if (field == null || candidate.Priority > field.Priority || (candidate.Priority == field.Priority && volume < bestVolume))
+                {
+                    field = candidate;
+                    bestVolume = volume;
+                }
+            }
+            if (field == null)
+                return false;
+            var data = field.Data;
+            var p = (field.transform.InverseTransformPoint(world) - data.Box.min) / data.CellSize;
+            int x = Mathf.Clamp(Mathf.FloorToInt(p.x), 0, data.Cells.x - 1);
+            int y = Mathf.Clamp(Mathf.FloorToInt(p.y), 0, data.Cells.y - 1);
+            int z = Mathf.Clamp(Mathf.FloorToInt(p.z), 0, data.Cells.z - 1);
+            cell = data.Index(x, y, z);
+            return true;
+        }
+
         /// <summary>The blend of the open cells around a point in the field's space (trilinear; walls don't count).</summary>
         public bool SampleLocal(Vector3 local, out SoundAcoustics acoustics)
         {

@@ -156,7 +156,19 @@ namespace Remedy.Audio
             UpdateControls(voice);
             // The clip's own position follows, so a cue started part way through ends when it should.
             Source.timeSamples = endless ? 0 : (int)Math.Min(start, length - 1);
-            Source.Play();
+            // In the game, started a moment ahead on the audio clock: then it's known exactly when each sample is heard,
+            // which Spatial reverb needs to feed rooms and echoes in time with it.
+            if (Application.isPlaying && Mathf.Approximately(Source.pitch, 1f))
+            {
+                double at = AudioSettings.dspTime + 0.05;
+                Source.PlayScheduled(at);
+                voice.Context.HeardStart = at - start / (double)rate;
+            }
+            else
+            {
+                Source.Play();
+                voice.Context.HeardStart = -1;
+            }
         }
 
         /// <summary>Stops the cue (its voice goes back to the pool).</summary>

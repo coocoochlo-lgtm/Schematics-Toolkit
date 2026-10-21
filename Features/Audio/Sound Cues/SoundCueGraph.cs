@@ -130,6 +130,15 @@ namespace Remedy.Audio
         /// answered by the player on the main thread a few times a second (see <see cref="SoundProbe"/>).
         /// </summary>
         public readonly List<SoundProbe> Probes = new();
+        /// <summary>
+        /// When the cue's sample 0 is heard, on the audio clock (<see cref="AudioSettings.dspTime"/>), or below 0 when
+        /// unknown (the editor's preview, a pitched source). The voice renders ahead of what's heard; this says when
+        /// each sample really sounds, so sends to the world's rooms and echoes line up with it.
+        /// </summary>
+        public double HeardStart = -1;
+
+        /// <summary>The audio-clock sample a sample of the cue is heard at (meaningless when HeardStart is below 0).</summary>
+        public long HeardSample(long cueSample) => (long)Math.Round(HeardStart * SampleRate) + cueSample;
     }
 
     /// <summary>Where a playing voice is, for <see cref="SoundProbe"/>s.</summary>
@@ -402,6 +411,7 @@ namespace Remedy.Audio
             Context.SamplePosition = 0;
             Context.Distance = 0f;
             Context.ReverbSend = 0f;
+            Context.HeardStart = -1;
             Context.Random = seed != 0 ? new System.Random(seed) : new System.Random();
             Array.Copy(_parameterDefaults, Context.Parameters, _parameterDefaults.Length);
             _finished = false;

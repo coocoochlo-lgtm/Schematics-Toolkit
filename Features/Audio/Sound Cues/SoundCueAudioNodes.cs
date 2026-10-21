@@ -6,6 +6,7 @@ using BlueGraph;
 using Remedy.Schematics;
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using UnityEngine;
 
 namespace Remedy.Audio
@@ -508,7 +509,7 @@ namespace Remedy.Audio
         }
     }
 
-    [SchematicDoc(@"{""name"": ""Reverb"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Effects"", ""description"": ""Room echo: Room Size (0 small, 1 a cathedral), Damping (how soon the high end dies away: 0 bright, 1 dull), Mix (0 dry, 1 only the room). Mode Shared sends to the scene's reverb (Reverb Zones) instead of running its own: far cheaper for sounds played often or many at once (Room Size and Damping then come from the zone). Mode Spatial rings like the place the sound is in, from the Sound Field baked there: a small tiled bathroom, a dead carpeted office, a huge stone hall, open air (Mix then scales the place's reverb: 1 is as much as the place makes; outside any Sound Field the place is this node's Room Size and Damping)."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Room Size"", ""type"": ""float""}, {""name"": ""Damping"", ""type"": ""float""}, {""name"": ""Mix"", ""type"": ""float""}], ""outputs"": [{""name"": ""Out"", ""type"": ""audio""}]}")]
+    [SchematicDoc(@"{""name"": ""Reverb"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Effects"", ""description"": ""Room echo: Room Size (0 small, 1 a cathedral), Damping (how soon the high end dies away: 0 bright, 1 dull), Mix (0 dry, 1 only the room). Mode Shared sends to the scene's reverb (Reverb Zones) instead of running its own: far cheaper for sounds played often or many at once (Room Size and Damping then come from the zone). Mode Spatial rings like the place the sound is in, from the Sound Field baked there: a small tiled bathroom, a dead carpeted office, a huge stone hall, open air (Mix then scales the place's reverb: 1 is as much as the place makes; outside any Sound Field the place is this node's Room Size and Damping). In the game, Spatial sounds in a room make the room itself ring (heard from the room, carrying on after the sound moves away or stops), and in the open they're thrown back by the echo walls nearby (cliffs, canyon sides, buildings: Echoes sets how much), as late as sound takes to get there and back."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Room Size"", ""type"": ""float""}, {""name"": ""Damping"", ""type"": ""float""}, {""name"": ""Mix"", ""type"": ""float""}], ""outputs"": [{""name"": ""Out"", ""type"": ""audio""}]}")]
     [Serializable]
     [Node(Name = "Reverb", Path = "Effects"), Tags(SoundNode.Tag)]
     public class SoundReverbNode : SoundNode
@@ -524,6 +525,8 @@ namespace Remedy.Audio
         /// (how long, how dark, how much), following it as it moves. Previews (outside Play Mode) use Own's settings.
         /// </summary>
         [Editable] public ReverbMode Mode = ReverbMode.Own;
+        /// <summary>Spatial: how much echo walls (cliffs, canyon sides, buildings) throw the sound back in the open, 0 to 1.</summary>
+        [Editable] public float Echoes = 1f;
         [Output("Out")] public float Out;
 
         public enum ReverbMode { Own, Shared, Spatial }
@@ -551,6 +554,7 @@ namespace Remedy.Audio
                     Damping = place.Output("Damping"),
                     WetScale = place.Output("Wet"),
                     Mix = builder.Input(this, "Mix", Mix),
+                    Place = probe,
                 };
             }
             return new Processor(builder.SampleRate)
@@ -571,6 +575,9 @@ namespace Remedy.Audio
             public SoundReverbNode Node;
             public float[] Targets;
 
+            /// <summary>Where the reverb also goes (a room, echo walls), read by the processor (audio thread).</summary>
+            public SpaceSends Sends;
+
             public override void Update(in SoundProbeWorld world)
             {
                 if (world.Previewing || !SoundField.Sample(world.Position, out var place))
@@ -578,17 +585,55 @@ namespace Remedy.Audio
                     Fallback();
                     return;
                 }
-                System.Threading.Volatile.Write(ref Targets[0], place.Feedback);
-                System.Threading.Volatile.Write(ref Targets[1], place.Damping);
-                System.Threading.Volatile.Write(ref Targets[2], place.Wet);
+                float ownWet = place.Wet;
+                SpaceSends sends = null;
+                var spaces = SoundSpaces.Get();
+                if (spaces != null)
+                {
+                    var room = spaces.RoomAt(world.Position);
+                    if (room != null)
+                    {
+                        // In a room: the room rings (and keeps ringing after the sound's gone); the sound's own reverb fades.
+                        sends = new SpaceSends { Room = room.Bus, RoomGain = room.Acoustics.Wet };
+                        ownWet = 0f;
+                    }
+                    else if (Node.Echoes > 0f && SoundField.TryGetCell(world.Position, out var field, out int index)
+                             && field.Data.TryGet(index, out var cell))
+                    {
+                        // In the open: the echo walls this place can see throw it back, as late as sound takes to get
+                        // there and on to the listener.
+                        sends = new SpaceSends();
+                        Echo(spaces, field, cell.AnchorA, world, ref sends.EchoA, ref sends.DelayA, ref sends.GainA);
+                        Echo(spaces, field, cell.AnchorB, world, ref sends.EchoB, ref sends.DelayB, ref sends.GainB);
+                    }
+                }
+                Volatile.Write(ref Targets[0], place.Feedback);
+                Volatile.Write(ref Targets[1], place.Damping);
+                Volatile.Write(ref Targets[2], ownWet);
+                Volatile.Write(ref Sends, sends);
+            }
+
+            private void Echo(SoundSpaces spaces, SoundField field, ushort anchor, in SoundProbeWorld world, ref SpaceBus bus, ref int delay, ref float gain)
+            {
+                if (anchor == SoundFieldData.NoAnchor || anchor >= field.Data.Anchors.Count)
+                    return;
+                bus = spaces.EchoBus(field, anchor);
+                if (bus == null)
+                    return;
+                var data = field.Data.Anchors[anchor];
+                var wall = field.transform.TransformPoint(data.Position);
+                float toWall = Vector3.Distance(world.Position, wall), toListener = Vector3.Distance(wall, world.ListenerPosition);
+                delay = (int)((toWall + toListener) / SoundSpaces.SpeedOfSound * spaces.Rate);
+                gain = data.Reflectivity / (1f + toWall / 25f) * Mathf.Clamp01(Node.Echoes);
             }
 
             // No Sound Field here: the node's own Room Size and Damping, heard a modest amount.
             public void Fallback()
             {
-                System.Threading.Volatile.Write(ref Targets[0], FeedbackFor(Node.RoomSize));
-                System.Threading.Volatile.Write(ref Targets[1], Mathf.Clamp01(Node.Damping));
-                System.Threading.Volatile.Write(ref Targets[2], 0.3f);
+                Volatile.Write(ref Sends, null);
+                Volatile.Write(ref Targets[0], FeedbackFor(Node.RoomSize));
+                Volatile.Write(ref Targets[1], Mathf.Clamp01(Node.Damping));
+                Volatile.Write(ref Targets[2], 0.3f);
             }
         }
 
@@ -605,40 +650,27 @@ namespace Remedy.Audio
             }
         }
 
-        // Freeverb's mono path: eight damped feedback combs in parallel, then four allpasses in series.
+        // Freeverb (ReverbCore). Spatial: shaped by the place, and sending to the place's room or echo walls.
         private sealed class Processor : SoundProcessor
         {
-            private static readonly int[] CombTunings = { 1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617 };
-            private static readonly int[] AllpassTunings = { 556, 441, 341, 225 };
-
             public float[] In, RoomSize, Damping, Mix;
-            // Spatial: the feedback itself (instead of Room Size) and the place's amount, which Mix scales.
+            // Spatial: the feedback itself (instead of Room Size), the place's amount (which Mix scales), and the sends.
             public float[] Feedback, WetScale;
-            private readonly float[][] _combs, _allpasses;
-            private readonly int[] _combIndex, _allpassIndex;
-            private readonly float[] _combStore;
-
-            public override void Reset(SoundContext context)
-            {
-                foreach (var line in _combs) Array.Clear(line, 0, line.Length);
-                foreach (var line in _allpasses) Array.Clear(line, 0, line.Length);
-                Array.Clear(_combIndex, 0, _combIndex.Length);
-                Array.Clear(_allpassIndex, 0, _allpassIndex.Length);
-                Array.Clear(_combStore, 0, _combStore.Length);
-            }
+            public PlaceProbe Place;
+            private readonly ReverbCore _core;
+            private readonly int _rate;
 
             public Processor(int sampleRate)
             {
-                float scale = sampleRate / 44100f;
-                _combs = new float[CombTunings.Length][];
-                for (int i = 0; i < _combs.Length; i++)
-                    _combs[i] = new float[Mathf.Max(1, (int)(CombTunings[i] * scale))];
-                _allpasses = new float[AllpassTunings.Length][];
-                for (int i = 0; i < _allpasses.Length; i++)
-                    _allpasses[i] = new float[Mathf.Max(1, (int)(AllpassTunings[i] * scale))];
-                _combIndex = new int[_combs.Length];
-                _allpassIndex = new int[_allpasses.Length];
-                _combStore = new float[_combs.Length];
+                _core = new ReverbCore(sampleRate);
+                _rate = sampleRate;
+            }
+
+            public override void Reset(SoundContext context)
+            {
+                _core.Clear();
+                _room = _echoA = _echoB = null;
+                _roomGain = _gainA = _gainB = 0f;
             }
 
             public override void Process(SoundContext context, int count)
@@ -649,31 +681,51 @@ namespace Remedy.Audio
                     float feedback = Feedback != null ? Mathf.Clamp(Feedback[i], 0f, 0.985f) : FeedbackFor(RoomSize[i]);
                     float damp = Mathf.Clamp01(Damping[i]) * 0.4f;
                     float x = In[i];
-                    float input = x * 0.015f;
-                    float wet = 0f;
-                    for (int c = 0; c < _combs.Length; c++)
-                    {
-                        var line = _combs[c];
-                        int index = _combIndex[c];
-                        float output = line[index];
-                        _combStore[c] = output * (1f - damp) + _combStore[c] * damp;
-                        line[index] = input + _combStore[c] * feedback;
-                        _combIndex[c] = (index + 1) % line.Length;
-                        wet += output;
-                    }
-                    for (int a = 0; a < _allpasses.Length; a++)
-                    {
-                        var line = _allpasses[a];
-                        int index = _allpassIndex[a];
-                        float buffered = line[index];
-                        float output = -wet + buffered;
-                        line[index] = wet + buffered * 0.5f;
-                        _allpassIndex[a] = (index + 1) % line.Length;
-                        wet = output;
-                    }
+                    float wet = _core.Process(x * 0.015f, feedback, damp);
                     float mix = Mathf.Clamp01(WetScale != null ? Mix[i] * WetScale[i] : Mix[i]);
                     o[i] = x * (1f - mix) + wet * 3f * mix;
                 }
+                if (Place != null && context.HeardStart >= 0 && count > 0)
+                    Send(context, count);
+            }
+
+            // Where the sound's reverb goes besides its own: the room it's in, or the echo walls it can be heard by.
+            private SpaceBus _room, _echoA, _echoB;
+            private float _roomGain, _gainA, _gainB;
+            private int _delayA, _delayB, _roomDelay;
+
+            private void Send(SoundContext context, int count)
+            {
+                var sends = Volatile.Read(ref Place.Sends);
+                float mix = Mathf.Clamp01(Mix[count - 1]);
+                long at = context.HeardSample(context.SamplePosition);
+                SendTo(ref _room, ref _roomGain, ref _roomDelay, sends?.Room, (sends?.RoomGain ?? 0f) * mix, 0, at, count);
+                SendTo(ref _echoA, ref _gainA, ref _delayA, sends?.EchoA, (sends?.GainA ?? 0f) * mix, sends?.DelayA ?? 0, at, count);
+                SendTo(ref _echoB, ref _gainB, ref _delayB, sends?.EchoB, (sends?.GainB ?? 0f) * mix, sends?.DelayB ?? 0, at, count);
+            }
+
+            private void SendTo(ref SpaceBus current, ref float gain, ref int delay, SpaceBus target, float targetGain, int targetDelay, long at, int count)
+            {
+                if (target != current)
+                {
+                    // A different room or wall: the old one fades out as the new one fades in.
+                    if (current != null && gain > 0f)
+                        current.Add(at + delay, In, count, gain, 0f);
+                    current = target;
+                    delay = targetDelay;
+                    if (current != null)
+                        current.Add(at + delay, In, count, 0f, targetGain);
+                    gain = current != null ? targetGain : 0f;
+                    return;
+                }
+                if (current == null)
+                    return;
+                // The delay follows the sound and listener moving: a little each block (a slight, natural doppler), or at
+                // once for big jumps.
+                int difference = targetDelay - delay;
+                delay = Math.Abs(difference) > _rate / 20 ? targetDelay : delay + Mathf.Clamp(difference, -16, 16);
+                current.Add(at + delay, In, count, gain, targetGain);
+                gain = targetGain;
             }
         }
     }
