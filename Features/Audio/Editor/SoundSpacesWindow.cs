@@ -62,7 +62,7 @@ namespace Remedy.Audio
                 EditorGUILayout.LabelField("Reverb amount (Wet)", $"{place.Wet:0.00}  (0 open air … 0.65 bare closed room)");
                 EditorGUILayout.LabelField("Enclosure", $"{place.Enclosure:0.00}  (rooms from {SoundSpaces.RoomEnclosure:0.0})");
                 EditorGUILayout.LabelField("Size / nearest wall", $"{place.Size:0.0} m / {place.NearestWall:0.0} m");
-                EditorGUILayout.LabelField("Slapback", place.SlapbackWet > 0.01f ? $"{place.SlapbackDelay * 1000f:0} ms, amount {place.SlapbackWet:0.00}, feedback {place.SlapbackFeedback:0.00}" : "none (walls nearer than ~3 m)");
+                EditorGUILayout.LabelField("Slapback", place.SlapbackWet > 0.01f ? $"{place.SlapbackDelay * 1000f:0} ms, amount {place.SlapbackWet:0.00}, feedback {place.SlapbackFeedback:0.00}" : "none (the nearest wall is under ~9 m away: it would only double the sound)");
                 EditorGUILayout.LabelField("Absorption / Hardness / Wetness", $"{place.Absorption:0.00} / {place.Hardness:0.00} / {place.Wetness:0.00}");
             }
             else

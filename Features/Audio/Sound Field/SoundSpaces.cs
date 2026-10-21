@@ -91,12 +91,18 @@ namespace Remedy.Audio
         private long _lastWrite = long.MinValue;
         private int _rate;
 
-        // Room: a reverb. Echo: a soft lowpass and two short allpasses (a wall smears an echo a little).
+        // Room: a reverb. Echo: darkened, diffused (three allpasses), then mostly a short smear (a brief reverb) with a
+        // little of the copy itself: a wall throws back a soft, blurred version of a sound, not a clean duplicate.
         public bool IsRoom { get; private set; }
         private ReverbCore _reverb;
         private float _feedback = 0.85f, _damp = 0.15f;
         private float _lowpass, _lowpassAmount = 0.5f;
-        private float[] _allpassA = new float[1], _allpassB = new float[1];
+        private float[] _allpassA = new float[1], _allpassB = new float[1], _allpassC = new float[1];
+        private int _allpassIndexC;
+        /// <summary>An echo's blend: how much of the copy is left (the rest is the smear).</summary>
+        public const float EchoDirect = 0.25f;
+        // The smear's feedback (about a quarter second) and damping.
+        private const float SmearFeedback = 0.62f, SmearDamp = 0.3f;
         private int _allpassIndexA, _allpassIndexB;
 
         // Flutter: what an echo wall sends on to the wall facing it.
@@ -131,8 +137,9 @@ namespace Remedy.Audio
             bus.Source = source;
             bus._rate = rate;
             bus._reverb = new ReverbCore(rate);
-            bus._allpassA = new float[Mathf.Max(1, (int)(0.0047f * rate))];
-            bus._allpassB = new float[Mathf.Max(1, (int)(0.0113f * rate))];
+            bus._allpassA = new float[Mathf.Max(1, (int)(0.0071f * rate))];
+            bus._allpassB = new float[Mathf.Max(1, (int)(0.0117f * rate))];
+            bus._allpassC = new float[Mathf.Max(1, (int)(0.0173f * rate))];
             host.SetActive(false);
             return bus;
         }
@@ -185,6 +192,7 @@ namespace Remedy.Audio
                 _lowpass = 0f;
                 Array.Clear(_allpassA, 0, _allpassA.Length);
                 Array.Clear(_allpassB, 0, _allpassB.Length);
+                Array.Clear(_allpassC, 0, _allpassC.Length);
                 _partner = null;
             }
             Interlocked.Exchange(ref _lastWrite, long.MinValue);
@@ -209,10 +217,10 @@ namespace Remedy.Audio
             _damp = Mathf.Clamp01(damping) * 0.4f;
         }
 
-        // An echo wall: harder walls throw back brighter echoes.
+        // An echo wall: darker than what it hears (more so for softer walls).
         internal void SetEcho(float hardness)
         {
-            float cutoff = Mathf.Lerp(1800f, 11000f, Mathf.Clamp01(hardness));
+            float cutoff = Mathf.Lerp(1200f, 6000f, Mathf.Clamp01(hardness));
             _lowpassAmount = 1f - Mathf.Exp(-2f * Mathf.PI * cutoff / Mathf.Max(8000, _rate));
         }
 
@@ -316,7 +324,9 @@ namespace Remedy.Audio
                     else
                     {
                         _lowpass += (input - _lowpass) * _lowpassAmount;
-                        output = Allpass(Allpass(_lowpass, _allpassA, ref _allpassIndexA), _allpassB, ref _allpassIndexB);
+                        float diffused = Allpass(Allpass(Allpass(_lowpass, _allpassA, ref _allpassIndexA), _allpassB, ref _allpassIndexB), _allpassC, ref _allpassIndexC);
+                        float smear = _reverb.Process(diffused * 0.015f, SmearFeedback, SmearDamp) * 3f;
+                        output = diffused * EchoDirect + smear * (1f - EchoDirect);
                     }
                     _scratch[f] = float.IsNaN(output) || float.IsInfinity(output) ? 0f : output;
                 }

@@ -81,9 +81,21 @@ namespace Remedy.Audio
             var data = field.Data.Anchors[anchor];
             var wall = field.transform.TransformPoint(data.Position);
             float toWall = Vector3.Distance(world.Position, wall), toListener = Vector3.Distance(wall, world.ListenerPosition);
+            // An echo arriving soon after the sound itself is heard as the same sound doubled, out of step (under ~50 ms
+            // the ear merges it in anyway, and the reverb covers it): none until 50 ms behind, fading in until 100 ms.
+            float lag = (toWall + toListener - Vector3.Distance(world.Position, world.ListenerPosition)) / SoundSpaces.SpeedOfSound;
+            float gate = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(EchoGateStart, EchoGateFull, lag));
+            if (gate <= 0f)
+            {
+                bus = null;
+                return;
+            }
             delay = (int)((toWall + toListener) / SoundSpaces.SpeedOfSound * spaces.Rate);
-            gain = data.Reflectivity / (1f + toWall / 25f) * Mathf.Clamp01(EchoAmount) * SoundSpaces.Exaggerate;
+            gain = data.Reflectivity / (1f + toWall / 25f) * Mathf.Clamp01(EchoAmount) * gate * SoundSpaces.Exaggerate;
         }
+
+        /// <summary>How far behind the sound itself an echo starts being heard, and is heard fully, in seconds.</summary>
+        public const float EchoGateStart = 0.05f, EchoGateFull = 0.1f;
 
         protected void Set(int index, float value) => Volatile.Write(ref Targets[index], value);
     }

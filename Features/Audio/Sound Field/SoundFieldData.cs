@@ -174,10 +174,11 @@ namespace Remedy.Audio
         public float SlapbackDelay => Mathf.Clamp(2f * NearestWall / 343f, 0.005f, 1.5f);
 
         /// <summary>
-        /// How much a slapback is heard, 0 to 0.6: none off near walls (it melts into the reverb), more off far, hard,
-        /// bare ones.
+        /// How much a slapback is heard, 0 to 0.6: none until it comes back 50 ms after the sound (sooner, it's heard as
+        /// the sound doubled, and the reverb covers it), fully from 100 ms (walls 8.6 to 17 m away); more off hard,
+        /// bare walls.
         /// </summary>
-        public float SlapbackWet => Mathf.Clamp01((NearestWall - 3f) / 12f) * (1f - Absorption) * Hardness * 0.6f;
+        public float SlapbackWet => Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.05f, 0.1f, 2f * NearestWall / 343f)) * (1f - Absorption) * Hardness * 0.6f;
 
         /// <summary>How much each slapback comes round again (between parallel walls: flutter), 0 to 0.85.</summary>
         public float SlapbackFeedback => Mathf.Clamp(Enclosure * (1f - Absorption) * Hardness * 0.85f, 0f, 0.85f);
