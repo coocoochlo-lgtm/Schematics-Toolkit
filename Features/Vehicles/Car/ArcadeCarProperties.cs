@@ -207,6 +207,12 @@ namespace Remedy.Vehicles
         public float AirLevelDamping = 1f;
         [Tooltip("In the air, grounded tires are ignored; forces at ungrounded tire anchors roll the car with steer and pitch it with signed Target Speed, in rad/s². 0 = no air control.")]
         public float AirControl = 4f;
+        [Min(0f)]
+        [Tooltip("Maximum angular acceleration from the car's own tire and rotation-assist forces, in rad/s². Those forces are blended through this guard; 0 disables the limit.")]
+        public float TorqueGuardMaxAngularAcceleration = 30f;
+        [Min(0f)]
+        [Tooltip("Time for the torque guard to blend toward its limited angular acceleration. 0 applies the limit immediately.")]
+        public float TorqueGuardBlendTime = 0.15f;
         [Tooltip("The car counts as flipped when tilted more than this (degrees from upright).")]
         public float FlippedTilt = 100f;
         [Tooltip("How hard a flipped car turns itself back over (rad/s²). 0 = it stays flipped (send Unflip, or let the player get out and push).")]

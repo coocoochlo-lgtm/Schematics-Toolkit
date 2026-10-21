@@ -155,6 +155,10 @@ The body is a real Box3D body, so it can roll, tumble and land on its roof. How 
 - **Air Level Strength / Damping**: levelling and damping in the air. **Air Control** applies steering as roll about
   the car's forward axis and signed Target Speed as pitch about its right axis, using forces at ungrounded tire
   anchors; it only runs when really airborne, not when lying on its roof.
+- **Torque Guard Max Angular Acceleration / Blend Time** caps and smooths the combined rotational effect of the car's
+  tire forces and handling assists. The requested rotation still contributes, but a sudden spike is limited and
+  blended instead of jolting the chassis. 0 max acceleration disables the cap; external collision impulses are
+  unaffected.
 - **Self Right Strength / Delay / Max Speed / Lift**: a car lying flipped (past **Flipped Tilt**) and nearly
   stopped turns back over after the delay. 0 = flips stay; send **Unflip** (a "reset car" button) to right it
   anyway. Signals: **On Flipped**, **On Righted**; variable **Is Flipped**.

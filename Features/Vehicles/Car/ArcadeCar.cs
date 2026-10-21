@@ -809,6 +809,7 @@ namespace Remedy.Vehicles
             bool airborne = !isGrounded && IsAirborne(body, centerOfMass, worldUp, p);
             bool groundLeveling = isGrounded && (p.StabilizeStrength > 0f || p.StabilizeDamping > 0f);
             bool airLeveling = airborne && (p.AirLevelStrength > 0f || p.AirLevelDamping > 0f);
+            Vector3 stabilizationCompensation = Vector3.zero;
             Vector3 targetUp = isGrounded ? stabilizationNormal : worldUp;
             if (targetUp.sqrMagnitude < 0.001f)
                 targetUp = up;
@@ -842,14 +843,15 @@ namespace Remedy.Vehicles
                 // Fade out the grounded-wheel torque compensation with the ground leveling contribution.
                 float compensation = state.UprightSupportBlend * (1f - state.UprightAirBlend) * state.UprightBlend;
                 if (compensation > 0f)
-                    native.ApplyTorque(-wheelForceTorque * compensation, true);
+                    stabilizationCompensation = -wheelForceTorque * compensation;
             }
 
+            Vector3 airControlTorque = Vector3.zero;
             if (airborne)
             {
                 // Really in the air (not just lying on its roof or side with the wheels off the ground).
                 if (active && p.AirControl > 0f)
-                    ApplyAirWheelControl(native, wheels, state.Wheels, centerOfMass, up, right, forward,
+                    airControlTorque = ApplyAirWheelControl(native, wheels, state.Wheels, centerOfMass, up, right, forward,
                         steerInput, effectiveTargetSpeed, p.AirControl, rotation, state);
             }
 
@@ -886,8 +888,9 @@ namespace Remedy.Vehicles
                 }
             }
 
-            if (angular.sqrMagnitude > 0f)
-                native.ApplyTorque(Torque(angular, rotation, state), true);
+            Vector3 requestedTorque = wheelForceTorque + stabilizationCompensation
+                + (Vector3)Torque(angular, rotation, state) + airControlTorque;
+            ApplyTorqueGuard(native, requestedTorque, p, dt, rotation, state);
 
             // Boost push along the road.
             if (boosting)
@@ -1072,7 +1075,33 @@ namespace Remedy.Vehicles
             return rotation * localTorque;
         }
 
-        private static void ApplyAirWheelControl(Body body, Wheel[] wheels, WheelState[] wheelStates,
+        private static Vector3 AngularAcceleration(Vector3 torque, Quaternion rotation, CarState state)
+        {
+            Vector3 localTorque = Quaternion.Inverse(rotation) * torque;
+            var inertia = new float3x3(state.InertiaX, state.InertiaY, state.InertiaZ);
+            Vector3 localAcceleration = math.mul(math.inverse(inertia), (float3)localTorque);
+            return rotation * localAcceleration;
+        }
+
+        private static void ApplyTorqueGuard(Body body, Vector3 requestedTorque, ArcadeCarProperties properties,
+            float dt, Quaternion rotation, CarState state)
+        {
+            float maximum = Mathf.Max(0f, properties.TorqueGuardMaxAngularAcceleration);
+            Vector3 requestedAcceleration = AngularAcceleration(requestedTorque, rotation, state);
+            if (maximum > 0f && requestedAcceleration.magnitude > maximum)
+                requestedAcceleration = requestedAcceleration.normalized * maximum;
+
+            float blendTime = Mathf.Max(0f, properties.TorqueGuardBlendTime);
+            float blend = blendTime > 0f ? 1f - Mathf.Exp(-dt / blendTime) : 1f;
+            state.TorqueGuardAngularAcceleration = Vector3.Lerp(state.TorqueGuardAngularAcceleration,
+                requestedAcceleration, blend);
+            Vector3 guardedTorque = (Vector3)Torque(state.TorqueGuardAngularAcceleration, rotation, state);
+            Vector3 correction = guardedTorque - requestedTorque;
+            if (correction.sqrMagnitude > 0f)
+                body.ApplyTorque(correction, true);
+        }
+
+        private static Vector3 ApplyAirWheelControl(Body body, Wheel[] wheels, WheelState[] wheelStates,
             Vector3 centerOfMass, Vector3 up, Vector3 right, Vector3 forward, float steer, float targetSpeed,
             float strength, Quaternion rotation, CarState state)
         {
@@ -1097,7 +1126,7 @@ namespace Remedy.Vehicles
 
             float determinant = rightArmSquared * forwardArmSquared - armCross * armCross;
             if (determinant < 1e-6f)
-                return;
+                return Vector3.zero;
 
             float rightCoefficient = (rollMoment * forwardArmSquared + pitchMoment * armCross) / determinant;
             float forwardCoefficient = (-pitchMoment * rightArmSquared - rollMoment * armCross) / determinant;
@@ -1119,6 +1148,7 @@ namespace Remedy.Vehicles
             // Keep the per-tire forces a pure rotational control rather than also accelerating the chassis.
             if (totalForce.sqrMagnitude > 0f)
                 body.ApplyForceToCenter(-totalForce, true);
+            return (Vector3)Torque(forward * (steer * strength) + right * (targetSpeed * strength), rotation, state);
         }
 
         // Mass, centre of mass and inertia from the Properties, on top of what the shapes give (so it's the same every spawn).
@@ -1337,6 +1367,7 @@ namespace Remedy.Vehicles
         public float AirTime;
         public bool WasGrounded = true;
         public Vector3 UprightNormal;
+        public Vector3 TorqueGuardAngularAcceleration;
         public float UprightBlend, UprightAirBlend, UprightSupportBlend;
 
         public bool BodyConfigured;
