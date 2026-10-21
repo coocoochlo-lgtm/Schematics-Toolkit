@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Audio;
 
 namespace Remedy.Audio
 {
@@ -27,6 +28,8 @@ namespace Remedy.Audio
         public bool DestroyWhenDone;
         [Tooltip("Voices built for the cue when this player is created, so its first plays don't build them (0: none).")]
         public int PreloadVoices = 1;
+        [Tooltip("Send the sound through the Sound Room it's in: the room's mixer group, whose effects every sound in the room shares.")]
+        public bool UseRooms = true;
 
         /// <summary>Below this loudness (about -60 dB, after distance falloff) a voice isn't rendered.</summary>
         public const float CullBelow = 0.001f;
@@ -131,6 +134,7 @@ namespace Remedy.Audio
                 Debug.LogWarning($"Sound Cue \"{Cue.name}\": {warning}", Cue);
             voice.Context.Distance = CurrentDistance();
             _voice = voice;
+            UpdateRoom(immediate: true);
             RunProbes(voice);
 
             // Endless cues: a long clip that loops (the voice keeps counting time across loops). The clip is kept
@@ -165,6 +169,7 @@ namespace Remedy.Audio
             if (_source != null)
                 _source.Stop();
             SoundCueVoicePool.Return(voice);
+            LeaveRoom();
         }
 
         /// <summary>Sets one of the cue's Parameters while it plays.</summary>
@@ -229,7 +234,9 @@ namespace Remedy.Audio
         {
             float distance = CurrentDistance();
             voice.Context.Distance = distance;
-            voice.Culled = !DistanceOverride.HasValue && Inaudible(distance);
+            UpdateRoom(immediate: false);
+            UpdateRoomFade();
+            voice.Culled = !DistanceOverride.HasValue && _fade == RoomFade.None && Inaudible(distance);
             if (voice.Context.UsesSharedReverb)
                 Source.reverbZoneMix = voice.Context.ReverbSend;
             if (voice.Context.Probes.Count > 0 && !voice.Culled && Time.unscaledTime >= _nextProbe)
@@ -259,6 +266,7 @@ namespace Remedy.Audio
                 Listener = _listener != null ? _listener.gameObject : null,
                 ListenerPosition = _listener != null ? _listener.transform.position : transform.position,
                 Previewing = DistanceOverride.HasValue,
+                Room = _room,
             };
             for (int i = 0; i < probes.Count; i++)
             {
@@ -307,6 +315,104 @@ namespace Remedy.Audio
             }
             return _listener != null ? Vector3.Distance(transform.position, _listener.transform.position) : 0f;
         }
+
+        #region Sound Rooms
+
+        /// <summary>The Sound Room the sound is in (null when it's in none, or doesn't use rooms).</summary>
+        public SoundRoom Room => _room;
+
+        private enum RoomFade { None, Out, In }
+
+        private SoundRoom _room;
+        private bool _routed;              // the source's own mixer group is remembered in _homeGroup
+        private AudioMixerGroup _homeGroup, _nextGroup;
+        private RoomFade _fade;
+        private float _fadeVolume, _fadeTime;
+        private float _nextRoomCheck;
+
+        // Which room the sound is in (checked as often as the probes), and its mixer group when that changes: at once
+        // before it starts, otherwise dipping the volume out and back in around the switch so it doesn't click. (The
+        // audio thread renders ahead of what's heard, so the dip is done here, on the AudioSource, not in the samples.)
+        private void UpdateRoom(bool immediate)
+        {
+            if (!UseRooms || DistanceOverride.HasValue || !Application.isPlaying)
+                return;
+            if (!immediate && Time.unscaledTime < _nextRoomCheck)
+                return;
+            _nextRoomCheck = Time.unscaledTime + ProbeInterval * UnityEngine.Random.Range(0.85f, 1.15f);
+            var room = SoundRoom.Count > 0 ? SoundRoom.At(transform.position) : null;
+            if (room == _room)
+                return;
+            var source = Source;
+            if (!_routed)
+            {
+                _homeGroup = source.outputAudioMixerGroup;
+                _routed = true;
+            }
+            float fadeTime = Mathf.Max(room != null ? room.FadeTime : 0f, _room != null ? _room.FadeTime : 0f);
+            _room = room;
+            var group = room != null && room.Output != null ? room.Output : _homeGroup;
+            if (group == (_fade == RoomFade.None ? source.outputAudioMixerGroup : _nextGroup))
+                return;
+            if (immediate || !source.isPlaying || fadeTime <= 0f)
+            {
+                EndRoomFade();
+                source.outputAudioMixerGroup = group;
+                return;
+            }
+            if (_fade == RoomFade.None)
+                _fadeVolume = source.volume;
+            _nextGroup = group;
+            _fadeTime = fadeTime * 0.5f;
+            _fade = RoomFade.Out;
+        }
+
+        private void UpdateRoomFade()
+        {
+            if (_fade == RoomFade.None)
+                return;
+            var source = Source;
+            float step = _fadeVolume * Time.unscaledDeltaTime / Mathf.Max(0.001f, _fadeTime);
+            if (_fade == RoomFade.Out)
+            {
+                source.volume = Mathf.Max(0f, source.volume - step);
+                if (source.volume <= 0f)
+                {
+                    source.outputAudioMixerGroup = _nextGroup;
+                    _fade = RoomFade.In;
+                }
+            }
+            else
+            {
+                source.volume = Mathf.Min(_fadeVolume, source.volume + step);
+                if (source.volume >= _fadeVolume)
+                    _fade = RoomFade.None;
+            }
+        }
+
+        // Finishes a fade at once (its volume back, in the group it was heading for).
+        private void EndRoomFade()
+        {
+            if (_fade == RoomFade.None)
+                return;
+            Source.outputAudioMixerGroup = _nextGroup;
+            Source.volume = _fadeVolume;
+            _fade = RoomFade.None;
+        }
+
+        // Back to the source's own mixer group (when stopped, so a reused player starts out of every room).
+        private void LeaveRoom()
+        {
+            if (_source == null)
+                return;
+            EndRoomFade();
+            if (_routed)
+                _source.outputAudioMixerGroup = _homeGroup;
+            _routed = false;
+            _room = null;
+        }
+
+        #endregion
 
         #region One-shot players (pooled)
 

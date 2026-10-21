@@ -132,6 +132,8 @@ namespace Remedy.Audio
         /// True in the editor's preview, where there's no world: probes give their node's preview values.
         /// </summary>
         public bool Previewing;
+        /// <summary>The Sound Room the sound is in (null when none, or the player doesn't use rooms).</summary>
+        public SoundRoom Room;
     }
 
     /// <summary>

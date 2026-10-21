@@ -194,4 +194,44 @@ namespace Remedy.Audio
             }
         }
     }
+    [SchematicDoc(@"{""name"": ""Room"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Controls"", ""description"": ""The Sound Room the sound is in: In Room (1 inside one, 0 outside, gliding over Smoothing seconds as it moves in or out), the room's Size in meters, and one of its Properties by name (Value). The room's shared effects are its mixer group; use this for what changes per sound, like a Reverb's Mix or a Delay's Feedback."", ""outputs"": [{""name"": ""In Room"", ""type"": ""float""}, {""name"": ""Size"", ""type"": ""float""}, {""name"": ""Value"", ""type"": ""float""}], ""use_for"": [""more echo in big rooms"", ""a cave's damp, a hall's ring""], ""notes"": ""The editor's preview has no world: it uses the Preview values.""}")]
+    [Serializable]
+    [NodeColor(NodeColors.Physics)]
+    [Node(Name = "Room", Path = "Controls"), Tags(SoundNode.Tag)]
+    public class SoundRoomNode : SoundNode
+    {
+        [Output("In Room")] public float InRoom;
+        [Output("Size")] public float Size;
+        [Output("Value")] public float Value;
+
+        [Editable, Tooltip("A room Property for Value.")] public string Property = "";
+        [Editable, Tooltip("Seconds to glide to new values.")] public float Smoothing = 0.3f;
+        [Editable, Tooltip("Whether the editor's preview is in a room.")] public bool PreviewInRoom;
+        [Editable, Tooltip("The room Size the editor's preview uses.")] public float PreviewSize = 10f;
+        [Editable, Tooltip("The Value the editor's preview uses.")] public float PreviewValue;
+
+        public override SoundProcessor CreateProcessor(SoundCueBuilder builder)
+        {
+            var probe = new Probe { Node = this, Targets = new float[3] };
+            builder.Context.Probes.Add(probe);
+            return new ProbedProcessor { Ports = new[] { "In Room", "Size", "Value" }, Targets = probe.Targets, Smoothing = Smoothing };
+        }
+
+        private sealed class Probe : SoundProbe
+        {
+            public SoundRoomNode Node;
+            public float[] Targets;
+
+            public override void Update(in SoundProbeWorld world)
+            {
+                bool inRoom = world.Previewing ? Node.PreviewInRoom : world.Room != null;
+                float size = !inRoom ? 0f : world.Previewing ? Node.PreviewSize : world.Room.WorldSize;
+                float value = !inRoom ? 0f : world.Previewing ? Node.PreviewValue
+                    : string.IsNullOrEmpty(Node.Property) ? 0f : world.Room.Get(Node.Property);
+                Volatile.Write(ref Targets[0], inRoom ? 1f : 0f);
+                Volatile.Write(ref Targets[1], size);
+                Volatile.Write(ref Targets[2], value);
+            }
+        }
+    }
 }
