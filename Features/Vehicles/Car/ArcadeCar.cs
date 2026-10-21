@@ -632,6 +632,8 @@ namespace Remedy.Vehicles
             Vector3 normalSum = Vector3.zero;
             Vector3 groundPointSum = Vector3.zero;
             float groundCheckDistanceForWheels = Mathf.Max(0f, p.GroundCheckDistance);
+            float contactTransitionTime = Mathf.Max(0f, p.StabilizeTransitionTime);
+            float contactBlendStep = contactTransitionTime > 0f ? dt / contactTransitionTime : 1f;
 
             for (int i = 0; i < wheels.Length; i++)
             {
@@ -652,7 +654,11 @@ namespace Remedy.Vehicles
                 if (w.Grounded)
                 {
                     grounded++;
-                    normalSum += w.GroundHit.normal;
+                    Vector3 castNormal = w.GroundHit.normal;
+                    w.GroundNormal = w.HasBlendedContact && contactTransitionTime > 0f
+                        ? Vector3.RotateTowards(w.ContactNormal, castNormal, Mathf.PI * contactBlendStep, 0f).normalized
+                        : castNormal;
+                    normalSum += w.GroundNormal;
                     groundPointSum += w.GroundHit.point;
                 }
             }
@@ -684,7 +690,7 @@ namespace Remedy.Vehicles
                 if (actualGrounded)
                 {
                     var hit = w.GroundHit;
-                    targetNormal = hit.normal;
+                    targetNormal = w.GroundNormal;
                     targetContactDistance = hit.distance;
                 }
                 else
@@ -716,8 +722,6 @@ namespace Remedy.Vehicles
                     continue;
                 }
 
-                float contactTransitionTime = Mathf.Max(0f, p.StabilizeTransitionTime);
-                float contactBlendStep = contactTransitionTime > 0f ? dt / contactTransitionTime : 1f;
                 if (!w.HasBlendedContact)
                 {
                     w.ContactNormal = targetNormal;
@@ -727,7 +731,7 @@ namespace Remedy.Vehicles
                 }
                 else
                 {
-                    w.ContactNormal = contactTransitionTime > 0f
+                    w.ContactNormal = !actualGrounded && contactTransitionTime > 0f
                         ? Vector3.RotateTowards(w.ContactNormal, targetNormal, Mathf.PI * contactBlendStep, 0f).normalized
                         : targetNormal;
                     float maxDistanceStep = contactTransitionTime > 0f
@@ -1499,6 +1503,7 @@ namespace Remedy.Vehicles
         public bool WasGrounded;
         public bool HasBlendedContact;
         public RaycastHit GroundHit;
+        public Vector3 GroundNormal;
         public Vector3 ContactNormal;
         public float ContactDistance, ContactForceWeight;
         public float TargetSpeedMultiplier;
