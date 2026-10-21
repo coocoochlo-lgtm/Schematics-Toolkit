@@ -106,7 +106,8 @@ namespace Remedy.Audio
                     if (other != wall && Vector2.Dot(wall.Normal, other.Normal) < -0.9f)
                     {
                         float gap = Mathf.Abs(Vector2.Dot(other.A - wall.A, wall.Normal));
-                        wall.Bus.SetPartner(other.Bus, (int)(gap / SoundSpaces.SpeedOfSound * _rate), 0.35f * wall.Reflectivity);
+                        if (gap / SoundSpaces.SpeedOfSound >= SoundSpaces.MinFlutterDelay)
+                            wall.Bus.SetPartner(other.Bus, (int)(gap / SoundSpaces.SpeedOfSound * _rate), SoundSpaces.FlutterGain * wall.Reflectivity);
                     }
         }
 

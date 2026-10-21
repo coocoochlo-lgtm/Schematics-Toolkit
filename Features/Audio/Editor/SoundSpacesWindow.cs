@@ -47,7 +47,7 @@ namespace Remedy.Audio
 
             Section("Sound Fields");
             if (SoundField.All.Count == 0)
-                Verdict("No Sound Field is loaded, so Spatial effects use the node's own settings everywhere.");
+                Verdict("No Sound Field is loaded, so Spatial effects act as open air (nearly dry) everywhere.");
             foreach (var field in SoundField.All)
             {
                 if (field == null) continue;
@@ -68,7 +68,7 @@ namespace Remedy.Audio
 
             Section("Where you are");
             if (!SoundField.Sample(listener, out var place))
-                Verdict("Outside every baked Sound Field: Spatial effects here use the node's own settings (its typed Delay and Feedback, Room Size and Damping).");
+                Verdict("Outside every baked Sound Field: Spatial effects here act as open air (nearly dry, no slapback).");
             else
             {
                 Verdict(Summary(place, spaces, listener));

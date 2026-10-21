@@ -374,7 +374,7 @@ namespace Remedy.Audio
         }
     }
 
-    [SchematicDoc(@"{""name"": ""Delay"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Effects"", ""description"": ""An echo: the audio again after Delay seconds (up to 2; a typed-in Delay only keeps as much memory as it needs), each echo Feedback times as loud as the last (0 one echo, near 1 many). Mix is how much echo is heard (0 none, 1 only echo). Mode Spatial echoes the place the sound is in, from the Sound Field baked there: a slapback off the nearest wall (fluttering between parallel hard walls), and, in the game, the echo walls nearby (cliffs, canyon sides, a hall's far wall: Echoes sets how much), each as late as sound takes to get there and back. Mix then scales the place's amount; outside any Sound Field it uses its own Delay and Feedback."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Delay"", ""type"": ""float""}, {""name"": ""Feedback"", ""type"": ""float""}, {""name"": ""Mix"", ""type"": ""float""}], ""outputs"": [{""name"": ""Out"", ""type"": ""audio""}]}")]
+    [SchematicDoc(@"{""name"": ""Delay"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Effects"", ""description"": ""An echo: the audio again after Delay seconds (up to 2; a typed-in Delay only keeps as much memory as it needs), each echo Feedback times as loud as the last (0 one echo, near 1 many). Mix is how much echo is heard (0 none, 1 only echo). Mode Spatial echoes the place the sound is in, from the Sound Field baked there: a slapback off the nearest wall (fluttering between parallel hard walls), and, in the game, the echo walls nearby (cliffs, canyon sides, a hall's far wall: Echoes sets how much), each as late as sound takes to get there and back. Mix then scales the place's amount. Outside every Sound Field it's open air (no slapback); in the preview with Space set to None it uses its own Delay and Feedback."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Delay"", ""type"": ""float""}, {""name"": ""Feedback"", ""type"": ""float""}, {""name"": ""Mix"", ""type"": ""float""}], ""outputs"": [{""name"": ""Out"", ""type"": ""audio""}]}")]
     [Serializable]
     [Node(Name = "Delay", Path = "Effects"), Tags(SoundNode.Tag)]
     public class SoundDelayNode : SoundNode
@@ -389,7 +389,8 @@ namespace Remedy.Audio
         /// Own: Delay and Feedback as set. Spatial: the echo of the place the sound is in -- a slapback off its nearest
         /// wall (Delay is the trip there and back; Feedback how reflective and closed in it is: parallel hard walls
         /// flutter), and the echo walls it can be heard by, each as late as sound takes to get there and to the
-        /// listener. Mix scales the place's amount; outside any Sound Field (and in previews) Own's settings apply.
+        /// listener. Mix scales the place's amount. Outside every Sound Field it's open air (no slapback); in the preview with Space
+        /// set to None, Own's settings apply.
         /// </summary>
         [Editable] public DelayMode Mode = DelayMode.Own;
         /// <summary>Spatial: how much echo walls (cliffs, canyon sides, buildings, a hall's far wall) throw the sound back, 0 to 1.</summary>
@@ -586,7 +587,7 @@ namespace Remedy.Audio
         }
     }
 
-    [SchematicDoc(@"{""name"": ""Reverb"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Effects"", ""description"": ""Room echo: Room Size (0 small, 1 a cathedral), Damping (how soon the high end dies away: 0 bright, 1 dull), Mix (0 dry, 1 only the room). Mode Shared sends to the scene's reverb (Reverb Zones) instead of running its own: far cheaper for sounds played often or many at once (Room Size and Damping then come from the zone). Mode Spatial rings like the place the sound is in, from the Sound Field baked there: a small tiled bathroom, a dead carpeted office, a huge stone hall, open air (Mix then scales the place's reverb: 1 is as much as the place makes; outside any Sound Field the place is this node's Room Size and Damping). In the game, Spatial sounds in a room make the room itself ring (heard from the room, carrying on after the sound moves away or stops), and in the open they're thrown back by the echo walls nearby (cliffs, canyon sides, buildings: Echoes sets how much), as late as sound takes to get there and back."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Room Size"", ""type"": ""float""}, {""name"": ""Damping"", ""type"": ""float""}, {""name"": ""Mix"", ""type"": ""float""}], ""outputs"": [{""name"": ""Out"", ""type"": ""audio""}]}")]
+    [SchematicDoc(@"{""name"": ""Reverb"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Effects"", ""description"": ""Room echo: Room Size (0 small, 1 a cathedral), Damping (how soon the high end dies away: 0 bright, 1 dull), Mix (0 dry, 1 only the room). Mode Shared sends to the scene's reverb (Reverb Zones) instead of running its own: far cheaper for sounds played often or many at once (Room Size and Damping then come from the zone). Mode Spatial rings like the place the sound is in, from the Sound Field baked there: a small tiled bathroom, a dead carpeted office, a huge stone hall, open air (Mix then scales the place's reverb: 1 is as much as the place makes; outside every Sound Field it's open air, nearly dry; in the preview with Space set to None the place is this node's Room Size and Damping). In the game, Spatial sounds in a room make the room itself ring (heard from the room, carrying on after the sound moves away or stops), and in the open they're thrown back by the echo walls nearby (cliffs, canyon sides, buildings: Echoes sets how much), as late as sound takes to get there and back."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Room Size"", ""type"": ""float""}, {""name"": ""Damping"", ""type"": ""float""}, {""name"": ""Mix"", ""type"": ""float""}], ""outputs"": [{""name"": ""Out"", ""type"": ""audio""}]}")]
     [Serializable]
     [Node(Name = "Reverb", Path = "Effects"), Tags(SoundNode.Tag)]
     public class SoundReverbNode : SoundNode
@@ -669,7 +670,7 @@ namespace Remedy.Audio
                 return amount > 0.001f ? pool.Reverb(position, place.Feedback, place.Damping, place.ReverbTime) : null;
             }
 
-            // No Sound Field here: the node's own Room Size and Damping, heard a modest amount.
+            // The preview with no surroundings (Space: None): the node's own Room Size and Damping, heard a modest amount.
             public override void Fallback()
             {
                 Set(0, FeedbackFor(Node.RoomSize));

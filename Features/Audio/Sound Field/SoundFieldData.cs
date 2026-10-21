@@ -148,17 +148,26 @@ namespace Remedy.Audio
         /// </summary>
         public float EffectiveAbsorption => Mathf.Max(0.02f, Enclosure * Mathf.Max(0.02f, Absorption) + (1f - Enclosure));
 
-        /// <summary>Seconds for the reverb to die away (RT60), 0.1 to 8.</summary>
-        public float ReverbTime => Mathf.Clamp(0.04f * Mathf.Max(0.5f, Size) / EffectiveAbsorption, 0.1f, 8f);
+        /// <summary>Seconds for the reverb to die away (RT60), 0.1 to <see cref="MaxReverbTime"/>.</summary>
+        public float ReverbTime => Mathf.Clamp(0.04f * Mathf.Max(0.5f, Size) / EffectiveAbsorption, 0.1f, MaxReverbTime);
+
+        /// <summary>
+        /// The longest reverb a place makes, in seconds: past this (a bare, closed space) the reverb stops sounding like
+        /// a room and starts ringing like a microphone held to its speaker.
+        /// </summary>
+        public const float MaxReverbTime = 4f;
+
+        /// <summary>Open air (outside every Sound Field): nothing near but the ground, which the sky outweighs.</summary>
+        public static SoundAcoustics OpenAir => new() { Size = 20f, Enclosure = 0.45f, Absorption = 0.4f, Hardness = 0.5f, NearestWall = 1f };
 
         /// <summary>How much reverb is heard, 0 to 1: none in the open, more the more closed in (less with soft surfaces).</summary>
         public float Wet => Mathf.Clamp01((Enclosure - 0.45f) / 0.5f) * (1f - 0.6f * Absorption) * 0.65f;
 
         /// <summary>How soon the high end dies away, 0 (bright: hard, bare surfaces) to 1 (dull: soft, absorbent ones).</summary>
-        public float Damping => Mathf.Clamp01(0.15f + 0.6f * (1f - Hardness) + 0.3f * Absorption - 0.15f * Wetness);
+        public float Damping => Mathf.Clamp(0.15f + 0.6f * (1f - Hardness) + 0.3f * Absorption - 0.15f * Wetness, 0.3f, 1f); // some highs always fade: no metallic ring
 
         /// <summary>The Reverb node's comb feedback for <see cref="ReverbTime"/> (its combs average about 31 ms).</summary>
-        public float Feedback => Mathf.Clamp(Mathf.Pow(10f, -3f * 0.0308f / ReverbTime), 0f, 0.985f);
+        public float Feedback => Mathf.Clamp(Mathf.Pow(10f, -3f * 0.0308f / ReverbTime), 0f, 0.95f);
 
         public static SoundAcoustics Lerp(in SoundAcoustics a, in SoundAcoustics b, float t) => new()
         {
@@ -180,7 +189,10 @@ namespace Remedy.Audio
         /// </summary>
         public float SlapbackWet => Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.05f, 0.1f, 2f * NearestWall / 343f)) * (1f - Absorption) * Hardness * 0.6f;
 
-        /// <summary>How much each slapback comes round again (between parallel walls: flutter), 0 to 0.85.</summary>
-        public float SlapbackFeedback => Mathf.Clamp(Enclosure * (1f - Absorption) * Hardness * 0.85f, 0f, 0.85f);
+        /// <summary>
+        /// How much each slapback comes round again (between parallel walls: flutter), 0 to 0.5: a few repeats that die
+        /// away (stronger, and the repeats run together into a ringing tone).
+        /// </summary>
+        public float SlapbackFeedback => Mathf.Clamp(Enclosure * (1f - Absorption) * Hardness * 0.5f, 0f, 0.5f);
     }
 }

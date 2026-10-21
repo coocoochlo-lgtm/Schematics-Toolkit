@@ -250,7 +250,7 @@ namespace Remedy.Audio
         internal void SetSlap(float delay, float feedback, float damping)
         {
             _slapDelay = Mathf.Clamp((int)(delay * _rate), 1, Mathf.Max(1, _slapLine.Length - 2));
-            _slapFeedback = Mathf.Clamp(feedback, 0f, 0.9f);
+            _slapFeedback = Mathf.Clamp(feedback, 0f, 0.6f);
             float cutoff = Mathf.Lerp(9000f, 1500f, Mathf.Clamp01(damping));
             _slapLowAmount = 1f - Mathf.Exp(-2f * Mathf.PI * cutoff / Mathf.Max(8000, _rate));
         }
@@ -276,7 +276,7 @@ namespace Remedy.Audio
         /// <summary>A room's reverb: <paramref name="feedback"/> (how long) and <paramref name="damping"/> (0 bright, 1 dull).</summary>
         internal void SetRoom(float feedback, float damping)
         {
-            _feedback = Mathf.Clamp(feedback, 0f, 0.985f);
+            _feedback = Mathf.Clamp(feedback, 0f, 0.95f);
             _damp = Mathf.Clamp01(damping) * 0.4f;
         }
 
@@ -422,7 +422,15 @@ namespace Remedy.Audio
                         float smear = _reverb.Process(diffused * 0.015f, SmearFeedback, SmearDamp) * 3f;
                         output = diffused * EchoDirect + smear * (1f - EchoDirect);
                     }
-                    _scratch[f] = float.IsNaN(output) || float.IsInfinity(output) ? 0f : output;
+                    if (float.IsNaN(output) || float.IsInfinity(output) || Mathf.Abs(output) > 8f)
+                    {
+                        // Running away (it shouldn't): start clean rather than howl.
+                        _reverb.Clear();
+                        Array.Clear(_slapLine, 0, _slapLine.Length);
+                        _slapLow = _lowpass = 0f;
+                        output = 0f;
+                    }
+                    _scratch[f] = output;
                 }
                 _readHead = head + frames;
                 partner = _partner;
@@ -613,6 +621,8 @@ namespace Remedy.Audio
         /// <summary>How far from the listener echo walls are kept, in meters.</summary>
         public const float EchoRange = 220f;
         public const float SpeedOfSound = 343f;
+        /// <summary>Facing walls echo into each other only this far apart (in seconds of travel), this strongly.</summary>
+        public const float MinFlutterDelay = 0.05f, FlutterGain = 0.25f;
 
         private static SoundSpaces _instance;
 
@@ -966,8 +976,9 @@ namespace Remedy.Audio
                     if (distance < 4f || Vector3.Dot(w.normal, between) <= 0f || Vector3.Dot(other.normal, -between) <= 0f) continue;
                     if (distance < best) { best = distance; partner = EchoBus(other.field, other.anchor); }
                 }
-                if (partner != null)
-                    bus.SetPartner(partner, (int)(best / SpeedOfSound * _rate), 0.35f * w.data.Reflectivity);
+                // Only walls far enough apart for a distinct echo: close ones bouncing at each other just buzz.
+                if (partner != null && best / SpeedOfSound >= MinFlutterDelay)
+                    bus.SetPartner(partner, (int)(best / SpeedOfSound * _rate), FlutterGain * w.data.Reflectivity);
                 else
                     bus.SetPartner(null, 1, 0f);
             }

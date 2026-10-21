@@ -62,12 +62,9 @@ namespace Remedy.Audio
                 Simulated(world);
                 return;
             }
+            // Outside every Sound Field: open air (nearly dry), the same as open ground inside one.
             if (!SoundField.Sample(world.Position, out var place))
-            {
-                Volatile.Write(ref Sends, null);
-                Fallback();
-                return;
-            }
+                place = SoundAcoustics.OpenAir;
             SpaceSends sends = null;
             bool inRoom = false;
             var spaces = SoundSpaces.Get();
