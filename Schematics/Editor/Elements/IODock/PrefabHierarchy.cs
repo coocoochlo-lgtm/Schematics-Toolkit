@@ -446,6 +446,11 @@ public class PrefabHierarchy : VisualElement
         if (type == null || metadata == null)
             return dock;
 
+        // Its Variables first, each with this object's value on its row (drag one in to Get or Set it).
+        var variables = CreateVariablesSection(attachment, type, tf, metadata, schematicWindow);
+        if (variables != null)
+            dock.Add(variables);
+
         var (draw, dockElement) = RenderBehaviorDock(type, schematicWindow, metadata);
         SignalRenderer.DrawDelayedEvents();
 
@@ -465,8 +470,176 @@ public class PrefabHierarchy : VisualElement
             dock.Add(dockElement);
         }
 
+        // Anything the Behavior adds itself (BehaviorDockSections: the Brain's slots, a vehicle's seats).
+        string path = PathOf(tf);
+        var extra = BehaviorDockSections.Create(new BehaviorDockContext
+        {
+            Prefab = _prefab, Target = tf.gameObject, Path = path, BehaviorType = type, Attachment = attachment, Window = schematicWindow,
+            Read = (variable, valueType) => CurrentValue(path, type, attachment, metadata.FindVariable(variable), valueType),
+            Write = (variable, valueType, value) => QueueEdit(path, type, variable, valueType, value),
+        });
+        if (extra != null)
+            dock.Add(extra);
+
         return dock;
     }
+
+    #region Variables
+
+    /// <summary>
+    /// A Behavior's Variables (but its Properties, which have their own foldout): one row each, which drags into the
+    /// graph as a Get or Set node, with this object's value on it (edited here, saved into the prefab shortly after).
+    /// </summary>
+    private VisualElement CreateVariablesSection(BehaviorAttachment attachment, Type type, Transform tf, BehaviorMetadata metadata, SchematicGraphEditorWindow window)
+    {
+        var reflection = BehaviorReflection.Get(type);
+        string path = PathOf(tf);
+        VisualElement section = null;
+        foreach (var variable in metadata.Variables)
+        {
+            if (variable == null || (reflection != null && reflection.IsPropertiesVariable(variable.Name)))
+                continue;
+            if (section == null)
+            {
+                section = new VisualElement();
+                section.Add(DockRows.SectionLabel("Variables"));
+                // Leaving (a redraw, another prefab) saves what's waiting.
+                section.RegisterCallback<DetachFromPanelEvent>(_ => FlushEdits());
+            }
+            var item = new DockItem
+            {
+                Kind = DockItem.ItemKind.Variable, Path = path, Behavior = type, GameObject = tf.gameObject,
+                Name = variable.Name, ValueType = variable.Type.Type,
+            };
+            var row = DockRows.Build(item, VariableIcon, ObjectNames.NicifyVariableName(variable.Name),
+                DockRows.TypeName(item.ValueType) + (variable.Networked ? "  ⇅" : ""),
+                "Variable: drag the name into the graph to Get or Set it; click it to find its nodes. The field is this object's starting value.",
+                () =>
+                {
+                    window?.FocusNodes(item);
+                    ScopeItemInspector.Show(item);
+                });
+            var definition = variable;
+            var field = new IMGUIContainer(() => DrawVariableField(path, type, attachment, definition));
+            field.style.flexGrow = 1;
+            field.style.flexShrink = 1;
+            field.style.minWidth = 60;
+            row.Add(field);
+            section.Add(row);
+        }
+        return section;
+    }
+
+    // A Variable value waiting to be written to the prefab: shown straight away, written with the next load-edit-save
+    // once typing pauses (each save reimports the prefab, so not on every keystroke).
+    private sealed class PendingEdit
+    {
+        public string Path;
+        public Type Behavior;
+        public string Variable;
+        public Type ValueType;
+        public object Value;
+        public bool Revert;
+    }
+
+    private readonly Dictionary<string, PendingEdit> _pendingEdits = new();
+    private IVisualElementScheduledItem _flush;
+    private const long FlushDelayMs = 1200;
+
+    private static string EditKey(string path, Type behavior, string variable) => $"{path}|{behavior?.FullName}|{variable}";
+
+    private void QueueEdit(string path, Type behavior, string variable, Type valueType, object value, bool revert = false)
+    {
+        _pendingEdits[EditKey(path, behavior, variable)] = new PendingEdit
+        {
+            Path = path, Behavior = behavior, Variable = variable, ValueType = valueType, Value = value, Revert = revert,
+        };
+        // Restarted by every change, so typing finishes before anything is written.
+        _flush?.Pause();
+        _flush = schedule.Execute(FlushEdits);
+        _flush.ExecuteLater(FlushDelayMs);
+    }
+
+    private void FlushEdits()
+    {
+        _flush?.Pause();
+        if (_pendingEdits.Count == 0 || string.IsNullOrEmpty(_assetPath))
+            return;
+        var edits = _pendingEdits.Values.ToList();
+        _pendingEdits.Clear();
+        EditPrefab("Set Schematic Variable", (root, live) =>
+        {
+            var schematic = root.GetComponent<SchematicObject>();
+            if (schematic == null)
+                return;
+            foreach (var edit in edits)
+            {
+                var target = FindInCopy(root, edit.Path);
+                var attachment = target != null ? schematic.FindAttachment(edit.Behavior, target.gameObject) : null;
+                if (attachment == null)
+                    continue;
+                if (edit.Revert)
+                    attachment.Overrides.RemoveAll(o => o.Name == edit.Variable);
+                else
+                    attachment.SetOverride(edit.Variable, ToCopy(edit.Value, root), edit.ValueType);
+            }
+        });
+    }
+
+    // A reference to one of the prefab's own objects has to point at the matching object in the loaded copy.
+    private object ToCopy(object value, GameObject copy)
+    {
+        Transform source = value is GameObject gameObject ? gameObject.transform : value is Component component ? component.transform : null;
+        if (source == null)
+            return value;
+        Transform root = _shown != null && source.root == _shown.transform.root ? _shown.transform
+                       : _prefab != null && source.root == _prefab.transform ? _prefab.transform : null;
+        if (root == null)
+            return value;
+        var match = FindInCopy(copy, AnimationUtility.CalculateTransformPath(source, root));
+        if (match == null)
+            return null;
+        return value is GameObject ? (object)match.gameObject : match.GetComponent(value.GetType());
+    }
+
+    // This object's value of a Variable: waiting to be saved, else its override, else the Behavior's default.
+    private object CurrentValue(string path, Type behavior, BehaviorAttachment attachment, VariableDefinition definition, Type type)
+    {
+        if (definition == null)
+            return null;
+        if (_pendingEdits.TryGetValue(EditKey(path, behavior, definition.Name), out var pending))
+            return pending.Revert ? definition.Default?.Get(type) : pending.Value;
+        var entry = attachment.FindOverride(definition.Name);
+        return entry != null ? entry.Value.Get(type) : definition.Default?.Get(type);
+    }
+
+    // The field on a Variable's row: this object's value (or the default), with a button back to the default.
+    private void DrawVariableField(string path, Type behavior, BehaviorAttachment attachment, VariableDefinition definition)
+    {
+        var type = definition.Type.Type;
+        if (type == null)
+            return;
+        // Arrays, lists and classes are edited in Prefab Mode, where Unity's own drawers save them safely.
+        if (SchematicValue.IsBoxable(type))
+        {
+            if (GUILayout.Button(new GUIContent("Edit in Prefab…", "Opens the prefab; edit this value in the Inspector."), EditorStyles.miniButton))
+                AssetDatabase.OpenAsset(_prefab);
+            return;
+        }
+        _pendingEdits.TryGetValue(EditKey(path, behavior, definition.Name), out var pending);
+        bool overridden = pending != null ? !pending.Revert : attachment.FindOverride(definition.Name) != null;
+        var current = CurrentValue(path, behavior, attachment, definition, type);
+        using (new EditorGUILayout.HorizontalScope())
+        {
+            if (SchematicValueField.Draw(GUIContent.none, type, current, out var value))
+                QueueEdit(path, behavior, definition.Name, type, value);
+            using (new EditorGUI.DisabledScope(!overridden))
+                if (GUILayout.Button(new GUIContent("↺", "Back to the Behavior's default"), EditorStyles.miniButton, GUILayout.Width(20)))
+                    QueueEdit(path, behavior, definition.Name, type, null, revert: true);
+        }
+    }
+
+    #endregion
 
     /// <summary>
     /// Renders a Behavior through the IO Dock: a renderer registered for the Behavior type (<see cref="IODockTargetAttribute"/>)
