@@ -332,6 +332,14 @@ namespace Remedy.Audio
                     _readHead = now;
                 }
                 head = _readHead;
+                // Unused (in the pool): silent, and nothing to work out (its clock still runs, ready for the next use).
+                if (Owner == null)
+                {
+                    _readHead = head + frames;
+                    Array.Clear(data, 0, data.Length);
+                    Volatile.Write(ref _peak, 0f);
+                    return;
+                }
                 for (int f = 0; f < frames; f++)
                 {
                     int slot = (int)((head + f) & RingMask);
@@ -415,9 +423,9 @@ namespace Remedy.Audio
     public sealed class SoundSpaces : MonoBehaviour
     {
         /// <summary>Most rooms ringing at once.</summary>
-        public const int MaxRooms = 6;
+        public const int MaxRooms = 8;
         /// <summary>Most echo walls at once.</summary>
-        public const int MaxEchoes = 12;
+        public const int MaxEchoes = 24;
         /// <summary>How far from the listener echo walls are kept, in meters.</summary>
         public const float EchoRange = 220f;
         public const float SpeedOfSound = 343f;
