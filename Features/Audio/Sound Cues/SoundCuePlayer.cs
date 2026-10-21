@@ -118,6 +118,9 @@ namespace Remedy.Audio
 
         private SoundNoise _noise;
 
+        /// <summary>Parameters to set as the next play starts (before a sample is made), then cleared.</summary>
+        [NonSerialized] public List<KeyValuePair<string, float>> StartParameters;
+
         /// <summary>Plays the cue from the start (stopping it first if it's playing).</summary>
         public void Play() => Play(0f);
 
@@ -139,6 +142,16 @@ namespace Remedy.Audio
             if (voice.LengthSamples > 0)
                 start = Math.Min(start, voice.LengthSamples - 1);
             voice.Context.SamplePosition = Math.Max(0, start);
+            if (StartParameters != null)
+            {
+                foreach (var pair in StartParameters)
+                    voice.SetParameter(pair.Key, pair.Value);
+                StartParameters = null;
+            }
+            // A cue that reacts to Signals can be sent them: its object gets an address of its own when it isn't a
+            // Schematic Object (a pooled one-shot), so a Signal sent To it reaches only it.
+            if (voice.Context.LowLatency && Application.isPlaying)
+                SignalData.MakeAddressable(gameObject);
             // In the game, started a moment ahead on the audio clock: then it's known exactly when each sample is heard,
             // which Spatial reverb needs to feed rooms and echoes in time with it. Known before the clip is touched:
             // Unity reads the start of a streamed clip as soon as it's set up, and sends from samples rendered before
@@ -300,6 +313,7 @@ namespace Remedy.Audio
                 // The preview's imaginary listener is at the middle, facing ahead (+Z); the sound is placed around it.
                 ListenerPosition = DistanceOverride.HasValue ? Vector3.zero : _listener != null ? _listener.transform.position : transform.position,
                 Previewing = DistanceOverride.HasValue,
+                Host = gameObject,
                 Room = _room,
                 // The preview fades a sound by 1 / distance itself (its source is flat).
                 Hearing = DistanceOverride.HasValue ? PreviewHearing : _hearing ??= HearingAt,
@@ -507,7 +521,8 @@ namespace Remedy.Audio
         /// the Audio Data's SFX source (its mixer group and 3D settings) when there is one. It goes back to the pool
         /// when the cue ends.
         /// </summary>
-        public static SoundCuePlayer PlayAt(SoundCueGraph cue, Vector3 position, Transform follow = null, float volume = 1f, float spatialBlend = 1f)
+        public static SoundCuePlayer PlayAt(SoundCueGraph cue, Vector3 position, Transform follow = null, float volume = 1f, float spatialBlend = 1f,
+            List<KeyValuePair<string, float>> parameters = null)
         {
             if (cue == null)
                 return null;
@@ -526,6 +541,7 @@ namespace Remedy.Audio
             // Mono cues are flat wherever they play.
             source.spatialBlend = cue.IsSpatial ? spatialBlend : 0f;
             player.Cue = cue;
+            player.StartParameters = parameters;
             player.Play();
             return player;
         }
@@ -574,6 +590,8 @@ namespace Remedy.Audio
                 return;
             Cue = null;
             Follow = null;
+            // Its address (and every Trigger listening on it) goes: the next cue it plays is someone else's.
+            SignalData.ForgetAddress(gameObject);
             _busyHosts.Remove(this);
             transform.SetParent(PoolRoot(), worldPositionStays: false);
             gameObject.SetActive(false);

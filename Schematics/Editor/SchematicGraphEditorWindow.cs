@@ -346,6 +346,8 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
             _prefabPath = AssetDatabase.GetAssetPath(Prefab);
 
         Application.focusChanged += Reload;
+        DynamicPorts.Changed -= OnNodePortsChanged;
+        DynamicPorts.Changed += OnNodePortsChanged;
         EditorApplication.projectChanged += Canvas.Reload;
         AssemblyReloadEvents.afterAssemblyReload += Canvas.Reload;
 
@@ -1184,6 +1186,15 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
 
     #region Port syncing
 
+    // A node in this graph changed its own pins (what it points at changed): redraw.
+    private void OnNodePortsChanged(Node node)
+    {
+        if (this == null || Canvas == null || SchematicGraph == null || node == null || node.Graph != SchematicGraph)
+            return;
+        EditorUtility.SetDirty(SchematicGraph);
+        Canvas.Reload();
+    }
+
     /// <summary>
     /// Brings dynamic pins up to date with the code (Signal parameters, Variable types, Behavior members), so renaming
     /// or retyping something in a Behavior doesn't leave stale pins behind.
@@ -1213,6 +1224,9 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
                     break;
                 case GraphVariableNodeBase graphVariable:
                     changed |= graphVariable.SyncPorts();
+                    break;
+                case IDynamicPorts dynamic:
+                    changed |= dynamic.SyncPorts();
                     break;
             }
         }

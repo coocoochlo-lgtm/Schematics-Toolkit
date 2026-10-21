@@ -5,16 +5,18 @@
 using BlueGraph;
 using Remedy.Schematics;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace Remedy.Audio
 {
-    [SchematicDoc(@"{""name"": ""Play Sound Cue"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Audio"", ""description"": ""Plays a Sound Cue at an object (with nothing connected, the object running the graph), following it if Follow is on. Player is what's playing it, for Stop Sound Cue and Set Sound Cue Parameter. Dropping a Sound Cue into a graph makes one."", ""inputs"": [{""name"": ""Cue"", ""type"": ""SoundCueGraph""}, {""name"": ""Target"", ""type"": ""GameObject""}, {""name"": ""Volume"", ""type"": ""float""}, {""name"": ""Spatial Blend"", ""type"": ""float""}], ""outputs"": [{""name"": ""Player"", ""type"": ""SoundCuePlayer""}], ""use_for"": [""designed sound effects"", ""engine and ambient loops driven by parameters""], ""notes"": ""Runs when flow reaches it.""}")]
+    [SchematicDoc(@"{""name"": ""Play Sound Cue"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Audio"", ""description"": ""Plays a Sound Cue at an object (with nothing connected, the object running the graph), following it if Follow is on. Player is what's playing it, for Stop Sound Cue and Set Sound Cue Parameter. The cue's Parameters appear as pins: what's wired in is set as it starts (unwired: the cue's default); change them later with Set Sound Cue Parameter on Player, which a graph Variable can hold. Object is the playing cue's own object: send a Signal To it to fire the cue's Triggers. Dropping a Sound Cue into a graph makes one."", ""inputs"": [{""name"": ""Cue"", ""type"": ""SoundCueGraph""}, {""name"": ""Target"", ""type"": ""GameObject""}, {""name"": ""Volume"", ""type"": ""float""}, {""name"": ""Spatial Blend"", ""type"": ""float""}], ""outputs"": [{""name"": ""Player"", ""type"": ""SoundCuePlayer""}, {""name"": ""Object"", ""type"": ""GameObject""}], ""use_for"": [""designed sound effects"", ""engine and ambient loops driven by parameters""], ""notes"": ""Runs when flow reaches it.""}")]
     [Serializable]
     [NodeColor(NodeColors.Audio)]
     [Node(Name = "Play Sound Cue", Path = "Audio"), Tags("Default")]
     [AssetNode(typeof(SoundCueGraph), Title = "Play Sound Cue: {0}")]
-    public class PlaySoundCueNode : SchematicActionNode
+    public class PlaySoundCueNode : SchematicActionNode, IDynamicPorts
     {
         [Input("Cue", Editable = true)] public SoundCueGraph Cue;
         [Input("Target")] public GameObject Target;
@@ -23,6 +25,28 @@ namespace Remedy.Audio
         /// <summary>Moves with the target (a car's engine) rather than staying where it started (an impact).</summary>
         [Editable] public bool Follow = true;
         [Output("Player")] public SoundCuePlayer Player;
+        [Output("Object")] public GameObject PlayingObject;
+
+        private static readonly string[] FixedInputs = { "Cue", "Target", "Volume", "Spatial Blend" };
+
+        /// <summary>The pin for one of the cue's Parameters (named after it, unless that's one of the node's own).</summary>
+        public static string ParameterPort(string parameter, string[] taken)
+            => Array.IndexOf(taken, parameter) >= 0 ? parameter + " (Parameter)" : parameter;
+
+        /// <summary>One pin per Parameter of the cue: what's wired in is set as it starts (unwired: the cue's default).</summary>
+        public bool SyncPorts()
+        {
+            var parameters = Cue != null ? Cue.ParameterList : new List<(string name, float value)>();
+            return DynamicPorts.SyncInputs(this, parameters.Select(p => (ParameterPort(p.name, FixedInputs), typeof(float))),
+                port => port.Type == typeof(float) && Array.IndexOf(FixedInputs, port.Name) < 0);
+        }
+
+        public override void OnValidate()
+        {
+            base.OnValidate();
+            if (SyncPorts())
+                DynamicPorts.Notify(this);
+        }
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
         {
@@ -36,9 +60,18 @@ namespace Remedy.Audio
             if (target == null)
                 target = instance;
             var position = target != null ? target.transform.position : Vector3.zero;
+            // The cue's Parameters wired in here, set before it makes a sound.
+            List<KeyValuePair<string, float>> parameters = null;
+            foreach (var (name, _) in cue.ParameterList)
+            {
+                string port = ParameterPort(name, FixedInputs);
+                if (GetPort(port) != null && HasInputConnections(port))
+                    (parameters ??= new()).Add(new KeyValuePair<string, float>(name, GetInputValue(port, 0f)));
+            }
             var player = SoundCuePlayer.PlayAt(cue, position, Follow && target != null ? target.transform : null,
-                GetInputValue("Volume", Volume), GetInputValue("Spatial Blend", SpatialBlend));
+                GetInputValue("Volume", Volume), GetInputValue("Spatial Blend", SpatialBlend), parameters);
             SetOutputValue("Player", player);
+            SetOutputValue("Object", player != null ? player.gameObject : null);
         }
     }
 

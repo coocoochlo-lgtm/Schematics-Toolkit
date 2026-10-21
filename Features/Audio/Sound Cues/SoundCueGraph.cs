@@ -44,6 +44,20 @@ namespace Remedy.Audio
         /// <summary>Whether the cue is heard placed in the world (Stereo) rather than flat (Mono).</summary>
         public bool IsSpatial => Channels == SoundCueChannels.Stereo;
 
+        /// <summary>The cue's Parameters (each name once), with their defaults: what a node that plays it can set.</summary>
+        public List<(string name, float value)> ParameterList
+        {
+            get
+            {
+                var found = new List<(string, float)>();
+                var names = new HashSet<string>();
+                foreach (var node in Nodes)
+                    if (node is SoundParameterNode parameter && !string.IsNullOrWhiteSpace(parameter.ParameterName) && names.Add(parameter.ParameterName.Trim()))
+                        found.Add((parameter.ParameterName.Trim(), parameter.Default));
+                return found;
+            }
+        }
+
         /// <summary>The cue's Output node (the first one, if there are several).</summary>
         public SoundCueOutput Output
         {
@@ -190,6 +204,8 @@ namespace Remedy.Audio
         public bool Previewing;
         /// <summary>The Sound Room the sound is in (null when none, or the player doesn't use rooms).</summary>
         public SoundRoom Room;
+        /// <summary>The player's own object (Signals sent to it reach the cue's Triggers, as do those sent to Self).</summary>
+        public GameObject Host;
         /// <summary>
         /// How loud the player's own source makes the sound at a distance (its volume and distance falloff), 0 to 1: for
         /// sound that reaches the listener some other way (round a corner) falling off as the sound itself would.

@@ -68,7 +68,8 @@ public class SendSignalNode : SchematicActionNode
 
         // Sent to the object by the same UID Schematic Behaviors and ExecutionContext.Pick use.
         // With no spawned object (e.g. a Singleton Graph) the UID is 0, which reaches every instance.
-        int uid = target != null && SignalData.UIDResolver != null ? SignalData.UIDResolver(target) : 0;
+        // (Or its own address: an object that takes Signals without being a Schematic Object, a playing Sound Cue.)
+        int uid = SignalData.UIDOf(target);
 
         // Set to run on Everyone in a networked graph, every peer runs this node itself: a networked Signal then stays
         // local, or each peer would also pass it on and it would fire twice.

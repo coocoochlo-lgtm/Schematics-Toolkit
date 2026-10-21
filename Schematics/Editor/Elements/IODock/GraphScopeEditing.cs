@@ -12,8 +12,17 @@ using UnityEngine;
 /// </summary>
 public static class GraphScopeEditing
 {
-    /// <summary>Types a graph Variable can have, as menu paths.</summary>
-    public static readonly (string path, Type type)[] VariableTypes =
+    /// <summary>Types a graph Variable can have, as menu paths (modules add theirs with <see cref="AddVariableType"/>).</summary>
+    public static (string path, Type type)[] VariableTypes => _variableTypes.ToArray();
+
+    /// <summary>Lets graph Variables hold another type (e.g. a playing Sound Cue), under a menu path.</summary>
+    public static void AddVariableType(string path, Type type)
+    {
+        if (type != null && !_variableTypes.Any(t => t.type == type))
+            _variableTypes.Add((path, type));
+    }
+
+    private static readonly List<(string path, Type type)> _variableTypes = new()
     {
         ("float", typeof(float)), ("int", typeof(int)), ("bool", typeof(bool)), ("string", typeof(string)),
         ("Vector2", typeof(Vector2)), ("Vector3", typeof(Vector3)), ("Vector4", typeof(Vector4)),

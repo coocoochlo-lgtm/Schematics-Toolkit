@@ -20,6 +20,49 @@ public partial class SignalData
     // How many invokes of this Signal are running (a listener can send it again).
     private int _invokeDepth;
 
+    // Objects that aren't Schematic Objects but take Signals sent to them (a playing Sound Cue): each has its own
+    // address, below 0 so it never meets a Schematic Object's UID.
+    private static readonly Dictionary<UnityEngine.GameObject, int> _addresses = new();
+    private static int _nextAddress = -1;
+
+    /// <summary>
+    /// Gives an object that isn't a Schematic Object an address of its own, so Signals sent to it (Send a Signal's To)
+    /// reach only it rather than everyone. Returns its address (the same each time, until <see cref="ForgetAddress"/>).
+    /// </summary>
+    public static int MakeAddressable(UnityEngine.GameObject gameObject)
+    {
+        if (gameObject == null)
+            return 0;
+        if (!_addresses.TryGetValue(gameObject, out int address))
+            _addresses[gameObject] = address = _nextAddress--;
+        return address;
+    }
+
+    /// <summary>Takes an object's own address away (and every listener on it).</summary>
+    public static void ForgetAddress(UnityEngine.GameObject gameObject)
+    {
+        if (gameObject != null && _addresses.TryGetValue(gameObject, out int address))
+        {
+            _addresses.Remove(gameObject);
+            ReleaseUID(address);
+        }
+    }
+
+    /// <summary>
+    /// The address Signals sent to an object use: its Schematic Object's UID, else its own address if it has one
+    /// (<see cref="MakeAddressable"/>), else 0 (every object).
+    /// </summary>
+    public static int UIDOf(UnityEngine.Object target)
+    {
+        if (target == null)
+            return 0;
+        int uid = UIDResolver != null ? UIDResolver(target) : 0;
+        if (uid != 0)
+            return uid;
+        var gameObject = target as UnityEngine.GameObject ?? (target as UnityEngine.Component)?.gameObject;
+        return gameObject != null && _addresses.TryGetValue(gameObject, out int address) ? address : 0;
+    }
+
     public void Subscribe(int uid, SignalListener listener)
     {
         if (listener == null)
@@ -67,6 +110,8 @@ public partial class SignalData
                 if (signal != null)
                     signal._listeners.Clear();
         _signalsByUID.Clear();
+        _addresses.Clear();
+        _nextAddress = -1;
     }
 
     #region Broadcasting

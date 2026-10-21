@@ -42,29 +42,53 @@ namespace Remedy.Audio
             /// <summary>Whether the cue is playing in the editor's preview (then Preview Delay fires it).</summary>
             public int Previewing;
 
-            private GameObject _self;
+            private GameObject _self, _host;
             private SignalData _signal;
-            private int _uid;
+            private int _uid, _hostUid;
             private SignalListener _listener;
+
+            /// <summary>Listens again from scratch on the next update (a new play: the player may have a new address).</summary>
+            public void Forget()
+            {
+                Unsubscribe();
+                _self = _host = null;
+                _signal = null;
+            }
+
+            private void Unsubscribe()
+            {
+                if (_signal != null && _listener != null)
+                {
+                    _signal.Unsubscribe(_uid, _listener);
+                    if (_hostUid != _uid)
+                        _signal.Unsubscribe(_hostUid, _listener);
+                }
+                _listener = null;
+            }
 
             public override void Update(in SoundProbeWorld world)
             {
                 Volatile.Write(ref Previewing, world.Previewing ? 1 : 0);
                 var signal = Node.Signal;
-                if (world.Previewing || (world.Self == _self && signal == _signal))
+                if (world.Previewing || (world.Self == _self && world.Host == _host && signal == _signal))
                     return;
                 // A new object (or Signal) to listen on: the old subscription goes.
-                if (_signal != null && _listener != null)
-                    _signal.Unsubscribe(_uid, _listener);
+                Unsubscribe();
                 _self = world.Self;
+                _host = world.Host;
                 _signal = signal;
-                _listener = null;
                 if (signal == null || _self == null)
                     return;
-                // Sent to this object reaches it, and so does sent to every object. (Not on a Schematic Object: any.)
-                _uid = SignalData.UIDResolver != null ? SignalData.UIDResolver(_self) : 0;
+                // Sent to the object it belongs to (Self), or to the playing cue's own object, reaches it; so does sent
+                // to every object. (Neither a Schematic Object nor addressable: it hears it whoever it's sent to.)
+                _uid = SignalData.UIDOf(_self);
+                _hostUid = _host != null ? SignalData.UIDOf(_host) : _uid;
                 _listener = new GraphSignalListener(Heard);
                 signal.Subscribe(_uid, _listener);
+                if (_hostUid != _uid && _hostUid != 0)
+                    signal.Subscribe(_hostUid, _listener);
+                else
+                    _hostUid = _uid;
             }
 
             private void Heard(Union[] args)
@@ -100,6 +124,7 @@ namespace Remedy.Audio
                 _lastFire = 0f;
                 _value = 0f;
                 Interlocked.Exchange(ref Place.Pending, 0);
+                Place.Forget();
             }
 
             public override void Process(SoundContext context, int count)

@@ -6,6 +6,7 @@ using BlueGraph;
 using Remedy.Schematics;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using UnityEngine;
 
@@ -79,11 +80,11 @@ namespace Remedy.Audio
         }
     }
 
-    [SchematicDoc(@"{""name"": ""Sound Cue"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Sources"", ""description"": ""Another Sound Cue, played inside this one: after Delay seconds, at Volume, once or looping. Build sounds out of sounds: a footstep cue reused in a run cycle, a layered explosion made of smaller cues. The inner cue hears the same distance to the listener (and its Occlusion, Surface and Room controls still work). Length is how long the inner cue is."", ""inputs"": [{""name"": ""Volume"", ""type"": ""float""}], ""outputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Length"", ""type"": ""float""}], ""notes"": ""Drop a Sound Cue asset into a Sound Cue graph to make one. A cue that ends up inside itself plays silence (with a warning).""}")]
+    [SchematicDoc(@"{""name"": ""Sound Cue"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Sources"", ""description"": ""Another Sound Cue, played inside this one: after Delay seconds, at Volume, once or looping. Build sounds out of sounds: a footstep cue reused in a run cycle, a layered explosion made of smaller cues. The inner cue's Parameters appear as pins: wire this cue's own values in (a Parameter, a Curve...) and they drive it as it plays. The inner cue hears the same distance to the listener (and its Occlusion, Surface and Room controls still work). Length is how long the inner cue is."", ""inputs"": [{""name"": ""Volume"", ""type"": ""float""}], ""outputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Length"", ""type"": ""float""}], ""notes"": ""Drop a Sound Cue asset into a Sound Cue graph to make one. A cue that ends up inside itself plays silence (with a warning).""}")]
     [Serializable]
     [Node(Name = "Sound Cue", Path = "Sources"), Tags(SoundNode.Tag)]
     [AssetNode(typeof(SoundCueGraph), Title = "Sound Cue: {0}", Field = nameof(Cue))]
-    public class SoundCueSourceNode : SoundNode
+    public class SoundCueSourceNode : SoundNode, IDynamicPorts
     {
         [Editable] public SoundCueGraph Cue;
         [Input("Volume", Editable = true)] public float Volume = 1f;
@@ -91,6 +92,23 @@ namespace Remedy.Audio
         [Editable, Tooltip("Start it again each time it ends.")] public bool Loop;
         [Output("Audio")] public float Audio;
         [Output("Length")] public float Length;
+
+        private static readonly string[] FixedInputs = { "Volume" };
+
+        /// <summary>One pin per Parameter of the inner cue: what's wired in drives it as it plays (unwired: its default).</summary>
+        public bool SyncPorts()
+        {
+            var parameters = Cue != null ? Cue.ParameterList : new List<(string name, float value)>();
+            return DynamicPorts.SyncInputs(this, parameters.Select(p => (PlaySoundCueNode.ParameterPort(p.name, FixedInputs), typeof(float))),
+                port => port.Type == typeof(float) && Array.IndexOf(FixedInputs, port.Name) < 0);
+        }
+
+        public override void OnValidate()
+        {
+            base.OnValidate();
+            if (SyncPorts())
+                DynamicPorts.Notify(this);
+        }
 
         // The cues being built right now, outermost first: a cue inside itself (A in B in A) is caught here.
         [ThreadStatic] private static HashSet<SoundCueGraph> _building;
@@ -129,12 +147,21 @@ namespace Remedy.Audio
             float delay = Mathf.Max(0f, Delay);
             if (!Loop && length > 0f)
                 builder.NoteSourceLength(delay + length);
+            // Parameters wired in: forwarded into the inner cue as it plays.
+            var forwarded = new List<(string name, float[] values)>();
+            foreach (var (name, value) in Cue.ParameterList)
+            {
+                string port = PlaySoundCueNode.ParameterPort(name, FixedInputs);
+                if (GetPort(port) != null && builder.IsConnected(this, port))
+                    forwarded.Add((name, builder.Input(this, port, value)));
+            }
             var processor = new Processor
             {
                 Inner = inner,
                 Volume = builder.Input(this, "Volume", Volume),
                 StartSample = (long)(delay * builder.SampleRate),
                 Loop = Loop,
+                Forwarded = forwarded.ToArray(),
             };
             processor.Outputs["Length"] = builder.Constant(length);
             return processor;
@@ -146,6 +173,7 @@ namespace Remedy.Audio
             public float[] Volume;
             public long StartSample;
             public bool Loop;
+            public (string name, float[] values)[] Forwarded;
 
             public override void Reset(SoundContext context) => Inner.Restart(context.Random.Next());
 
@@ -156,6 +184,9 @@ namespace Remedy.Audio
                 int i = (int)Math.Max(0L, Math.Min(count, StartSample - context.SamplePosition));
                 Array.Clear(output, 0, i);
                 Inner.Context.Distance = context.Distance;
+                // (A block at a time: the inner cue glides its own Parameters where it needs to.)
+                foreach (var (name, values) in Forwarded)
+                    Inner.SetParameter(name, values[count > 0 ? count - 1 : 0]);
                 while (i < count)
                 {
                     long length = Inner.LengthSamples;
