@@ -1099,7 +1099,8 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
         return node;
     }
 
-    private T NewNode<T>() where T : Node => (T)NodeReflection.GetNodeTypes()[typeof(T).Name].CreateInstance();
+    // (Node types are known by their full name: a namespaced node, like the graph Variable ones, isn't found by its short one.)
+    private T NewNode<T>() where T : Node => (T)NodeReflection.GetNodeTypes()[typeof(T).FullName].CreateInstance();
 
     private Node CreateInvokeNode(SignalData signalAsset, Vector2 position)
     {

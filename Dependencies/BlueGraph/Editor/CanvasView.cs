@@ -816,6 +816,12 @@ namespace BlueGraph.Editor
             }).StartingIn(20);
         }
 
+        /// <summary>
+        /// More items for the canvas's right-click menu (on the canvas itself, not a node): editor tools add theirs here
+        /// (macros, for one).
+        /// </summary>
+        public static event Action<CanvasView, ContextualMenuPopulateEvent> ExtendContextMenu;
+
         public override void BuildContextualMenu(ContextualMenuPopulateEvent evt)
         {
             if (evt.target == this)
@@ -823,8 +829,80 @@ namespace BlueGraph.Editor
                 // Comments are only made while C is held; say how, where people look for it.
                 evt.menu.AppendAction("Add Comment: hold C and drag (or click to wrap the selection)", _ => { }, DropdownMenuAction.Status.Disabled);
                 evt.menu.AppendSeparator();
+                if (ExtendContextMenu != null)
+                {
+                    foreach (Action<CanvasView, ContextualMenuPopulateEvent> extend in ExtendContextMenu.GetInvocationList())
+                    {
+                        try { extend(this, evt); }
+                        catch (Exception e) { Debug.LogException(e); }
+                    }
+                    evt.menu.AppendSeparator();
+                }
             }
             base.BuildContextualMenu(evt);
+        }
+
+        /// <summary>The graph elements selected now (nodes and comments).</summary>
+        public IEnumerable<GraphElement> SelectedElements => selection.OfType<GraphElement>();
+
+        /// <summary>Serializes elements the way copy does (what <see cref="PasteSerialized"/> takes).</summary>
+        public static string SerializeElements(IEnumerable<GraphElement> elements) => CopyPasteGraph.Serialize(elements);
+
+        /// <summary>Pastes serialized elements (as copied) where the mouse last was, selected.</summary>
+        public void PasteSerialized(string data, string operationName = "Paste")
+        {
+            if (!string.IsNullOrEmpty(data) && CopyPasteGraph.CanDeserialize(data))
+                OnUnserializeAndPaste(operationName, data);
+        }
+
+        /// <summary>
+        /// Adds new nodes to the graph where the mouse last was, selected, and wires them: each link from a node's
+        /// output to a node's input, the new ones or ones already in the graph. One undo step.
+        /// </summary>
+        public void InsertNodes(IList<Node> newNodes, IEnumerable<(Node from, string output, Node to, string input)> links, string operationName = "Insert Nodes")
+        {
+            if (newNodes == null || newNodes.Count == 0)
+                return;
+            Undo.RegisterCompleteObjectUndo(Graph, operationName);
+            Graph.AddNodes(newNodes);
+            serializedGraph.Update();
+            EditorUtility.SetDirty(Graph);
+            ClearSelection();
+            AddNodeViews(newNodes, true, true);
+
+            if (links == null)
+                return;
+            var views = new Dictionary<Node, NodeView>();
+            foreach (var element in nodes.ToList())
+                if (element is NodeView view && view.Target != null)
+                    views[view.Target] = view;
+            foreach (var (from, output, to, input) in links)
+            {
+                var outPort = from?.GetPort(output);
+                var inPort = to?.GetPort(input);
+                if (outPort == null || inPort == null || !views.TryGetValue(from, out var fromView) || !views.TryGetValue(to, out var toView))
+                {
+                    Debug.LogWarning($"Couldn't wire {from?.Name}.{output} to {to?.Name}.{input}.");
+                    continue;
+                }
+                // An input takes one wire: whatever was in it makes way.
+                if (inPort.Capacity == PortCapacity.Single)
+                    foreach (var old in inPort.ConnectedPorts.ToList())
+                        Graph.RemoveEdge(old, inPort);
+                Graph.AddEdge(outPort, inPort);
+                var inView = toView.GetInputPort(input);
+                var outView = fromView.GetOutputPort(output);
+                if (inView != null && outView != null)
+                {
+                    // (Its old wire's view goes too.)
+                    foreach (var edge in edges.ToList())
+                        if (edge.input == inView && inPort.Capacity == PortCapacity.Single)
+                            RemoveElement(edge);
+                    AddElement(inView.ConnectTo(outView));
+                }
+            }
+            serializedGraph.Update();
+            EditorUtility.SetDirty(Graph);
         }
 
         /// <summary>

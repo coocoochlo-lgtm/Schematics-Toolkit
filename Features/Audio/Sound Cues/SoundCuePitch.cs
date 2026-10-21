@@ -114,6 +114,45 @@ namespace Remedy.Audio
         }
     }
 
+    [SchematicDoc(@"{""name"": ""Varispeed"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Controls"", ""description"": ""A playback Time that runs at Speed times real time (1 normal, 2 twice as fast, 0 stopped, negative backwards), built up a sample at a time, so changing Speed never makes it jump. Plug it into an Oscillator's Time (with Frequency 1, Speed is then its frequency: an engine's firing rate from its RPM), or a Sound Wave's or Generator's (smooth tape-style speed and pitch changes)."", ""inputs"": [{""name"": ""Speed"", ""type"": ""float""}], ""outputs"": [{""name"": ""Time"", ""type"": ""float""}], ""use_for"": [""engines and motors whose pitch follows a parameter"", ""tape slow-downs and speed-ups"", ""smoothly changing tones""]}")]
+    [Serializable]
+    [Node(Name = "Varispeed", Path = "Controls"), Tags(SoundNode.Tag)]
+    public class SoundVarispeedNode : SoundNode
+    {
+        [Input("Speed", Editable = true)] public float Speed = 1f;
+        [Output("Time")] public float Time;
+
+        public override SoundProcessor CreateProcessor(SoundCueBuilder builder) => new Processor { Speed = builder.Input(this, "Speed", Speed) };
+
+        private sealed class Processor : SoundProcessor
+        {
+            public float[] Speed;
+            private double _time;
+            private bool _started;
+
+            public override void Reset(SoundContext context) => _started = false;
+
+            public override void Process(SoundContext context, int count)
+            {
+                var o = Output("Time");
+                double step = 1.0 / context.SampleRate;
+                if (!_started)
+                {
+                    // A cue started part way through starts its Varispeed there too.
+                    _time = context.SamplePosition * step;
+                    _started = true;
+                }
+                for (int i = 0; i < count; i++)
+                {
+                    o[i] = (float)_time;
+                    float speed = Speed[i];
+                    if (!float.IsNaN(speed) && !float.IsInfinity(speed))
+                        _time += speed * step;
+                }
+            }
+        }
+    }
+
     [SchematicDoc(@"{""name"": ""Pitch Shift"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Effects"", ""description"": ""Changes the pitch without changing the speed: Pitch is a ratio (2 an octave up, 0.5 an octave down; an Arpeggiator's Pitch plugs straight in), times Semitones more. Window (ms) is how long the slices it's made of are: short (20-40) for drums and hits, long (60-120) for tones and voices; very short or extreme shifts get grainy and robotic, on purpose if you like. Mix blends it with the original (a harmony)."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Pitch"", ""type"": ""float""}, {""name"": ""Semitones"", ""type"": ""float""}, {""name"": ""Mix"", ""type"": ""float""}], ""outputs"": [{""name"": ""Out"", ""type"": ""audio""}], ""use_for"": [""higher or lower variations of one sound without it getting faster or slower"", ""harmonies (Mix 0.5)"", ""monster and robot voices"", ""shimmer: in a Reverb's trail""]}")]
     [Serializable]
     [Node(Name = "Pitch Shift", Path = "Effects"), Tags(SoundNode.Tag)]
