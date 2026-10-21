@@ -25,7 +25,7 @@ namespace Remedy.Audio
             {
                 canvas.Q("sound-cue-bar")?.RemoveFromHierarchy();
                 if (window.SchematicGraph is SoundCueGraph cue)
-                    canvas.Add(new PreviewBar(cue));
+                    canvas.Add(new PreviewBar(cue, window));
             };
         }
 
@@ -103,6 +103,8 @@ namespace Remedy.Audio
             private static readonly Color Pink = new(0.95f, 0.6f, 0.8f);
 
             private readonly SoundCueGraph _cue;
+            // The window showing the cue: what the bar's previews belong to.
+            private readonly SchematicGraphEditorWindow _window;
             private readonly Button _play, _loop, _channels;
             private readonly Label _time, _warnings, _where;
             private readonly Slider _timeline;
@@ -114,9 +116,10 @@ namespace Remedy.Audio
             private float? _pendingSeek;
             private bool _scrubbing;      // a scrub waiting for the next tick (so dragging doesn't restart it every event)
 
-            public PreviewBar(SoundCueGraph cue)
+            public PreviewBar(SoundCueGraph cue, SchematicGraphEditorWindow window)
             {
                 _cue = cue;
+                _window = window;
                 name = "sound-cue-bar";
                 style.position = Position.Absolute;
                 style.left = 8;
@@ -188,6 +191,16 @@ namespace Remedy.Audio
                 {
                     SoundCuePreview.Changed -= Refresh;
                     Undo.undoRedoPerformed -= Refresh;
+                    // Leaving the graph (another one opened in the window, or the window closed) stops what it played.
+                    // Checked a moment later: the canvas is also rebuilt while staying on the same graph.
+                    var window = _window;
+                    var cue = _cue;
+                    EditorApplication.delayCall += () =>
+                    {
+                        if (SoundCuePreview.Owner is SchematicGraphEditorWindow owner && owner == window
+                            && (window == null || window.SchematicGraph != cue))
+                            SoundCuePreview.Stop();
+                    };
                 });
                 schedule.Execute(Tick).Every(33);
             }
@@ -216,7 +229,7 @@ namespace Remedy.Audio
             private void Toggle()
             {
                 if (IsMine) SoundCuePreview.Stop();
-                else SoundCuePreview.Play(_cue);
+                else SoundCuePreview.Play(_cue, owner: _window);
                 Refresh();
             }
 
@@ -277,7 +290,7 @@ namespace Remedy.Audio
                     _pendingSeek = null;
                     if (_length > 0f)
                     {
-                        SoundCuePreview.Seek(_cue, Mathf.Min(seek, _length - 0.01f));
+                        SoundCuePreview.Seek(_cue, Mathf.Min(seek, _length - 0.01f), owner: _window);
                         Refresh();
                     }
                 }

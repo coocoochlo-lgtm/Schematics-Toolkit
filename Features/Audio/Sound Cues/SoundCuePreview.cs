@@ -75,9 +75,14 @@ namespace Remedy.Audio
         {
             get
             {
+                float t = (float)(EditorApplication.timeSinceStartup - _startedAt);
+                if (_orbit is { } orbit)
+                {
+                    float turn = orbit.turnsPerSecond * t * 2f * Mathf.PI;
+                    return new Vector2(Mathf.Sin(turn), Mathf.Cos(turn)) * orbit.radius;
+                }
                 if (Motion == PreviewMotion.Still)
                     return _position;
-                float t = (float)(EditorApplication.timeSinceStartup - _startedAt);
                 float radius = Mathf.Max(0.5f, Radius), speed = Mathf.Max(0.01f, Speed);
                 switch (Motion)
                 {
@@ -106,10 +111,40 @@ namespace Remedy.Audio
             }
         }
 
-        public static void Play(SoundCueGraph cue) => Play(cue, 0f);
+        /// <summary>
+        /// Who started the playing preview (a graph's preview bar, the Audio browser...), so each can stop only what it
+        /// started. Null when nothing's playing.
+        /// </summary>
+        public static object Owner { get; private set; }
+
+        /// <summary>Previews the cue, with the preview's own motion (the graph's radar pad).</summary>
+        public static void Play(SoundCueGraph cue, object owner = null)
+        {
+            _orbit = null;
+            Start(cue, 0f, owner);
+        }
+
+        /// <summary>
+        /// Previews the cue circling the listener at <paramref name="radius"/> meters, <paramref name="turnsPerSecond"/>
+        /// times a second (whatever the radar pad's motion is): how a Stereo cue sounds moving around you. Lasts until
+        /// it stops, or another Play.
+        /// </summary>
+        public static void PlayOrbiting(SoundCueGraph cue, float radius, float turnsPerSecond, object owner = null)
+        {
+            _orbit = (Mathf.Max(0.5f, radius), turnsPerSecond);
+            Start(cue, 0f, owner);
+        }
 
         /// <summary>Previews the cue from <paramref name="time"/> seconds in (starting it if it isn't playing).</summary>
-        public static void Seek(SoundCueGraph cue, float time) => Play(cue, time);
+        public static void Seek(SoundCueGraph cue, float time, object owner = null)
+        {
+            if (Playing != cue)
+                _orbit = null;
+            Start(cue, time, owner ?? (Playing == cue ? Owner : null));
+        }
+
+        // A browser's orbit for this play, in place of the preview's own motion.
+        private static (float radius, float turnsPerSecond)? _orbit;
 
         /// <summary>
         /// Takes the cue's current edits as already heard, so a change that doesn't affect the sound (Mono / Stereo)
@@ -121,10 +156,11 @@ namespace Remedy.Audio
                 _dirtyCount = EditorUtility.GetDirtyCount(cue);
         }
 
-        private static void Play(SoundCueGraph cue, float time)
+        private static void Start(SoundCueGraph cue, float time, object owner)
         {
             if (cue == null)
                 return;
+            Owner = owner;
             bool already = Playing == cue;
             if (_host == null)
             {
@@ -165,6 +201,8 @@ namespace Remedy.Audio
                 Object.DestroyImmediate(_host);
             _host = null;
             _player = null;
+            Owner = null;
+            _orbit = null;
             EditorApplication.update -= Update;
             if (was)
                 Changed?.Invoke();
