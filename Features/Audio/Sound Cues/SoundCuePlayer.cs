@@ -120,7 +120,10 @@ namespace Remedy.Audio
         }
 
         /// <summary>Plays the cue from the start (stopping it first if it's playing).</summary>
-        public void Play()
+        public void Play() => Play(0f);
+
+        /// <summary>Plays the cue from <paramref name="startTime"/> seconds in (stopping it first if it's playing).</summary>
+        public void Play(float startTime)
         {
             Stop();
             if (Cue == null)
@@ -133,6 +136,10 @@ namespace Remedy.Audio
             foreach (var warning in voice.Warnings)
                 Debug.LogWarning($"Sound Cue \"{Cue.name}\": {warning}", Cue);
             voice.Context.Distance = CurrentDistance();
+            long start = (long)(Mathf.Max(0f, startTime) * (double)rate);
+            if (voice.LengthSamples > 0)
+                start = Math.Min(start, voice.LengthSamples - 1);
+            voice.Context.SamplePosition = Math.Max(0, start);
             _voice = voice;
             UpdateRoom(immediate: true);
             RunProbes(voice);
@@ -158,6 +165,8 @@ namespace Remedy.Audio
             Source.clip = _clip;
             Source.loop = endless;
             UpdateControls(voice);
+            // The clip's own position follows, so a cue started part way through ends when it should.
+            Source.timeSamples = endless ? 0 : (int)Math.Min(start, length - 1);
             Source.Play();
         }
 
@@ -437,7 +446,8 @@ namespace Remedy.Audio
 
             var source = player.Source;
             source.volume = volume;
-            source.spatialBlend = spatialBlend;
+            // Mono cues are flat wherever they play.
+            source.spatialBlend = cue.IsSpatial ? spatialBlend : 0f;
             player.Cue = cue;
             player.Play();
             return player;

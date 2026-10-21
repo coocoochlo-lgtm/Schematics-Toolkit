@@ -6,10 +6,11 @@ namespace Remedy.Audio
 {
     /// <summary>
     /// Editor only: plays a Sound Cue without entering Play Mode (the graph window's Preview and the Audio page's
-    /// cards). It's heard in 3D around an imaginary listener: placed by hand on the preview's radar pad, or moved by a
-    /// motion (orbiting, flying by, coming closer...), panned and fading with distance as it goes, and Distance To
-    /// Listener nodes follow it. It's played again whenever the cue is edited while previewing, so changes are heard
-    /// as they're made, and stops at the end of the cue.
+    /// cards). A Stereo cue is heard in 3D around an imaginary listener: placed by hand on the preview's radar pad, or
+    /// moved by a motion (orbiting, flying by, coming closer...), panned and fading with distance as it goes; a Mono
+    /// cue is heard flat and centered. Distance To Listener nodes follow the sound either way. It's played again
+    /// whenever the cue is edited while previewing, so changes are heard as they're made, and stops at the end of the
+    /// cue (or starts over, with Loop on). Seek plays it from part way through.
     /// </summary>
     public static class SoundCuePreview
     {
@@ -43,8 +44,12 @@ namespace Remedy.Audio
         /// <summary>Raised when a preview starts or stops.</summary>
         public static event System.Action Changed;
 
-        /// <summary>Heard in 3D (panned, fading with distance); off, flat and centered as before.</summary>
-        public static bool Spatial = true;
+        /// <summary>Plays the cue again from the start when it ends.</summary>
+        public static bool Loop
+        {
+            get => EditorPrefs.GetBool("Remedy.SoundCuePreview.Loop", false);
+            set => EditorPrefs.SetBool("Remedy.SoundCuePreview.Loop", value);
+        }
         public static PreviewMotion Motion = PreviewMotion.Still;
         /// <summary>How far the motions reach, in meters.</summary>
         public static float Radius = 10f;
@@ -98,10 +103,26 @@ namespace Remedy.Audio
             }
         }
 
-        public static void Play(SoundCueGraph cue)
+        public static void Play(SoundCueGraph cue) => Play(cue, 0f);
+
+        /// <summary>Previews the cue from <paramref name="time"/> seconds in (starting it if it isn't playing).</summary>
+        public static void Seek(SoundCueGraph cue, float time) => Play(cue, time);
+
+        /// <summary>
+        /// Takes the cue's current edits as already heard, so a change that doesn't affect the sound (Mono / Stereo)
+        /// doesn't play it again from the start.
+        /// </summary>
+        public static void AcceptEdits(SoundCueGraph cue)
+        {
+            if (_player != null && _player.Cue == cue)
+                _dirtyCount = EditorUtility.GetDirtyCount(cue);
+        }
+
+        private static void Play(SoundCueGraph cue, float time)
         {
             if (cue == null)
                 return;
+            bool already = Playing == cue;
             if (_host == null)
             {
                 _host = new GameObject("Sound Cue Preview") { hideFlags = HideFlags.HideAndDontSave };
@@ -119,11 +140,15 @@ namespace Remedy.Audio
             }
             _player.Cue = cue;
             _player.PreviewStereo = true;
-            // Audio files are read again, in case they were reimported.
-            SoundClipCache.Clear();
-            SoundCueVoicePool.Clear(cue);
-            _startedAt = EditorApplication.timeSinceStartup;
-            _player.Play();
+            // Audio files are read again, in case they were reimported (not on every seek of a playing preview).
+            if (!already)
+            {
+                SoundClipCache.Clear();
+                SoundCueVoicePool.Clear(cue);
+            }
+            if (time <= 0f || !already)
+                _startedAt = EditorApplication.timeSinceStartup;
+            _player.Play(time);
             Apply();
             _dirtyCount = EditorUtility.GetDirtyCount(cue);
             Changed?.Invoke();
@@ -152,7 +177,7 @@ namespace Remedy.Audio
             if (_player == null)
                 return;
             var position = CurrentPosition;
-            if (Spatial)
+            if (_player.Cue == null || _player.Cue.IsSpatial)
                 _player.SetPreviewPosition(position);
             else
             {
@@ -173,6 +198,12 @@ namespace Remedy.Audio
             var voice = _player.Voice;
             if (voice == null || (voice.Finished && !_player.Source.isPlaying))
             {
+                if (voice != null && Loop)
+                {
+                    _player.Play();
+                    Apply();
+                    return;
+                }
                 Stop();
                 return;
             }

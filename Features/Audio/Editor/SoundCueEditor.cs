@@ -93,15 +93,26 @@ namespace Remedy.Audio
         #endregion
 
         /// <summary>
-        /// The bar along the top of a Sound Cue's canvas: preview it, and see where it is and what's wrong. The radar pad
-        /// shows the listener (in the middle, facing up) and the sound: drag the dot to place it, or pick a motion.
+        /// The bar along the top of a Sound Cue's canvas: whether the cue is Mono or Stereo (by its title), preview it
+        /// (once or looping), scrub through it on the timeline, and see where it is and what's wrong. For Stereo cues
+        /// the radar pad shows the listener (in the middle, facing up) and the sound: drag the dot to place it, or pick a
+        /// motion.
         /// </summary>
         private sealed class PreviewBar : VisualElement
         {
+            private static readonly Color Pink = new(0.95f, 0.6f, 0.8f);
+
             private readonly SoundCueGraph _cue;
-            private readonly Button _play;
+            private readonly Button _play, _loop, _channels;
             private readonly Label _time, _warnings, _where;
+            private readonly Slider _timeline;
             private readonly RadarPad _radar;
+            private readonly VisualElement _spatial;
+
+            private float _length = -1f;      // seconds; 0: endless; -1: not known yet
+            private int _lengthDirty = -1;    // the cue's dirty count _length was found at
+            private float? _pendingSeek;
+            private bool _scrubbing;      // a scrub waiting for the next tick (so dragging doesn't restart it every event)
 
             public PreviewBar(SoundCueGraph cue)
             {
@@ -117,23 +128,34 @@ namespace Remedy.Audio
                 style.borderTopLeftRadius = style.borderTopRightRadius = style.borderBottomLeftRadius = style.borderBottomRightRadius = 6;
 
                 var top = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center } };
-                top.Add(new Label("SOUND CUE") { style = { unityFontStyleAndWeight = FontStyle.Bold, marginRight = 8, color = new Color(0.95f, 0.6f, 0.8f) } });
+                top.Add(new Label("SOUND CUE") { style = { unityFontStyleAndWeight = FontStyle.Bold, marginRight = 4, color = Pink } });
+                _channels = new Button(ToggleChannels) { tooltip = "Stereo: placed in the world, panned and fading with distance (the radar pad). Mono: flat and centered wherever it plays. Click to switch." };
+                Pill(_channels);
+                top.Add(_channels);
                 _play = new Button(Toggle) { tooltip = "Hear the cue (edits replay it as you make them)." };
                 _play.style.minWidth = 70;
+                _play.style.marginLeft = 8;
                 top.Add(_play);
-                _time = new Label { style = { marginLeft = 8, minWidth = 90, unityTextAlign = TextAnchor.MiddleLeft, opacity = 0.8f } };
+                _loop = new Button(() => { SoundCuePreview.Loop = !SoundCuePreview.Loop; Refresh(); }) { text = "⟲ Loop", tooltip = "Play the cue again from the start when it ends." };
+                top.Add(_loop);
+                _time = new Label { style = { marginLeft = 8, minWidth = 110, unityTextAlign = TextAnchor.MiddleLeft, opacity = 0.8f } };
                 top.Add(_time);
                 Add(top);
 
-                var body = new VisualElement { style = { flexDirection = FlexDirection.Row, marginTop = 4 } };
+                _timeline = new Slider(0f, 1f) { tooltip = "Where the cue is. Drag to hear it from there." };
+                _timeline.style.marginTop = 2;
+                _timeline.RegisterValueChangedCallback(evt => _pendingSeek = evt.newValue);
+                // While it's held, the playhead doesn't pull the handle away from the mouse.
+                _timeline.RegisterCallback<PointerDownEvent>(_ => _scrubbing = true, TrickleDown.TrickleDown);
+                _timeline.RegisterCallback<PointerUpEvent>(_ => _scrubbing = false, TrickleDown.TrickleDown);
+                _timeline.RegisterCallback<PointerCaptureOutEvent>(_ => _scrubbing = false, TrickleDown.TrickleDown);
+                Add(_timeline);
+
+                _spatial = new VisualElement { style = { flexDirection = FlexDirection.Row, marginTop = 4 } };
                 _radar = new RadarPad();
-                body.Add(_radar);
+                _spatial.Add(_radar);
 
                 var controls = new VisualElement { style = { marginLeft = 8, width = 230 } };
-                var spatial = new Toggle("3D") { value = SoundCuePreview.Spatial, tooltip = "Hear it panned and fading with distance, as in the game. Off: flat and centered." };
-                spatial.RegisterValueChangedCallback(evt => SoundCuePreview.Spatial = evt.newValue);
-                controls.Add(Narrow(spatial));
-
                 var motion = new EnumField("Motion", SoundCuePreview.Motion) { tooltip = "How the sound moves around the listener (Still: where you put it on the pad)." };
                 motion.RegisterValueChangedCallback(evt =>
                 {
@@ -153,16 +175,29 @@ namespace Remedy.Audio
 
                 _where = new Label { style = { opacity = 0.8f, marginTop = 2 } };
                 controls.Add(_where);
-                body.Add(controls);
-                Add(body);
+                _spatial.Add(controls);
+                Add(_spatial);
 
                 _warnings = new Label { style = { color = new Color(1f, 0.75f, 0.3f), whiteSpace = WhiteSpace.Normal, maxWidth = 520, display = DisplayStyle.None } };
                 Add(_warnings);
 
                 Refresh();
                 SoundCuePreview.Changed += Refresh;
-                RegisterCallback<DetachFromPanelEvent>(_ => SoundCuePreview.Changed -= Refresh);
+                Undo.undoRedoPerformed += Refresh;
+                RegisterCallback<DetachFromPanelEvent>(_ =>
+                {
+                    SoundCuePreview.Changed -= Refresh;
+                    Undo.undoRedoPerformed -= Refresh;
+                });
                 schedule.Execute(Tick).Every(33);
+            }
+
+            private static void Pill(Button button)
+            {
+                button.style.unityFontStyleAndWeight = FontStyle.Bold;
+                button.style.fontSize = 10;
+                button.style.minWidth = 54;
+                button.style.borderTopLeftRadius = button.style.borderTopRightRadius = button.style.borderBottomLeftRadius = button.style.borderBottomRightRadius = 8;
             }
 
             private static T Narrow<T>(T field) where T : VisualElement
@@ -185,13 +220,49 @@ namespace Remedy.Audio
                 Refresh();
             }
 
+            private void ToggleChannels()
+            {
+                Undo.RecordObject(_cue, "Sound Cue Mono / Stereo");
+                _cue.Channels = _cue.IsSpatial ? SoundCueGraph.SoundCueChannels.Mono : SoundCueGraph.SoundCueChannels.Stereo;
+                EditorUtility.SetDirty(_cue);
+                // Heard differently straight away, without starting over.
+                SoundCuePreview.AcceptEdits(_cue);
+                Refresh();
+            }
+
             private void Refresh()
             {
                 _play.text = IsMine ? "■ Stop" : "▶ Preview";
+                bool spatial = _cue.IsSpatial;
+                _channels.text = spatial ? "STEREO" : "MONO";
+                _channels.style.color = spatial ? Pink : new Color(0.85f, 0.85f, 0.85f);
+                _spatial.style.display = spatial ? DisplayStyle.Flex : DisplayStyle.None;
+                bool loop = SoundCuePreview.Loop;
+                _loop.style.color = loop ? Pink : new Color(0.85f, 0.85f, 0.85f, 0.6f);
+                _loop.style.unityFontStyleAndWeight = loop ? FontStyle.Bold : FontStyle.Normal;
                 var warnings = IsMine ? SoundCuePreview.Voice?.Warnings : null;
                 bool any = warnings != null && warnings.Count > 0;
                 _warnings.text = any ? string.Join("\n", warnings.Distinct().Select(w => "⚠ " + w)) : "";
                 _warnings.style.display = any ? DisplayStyle.Flex : DisplayStyle.None;
+            }
+
+            // The cue's length (from a voice, built once per edit), for the timeline.
+            private void UpdateLength(SoundCueVoice playing)
+            {
+                if (playing != null)
+                {
+                    _length = playing.Context.Duration;
+                    _lengthDirty = EditorUtility.GetDirtyCount(_cue);
+                    return;
+                }
+                int dirty = EditorUtility.GetDirtyCount(_cue);
+                if (_length >= 0f && dirty == _lengthDirty)
+                    return;
+                _lengthDirty = dirty;
+                int rate = AudioSettings.outputSampleRate > 0 ? AudioSettings.outputSampleRate : 48000;
+                var voice = SoundCueVoicePool.Rent(_cue, rate);
+                _length = voice != null ? voice.Context.Duration : 0f;
+                SoundCueVoicePool.Return(voice);
             }
 
             private void Tick()
@@ -200,16 +271,34 @@ namespace Remedy.Audio
                 _where.text = $"{position.magnitude:0.0} m away, {Side(position)}";
                 _radar.MarkDirtyRepaint();
 
+                if (_pendingSeek.HasValue)
+                {
+                    float seek = _pendingSeek.Value;
+                    _pendingSeek = null;
+                    if (_length > 0f)
+                    {
+                        SoundCuePreview.Seek(_cue, Mathf.Min(seek, _length - 0.01f));
+                        Refresh();
+                    }
+                }
+
                 var voice = IsMine ? SoundCuePreview.Voice : null;
+                UpdateLength(voice);
+                bool endless = _length <= 0f;
+                _timeline.SetEnabled(!endless);
+                if (!endless && !Mathf.Approximately(_timeline.highValue, _length))
+                    _timeline.highValue = _length;
+
                 if (voice == null)
                 {
-                    _time.text = "";
+                    _time.text = endless ? "endless" : $"{_length:0.00} s";
                     if (_play.text != "▶ Preview")
                         Refresh();
                     return;
                 }
-                float length = voice.Context.Duration;
-                _time.text = length > 0f ? $"{voice.Time:0.00} / {length:0.00} s" : $"{voice.Time:0.00} s (endless)";
+                if (!endless && !_scrubbing)
+                    _timeline.SetValueWithoutNotify(Mathf.Min(voice.Time, _length));
+                _time.text = !endless ? $"{voice.Time:0.00} / {_length:0.00} s" : $"{voice.Time:0.00} s (endless)";
             }
 
             private static string Side(Vector2 p)

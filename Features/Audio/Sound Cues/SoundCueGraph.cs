@@ -29,6 +29,21 @@ namespace Remedy.Audio
 
         public override string Title => "SOUND CUE";
 
+        /// <summary>How the cue is heard (switched by the MONO / STEREO button by the cue's title in its graph).</summary>
+        public enum SoundCueChannels
+        {
+            /// <summary>Placed in the world: panned left and right and fading with distance (spatial).</summary>
+            Stereo,
+            /// <summary>Flat and centered wherever it plays (UI, music, the player's own voice).</summary>
+            Mono,
+        }
+
+        [Tooltip("Stereo: placed in the world, panned and fading with distance. Mono: flat and centered wherever it plays.")]
+        public SoundCueChannels Channels = SoundCueChannels.Stereo;
+
+        /// <summary>Whether the cue is heard placed in the world (Stereo) rather than flat (Mono).</summary>
+        public bool IsSpatial => Channels == SoundCueChannels.Stereo;
+
         /// <summary>The cue's Output node (the first one, if there are several).</summary>
         public SoundCueOutput Output
         {
