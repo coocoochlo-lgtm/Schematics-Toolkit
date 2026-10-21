@@ -45,6 +45,11 @@ namespace Remedy.Audio
         public Vector3 HeardFrom;
         /// <summary>How far it travelled to get here (the whole way round, when it went round).</summary>
         public float Distance;
+        /// <summary>
+        /// Going round: how far behind the corner the noise is, 0 (at its edge: still mostly heard straight) to 1 (fully
+        /// round it). 1 through walls, 0 straight.
+        /// </summary>
+        public float Behind;
         /// <summary>The doorway it came through nearest the ear (-1: none), in <see cref="Field"/>'s doorways.</summary>
         public int Doorway;
         public SoundField Field;
@@ -61,6 +66,8 @@ namespace Remedy.Audio
     {
         /// <summary>How loud what gets through a wall is, next to hearing it in the open.</summary>
         public const float ThroughWalls = 0.25f;
+        /// <summary>How far a noise must be behind a corner (degrees, seen from the ear) to be heard fully round it.</summary>
+        public const float FadeAngle = 35f;
         /// <summary>The most noises kept at once (the oldest go first).</summary>
         public const int MaxNoises = 256;
 
@@ -152,13 +159,21 @@ namespace Remedy.Audio
             switch (way.Route)
             {
                 case SoundRoute.Around:
-                    heard.Distance = way.Length;
-                    heard.HeardFrom = way.CornerA;
+                {
+                    // Just past the corner's edge it's still mostly heard straight, fading to fully round the corner by
+                    // FadeAngle degrees behind it (the angle between the corner and the noise, seen from the ear).
+                    float angle = Vector3.Angle(way.CornerA - ear, noise.Position - ear);
+                    float behind = Mathf.SmoothStep(0f, 1f, angle / FadeAngle);
+                    heard.Behind = behind;
+                    heard.Distance = Mathf.Lerp(straight, way.Length, behind);
+                    heard.HeardFrom = Vector3.Lerp(noise.Position, way.CornerA, behind);
                     // A sharper bend loses more, and dulls it.
-                    heard.Loudness = Falloff(way.Length, range) * Mathf.Lerp(1f, 0.5f, way.BendA);
-                    heard.Muffled = Mathf.Clamp01(way.BendA * 1.2f) * 0.6f;
+                    heard.Loudness = Mathf.Lerp(Falloff(straight, range), Falloff(way.Length, range) * Mathf.Lerp(1f, 0.5f, way.BendA), behind);
+                    heard.Muffled = Mathf.Clamp01(way.BendA * 1.2f) * 0.6f * behind;
                     break;
+                }
                 case SoundRoute.Sealed:
+                    heard.Behind = 1f;
                     heard.Distance = straight;
                     heard.HeardFrom = noise.Position;
                     heard.Loudness = Falloff(straight, range) * ThroughWalls;

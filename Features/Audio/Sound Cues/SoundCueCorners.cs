@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace Remedy.Audio
 {
-    [SchematicDoc(@"{""name"": ""Around Corners"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Effects"", ""description"": ""Sound that bends round corners. When walls block the straight line to the listener but there's a way round (a doorway, the end of a corridor), the sound is heard from the last corner it comes round: quieter for the longer way, a little later, and duller the sharper it bends (Bend Cutoff at a right angle). What still gets straight through the walls is Through Walls loud, muffled to Through Cutoff (Hz). Fully closed in, only that is heard. In the game the ways round come from the Sound Field baked there; in the preview from its surroundings (try Doorway or Corner). Put it last, so everything before it goes round the corner."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Through Walls"", ""type"": ""float""}, {""name"": ""Through Cutoff"", ""type"": ""float""}], ""outputs"": [{""name"": ""Out"", ""type"": ""audio""}], ""use_for"": [""a sound in the next room heard through the doorway"", ""footsteps coming round a corridor corner""], ""notes"": ""Only for 3D (Stereo) cues. Sound Fields baked before this was added need baking again.""}")]
+    [SchematicDoc(@"{""name"": ""Around Corners"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Effects"", ""description"": ""Sound that bends round corners. When walls block the straight line to the listener but there's a way round (a doorway, the end of a corridor), the sound is heard from the last corner it comes round, fading in as it slips behind the corner (fully round by Fade Angle degrees past the edge, seen from the listener): quieter for the longer way, a little later, and duller the sharper it bends (Bend Cutoff at a right angle). What still gets straight through the walls is Through Walls loud, muffled to Through Cutoff (Hz). Fully closed in, only that is heard. In the game the ways round come from the Sound Field baked there; in the preview from its surroundings (try Doorway or Corner). Put it last, so everything before it goes round the corner."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Through Walls"", ""type"": ""float""}, {""name"": ""Through Cutoff"", ""type"": ""float""}], ""outputs"": [{""name"": ""Out"", ""type"": ""audio""}], ""use_for"": [""a sound in the next room heard through the doorway"", ""footsteps coming round a corridor corner""], ""notes"": ""Only for 3D (Stereo) cues. Sound Fields baked before this was added need baking again.""}")]
     [Serializable]
     [Node(Name = "Around Corners", Path = "Effects"), Tags(SoundNode.Tag)]
     public class SoundCornersNode : SoundNode
@@ -16,6 +16,8 @@ namespace Remedy.Audio
         [Input("Through Cutoff", Editable = true)] public float ThroughCutoff = 700f;
         [Editable, Tooltip("How dull (Hz) the sound is when it bends a right angle round a corner (sharper bends are duller).")]
         public float BendCutoff = 2500f;
+        [Editable, Tooltip("How far the sound must slip behind the corner (in degrees, seen from the listener: the angle between the corner and the sound) before it's heard fully round it. Closer to the edge, it fades between heard straight and heard round.")]
+        public float FadeAngle = 35f;
         [Editable, Tooltip("Seconds to glide between heard straight and heard round a corner.")]
         public float Smoothing = 0.15f;
         [Output("Out")] public float Out;
@@ -85,8 +87,11 @@ namespace Remedy.Audio
                     Set(null, 1f);
                     return;
                 }
-                var bus = route == SoundRoute.Around && pool != null
-                    ? pool.Take(_claim, corner, Cutoff(bend))
+                // How far behind the corner the sound has slipped, seen from the listener: just past the edge it's still
+                // mostly heard straight (sound spreads round an edge), fading to fully round the corner by Fade Angle.
+                float behind = route == SoundRoute.Around ? Behind(world.ListenerPosition, corner, world.Position, Node.FadeAngle) : 0f;
+                var bus = route == SoundRoute.Around && pool != null && behind > 0f
+                    ? pool.Take(_claim, corner, Cutoff(bend * behind))
                     : null;
                 if (bus == null)
                 {
@@ -99,12 +104,22 @@ namespace Remedy.Audio
                 {
                     Corner = bus,
                     // As loud as the sound itself would be the whole way round (the corner's bus has no falloff of its own).
-                    CornerGain = world.Hearing != null ? world.Hearing(length) : 1f / Mathf.Max(1f, length),
+                    CornerGain = (world.Hearing != null ? world.Hearing(length) : 1f / Mathf.Max(1f, length)) * behind,
                     // Later than the sound itself by the longer way.
                     CornerDelay = (int)(Mathf.Max(0f, length - straight) / SoundSpaces.SpeedOfSound * bus.Rate),
                 };
                 // The straight sound is only turned down to what gets through the walls once the corner is playing it.
-                Set(sends, bus.Healthy && Volatile.Read(ref Sending) != 0 ? 1f : 0f);
+                Set(sends, bus.Healthy && Volatile.Read(ref Sending) != 0 ? behind : 0f);
+            }
+
+            /// <summary>
+            /// How far a sound has slipped behind a corner, 0 (at its edge) to 1 (<paramref name="fadeAngle"/> degrees or
+            /// more past it), from the angle between the corner and the sound as seen from <paramref name="from"/>.
+            /// </summary>
+            internal static float Behind(Vector3 from, Vector3 corner, Vector3 sound, float fadeAngle)
+            {
+                float angle = Vector3.Angle(corner - from, sound - from);
+                return Mathf.SmoothStep(0f, 1f, angle / Mathf.Max(1f, fadeAngle));
             }
 
             // Duller the sharper it bends: Bend Cutoff at a right angle, evenly in pitch, down to a quarter of it bent back.
