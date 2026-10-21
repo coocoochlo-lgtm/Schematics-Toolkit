@@ -605,6 +605,8 @@ namespace Remedy.Vehicles
             // Wheels.
             int grounded = 0;
             Vector3 normalSum = Vector3.zero;
+            Vector3 groundPointSum = Vector3.zero;
+            float groundCheckDistanceForWheels = Mathf.Max(0f, p.GroundCheckDistance);
 
             for (int i = 0; i < wheels.Length; i++)
             {
@@ -612,41 +614,82 @@ namespace Remedy.Vehicles
                 ref var w = ref state.Wheels[i];
                 if (wheel?.Anchor == null)
                 {
+                    w.WasGrounded = w.Grounded;
                     w.Grounded = false;
                     continue;
                 }
 
                 Vector3 origin = wheel.Anchor.position;
+                w.SteerAngle = wheel.Steers ? steerAngle : 0f;
+                w.WasGrounded = w.Grounded;
+                w.Grounded = SchematicPhysics.SphereCast(origin, 0f, -up, out w.GroundHit, out _,
+                    groundCheckDistanceForWheels, p.GroundLayers, body);
+                if (w.Grounded)
+                {
+                    grounded++;
+                    normalSum += w.GroundHit.normal;
+                    groundPointSum += w.GroundHit.point;
+                }
+            }
+
+            // Actual contacts define a shared support plane; virtual wheel forces fade with real tire support.
+            Vector3 sharedGroundNormal = grounded > 0 ? normalSum.normalized : Vector3.zero;
+            Vector3 sharedGroundPoint = grounded > 0 ? groundPointSum / grounded : Vector3.zero;
+            float virtualGroundWeight = grounded > 0 ? Mathf.Clamp01((float)grounded / Mathf.Max(1f, wheelCount)) : 0f;
+
+            for (int i = 0; i < wheels.Length; i++)
+            {
+                var wheel = wheels[i];
+                ref var w = ref state.Wheels[i];
+                if (wheel?.Anchor == null)
+                    continue;
+
+                Vector3 origin = wheel.Anchor.position;
                 float radius = Mathf.Max(0.05f, wheel.Radius);
                 float rest = Mathf.Max(0.01f, p.SuspensionRestLength);
-                w.SteerAngle = wheel.Steers ? steerAngle : 0f;
+                bool actualGrounded = w.Grounded;
+                bool wasGrounded = w.WasGrounded;
+                float forceWeight = actualGrounded ? 1f : virtualGroundWeight;
+                Vector3 contactPoint;
+                Vector3 normal;
+                float contactDistance;
 
-                bool wasGrounded = w.Grounded;
-                float groundCheckDistance = Mathf.Max(0f, p.GroundCheckDistance);
-                w.Grounded = SchematicPhysics.SphereCast(origin, 0f, -up, out var hit, out _,
-                    groundCheckDistance, p.GroundLayers, body);
-                if (!w.Grounded)
+                if (actualGrounded)
                 {
-                    w.Extension = rest;
-                    w.RollSpeed *= 0.99f;
-                    w.TargetSpeedMultiplier = 1f;
-                    continue;
+                    var hit = w.GroundHit;
+                    contactPoint = hit.point;
+                    normal = hit.normal;
+                    contactDistance = hit.distance;
+                    w.Point = contactPoint;
+                    w.Normal = normal;
                 }
-                grounded++;
-                normalSum += hit.normal;
-                w.Point = hit.point;
-                w.Normal = hit.normal;
+                else
+                {
+                    w.TargetSpeedMultiplier = 1f;
+                    w.RollSpeed *= 0.99f;
+                    float upNormal = Vector3.Dot(up, sharedGroundNormal);
+                    contactDistance = upNormal > 0.1f
+                        ? Vector3.Dot(origin - sharedGroundPoint, sharedGroundNormal) / upNormal
+                        : float.MaxValue;
+                    if (grounded == 0 || contactDistance < 0f || contactDistance > groundCheckDistanceForWheels)
+                    {
+                        w.Extension = rest;
+                        continue;
+                    }
+                    normal = sharedGroundNormal;
+                    contactPoint = origin - up * contactDistance;
+                }
 
                 // Spring and damper along the suspension, pushing at the wheel.
-                float placementDistance = groundCheckDistance * Mathf.Clamp01(p.TirePlacementThreshold);
+                float placementDistance = groundCheckDistanceForWheels * Mathf.Clamp01(p.TirePlacementThreshold);
                 float maxExtension = Mathf.Clamp(placementDistance - radius, 0f, rest);
-                float extension = Mathf.Clamp(hit.distance - radius, 0f, maxExtension);
+                float extension = Mathf.Clamp(contactDistance - radius, 0f, maxExtension);
                 float compression = rest - extension;
                 w.Extension = extension;
                 Vector3 hubVelocity = native.GetWorldPointVelocity(origin);
                 float suspensionSpeed = Vector3.Dot(hubVelocity, up);
                 float springAcceleration = Mathf.Clamp(p.SpringStiffness * compression - p.SpringDamping * suspensionSpeed, 0f, p.MaxSuspensionAcceleration);
-                Vector3 suspensionForce = up * (springAcceleration * massShare);
+                Vector3 suspensionForce = up * (springAcceleration * massShare * forceWeight);
                 native.ApplyForce(suspensionForce, origin, true);
                 wheelForceTorque += Vector3.Cross(origin - centerOfMass, suspensionForce);
 
@@ -654,19 +697,18 @@ namespace Remedy.Vehicles
                 float load = p.GripScalesWithLoad && g > 0.001f ? Mathf.Clamp(springAcceleration / g, 0f, 2f) : 1f;
 
                 // The tyre's directions on the ground.
-                Vector3 normal = hit.normal;
                 Vector3 wheelForward = Quaternion.AngleAxis(w.SteerAngle, up) * forward;
                 Vector3 rollDirection = Vector3.ProjectOnPlane(wheelForward, normal).normalized;
                 Vector3 sideDirection = Vector3.Cross(normal, rollDirection);
-                Vector3 contactVelocity = native.GetWorldPointVelocity(hit.point);
+                Vector3 contactVelocity = native.GetWorldPointVelocity(contactPoint);
                 Vector3 stickyForce = Vector3.zero;
                 if (p.StickyForce > 0f && speedFraction >= Mathf.Clamp01(p.StickyThreshold))
                 {
-                    stickyForce = -up * (p.StickyForce * Mathf.Abs(forwardSpeed) * massShare);
-                    native.ApplyForce(stickyForce, hit.point, true);
-                    wheelForceTorque += Vector3.Cross(hit.point - centerOfMass, stickyForce);
+                    stickyForce = -up * (p.StickyForce * Mathf.Abs(forwardSpeed) * massShare * forceWeight);
+                    native.ApplyForce(stickyForce, contactPoint, true);
+                    wheelForceTorque += Vector3.Cross(contactPoint - centerOfMass, stickyForce);
                 }
-                if (!wasGrounded)
+                if (actualGrounded && !wasGrounded)
                 {
                     float landingSpeed = Mathf.Max(0f, -Vector3.Dot(contactVelocity, normal));
                     ApplyWheelTargetSpeedLoss(ref w, landingSpeed, massShare, p,
@@ -697,9 +739,9 @@ namespace Remedy.Vehicles
                     rollAcceleration -= rollSpeed * p.RollingResistance;
 
                 // Pushed somewhere between the road (rolls the car) and the centre of mass height (doesn't).
-                float heightToCenter = Vector3.Dot(centerOfMass - hit.point, up);
-                Vector3 at = hit.point + up * (heightToCenter * p.TyreForceHeight);
-                Vector3 tyreForce = (rollDirection * rollAcceleration + sideDirection * sideAcceleration) * massShare;
+                float heightToCenter = Vector3.Dot(centerOfMass - contactPoint, up);
+                Vector3 at = contactPoint + up * (heightToCenter * p.TyreForceHeight);
+                Vector3 tyreForce = (rollDirection * rollAcceleration + sideDirection * sideAcceleration) * (massShare * forceWeight);
                 native.ApplyForce(tyreForce, at, true);
                 wheelForceTorque += Vector3.Cross(at - centerOfMass, tyreForce);
 
@@ -1319,6 +1361,8 @@ namespace Remedy.Vehicles
     internal struct WheelState
     {
         public bool Grounded;
+        public bool WasGrounded;
+        public RaycastHit GroundHit;
         public float TargetSpeedMultiplier;
         public bool IsFront;
         public float Extension;

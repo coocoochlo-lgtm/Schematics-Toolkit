@@ -145,9 +145,12 @@ The body is a real Box3D body, so it can roll, tumble and land on its roof. How 
 - **Ground Check Distance** sets the full wheel ground-probe length. **Tire Placement Threshold** (0..1) caps
   suspension and visual placement to that fraction of the probe (0.5 places the tire halfway along it), while ground
   remains detected out to the full length. **Suspension Rest Length** is a further cap on travel.
-- **Sticky Threshold / Sticky Force**: above the speed threshold, each grounded tire gets a force along the car's
-  local -up direction, proportional to forward speed. This can press the car onto walls or ceilings when its wheels
-  are oriented toward them; no force is applied by ungrounded tires.
+- Ungrounded tires within the check distance borrow an averaged ground plane from the tires that did hit. Their
+  suspension, grip, sticky and drive forces are blended in by the grounded-tire fraction, so the assist fades toward
+  zero as actual support disappears. Only actual hits count as grounded or trigger landings.
+- **Sticky Threshold / Sticky Force**: above the speed threshold, tires with actual or blended ground contact get a
+  force along the car's local -up direction, proportional to forward speed. This can press the car onto walls or
+  ceilings when its wheels are oriented toward them.
 - **Air Level Strength / Damping**: levelling and damping in the air. **Air Control** applies steering as roll about
   the car's forward axis and signed Target Speed as pitch about its right axis, using forces at ungrounded tire
   anchors; it only runs when really airborne, not when lying on its roof.
