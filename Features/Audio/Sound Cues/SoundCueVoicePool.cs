@@ -149,7 +149,7 @@ namespace Remedy.Audio
                 if (node is SoundWaveNode wave && wave.Clip != null)
                     SoundClipCache.Get(wave.Clip);
                 else if (node is SoundGeneratorNode generator)
-                    _ = generator.Rendered;
+                    _ = generator.Loop ? generator.Looped : generator.Rendered;
             }
             int rate = AudioSettings.outputSampleRate > 0 ? AudioSettings.outputSampleRate : 48000;
             SoundCueVoicePool.Prewarm(this, rate, Mathf.Max(0, voices));

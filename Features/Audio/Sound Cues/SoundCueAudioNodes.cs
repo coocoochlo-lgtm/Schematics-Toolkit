@@ -89,8 +89,8 @@ namespace Remedy.Audio
         [Output("Audio")] public float Audio;
         [Output("Length")] public float Length;
 
-        [NonSerialized] private float[] _rendered;
-        [NonSerialized] private int _renderedSignature;
+        [NonSerialized] private float[] _rendered, _looped;
+        [NonSerialized] private int _renderedSignature, _loopedSignature;
 
         /// <summary>The sound, made again when the settings change (main thread).</summary>
         public float[] Rendered
@@ -108,9 +108,50 @@ namespace Remedy.Audio
             }
         }
 
+        /// <summary>Longest crossfade at a looping Generator's seam, in seconds.</summary>
+        public const float LoopCrossfade = 0.05f;
+
+        /// <summary>
+        /// The sound made to loop without a click (main thread): its end crossfades into what came just before its
+        /// start, so the last sample flows into the first rather than jumping (a wave is rarely at the same point of its
+        /// cycle at both ends). A little shorter than <see cref="Rendered"/>.
+        /// </summary>
+        public float[] Looped
+        {
+            get
+            {
+                var rendered = Rendered;
+                if (_looped == null || _loopedSignature != _renderedSignature)
+                {
+                    _looped = Seamless(rendered, Mathf.Min((int)(LoopCrossfade * SfxrSynth.SampleRate), rendered.Length / 3));
+                    _loopedSignature = _renderedSignature;
+                }
+                return _looped;
+            }
+        }
+
+        // Drops the first `fade` samples and blends them into the end: the loop is samples [fade, length), whose last
+        // `fade` samples turn smoothly into samples [0, fade) -- which led straight into sample `fade`, its start.
+        private static float[] Seamless(float[] samples, int fade)
+        {
+            if (fade < 2)
+                return samples;
+            int length = samples.Length - fade;
+            var loop = new float[length];
+            Array.Copy(samples, fade, loop, 0, length);
+            for (int j = 0; j < fade; j++)
+            {
+                float t = (j + 0.5f) / fade;
+                t = t * t * (3f - 2f * t);
+                int i = length - fade + j;
+                loop[i] = loop[i] * (1f - t) + samples[j] * t;
+            }
+            return loop;
+        }
+
         public override SoundProcessor CreateProcessor(SoundCueBuilder builder)
         {
-            var samples = Rendered;
+            var samples = Loop ? Looped : Rendered;
             float length = samples.Length / (float)SfxrSynth.SampleRate;
             if (!Loop)
                 builder.NoteSourceLength(length);
