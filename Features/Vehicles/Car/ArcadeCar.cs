@@ -667,7 +667,8 @@ namespace Remedy.Vehicles
                     castDistance, p.GroundLayers, body);
                 if (w.Grounded)
                 {
-                    w.GroundHit.distance += bodyTopOffset + tireRadius;
+                    // Convert the raised cast's travel back to distance from the wheel anchor.
+                    w.GroundHit.distance += tireRadius - bodyTopOffset;
                     grounded++;
                     Vector3 castNormal = w.GroundHit.normal;
                     w.GroundNormal = w.HasBlendedContact && contactTransitionTime > 0f
