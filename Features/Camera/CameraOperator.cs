@@ -7,7 +7,7 @@ namespace Remedy.Cameras
     /// The base of a camera rig: a Root that follows a target, with the Camera on a boom beneath it.
     /// The Camera Manager blends the scene camera toward the active Operator.
     /// </summary>
-    [SchematicDoc(@"{""name"": ""Camera Operator"", ""kind"": ""behavior"", ""description"": ""The base of a camera rig: a Root that follows a target, with the Camera on a boom beneath it. The Camera Manager blends the scene camera toward the active Operator."", ""variables"": [""Properties"", ""Follow"", ""Root"", ""Camera"", ""CameraCollisionRadius"", ""CurrentVolume"", ""AimDirection"", ""OrientCharacterToCamera"", ""XAxis"", ""YAxis"", ""ActualXAxis"", ""ActualYAxis"", ""AlignToTargetUp"", ""UpAlignSpeed""], ""signals"": [""SetObjectToFollow"", ""LookInput"", ""AimDirectionOutput"", ""OrientCharacterToCameraOutput""], ""use_for"": [""custom camera rigs""], ""notes"": ""Base of the camera Behaviors; use Third Person or Shoulder instead.""}")]
+    [SchematicDoc(@"{""name"": ""Camera Operator"", ""kind"": ""behavior"", ""description"": ""The base of a camera rig: a Root that follows a target, with the Camera on a boom beneath it. The Camera Manager blends the scene camera toward the active Operator."", ""variables"": [""Properties"", ""Follow"", ""Root"", ""Camera"", ""CameraCollisionRadius"", ""CurrentVolume"", ""AimDirection"", ""OrientCharacterToCamera"", ""XAxis"", ""YAxis"", ""ActualXAxis"", ""ActualYAxis"", ""AlignToTargetUp"", ""UpAlignSpeed"", ""HeadingRecovery""], ""signals"": [""SetObjectToFollow"", ""LookInput"", ""AimDirectionOutput"", ""OrientCharacterToCameraOutput""], ""use_for"": [""custom camera rigs""], ""notes"": ""Base of the camera Behaviors; use Third Person or Shoulder instead.""}")]
     public abstract class CameraOperator : SchematicBehavior
     {
         [SchematicDoc(@"{""name"": ""SetObjectToFollow"", ""kind"": ""signal"", ""behavior"": ""Camera Operator"", ""direction"": ""input"", ""params"": [{""name"": ""Target"", ""type"": ""GameObject""}], ""description"": ""Tells Camera Operator to act."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
@@ -69,6 +69,12 @@ namespace Remedy.Cameras
         [SchematicDoc(@"{""name"": ""UpAlignSpeed"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""float"", ""default"": ""3f"", ""description"": ""How quickly the camera's up follows the target's (higher is snappier).""}")]
         [Tooltip("How quickly the camera's up follows the target's (higher is snappier).")]
         public readonly VariableHandle<float> UpAlignSpeed = 3f;
+        [SchematicDoc(@"{""name"": ""HeadingRecovery"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""float"", ""default"": ""0.5f"", ""description"": ""After trips over walls and loops, how quickly the camera's idea of straight ahead settles back to the world's once it's on level-ish ground (the view doesn't move; 0: never).""}")]
+        [Tooltip("After trips over walls and loops, how quickly the camera's idea of straight ahead settles back to the world's once it's on level-ish ground (the view doesn't move; 0: never).")]
+        public readonly VariableHandle<float> HeadingRecovery = 0.5f;
+
+        /// <summary>Within this angle of world up, ground counts as level for <see cref="HeadingRecovery"/>.</summary>
+        protected const float LevelGroundAngle = 30f;
 
         // The camera's up, easing toward the target's, and the frame it carries: rolled along with the up a little
         // each frame (never rebuilt from world up), so headings stay continuous on walls, ceilings and loops.
@@ -93,6 +99,23 @@ namespace Remedy.Cameras
             var next = Vector3.Slerp(up, goal, 1f - Mathf.Exp(-UpAlignSpeed.Value * Time.deltaTime)).normalized;
             frame = (Quaternion.FromToRotation(up, next) * frame).normalized;
             up = next;
+
+            // Back on level-ish ground, the frame's "ahead" drifts back to the world's. It turns about the frame's own
+            // up and the heading turns the other way by the same amount, so frame * Euler(pitch, heading) -- the view --
+            // stays exactly where it is.
+            float recovery = HeadingRecovery.Value;
+            if (recovery > 0f && Vector3.Angle(up, Vector3.up) < LevelGroundAngle)
+            {
+                var level = Quaternion.FromToRotation(Vector3.up, up);
+                float twist = Vector3.SignedAngle(level * Vector3.forward, frame * Vector3.forward, up);
+                if (Mathf.Abs(twist) > 0.01f)
+                {
+                    float turn = twist * (1f - Mathf.Exp(-recovery * Time.deltaTime));
+                    frame = (frame * Quaternion.Euler(0f, -turn, 0f)).normalized;
+                    XAxis.Value += turn;
+                    ActualXAxis.Value += turn;
+                }
+            }
             return frame;
         }
 
