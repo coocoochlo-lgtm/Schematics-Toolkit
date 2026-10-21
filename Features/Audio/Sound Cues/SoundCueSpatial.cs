@@ -274,6 +274,11 @@ namespace Remedy.Audio
     /// </summary>
     internal sealed class SpatialSender
     {
+        /// <summary>
+        /// A Travel Time after the effect: the sound is heard later by its travel time, so everything sent is too
+        /// (null: none, or it's before the effect and what the effect hears is already late).
+        /// </summary>
+        public TravelDelay Travel;
         private readonly int _rate;
         private SpaceBus _room, _echoA, _echoB, _tail, _corner;
         private float _roomGain, _gainA, _gainB, _tailGain, _cornerGain;
@@ -302,7 +307,7 @@ namespace Remedy.Audio
         {
             if (context.HeardStart < 0 || count <= 0)
                 return;
-            long at = context.HeardSample(context.SamplePosition);
+            long at = context.HeardSample(context.SamplePosition) + (Travel != null ? Volatile.Read(ref Travel.Samples) : 0);
             SendTo(ref _room, ref _roomGain, ref _roomDelay, sends?.Room, (sends?.RoomGain ?? 0f) * mix, 0, sound, at, count);
             SendTo(ref _tail, ref _tailGain, ref _tailDelay, sends?.Tail, (sends?.TailGain ?? 0f) * mix, 0, sound, at, count);
             SendTo(ref _echoA, ref _gainA, ref _delayA, sends?.EchoA, (sends?.GainA ?? 0f) * mix, sends?.DelayA ?? 0, sound, at, count);
@@ -418,5 +423,17 @@ namespace Remedy.Audio
     internal interface ISpatial
     {
         SpatialProbe Place { get; }
+    }
+
+    /// <summary>How late a Travel Time is making its sound now, in samples (written by it on the audio thread).</summary>
+    internal sealed class TravelDelay
+    {
+        public int Samples;
+    }
+
+    /// <summary>A processor that sends to the world's spaces (a Spatial effect, Around Corners).</summary>
+    internal interface ISpatialSends
+    {
+        SpatialSender Sender { get; }
     }
 }

@@ -121,11 +121,12 @@ namespace Remedy.Audio
             }
         }
 
-        private sealed class Processor : SoundProcessor
+        private sealed class Processor : SoundProcessor, ISpatialSends
         {
             public float[] In, ThroughWalls, ThroughCutoff, Blocked;
             public Probe Place;
             private readonly SpatialSender _sender;
+            SpatialSender ISpatialSends.Sender => _sender;
             private float _muffled;
 
             public Processor(int sampleRate) => _sender = new SpatialSender(sampleRate);

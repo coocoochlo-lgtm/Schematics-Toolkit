@@ -267,6 +267,19 @@ namespace Remedy.Audio
                 Order.Add(helper);
         }
 
+        /// <summary>
+        /// How much longer than its length the cue goes on (seconds): sound that's still on its way when it ends (Travel
+        /// Time). Its Progress still runs over its length.
+        /// </summary>
+        public float Tail { get; private set; }
+
+        /// <summary>Notes that the cue's sound can arrive up to <paramref name="seconds"/> after it's made.</summary>
+        public void NoteTail(float seconds)
+        {
+            if (seconds > Tail)
+                Tail = seconds;
+        }
+
         /// <summary>Notes a source's length (a Sound Wave's clip, a Generator's sound) for Auto length.</summary>
         public void NoteSourceLength(float seconds)
         {
@@ -429,7 +442,7 @@ namespace Remedy.Audio
                 if (output.Length == SoundCueOutput.LengthMode.Auto && seconds <= 0f)
                     builder.Warnings.Add("Length is Auto but nothing in the cue has a length (no Sound Wave or Generator), so it plays until it's stopped.");
                 context.Duration = Mathf.Max(0f, seconds);
-                length = (long)Math.Ceiling(context.Duration * sampleRate);
+                length = context.Duration > 0f ? (long)Math.Ceiling((context.Duration + builder.Tail) * sampleRate) : 0;
             }
             var voice = new SoundCueVoice(cue, context, builder, audio, volume, length) { BuiltVersion = SoundCueVoicePool.Version(cue) };
             voice.Restart(seed);

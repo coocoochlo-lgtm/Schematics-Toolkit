@@ -483,7 +483,7 @@ namespace Remedy.Audio
             }
         }
 
-        private sealed class Processor : SoundProcessor, ITrailed, ISpatial
+        private sealed class Processor : SoundProcessor, ITrailed, ISpatial, ISpatialSends
         {
             public float[] In, Delay, Feedback, Mix, Line;
             // Spatial: the place's amount (which Mix scales), and the sends to echo walls.
@@ -493,6 +493,7 @@ namespace Remedy.Audio
             public TrailProbe Trail;
             TrailProbe ITrailed.Trail => Trail;
             SpatialProbe ISpatial.Place => Place;
+            SpatialSender ISpatialSends.Sender => _sender;
             private readonly SpatialSender _sender;
             private int _write;
 
@@ -760,7 +761,7 @@ namespace Remedy.Audio
 
         // Freeverb (ReverbCore). Spatial: shaped by the place, and sending to the place's room or echo walls. Trail: the
         // reverb is made at the trail's spots instead (the sound only sends to them), when it can leave them.
-        private sealed class Processor : SoundProcessor, ITrailed, ISpatial
+        private sealed class Processor : SoundProcessor, ITrailed, ISpatial, ISpatialSends
         {
             public float[] In, RoomSize, Damping, Mix;
             // Spatial: the feedback itself (instead of Room Size), the place's amount (which Mix scales), and the sends.
@@ -769,6 +770,7 @@ namespace Remedy.Audio
             public TrailProbe Trail;
             TrailProbe ITrailed.Trail => Trail;
             SpatialProbe ISpatial.Place => Place;
+            SpatialSender ISpatialSends.Sender => _sender;
             private readonly ReverbCore _core;
             private readonly SpatialSender _sender;
 
