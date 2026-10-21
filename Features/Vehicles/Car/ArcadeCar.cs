@@ -511,7 +511,6 @@ namespace Remedy.Vehicles
 
             float targetSpeedMultiplier = 1f;
             float supportedWheelLoad = 0f;
-            Vector3 supportNormalSum = Vector3.zero;
             Vector3 wheelForceTorque = Vector3.zero;
             for (int i = 0; i < state.Wheels.Length; i++)
             {
@@ -753,8 +752,7 @@ namespace Remedy.Vehicles
                 Vector3 hubVelocity = native.GetWorldPointVelocity(origin);
                 float suspensionSpeed = Vector3.Dot(hubVelocity, up);
                 float springAcceleration = Mathf.Clamp(p.SpringStiffness * compression - p.SpringDamping * suspensionSpeed, 0f, p.MaxSuspensionAcceleration);
-                Vector3 suspensionForce = SmoothWheelForce(ref w.SuspensionForce,
-                    up * (springAcceleration * massShare * forceWeight), contactBlendStep);
+                Vector3 suspensionForce = up * (springAcceleration * massShare * forceWeight);
                 native.ApplyForce(suspensionForce, origin, true);
                 wheelForceTorque += Vector3.Cross(origin - centerOfMass, suspensionForce);
 
@@ -769,7 +767,6 @@ namespace Remedy.Vehicles
                 Vector3 stickyForce = Vector3.zero;
                 if (p.StickyForce > 0f && speedFraction >= Mathf.Clamp01(p.StickyThreshold))
                     stickyForce = -up * (p.StickyForce * Mathf.Abs(forwardSpeed) * massShare * forceWeight);
-                stickyForce = SmoothWheelForce(ref w.StickyForce, stickyForce, contactBlendStep);
                 native.ApplyForce(stickyForce, contactPoint, true);
                 wheelForceTorque += Vector3.Cross(contactPoint - centerOfMass, stickyForce);
                 if (actualGrounded && !wasGrounded)
@@ -805,9 +802,7 @@ namespace Remedy.Vehicles
                 // Pushed somewhere between the road (rolls the car) and the centre of mass height (doesn't).
                 float heightToCenter = Vector3.Dot(centerOfMass - contactPoint, up);
                 Vector3 at = contactPoint + up * (heightToCenter * p.TyreForceHeight);
-                Vector3 tyreForce = SmoothWheelForce(ref w.TyreForce,
-                    (rollDirection * rollAcceleration + sideDirection * sideAcceleration) * (massShare * forceWeight),
-                    contactBlendStep);
+                Vector3 tyreForce = (rollDirection * rollAcceleration + sideDirection * sideAcceleration) * (massShare * forceWeight);
                 native.ApplyForce(tyreForce, at, true);
                 wheelForceTorque += Vector3.Cross(at - centerOfMass, tyreForce);
 
@@ -817,15 +812,11 @@ namespace Remedy.Vehicles
                 {
                     float tireSupport = Mathf.Clamp01(normalSupport / (massShare * g));
                     supportedWheelLoad += tireSupport;
-                    supportNormalSum += normal * normalSupport;
                 }
             }
 
             bool isGrounded = grounded > 0;
             Vector3 groundNormal = isGrounded ? normalSum.normalized : worldUp;
-            Vector3 stabilizationNormal = supportNormalSum.sqrMagnitude > 0.001f
-                ? supportNormalSum.normalized
-                : groundNormal;
             IsGrounded.Value = isGrounded;
             GroundedWheels.Value = grounded;
 
@@ -840,7 +831,7 @@ namespace Remedy.Vehicles
             bool groundLeveling = isGrounded && (p.StabilizeStrength > 0f || p.StabilizeDamping > 0f);
             bool airLeveling = airborne && (p.AirLevelStrength > 0f || p.AirLevelDamping > 0f);
             Vector3 stabilizationCompensation = Vector3.zero;
-            Vector3 targetUp = isGrounded ? stabilizationNormal : worldUp;
+            Vector3 targetUp = isGrounded ? groundNormal : worldUp;
             if (targetUp.sqrMagnitude < 0.001f)
                 targetUp = up;
             float transitionTime = Mathf.Max(0f, p.StabilizeTransitionTime);
@@ -1117,12 +1108,6 @@ namespace Remedy.Vehicles
             var inertia = new float3x3(state.InertiaX, state.InertiaY, state.InertiaZ);
             Vector3 localAcceleration = math.mul(math.inverse(inertia), (float3)localTorque);
             return rotation * localAcceleration;
-        }
-
-        private static Vector3 SmoothWheelForce(ref Vector3 previousForce, Vector3 targetForce, float blend)
-        {
-            previousForce = Vector3.Lerp(previousForce, targetForce, Mathf.Clamp01(blend));
-            return previousForce;
         }
 
         private static Vector3 ApplyTorqueGuard(Body body, Vector3 requestedTorque, ArcadeCarProperties properties,
@@ -1521,7 +1506,6 @@ namespace Remedy.Vehicles
         public float Spin;
         public Vector3 Point;
         public Vector3 Normal;
-        public Vector3 SuspensionForce, StickyForce, TyreForce;
         public Quaternion VisualRest;
     }
 }

@@ -137,7 +137,7 @@ The body is a real Box3D body, so it can roll, tumble and land on its roof. How 
   and rolls), 1 = at the centre of mass height (never rolls from cornering). 0.5-0.7 still flips on kerbs and in
   crashes.
 - **Center Of Mass Offset**: lower (negative y) is harder to roll. **Inertia Scale**: higher is heavier to spin.
-- **Stabilize Strength / Damping**: levels toward a support-load-weighted ground normal and damps roll/pitch. Both
+- **Stabilize Strength / Damping**: levels toward the averaged normal from grounded wheel casts and damps roll/pitch. Both
   fade to zero at **Max Speed**, and weak or sparse tire support fades stabilization out. **Stabilize Transition
   Time** smooths the correction's fade and direction changes as the car moves between ramps and airborne states. The
   controller compensates for the torque from grounded tires' suspension, traction and sticky forces; 0 strength and
@@ -149,8 +149,9 @@ The body is a real Box3D body, so it can roll, tumble and land on its roof. How 
 - Ungrounded tires within the check distance borrow an averaged ground plane from the tires that did hit. Their
   suspension, grip, sticky and drive forces are blended in by the grounded-tire fraction, so the assist fades toward
   zero as actual support disappears. **Stabilize Transition Time** smooths each cast normal before it contributes to
-  the shared support plane, and smooths each tire's contact distance and suspension, sticky and tire forces to soften
-  brief missed hits. Only actual hits count as grounded or trigger landings.
+  the shared support plane, and smooths each tire's contact distance and stabilization target angle to soften brief
+  missed hits. Forces remain responsive to the current physics step. Only actual hits count as grounded or trigger
+  landings.
 - **Sticky Threshold / Sticky Force**: above the speed threshold, tires with actual or blended ground contact get a
   force along the car's local -up direction, proportional to forward speed. This can press the car onto walls or
   ceilings when its wheels are oriented toward them.
