@@ -719,7 +719,6 @@ namespace Remedy.Vehicles
                 {
                     w.ContactForceWeight = 0f;
                     w.Extension = maxExtension;
-                    continue;
                 }
 
                 if (!w.HasBlendedContact)
@@ -754,7 +753,8 @@ namespace Remedy.Vehicles
                 Vector3 hubVelocity = native.GetWorldPointVelocity(origin);
                 float suspensionSpeed = Vector3.Dot(hubVelocity, up);
                 float springAcceleration = Mathf.Clamp(p.SpringStiffness * compression - p.SpringDamping * suspensionSpeed, 0f, p.MaxSuspensionAcceleration);
-                Vector3 suspensionForce = up * (springAcceleration * massShare * forceWeight);
+                Vector3 suspensionForce = SmoothWheelForce(ref w.SuspensionForce,
+                    up * (springAcceleration * massShare * forceWeight), contactBlendStep);
                 native.ApplyForce(suspensionForce, origin, true);
                 wheelForceTorque += Vector3.Cross(origin - centerOfMass, suspensionForce);
 
@@ -768,11 +768,10 @@ namespace Remedy.Vehicles
                 Vector3 contactVelocity = native.GetWorldPointVelocity(contactPoint);
                 Vector3 stickyForce = Vector3.zero;
                 if (p.StickyForce > 0f && speedFraction >= Mathf.Clamp01(p.StickyThreshold))
-                {
                     stickyForce = -up * (p.StickyForce * Mathf.Abs(forwardSpeed) * massShare * forceWeight);
-                    native.ApplyForce(stickyForce, contactPoint, true);
-                    wheelForceTorque += Vector3.Cross(contactPoint - centerOfMass, stickyForce);
-                }
+                stickyForce = SmoothWheelForce(ref w.StickyForce, stickyForce, contactBlendStep);
+                native.ApplyForce(stickyForce, contactPoint, true);
+                wheelForceTorque += Vector3.Cross(contactPoint - centerOfMass, stickyForce);
                 if (actualGrounded && !wasGrounded)
                 {
                     float landingSpeed = Mathf.Max(0f, -Vector3.Dot(contactVelocity, normal));
@@ -806,7 +805,9 @@ namespace Remedy.Vehicles
                 // Pushed somewhere between the road (rolls the car) and the centre of mass height (doesn't).
                 float heightToCenter = Vector3.Dot(centerOfMass - contactPoint, up);
                 Vector3 at = contactPoint + up * (heightToCenter * p.TyreForceHeight);
-                Vector3 tyreForce = (rollDirection * rollAcceleration + sideDirection * sideAcceleration) * (massShare * forceWeight);
+                Vector3 tyreForce = SmoothWheelForce(ref w.TyreForce,
+                    (rollDirection * rollAcceleration + sideDirection * sideAcceleration) * (massShare * forceWeight),
+                    contactBlendStep);
                 native.ApplyForce(tyreForce, at, true);
                 wheelForceTorque += Vector3.Cross(at - centerOfMass, tyreForce);
 
@@ -1116,6 +1117,12 @@ namespace Remedy.Vehicles
             var inertia = new float3x3(state.InertiaX, state.InertiaY, state.InertiaZ);
             Vector3 localAcceleration = math.mul(math.inverse(inertia), (float3)localTorque);
             return rotation * localAcceleration;
+        }
+
+        private static Vector3 SmoothWheelForce(ref Vector3 previousForce, Vector3 targetForce, float blend)
+        {
+            previousForce = Vector3.Lerp(previousForce, targetForce, Mathf.Clamp01(blend));
+            return previousForce;
         }
 
         private static Vector3 ApplyTorqueGuard(Body body, Vector3 requestedTorque, ArcadeCarProperties properties,
@@ -1514,6 +1521,7 @@ namespace Remedy.Vehicles
         public float Spin;
         public Vector3 Point;
         public Vector3 Normal;
+        public Vector3 SuspensionForce, StickyForce, TyreForce;
         public Quaternion VisualRest;
     }
 }
