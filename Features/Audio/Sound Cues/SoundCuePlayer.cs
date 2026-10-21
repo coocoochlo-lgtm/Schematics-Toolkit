@@ -60,20 +60,10 @@ namespace Remedy.Audio
         #region Preview spatializing (editor)
 
         /// <summary>
-        /// Renders in stereo, panned and attenuated as if heard from <see cref="SetPreviewPosition"/> (for the editor's
-        /// preview, which has no Audio Listener to be heard by). Takes effect on the next <see cref="Play"/>.
-        /// </summary>
-        [NonSerialized] public bool PreviewStereo;
-
-        // Left/right gains the audio thread ramps towards, so a moving sound doesn't click.
-        private volatile float _targetLeft = 1f, _targetRight = 1f;
-        private float _left = 1f, _right = 1f;
-        private float[] _mono = Array.Empty<float>();
-
-        /// <summary>
         /// Where the preview hears the sound from, in meters around the listener (x right, y ahead): sets its
         /// distance (for Distance To Listener), its pan, and its falloff (as an AudioSource's logarithmic falloff
-        /// from 1 m).
+        /// from 1 m). The pan and falloff go on the AudioSource (Stereo Pan, Volume), which apply as the sound is
+        /// heard: the streamed clip is rendered about a second ahead, so anything done to its samples lags that much.
         /// </summary>
         public void SetPreviewPosition(Vector2 position, bool falloff = true)
         {
@@ -84,12 +74,12 @@ namespace Remedy.Audio
                 _voice.Context.Distance = distance;
                 RunProbes(_voice);
             }
-            float gain = falloff ? 1f / Mathf.Max(1f, distance) : 1f;
-            // Equal-power pan from the direction (right = +1); straight ahead or behind is centered.
-            float pan = distance > 0.001f ? Mathf.Clamp(position.x / distance, -1f, 1f) : 0f;
-            float angle = (pan + 1f) * Mathf.PI * 0.25f;
-            _targetLeft = Mathf.Cos(angle) * gain * 1.41421356f;
-            _targetRight = Mathf.Sin(angle) * gain * 1.41421356f;
+            var source = Source;
+            if (source == null)
+                return;
+            source.volume = falloff ? 1f / Mathf.Max(1f, distance) : 1f;
+            // From the direction (right = +1); straight ahead or behind is centered.
+            source.panStereo = distance > 0.001f ? Mathf.Clamp(position.x / distance, -1f, 1f) : 0f;
         }
 
         #endregion
@@ -148,19 +138,17 @@ namespace Remedy.Audio
             // and reused while its rate and length stay the same.
             bool endless = voice.LengthSamples <= 0;
             int length = endless ? rate * 10 : (int)Math.Min(int.MaxValue, Math.Max(1, voice.LengthSamples));
-            int channels = PreviewStereo ? 2 : 1;
-            if (_clip == null || _clipRate != rate || _clipLength != length || _clipLoops != endless || _clip.channels != channels)
+            if (_clip == null || _clipRate != rate || _clipLength != length || _clipLoops != endless)
             {
                 if (_clip != null)
                 {
                     if (Application.isPlaying) Destroy(_clip);
                     else DestroyImmediate(_clip);
                 }
-                _clip = AudioClip.Create($"Sound Cue: {Cue.name}", length, channels, rate, true, Read, _ => { });
+                _clip = AudioClip.Create($"Sound Cue: {Cue.name}", length, 1, rate, true, Read, _ => { });
                 _clipRate = rate;
                 _clipLength = length;
                 _clipLoops = endless;
-                _clipChannels = channels;
             }
             Source.clip = _clip;
             Source.loop = endless;
@@ -193,32 +181,8 @@ namespace Remedy.Audio
                 Array.Clear(data, 0, data.Length);
                 return;
             }
-            if (_clipChannels < 2)
-            {
-                voice.Render(data, 0, data.Length);
-                return;
-            }
-
-            // Stereo preview: the voice renders mono, then it's panned (gains eased across the chunk).
-            int frames = data.Length / 2;
-            if (_mono.Length < frames)
-                _mono = new float[frames];
-            voice.Render(_mono, 0, frames);
-            float left = _left, right = _right, toLeft = _targetLeft, toRight = _targetRight;
-            float step = frames > 0 ? 1f / frames : 1f;
-            for (int i = 0; i < frames; i++)
-            {
-                float t = (i + 1) * step;
-                float sample = _mono[i];
-                data[i * 2] = sample * (left + (toLeft - left) * t);
-                data[i * 2 + 1] = sample * (right + (toRight - right) * t);
-            }
-            _left = toLeft;
-            _right = toRight;
+            voice.Render(data, 0, data.Length);
         }
-
-        // The clip's channel count, kept as a plain field: the audio thread mustn't touch Unity objects.
-        private volatile int _clipChannels = 1;
 
         private void Update()
         {

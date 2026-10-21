@@ -131,7 +131,7 @@ namespace Remedy.Audio
                 _host = new GameObject("Sound Cue Preview") { hideFlags = HideFlags.HideAndDontSave };
                 var source = _host.AddComponent<AudioSource>();
                 source.playOnAwake = false;
-                // Flat as far as Unity's concerned: the preview pans and fades the sound itself.
+                // Flat as far as Unity's concerned: the preview pans and fades it (Stereo Pan, Volume) itself.
                 source.spatialBlend = 0f;
                 _player = _host.AddComponent<SoundCuePlayer>();
                 _player.hideFlags = HideFlags.HideAndDontSave;
@@ -142,7 +142,6 @@ namespace Remedy.Audio
                 AssemblyReloadEvents.beforeAssemblyReload += Stop;
             }
             _player.Cue = cue;
-            _player.PreviewStereo = true;
             // Audio files are read again, in case they were reimported (not on every seek of a playing preview).
             if (!already)
             {
