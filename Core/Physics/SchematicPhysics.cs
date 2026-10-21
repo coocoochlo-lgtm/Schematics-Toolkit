@@ -96,6 +96,9 @@ namespace Remedy.Box3DPhysics
         public static bool SphereCast(Vector3 origin, float radius, Vector3 direction, out RaycastHit hit, out GameObject hitObject,
             float distance, LayerMask mask, Box3DBody ignore = null)
         {
+            if (radius <= 0f)
+                return RaycastClosest(origin, direction, out hit, out hitObject, distance, mask, ignore);
+
             var hits = _single ??= new RaycastHit[RaycastHitBufferSize];
             var objects = _singleObjects ??= new GameObject[RaycastHitBufferSize];
             int count = SphereCastAll(origin, radius, direction, distance, mask, hits, objects, ignore);
@@ -113,6 +116,43 @@ namespace Remedy.Box3DPhysics
                 }
             }
             return count > 0;
+        }
+
+        private static bool RaycastClosest(Vector3 origin, Vector3 direction, out RaycastHit hit,
+            out GameObject hitObject, float distance, LayerMask mask, Box3DBody ignore)
+        {
+            hit = default;
+            hitObject = null;
+            if (distance <= 0f || direction.sqrMagnitude < 1e-8f)
+                return false;
+
+            direction.Normalize();
+            float traversed = 0f;
+            float advance = Mathf.Max(0.001f, distance * 1e-6f);
+            for (int attempt = 0; attempt < RaycastHitBufferSize && traversed < distance; attempt++)
+            {
+                float remaining = distance - traversed;
+                var result = World.CastRayClosest(origin + direction * traversed, direction * remaining, FilterFor(mask));
+                if (!result.Hit)
+                    return false;
+
+                var body = BodyOf(result.ShapeId);
+                float hitDistance = traversed + result.Fraction * remaining;
+                if (ignore == null || body != ignore)
+                {
+                    hit = new RaycastHit
+                    {
+                        point = (Vector3)result.Point,
+                        normal = result.Normal,
+                        distance = hitDistance,
+                    };
+                    hitObject = GameObjectOf(result.ShapeId);
+                    return true;
+                }
+
+                traversed = hitDistance + advance;
+            }
+            return false;
         }
 
         public const int RaycastHitBufferSize = 32;
