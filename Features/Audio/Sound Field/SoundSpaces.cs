@@ -80,6 +80,7 @@ namespace Remedy.Audio
     /// Its ringing carries on after the sounds that fed it have stopped or moved on.
     /// </summary>
     [AddComponentMenu("")]
+    [ExecuteAlways] // the editor's preview simulation runs them outside Play Mode too
     public sealed class SpaceBus : MonoBehaviour
     {
         private const int RingSize = 1 << 18; // ~5 s at 48 kHz
@@ -117,7 +118,7 @@ namespace Remedy.Audio
 
         internal static SpaceBus Create(Transform parent, int rate)
         {
-            var host = new GameObject("Space Bus");
+            var host = new GameObject("Space Bus") { hideFlags = parent != null ? parent.gameObject.hideFlags : HideFlags.None };
             host.transform.SetParent(parent, false);
             var source = host.AddComponent<AudioSource>();
             source.playOnAwake = false;
@@ -215,6 +216,17 @@ namespace Remedy.Audio
                 _reverb.Clear();
                 _partner = null;
             }
+        }
+
+        /// <summary>
+        /// Heard flat, panned and at a set volume, instead of placed in 3D (the editor's preview, which has no listener
+        /// in the world: it works out where things are around its imaginary one itself).
+        /// </summary>
+        internal void SetFlat(float pan, float volume)
+        {
+            Source.spatialBlend = 0f;
+            Source.panStereo = Mathf.Clamp(pan, -1f, 1f);
+            Source.volume = Mathf.Clamp01(volume);
         }
 
         /// <summary>A room's reverb: <paramref name="feedback"/> (how long) and <paramref name="damping"/> (0 bright, 1 dull).</summary>

@@ -195,6 +195,7 @@ namespace Remedy.Audio
                 AssemblyReloadEvents.beforeAssemblyReload += Stop;
             }
             _player.Cue = cue;
+            EnsureSpace();
             // Audio files are read again, in case they were reimported (not on every seek of a playing preview).
             if (!already)
             {
@@ -218,6 +219,7 @@ namespace Remedy.Audio
                 Object.DestroyImmediate(_host);
             _host = null;
             _player = null;
+            ClearSpace();
             Owner = null;
             _orbit = null;
             EditorApplication.update -= Update;
@@ -233,6 +235,63 @@ namespace Remedy.Audio
             _playedFrom = Mathf.Max(0f, time);
         }
 
+        #region Simulated surroundings
+
+        /// <summary>
+        /// The surroundings the preview plays in: Spatial Reverb and Delay hear them like a baked Sound Field (rooms ring
+        /// from where they are, echoes come off the walls). None: they use their own settings. Changing it replays.
+        /// </summary>
+        public static PreviewSpace Space
+        {
+            get => (PreviewSpace)EditorPrefs.GetInt("Remedy.SoundCuePreview.Space", (int)PreviewSpace.None);
+            set
+            {
+                if (value == Space) return;
+                EditorPrefs.SetInt("Remedy.SoundCuePreview.Space", (int)value);
+                var cue = Playing;
+                var owner = Owner;
+                if (cue != null)
+                {
+                    var orbit = _orbit;
+                    Start(cue, 0f, owner);
+                    _orbit = orbit;
+                }
+            }
+        }
+
+        /// <summary>The surroundings playing now (for drawing them), or null.</summary>
+        public static PreviewSpaceSimulation Simulation { get; private set; }
+
+        private static GameObject _spaceRoot;
+
+        // The picked surroundings, made (or remade) for this play; their room and walls are sources of their own.
+        private static void EnsureSpace()
+        {
+            var space = Space;
+            if (Simulation != null && Simulation.Space == space && _spaceRoot != null)
+                return;
+            ClearSpace();
+            if (space != PreviewSpace.None)
+            {
+                _spaceRoot = new GameObject("Sound Cue Preview Space") { hideFlags = HideFlags.HideAndDontSave };
+                Simulation = new PreviewSpaceSimulation(space, _spaceRoot.transform);
+            }
+            SoundSpaceSimulation.Current = Simulation;
+            if (_player != null)
+                _player.ScheduleInEditor = Simulation != null;
+        }
+
+        private static void ClearSpace()
+        {
+            if (_spaceRoot != null)
+                Object.DestroyImmediate(_spaceRoot);
+            _spaceRoot = null;
+            Simulation = null;
+            SoundSpaceSimulation.Current = null;
+        }
+
+        #endregion
+
         /// <summary>Starts the motion over from its beginning.</summary>
         public static void RestartMotion() => _startedAt = EditorApplication.timeSinceStartup;
 
@@ -242,7 +301,10 @@ namespace Remedy.Audio
             if (_player == null)
                 return;
             var position = CurrentPosition;
-            if (_player.Cue == null || _player.Cue.IsSpatial)
+            // Where the sound is around the imaginary listener (middle, facing +Z), for the simulated surroundings.
+            bool spatial = _player.Cue == null || _player.Cue.IsSpatial;
+            _host.transform.position = spatial ? new Vector3(position.x, 0f, position.y) : Vector3.zero;
+            if (spatial)
                 _player.SetPreviewPosition(position);
             else
             {

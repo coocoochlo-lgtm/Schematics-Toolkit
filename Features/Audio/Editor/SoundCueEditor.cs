@@ -143,6 +143,15 @@ namespace Remedy.Audio
                 top.Add(_loop);
                 _time = new Label { style = { marginLeft = 8, minWidth = 110, unityTextAlign = TextAnchor.MiddleLeft, opacity = 0.8f } };
                 top.Add(_time);
+                var space = new EnumField(SoundCuePreview.Space)
+                {
+                    tooltip = "Surroundings to hear the cue in: Spatial Reverb and Delay ring and echo like that place (rooms ring from where they are, echoes come off the walls and stay there as the sound moves). None: they use their own settings.",
+                };
+                space.style.width = 110;
+                space.style.marginLeft = 6;
+                space.RegisterValueChangedCallback(evt => SoundCuePreview.Space = (PreviewSpace)evt.newValue);
+                top.Add(new Label("Space") { style = { marginLeft = 6, opacity = 0.8f, unityTextAlign = TextAnchor.MiddleLeft } });
+                top.Add(space);
                 Add(top);
 
                 _timeline = new Slider(0f, 1f) { tooltip = "Where the cue is. Drag to hear it from there." };
@@ -362,10 +371,21 @@ namespace Remedy.Audio
                 });
             }
 
-            // How many meters the pad's edge is from the listener.
-            private static float Range => Mathf.Max(15f, SoundCuePreview.Motion == SoundCuePreview.PreviewMotion.Still
-                ? SoundCuePreview.Position.magnitude * 1.25f
-                : SoundCuePreview.Radius * (SoundCuePreview.Motion == SoundCuePreview.PreviewMotion.FlyBy ? 2.2f : 1.2f));
+            // How many meters the pad's edge is from the listener (far enough for the sound, and the surroundings' walls).
+            private static float Range
+            {
+                get
+                {
+                    float range = Mathf.Max(15f, SoundCuePreview.Motion == SoundCuePreview.PreviewMotion.Still
+                        ? SoundCuePreview.Position.magnitude * 1.25f
+                        : SoundCuePreview.Radius * (SoundCuePreview.Motion == SoundCuePreview.PreviewMotion.FlyBy ? 2.2f : 1.2f));
+                    var simulation = SoundCuePreview.Simulation;
+                    if (simulation != null)
+                        foreach (var wall in simulation.Walls)
+                            range = Mathf.Max(range, Mathf.Min(wall.Foot.magnitude * 1.15f, 90f));
+                    return range;
+                }
+            }
 
             private void Place(Vector2 local)
             {
@@ -393,6 +413,36 @@ namespace Remedy.Audio
                     painter.BeginPath();
                     painter.Arc(center, ring * scale, Angle.Degrees(0f), Angle.Degrees(360f));
                     painter.Stroke();
+                }
+
+                // The surroundings: the room's floor, and the walls (glowing as they echo).
+                var simulation = SoundCuePreview.Simulation;
+                if (simulation != null)
+                {
+                    Vector2 ToPad(Vector2 p) => center + new Vector2(p.x, -p.y) * scale;
+                    if (simulation.Room is Rect room && simulation.RoomBus != null)
+                    {
+                        float glow = Mathf.Clamp01(simulation.RoomBus.Peak * 4f);
+                        painter.fillColor = new Color(0.55f, 0.6f, 1f, 0.08f + 0.25f * glow);
+                        painter.BeginPath();
+                        painter.MoveTo(ToPad(new Vector2(room.xMin, room.yMin)));
+                        painter.LineTo(ToPad(new Vector2(room.xMax, room.yMin)));
+                        painter.LineTo(ToPad(new Vector2(room.xMax, room.yMax)));
+                        painter.LineTo(ToPad(new Vector2(room.xMin, room.yMax)));
+                        painter.ClosePath();
+                        painter.Fill();
+                    }
+                    foreach (var wall in simulation.Walls)
+                    {
+                        float glow = wall.Bus != null ? Mathf.Clamp01(wall.Bus.Peak * 4f) : 0f;
+                        painter.strokeColor = Color.Lerp(new Color(0.85f, 0.8f, 0.7f, 0.7f), new Color(1f, 0.55f, 0.25f, 1f), glow);
+                        painter.lineWidth = 2f + glow * 3f;
+                        painter.BeginPath();
+                        painter.MoveTo(ToPad(wall.A));
+                        painter.LineTo(ToPad(wall.B));
+                        painter.Stroke();
+                    }
+                    painter.lineWidth = 1f;
                 }
 
                 // The listener: a little arrow pointing ahead.

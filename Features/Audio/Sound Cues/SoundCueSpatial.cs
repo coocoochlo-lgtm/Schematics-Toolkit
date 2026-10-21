@@ -33,7 +33,12 @@ namespace Remedy.Audio
 
         public override void Update(in SoundProbeWorld world)
         {
-            if (world.Previewing || !SoundField.Sample(world.Position, out var place))
+            if (world.Previewing)
+            {
+                Simulated(world);
+                return;
+            }
+            if (!SoundField.Sample(world.Position, out var place))
             {
                 Volatile.Write(ref Sends, null);
                 Fallback();
@@ -69,6 +74,49 @@ namespace Remedy.Audio
         /// <summary>Which of the targets is the effect's own amount (Exaggerate scales it).</summary>
         protected const int WetIndex = 2;
 
+        private readonly SpaceBus[] _simBuses = new SpaceBus[2];
+        private readonly float[] _simPaths = new float[2], _simReflectivity = new float[2];
+
+        // The editor's preview: the made-up surroundings picked in its bar (SoundSpaceSimulation), if any.
+        private void Simulated(in SoundProbeWorld world)
+        {
+            var simulation = SoundSpaceSimulation.Current;
+            if (simulation == null || !simulation.Sample(world.Position, out var place))
+            {
+                Volatile.Write(ref Sends, null);
+                Fallback();
+                return;
+            }
+            SpaceSends sends = null;
+            bool inRoom = false;
+            float roomWet = 0f;
+            var room = UseRooms ? simulation.RoomAt(world.Position, out roomWet) : null;
+            if (room != null)
+            {
+                sends = new SpaceSends { Room = room, RoomGain = roomWet * SoundSpaces.Exaggerate };
+                inRoom = room.Healthy;
+            }
+            else if (EchoAmount > 0f)
+            {
+                int count = simulation.Echoes(world.Position, world.ListenerPosition, _simBuses, _simPaths, _simReflectivity);
+                float direct = Vector3.Distance(world.Position, world.ListenerPosition);
+                for (int i = 0; i < count; i++)
+                {
+                    float gate = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(EchoGateStart, EchoGateFull, (_simPaths[i] - direct) / SoundSpaces.SpeedOfSound));
+                    if (gate <= 0f) continue;
+                    sends ??= new SpaceSends();
+                    int delay = (int)(_simPaths[i] / SoundSpaces.SpeedOfSound * simulation.Rate);
+                    float gain = _simReflectivity[i] / (1f + _simPaths[i] / 50f) * Mathf.Clamp01(EchoAmount) * gate * SoundSpaces.Exaggerate;
+                    if (sends.EchoA == null) { sends.EchoA = _simBuses[i]; sends.DelayA = delay; sends.GainA = gain; }
+                    else { sends.EchoB = _simBuses[i]; sends.DelayB = delay; sends.GainB = gain; }
+                }
+            }
+            Volatile.Write(ref Sends, sends);
+            Shape(place, inRoom);
+            if (SoundSpaces.Exaggerate != 1f)
+                Set(WetIndex, Mathf.Clamp01(Volatile.Read(ref Targets[WetIndex]) * SoundSpaces.Exaggerate));
+        }
+
         // An echo wall the place can see: its bus (if it's one of the live ones), the path's delay and how much it
         // throws back (more for reflective walls, less the farther the sound is from it).
         private void Echo(SoundSpaces spaces, SoundField field, ushort anchor, in SoundProbeWorld world, ref SpaceBus bus, ref int delay, ref float gain)
@@ -95,6 +143,28 @@ namespace Remedy.Audio
         public const float EchoGateStart = 0.05f, EchoGateFull = 0.1f;
 
         protected void Set(int index, float value) => Volatile.Write(ref Targets[index], value);
+    }
+
+    /// <summary>
+    /// Made-up surroundings for the editor's preview (which has no world): what the place is like, the room ringing
+    /// around a point, and the walls a sound echoes off -- each a fixed source, so echoes and tails stay where they are
+    /// while the previewed sound moves. Set by the preview while it plays; positions are around its imaginary listener.
+    /// </summary>
+    public abstract class SoundSpaceSimulation
+    {
+        /// <summary>The surroundings the preview is playing in (null: none, the effects use their own settings).</summary>
+        public static SoundSpaceSimulation Current;
+
+        public abstract int Rate { get; }
+        /// <summary>What the place at a position is like (false: no surroundings there).</summary>
+        public abstract bool Sample(Vector3 position, out SoundAcoustics place);
+        /// <summary>The ringing room a position is in, and how much it rings (null: in none).</summary>
+        public abstract SpaceBus RoomAt(Vector3 position, out float wet);
+        /// <summary>
+        /// Up to two walls that throw a sound at <paramref name="position"/> back to the listener: their sources, the
+        /// length of the reflected path (sound, wall, listener) and how reflective they are. Returns how many.
+        /// </summary>
+        public abstract int Echoes(Vector3 position, Vector3 listener, SpaceBus[] buses, float[] paths, float[] reflectivity);
     }
 
     /// <summary>

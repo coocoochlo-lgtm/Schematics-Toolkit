@@ -57,6 +57,12 @@ namespace Remedy.Audio
         /// </summary>
         [NonSerialized] public float? DistanceOverride;
 
+        /// <summary>
+        /// Start on the audio clock outside Play Mode too (the editor's preview, when it simulates surroundings: their
+        /// rooms and echo walls need to know when each sample is heard).
+        /// </summary>
+        [NonSerialized] public bool ScheduleInEditor;
+
         #region Preview spatializing (editor)
 
         /// <summary>
@@ -158,7 +164,7 @@ namespace Remedy.Audio
             Source.timeSamples = endless ? 0 : (int)Math.Min(start, length - 1);
             // In the game, started a moment ahead on the audio clock: then it's known exactly when each sample is heard,
             // which Spatial reverb needs to feed rooms and echoes in time with it.
-            if (Application.isPlaying && Mathf.Approximately(Source.pitch, 1f))
+            if ((Application.isPlaying || ScheduleInEditor) && Mathf.Approximately(Source.pitch, 1f))
             {
                 double at = AudioSettings.dspTime + 0.05;
                 Source.PlayScheduled(at);
@@ -249,8 +255,9 @@ namespace Remedy.Audio
                 Self = gameObject,
                 Position = transform.position,
                 Rotation = transform.rotation,
-                Listener = _listener != null ? _listener.gameObject : null,
-                ListenerPosition = _listener != null ? _listener.transform.position : transform.position,
+                Listener = DistanceOverride.HasValue || _listener == null ? null : _listener.gameObject,
+                // The preview's imaginary listener is at the middle, facing ahead (+Z); the sound is placed around it.
+                ListenerPosition = DistanceOverride.HasValue ? Vector3.zero : _listener != null ? _listener.transform.position : transform.position,
                 Previewing = DistanceOverride.HasValue,
                 Room = _room,
             };
