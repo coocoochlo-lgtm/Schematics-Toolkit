@@ -33,6 +33,9 @@ namespace Remedy.Audio
         private static SoundCuePlayer _player;
         private static int _dirtyCount;
         private static double _startedAt;
+        // When the current play started (editor clock) and from how far into the cue, for when it reaches the end.
+        private static double _playedAt;
+        private static float _playedFrom;
         private static Vector2 _position = new(0f, 1f);
 
         /// <summary>The cue being previewed (null when nothing is).</summary>
@@ -148,7 +151,7 @@ namespace Remedy.Audio
             }
             if (time <= 0f || !already)
                 _startedAt = EditorApplication.timeSinceStartup;
-            _player.Play(time);
+            Restart(time);
             Apply();
             _dirtyCount = EditorUtility.GetDirtyCount(cue);
             Changed?.Invoke();
@@ -166,6 +169,14 @@ namespace Remedy.Audio
             EditorApplication.update -= Update;
             if (was)
                 Changed?.Invoke();
+        }
+
+        // Plays the cue again from a time, and notes when, for when it reaches its end.
+        private static void Restart(float time)
+        {
+            _player.Play(time);
+            _playedAt = EditorApplication.timeSinceStartup;
+            _playedFrom = Mathf.Max(0f, time);
         }
 
         /// <summary>Starts the motion over from its beginning.</summary>
@@ -200,11 +211,25 @@ namespace Remedy.Audio
             {
                 if (voice != null && Loop)
                 {
-                    _player.Play();
+                    Restart(0f);
                     Apply();
                     return;
                 }
                 Stop();
+                return;
+            }
+            // Past the end of the cue, by the clock (the AudioSource can keep "playing" its streamed clip's silence):
+            // start over with Loop on, otherwise stop.
+            float duration = voice.Context.Duration;
+            if (duration > 0f && _playedFrom + (EditorApplication.timeSinceStartup - _playedAt) >= duration)
+            {
+                if (Loop)
+                {
+                    Restart(0f);
+                    Apply();
+                }
+                else
+                    Stop();
                 return;
             }
             Apply();
@@ -213,7 +238,7 @@ namespace Remedy.Audio
             if (dirty != _dirtyCount)
             {
                 _dirtyCount = dirty;
-                _player.Play();
+                Restart(0f);
                 Apply();
                 Changed?.Invoke();
             }
