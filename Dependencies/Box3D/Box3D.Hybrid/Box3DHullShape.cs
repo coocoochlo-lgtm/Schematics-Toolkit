@@ -22,6 +22,16 @@ namespace Box3D.Hybrid
             Mesh = mesh;
         }
 
+        public override bool TryGetLocalBounds(out Bounds bounds)
+        {
+            bounds = default;
+            if (Mesh == null)
+                return false;
+            var mesh = Mesh.bounds;
+            bounds = new Bounds(mesh.center + (Vector3)LocalCenter, mesh.size);
+            return true;
+        }
+
         protected override Shape CreateShape(Body body, float3 localPosition, quaternion localRotation, float3 scale)
         {
             if (!Mesh)

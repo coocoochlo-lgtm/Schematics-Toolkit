@@ -26,6 +26,14 @@ namespace Box3D.Hybrid
         [SerializeField, Tooltip("Axis the capsule runs along.")]
         private Box3DAxis Direction = Box3DAxis.Y;
 
+        public override bool TryGetLocalBounds(out Bounds bounds)
+        {
+            var size = Vector3.one * (2f * Radius);
+            size[(int)Direction] = Mathf.Max(Height, 2f * Radius);
+            bounds = new Bounds((Vector3)LocalCenter, size);
+            return true;
+        }
+
         protected override Shape CreateShape(Body body, float3 localPosition, quaternion localRotation, float3 scale)
         {
             Resolve(localPosition, localRotation, scale, out float3 center1, out float3 center2, out float radius);

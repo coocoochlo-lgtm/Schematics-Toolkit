@@ -11,6 +11,12 @@ namespace Box3D.Hybrid
         [SerializeField, Tooltip("Full box size in local units (like Unity's BoxCollider.size).")]
         private Vector3 Size = Vector3.one;
 
+        public override bool TryGetLocalBounds(out Bounds bounds)
+        {
+            bounds = new Bounds((Vector3)LocalCenter, Size);
+            return true;
+        }
+
         protected override Shape CreateShape(Body body, float3 localPosition, quaternion localRotation, float3 scale)
         {
             float3 halfExtents = (float3)Size * 0.5f * math.abs(scale);

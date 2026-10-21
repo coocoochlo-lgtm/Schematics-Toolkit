@@ -1289,6 +1289,14 @@ namespace Remedy.Vehicles
             Vector3 up = rotation * Vector3.up;
             float dt = Time.deltaTime;
 
+            // The tyres where the suspension has them, in the car's Schematic Bounds: its bottom is where they meet
+            // the road (a camera checking for ground under the car looks from there).
+            var bounds = SchematicBounds.Of(Self.GameObject);
+            if (bounds != null)
+                for (int i = 0; i < wheels.Length; i++)
+                    if (wheels[i]?.Anchor != null)
+                        bounds.SetSphere(wheels[i], wheels[i].Anchor.position - up * state.Wheels[i].Extension, Mathf.Max(0.05f, wheels[i].Radius));
+
             for (int i = 0; i < wheels.Length; i++)
             {
                 var wheel = wheels[i];

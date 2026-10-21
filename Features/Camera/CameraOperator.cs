@@ -1,6 +1,6 @@
 using Box3D.Hybrid;
 using Remedy.Box3DPhysics;
-using System.Collections.Generic;
+using Remedy.Schematics;
 using UnityEngine;
 
 namespace Remedy.Cameras
@@ -137,8 +137,8 @@ namespace Remedy.Cameras
         }
 
         /// <summary>
-        /// Whether there's ground just below the bottom of a target's bounds, looking down its up (within
-        /// <see cref="GroundProbeDistance"/>); the target's own body isn't counted.
+        /// Whether there's ground just below the bottom of a target's <see cref="SchematicBounds"/>, looking down its up
+        /// (within <see cref="GroundProbeDistance"/>); the target's own body isn't counted.
         /// </summary>
         protected bool HasGroundBelow(Transform target, Box3DBody body, LayerMask layers)
         {
@@ -149,59 +149,12 @@ namespace Remedy.Cameras
                 skin + Mathf.Max(0f, GroundProbeDistance.Value), layers, body);
         }
 
-        private static readonly Dictionary<Transform, Renderer[]> _targetRenderers = new();
-
-        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-        private static void ResetStatics() => _targetRenderers.Clear();
-
-        // The lowest point of a target's mesh bounds along a direction (its position when it has no meshes).
+        // The bottom of the target along its up: from its Schematic Bounds (its physics shapes and what its parts push,
+        // like a car's tyres), or its position when it has none.
         private static Vector3 BoundsBottom(Transform target, Vector3 up)
         {
-            if (!_targetRenderers.TryGetValue(target, out var renderers) || System.Array.Exists(renderers, r => r == null))
-            {
-                var found = new List<Renderer>();
-                foreach (var renderer in target.GetComponentsInChildren<Renderer>())
-                    if (renderer is MeshRenderer || renderer is SkinnedMeshRenderer)
-                        found.Add(renderer);
-                _targetRenderers[target] = renderers = found.ToArray();
-            }
-            // Each mesh's own box (oriented with it, so a tilted target isn't measured by a loose world box): the
-            // lowest corner along the up, below the middle of them all.
-            bool any = false;
-            float lowest = float.MaxValue;
-            var middle = Vector3.zero;
-            int count = 0;
-            foreach (var renderer in renderers)
-            {
-                if (!renderer.enabled || !renderer.gameObject.activeInHierarchy) continue;
-                Transform space;
-                Bounds local;
-                if (renderer is SkinnedMeshRenderer skinned)
-                {
-                    space = skinned.rootBone != null ? skinned.rootBone : skinned.transform;
-                    local = skinned.localBounds;
-                }
-                else if (renderer.TryGetComponent(out MeshFilter filter) && filter.sharedMesh != null)
-                {
-                    space = renderer.transform;
-                    local = filter.sharedMesh.bounds;
-                }
-                else continue;
-                var toWorld = space.localToWorldMatrix;
-                for (int corner = 0; corner < 8; corner++)
-                {
-                    var offset = new Vector3((corner & 1) == 0 ? -1f : 1f, (corner & 2) == 0 ? -1f : 1f, (corner & 4) == 0 ? -1f : 1f);
-                    var point = toWorld.MultiplyPoint3x4(local.center + Vector3.Scale(local.extents, offset));
-                    lowest = Mathf.Min(lowest, Vector3.Dot(point, up));
-                }
-                middle += toWorld.MultiplyPoint3x4(local.center);
-                count++;
-                any = true;
-            }
-            if (!any)
-                return target.position;
-            middle /= count;
-            return middle - up * (Vector3.Dot(middle, up) - lowest);
+            var bounds = SchematicBounds.Of(target.gameObject);
+            return bounds != null && bounds.HasBox ? bounds.Lowest(up) : target.position;
         }
 
         /// <summary>The camera's current (eased) up.</summary>

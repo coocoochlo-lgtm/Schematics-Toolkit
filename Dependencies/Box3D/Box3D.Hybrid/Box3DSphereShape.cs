@@ -15,6 +15,12 @@ namespace Box3D.Hybrid
         /// <summary>Schematics addition: the radius in local units (before scale).</summary>
         public float SphereRadius => Radius;
 
+        public override bool TryGetLocalBounds(out Bounds bounds)
+        {
+            bounds = new Bounds((Vector3)LocalCenter, Vector3.one * (2f * Radius));
+            return true;
+        }
+
         protected override Shape CreateShape(Body body, float3 localPosition, quaternion localRotation, float3 scale)
         {
             return body.CreateSphereShape(BuildDef(), BuildSphere(localPosition, localRotation, scale));

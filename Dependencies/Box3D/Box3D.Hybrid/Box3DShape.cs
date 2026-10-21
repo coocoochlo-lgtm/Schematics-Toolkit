@@ -36,6 +36,16 @@ namespace Box3D.Hybrid
 
         protected float3 LocalCenter => Center;
 
+        /// <summary>
+        /// The box the shape takes up, in its own GameObject's local space, or false when it
+        /// has no fixed size (terrain).
+        /// </summary>
+        public virtual bool TryGetLocalBounds(out Bounds bounds)
+        {
+            bounds = default;
+            return false;
+        }
+
         /// <summary>The live native shape (valid between Awake and OnDestroy).</summary>
         protected Shape LiveShape => _shape;
 
