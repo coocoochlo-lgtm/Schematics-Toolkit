@@ -14,21 +14,42 @@ namespace Remedy.Audio
         Sealed,
     }
 
+    /// <summary>The way sound takes between two points (see <see cref="SoundPaths.Between"/>).</summary>
+    public struct SoundWay
+    {
+        public SoundRoute Route;
+        /// <summary>How far it travels: the whole way round when it goes round, else the straight distance.</summary>
+        public float Length;
+        /// <summary>
+        /// Going round: where each end hears it come from (the last corner before A, and before B), and how sharply it
+        /// bends there (0 straight on, 1 right back). Otherwise the other end itself, and 0.
+        /// </summary>
+        public Vector3 CornerA, CornerB;
+        public float BendA, BendB;
+        /// <summary>The doorway it passes through nearest each end (an index into the field's doorways; -1: none).</summary>
+        public int DoorwayA, DoorwayB;
+        /// <summary>The field the way was found in (null: none).</summary>
+        public SoundField Field;
+    }
+
     /// <summary>
-    /// Sound round corners, in the game: the way a sound reaches the listener when the straight line is blocked, through
-    /// a <see cref="SoundField"/>'s cells and the links baked between them (where sound passes from one cell to the
-    /// next). From the listener's cell it floods out over the links (again whenever the listener moves to another cell),
-    /// so each sound's way is a walk back along the flood. That way is pulled straight round the corners it has to
-    /// turn: the last corner before the listener is where the sound is heard from, and the whole length is how far it
-    /// travelled.
+    /// Sound round corners: the way sound takes between two points when the straight line is blocked, through a
+    /// <see cref="SoundField"/>'s cells and the links baked between them (where sound passes from one cell to the
+    /// next). From one end's cell it floods out over the links (floods are kept for the latest few ends: the listener,
+    /// the noises AI are hearing), so the way from anywhere is a walk back along the flood. That way is pulled straight
+    /// round the corners it has to turn: the last corner before each end is where that end hears it from, and the
+    /// whole length is how far it travelled. On the way it notes the doorways it goes through.
     /// </summary>
     public static class SoundPaths
     {
-        /// <summary>How far a flood reaches from the listener, in cells (sounds farther round than this are sealed off).</summary>
+        /// <summary>How far a flood reaches, in cells (farther round than this is sealed off).</summary>
         public const int MaxSteps = 48;
+        /// <summary>How many floods are kept (the listener's, and the noises being heard).</summary>
+        public const int KeptFloods = 8;
 
         private sealed class Flood
         {
+            public SoundField Field;
             public SoundFieldData Data;
             public int From = -1;
             public int Generation;
@@ -36,12 +57,18 @@ namespace Remedy.Audio
             public short[] Steps;
         }
 
-        private static readonly Dictionary<SoundField, Flood> _floods = new();
+        // Latest used last.
+        private static readonly List<Flood> _floods = new();
+        private static readonly Dictionary<SoundFieldData, Dictionary<int, int>> _doorwayOf = new();
         private static readonly Queue<int> _queue = new();
         private static readonly List<int> _path = new();
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-        private static void ResetStatics() => _floods.Clear();
+        private static void ResetStatics()
+        {
+            _floods.Clear();
+            _doorwayOf.Clear();
+        }
 
         /// <summary>
         /// How a sound at <paramref name="source"/> reaches the listener. Round a corner: where it's heard from (the
@@ -49,58 +76,133 @@ namespace Remedy.Audio
         /// </summary>
         public static SoundRoute Around(Vector3 source, Vector3 listener, out Vector3 heardFrom, out float length, out float bend)
         {
-            heardFrom = source;
-            length = Vector3.Distance(source, listener);
-            bend = 0f;
-            if (!SoundField.TryGetCell(listener, out var field, out int to) || !SoundField.TryGetCell(source, out var sourceField, out int from) || sourceField != field)
-                return SoundRoute.Clear;
+            var way = Between(source, listener);
+            heardFrom = way.CornerB;
+            length = way.Length;
+            bend = way.BendB;
+            return way.Route;
+        }
+
+        /// <summary>
+        /// The way sound takes between <paramref name="a"/> and <paramref name="b"/> (it floods from B: keep B the end
+        /// many ask about, a listener or a noise).
+        /// </summary>
+        public static SoundWay Between(Vector3 a, Vector3 b)
+        {
+            var way = new SoundWay
+            {
+                Route = SoundRoute.Clear, Length = Vector3.Distance(a, b), CornerA = b, CornerB = a, DoorwayA = -1, DoorwayB = -1,
+            };
+            if (!SoundField.TryGetCell(b, out var field, out int to) || !SoundField.TryGetCell(a, out var other, out int from) || other != field)
+                return way;
+            way.Field = field;
             var data = field.Data;
             if (!data.HasLinks)
-                return SoundRoute.Clear;
-            // A sound (or listener) sunk into the floor or a wall is heard from the open cell beside it.
+                return way;
+            // An end sunk into the floor or a wall is taken from the open cell beside it.
             from = OpenNear(data, from);
             to = OpenNear(data, to);
-            if (from < 0 || to < 0 || Visible(data, from, to))
-                return SoundRoute.Clear;
+            if (from < 0 || to < 0)
+                return way;
+            var doorways = DoorwaysOf(data);
+            if (Visible(data, from, to, doorways, out way.DoorwayA, out way.DoorwayB))
+                return way;
 
             var flood = FloodFrom(field, data, to);
             if (flood.Stamp[from] != flood.Generation)
-                return SoundRoute.Sealed;
+            {
+                way.Route = SoundRoute.Sealed;
+                return way;
+            }
 
-            // The cells from the sound back to the listener.
+            // The cells from A back to B, and the doorways on the way (the first from each end).
             _path.Clear();
             for (int cell = from; cell >= 0 && _path.Count <= MaxSteps + 1; cell = flood.Parent[cell])
                 _path.Add(cell);
             int last = _path.Count - 1;
+            if (doorways != null)
+                for (int i = 0; i < last; i++)
+                {
+                    int doorway = DoorwayBetween(data, doorways, _path[i], _path[i + 1]);
+                    if (doorway < 0) continue;
+                    if (way.DoorwayA < 0) way.DoorwayA = doorway;
+                    way.DoorwayB = doorway;
+                }
 
-            // The corner: the farthest cell along the way the listener can still see.
-            int corner = last;
-            while (corner > 0 && Visible(data, _path[corner - 1], to))
-                corner--;
-            var toWorld = field.transform;
-            heardFrom = Center(data, toWorld, _path[corner]);
-            length = Vector3.Distance(listener, heardFrom);
+            var transform = field.transform;
+            // B's corner: the farthest cell along the way B can still see.
+            int cornerB = last;
+            while (cornerB > 0 && Visible(data, _path[cornerB - 1], to))
+                cornerB--;
+            way.CornerB = Center(data, transform, _path[cornerB]);
+            float length = Vector3.Distance(b, way.CornerB);
 
-            // On from the corner to the sound, pulled straight: each leg to the farthest cell it can see.
-            var at = heardFrom;
-            var before = source;
-            int current = corner;
+            // On from B's corner to A, pulled straight: each leg to the farthest cell it can see.
+            var at = way.CornerB;
+            var beyondB = a;
+            int current = cornerB;
             for (int legs = 0; current > 0 && legs < 16; legs++)
             {
                 int next = current - 1;
                 while (next > 0 && Visible(data, _path[next - 1], _path[current]))
                     next--;
-                var point = next == 0 ? source : Center(data, toWorld, _path[next]);
+                var point = next == 0 ? a : Center(data, transform, _path[next]);
                 if (legs == 0)
-                    before = point;
+                    beyondB = point;
                 length += Vector3.Distance(at, point);
                 at = point;
                 current = next;
             }
-            if (current == 0 && at != source)
-                length += Vector3.Distance(at, source);
-            bend = Vector3.Angle(heardFrom - before, listener - heardFrom) / 180f;
-            return SoundRoute.Around;
+            way.Length = length;
+            way.BendB = Vector3.Angle(way.CornerB - beyondB, b - way.CornerB) / 180f;
+
+            // A's corner: the farthest cell along the way A can still see, and the next one round from there.
+            int cornerA = 0;
+            while (cornerA < last && Visible(data, from, _path[cornerA + 1]))
+                cornerA++;
+            way.CornerA = Center(data, transform, _path[cornerA]);
+            int beyond = cornerA;
+            while (beyond < last && Visible(data, _path[cornerA], _path[beyond + 1]))
+                beyond++;
+            var beyondA = beyond >= last ? b : Center(data, transform, _path[beyond]);
+            way.BendA = Vector3.Angle(way.CornerA - a, beyondA - way.CornerA) / 180f;
+            way.Route = SoundRoute.Around;
+            return way;
+        }
+
+        /// <summary>A field's doorway in the world: its middle, the way through it, and roughly how wide it is.</summary>
+        public static bool TryGetDoorway(SoundField field, int doorway, out Vector3 position, out Vector3 through, out float width)
+        {
+            position = through = default;
+            width = 0f;
+            var list = field != null && field.Data != null ? field.Data.Doorways : null;
+            if (list == null || doorway < 0 || doorway >= list.Count)
+                return false;
+            var d = list[doorway];
+            position = field.transform.TransformPoint(d.Position);
+            through = field.transform.TransformDirection(d.Normal).normalized;
+            width = d.Width;
+            return true;
+        }
+
+        /// <summary>
+        /// Whether sound passes straight between two world points through the field's cells (true when there's no
+        /// field around both, or it was baked without links).
+        /// </summary>
+        public static bool InSight(SoundField field, Vector3 a, Vector3 b)
+        {
+            var data = field != null ? field.Data : null;
+            if (data == null || !data.HasLinks)
+                return true;
+            int from = OpenNear(data, CellOf(field, a)), to = OpenNear(data, CellOf(field, b));
+            return from < 0 || to < 0 || Visible(data, from, to, null, out _, out _);
+        }
+
+        private static int CellOf(SoundField field, Vector3 world)
+        {
+            var data = field.Data;
+            var p = (field.transform.InverseTransformPoint(world) - data.Box.min) / data.CellSize;
+            return data.Index(Mathf.Clamp(Mathf.FloorToInt(p.x), 0, data.Cells.x - 1), Mathf.Clamp(Mathf.FloorToInt(p.y), 0, data.Cells.y - 1), Mathf.Clamp(Mathf.FloorToInt(p.z), 0, data.Cells.z - 1));
         }
 
         private static Vector3 Center(SoundFieldData data, Transform field, int cell)
@@ -123,17 +225,64 @@ namespace Remedy.Audio
             return -1;
         }
 
-        // The listener's flood (made again when it moves to another cell, or the field is baked again).
+        // Which doorway each of a field's doorway steps belongs to (cell * 3 + axis -> doorway), made once per bake.
+        private static Dictionary<int, int> DoorwaysOf(SoundFieldData data)
+        {
+            if (data.Doorways == null || data.Doorways.Count == 0)
+                return null;
+            if (_doorwayOf.TryGetValue(data, out var map))
+                return map;
+            map = new Dictionary<int, int>();
+            for (int d = 0; d < data.Doorways.Count; d++)
+                if (data.Doorways[d].Links != null)
+                    foreach (int key in data.Doorways[d].Links)
+                        map[key] = d;
+            _doorwayOf[data] = map;
+            return map;
+        }
+
+        // The doorway the step between two neighbouring cells goes through (-1: none).
+        private static int DoorwayBetween(SoundFieldData data, Dictionary<int, int> doorways, int p, int q)
+        {
+            int difference = q - p, low = Mathf.Min(p, q);
+            int axis = Mathf.Abs(difference) == 1 ? 0 : Mathf.Abs(difference) == data.Cells.x ? 1 : 2;
+            return doorways.TryGetValue(low * 3 + axis, out int doorway) ? doorway : -1;
+        }
+
+        // A flood from a cell: kept for the latest few, made again when the field is baked again.
         private static Flood FloodFrom(SoundField field, SoundFieldData data, int to)
         {
-            if (!_floods.TryGetValue(field, out var flood) || flood.Data != data || flood.Stamp.Length != data.Count)
+            for (int i = _floods.Count - 1; i >= 0; i--)
             {
-                flood = new Flood { Data = data, Stamp = new int[data.Count], Parent = new int[data.Count], Steps = new short[data.Count] };
-                _floods[field] = flood;
+                var kept = _floods[i];
+                if (kept.Field == field && kept.Data == data && kept.From == to)
+                {
+                    _floods.RemoveAt(i);
+                    _floods.Add(kept);
+                    return kept;
+                }
             }
-            if (flood.From == to)
-                return flood;
+            Flood flood;
+            if (_floods.Count >= KeptFloods)
+            {
+                // The least recently used one makes way (its arrays reused when they fit).
+                flood = _floods[0];
+                _floods.RemoveAt(0);
+            }
+            else
+                flood = new Flood();
+            if (flood.Stamp == null || flood.Stamp.Length != data.Count)
+            {
+                flood.Stamp = new int[data.Count];
+                flood.Parent = new int[data.Count];
+                flood.Steps = new short[data.Count];
+                flood.Generation = 0;
+            }
+            flood.Field = field;
+            flood.Data = data;
             flood.From = to;
+            _floods.Add(flood);
+
             int generation = ++flood.Generation;
             _queue.Clear();
             flood.Stamp[to] = generation;
@@ -180,10 +329,13 @@ namespace Remedy.Audio
             return data.Linked(sign > 0 ? cell : next, axis) ? next : -1;
         }
 
+        private static bool Visible(SoundFieldData data, int from, int to) => Visible(data, from, to, null, out _, out _);
+
         // Whether sound goes straight from one cell's middle to another's, crossing only linked cells (a walk along the
-        // line through the grid, a cell at a time).
-        private static bool Visible(SoundFieldData data, int from, int to)
+        // line through the grid, a cell at a time), and the first and last doorways it crosses on the way.
+        private static bool Visible(SoundFieldData data, int from, int to, Dictionary<int, int> doorways, out int firstDoorway, out int lastDoorway)
         {
+            firstDoorway = lastDoorway = -1;
             if (from == to)
                 return true;
             var cells = data.Cells;
@@ -201,9 +353,18 @@ namespace Remedy.Audio
                 if (nextX <= nextY && nextX <= nextZ) { axis = 0; sign = sx; nextX += stepX; }
                 else if (nextY <= nextZ) { axis = 1; sign = sy; nextY += stepY; }
                 else { axis = 2; sign = sz; nextZ += stepZ; }
-                cell = Passes(data, cell, axis, sign);
-                if (cell < 0)
+                int next = Passes(data, cell, axis, sign);
+                if (next < 0)
+                {
+                    firstDoorway = lastDoorway = -1;
                     return false;
+                }
+                if (doorways != null && doorways.TryGetValue(Mathf.Min(cell, next) * 3 + axis, out int doorway))
+                {
+                    if (firstDoorway < 0) firstDoorway = doorway;
+                    lastDoorway = doorway;
+                }
+                cell = next;
                 if (cell == to)
                     return true;
             }

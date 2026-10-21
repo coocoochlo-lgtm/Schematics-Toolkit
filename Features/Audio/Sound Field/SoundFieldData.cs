@@ -22,6 +22,24 @@ namespace Remedy.Audio
     }
 
     /// <summary>
+    /// An opening between spaces (a doorway, a window, a gap between obstacles), found while baking a
+    /// <see cref="SoundField"/>: where sound (and what hears it) gets from one side of a wall to the other. In the
+    /// field's space.
+    /// </summary>
+    [Serializable]
+    public struct SoundFieldDoorway
+    {
+        /// <summary>Its middle.</summary>
+        public Vector3 Position;
+        /// <summary>The way through it (either way round).</summary>
+        public Vector3 Normal;
+        /// <summary>Roughly how wide it is, in meters.</summary>
+        public float Width;
+        /// <summary>The steps between cells it's made of (cell * 3 + axis: from that cell along +axis).</summary>
+        public int[] Links;
+    }
+
+    /// <summary>
     /// What a <see cref="SoundField"/>'s cells sound like, as baked: one cell every <see cref="CellSize"/> meters
     /// through its box, each knowing whether it's open air or inside something, how big the space around it is, how
     /// enclosed, what the surfaces around it are made of (their Surface Materials), its nearest wall, and the echo
@@ -51,6 +69,8 @@ namespace Remedy.Audio
         /// </summary>
         [HideInInspector] public byte[] Links = Array.Empty<byte>();
         public List<SoundFieldAnchor> Anchors = new();
+        /// <summary>The openings between spaces (empty in older bakes).</summary>
+        public List<SoundFieldDoorway> Doorways = new();
 
         /// <summary>Whether the bake has links (sound around corners); older bakes don't until baked again.</summary>
         public bool HasLinks => Links != null && Links.Length == Count && Count > 0;

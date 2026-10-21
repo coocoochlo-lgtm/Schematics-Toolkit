@@ -116,6 +116,8 @@ namespace Remedy.Audio
             }
         }
 
+        private SoundNoise _noise;
+
         /// <summary>Plays the cue from the start (stopping it first if it's playing).</summary>
         public void Play() => Play(0f);
 
@@ -173,6 +175,13 @@ namespace Remedy.Audio
                 Source.PlayScheduled(at);
             else
                 Source.Play();
+
+            // What AI hear (in the game): a noise where it plays, for as long as it plays.
+            var output = Cue.Output;
+            if (Application.isPlaying && output != null && output.HeardByAI > 0f)
+                _noise = SoundHearing.Make(transform.position, output.HeardByAI,
+                    endless ? float.PositiveInfinity : (voice.LengthSamples - start) / (float)rate,
+                    Follow != null ? Follow.gameObject : gameObject, Cue.name, transform);
         }
 
         /// <summary>Stops the cue (its voice goes back to the pool).</summary>
@@ -180,6 +189,8 @@ namespace Remedy.Audio
         {
             var voice = _voice;
             _voice = null;
+            _noise?.End();
+            _noise = null;
             if (_source != null)
                 _source.Stop();
             SoundCueVoicePool.Return(voice);

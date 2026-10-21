@@ -11,7 +11,7 @@ namespace Remedy.Audio
     // The Output, and the controls: values that change over time or with the game, for any input to follow. Every
     // wire carries one value per sample, like a shader's wires carry one per pixel.
 
-    [SchematicDoc(@"{""name"": ""Output"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue"", ""description"": ""The finished sound: its Audio, times its Volume. Length: Auto plays as long as the longest Sound Wave or Generator in the cue; Fixed plays for Duration seconds; Endless plays until it's stopped."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Volume"", ""type"": ""float""}]}")]
+    [SchematicDoc(@"{""name"": ""Output"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue"", ""description"": ""The finished sound: its Audio, times its Volume. Length: Auto plays as long as the longest Sound Wave or Generator in the cue; Fixed plays for Duration seconds; Endless plays until it's stopped. Heard By AI: how far away AI can hear it in the open, in meters (0: AI never hear it); walls, corners and doorways between change that as they would the sound."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Volume"", ""type"": ""float""}]}")]
     [Serializable]
     [NodeColor(NodeColors.Event)]
     [Node(Name = "Output", Path = "Output", Deletable = false), Tags(SoundNode.Tag)]
@@ -32,6 +32,9 @@ namespace Remedy.Audio
         /// <summary>Seconds, for Fixed length.</summary>
         [Editable]
         public float Duration = 1f;
+        /// <summary>How far away AI can hear it in the open, in meters (0: never). See <see cref="SoundHearing"/>.</summary>
+        [Editable, Tooltip("How far away AI can hear it in the open, in meters (0: AI never hear it). Walls, corners and doorways between change that as they would the sound.")]
+        public float HeardByAI = 30f;
 
         // The voice reads the Output's inputs itself.
         public override SoundProcessor CreateProcessor(SoundCueBuilder builder) => new StaticProcessor();

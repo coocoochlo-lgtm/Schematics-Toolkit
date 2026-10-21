@@ -40,6 +40,8 @@ namespace Remedy.Audio
         [Range(0f, 1f)] public float Slice = 0.1f;
         [Tooltip("Show the echo anchors (the surfaces that throw sound back).")]
         public bool ShowAnchors = true;
+        [Tooltip("Show the doorways and openings found when baking (what AI hear sounds come through).")]
+        public bool ShowDoorways = true;
 
         private static readonly List<SoundField> _fields = new();
 
@@ -223,6 +225,18 @@ namespace Remedy.Audio
                     Gizmos.color = new Color(1f, 0.85f, 0.3f, 0.9f);
                     Gizmos.DrawSphere(anchor.Position, Mathf.Clamp(Mathf.Sqrt(anchor.Area) * 0.15f, 0.4f, 3f));
                     Gizmos.DrawLine(anchor.Position, anchor.Position + anchor.Normal * 4f);
+                }
+            }
+
+            if (ShowDoorways && data.Doorways != null)
+            {
+                Gizmos.color = new Color(0.4f, 1f, 0.6f, 0.8f);
+                foreach (var doorway in data.Doorways)
+                {
+                    // A frame across the way through, as wide as the opening.
+                    var across = Vector3.Cross(doorway.Normal, Vector3.up).normalized * Mathf.Max(data.CellSize, doorway.Width);
+                    Gizmos.DrawWireCube(doorway.Position, new Vector3(Mathf.Abs(across.x) + 0.1f, data.CellSize, Mathf.Abs(across.z) + 0.1f));
+                    Gizmos.DrawLine(doorway.Position - doorway.Normal * data.CellSize, doorway.Position + doorway.Normal * data.CellSize);
                 }
             }
         }

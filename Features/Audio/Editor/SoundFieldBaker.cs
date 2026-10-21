@@ -170,6 +170,8 @@ namespace Remedy.Audio
                     }
                 }
 
+                var doorways = FindDoorways(scratch, links, open);
+
                 // Echo anchors: the most-seen, most reflective surfaces far from the cells.
                 int totalAnchorHits = buckets.Values.Sum(b => b.Count);
                 int minimum = Mathf.Max(8, (int)(totalAnchorHits * 0.002f));
@@ -235,6 +237,7 @@ namespace Remedy.Audio
                 data.Rays = field.BakeRays;
                 data.Packed = packed;
                 data.Links = links;
+                data.Doorways = doorways;
                 data.Anchors = anchors;
                 data.BakedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
                 EditorUtility.SetDirty(data);
@@ -246,7 +249,7 @@ namespace Remedy.Audio
                     EditorUtility.SetDirty(field);
                 }
                 SceneView.RepaintAll();
-                Debug.Log($"Sound Field \"{field.name}\": baked {count:N0} cells ({open.Count:N0} open) against {geometry.TriangleCount:N0} triangles, {anchors.Count} echo anchors.", field);
+                Debug.Log($"Sound Field \"{field.name}\": baked {count:N0} cells ({open.Count:N0} open) against {geometry.TriangleCount:N0} triangles, {anchors.Count} echo anchors, {doorways.Count} doorways.", field);
                 return true;
             }
             finally
@@ -254,6 +257,91 @@ namespace Remedy.Audio
                 EditorUtility.ClearProgressBar();
                 UnityEngine.Object.DestroyImmediate(scratch);
             }
+        }
+
+        /// <summary>How far to either side of a step a wall must be for the step to be a doorway, in cells.</summary>
+        public const int DoorwayReach = 3;
+
+        // Doorways: steps between cells along X or Z where, within a few cells to either side, the same step is blocked
+        // by a wall with open space in front of it (a corridor's own sides don't count: nothing open faces them).
+        // Neighbouring doorway steps are one doorway.
+        private static List<SoundFieldDoorway> FindDoorways(SoundFieldData data, byte[] links, List<int> open)
+        {
+            var cells = data.Cells;
+            int[] steps = { 1, cells.x, cells.x * cells.y };
+            var found = new HashSet<int>();
+            foreach (int cell in open)
+                for (int axis = 0; axis <= 2; axis += 2)
+                {
+                    if ((links[cell] & (1 << axis)) == 0)
+                        continue;
+                    int lateral = axis == 0 ? 2 : 0;
+                    if (WallBeside(data, links, steps, cell, axis, lateral, 1) && WallBeside(data, links, steps, cell, axis, lateral, -1))
+                        found.Add(cell * 3 + axis);
+                }
+
+            var doorways = new List<SoundFieldDoorway>();
+            var seen = new HashSet<int>();
+            var queue = new Queue<int>();
+            var members = new List<int>();
+            foreach (int start in found)
+            {
+                if (!seen.Add(start))
+                    continue;
+                members.Clear();
+                queue.Enqueue(start);
+                int axis = start % 3, lateral = axis == 0 ? 2 : 0;
+                while (queue.Count > 0)
+                {
+                    int key = queue.Dequeue();
+                    members.Add(key);
+                    int cell = key / 3;
+                    // Beside it (across the opening) and above or below it.
+                    foreach (int step in new[] { steps[lateral], -steps[lateral], steps[1], -steps[1] })
+                    {
+                        int next = (cell + step) * 3 + axis;
+                        if (found.Contains(next) && seen.Add(next))
+                            queue.Enqueue(next);
+                    }
+                }
+                var middle = Vector3.zero;
+                var across = new HashSet<int>();
+                foreach (int key in members)
+                {
+                    int cell = key / 3;
+                    int x = cell % cells.x, y = cell / cells.x % cells.y, z = cell / (cells.x * cells.y);
+                    middle += data.CellCenter(x, y, z) + (axis == 0 ? Vector3.right : Vector3.forward) * (data.CellSize * 0.5f);
+                    across.Add(lateral == 0 ? x : z);
+                }
+                doorways.Add(new SoundFieldDoorway
+                {
+                    Position = middle / members.Count, // (cell middles are in the field's space)
+                    Normal = axis == 0 ? Vector3.right : Vector3.forward,
+                    Width = across.Count * data.CellSize,
+                    Links = members.ToArray(),
+                });
+            }
+            return doorways;
+        }
+
+        // Whether the step from a cell along an axis is walled off a few cells to one side (a wall facing open space).
+        private static bool WallBeside(SoundFieldData data, byte[] links, int[] steps, int cell, int axis, int lateral, int sign)
+        {
+            var cells = data.Cells;
+            int coordinate = lateral == 0 ? cell % cells.x : cell / (cells.x * cells.y);
+            int limit = lateral == 0 ? cells.x : cells.z;
+            for (int k = 1; k <= DoorwayReach; k++)
+            {
+                int at = coordinate + sign * k;
+                if (at < 0 || at >= limit)
+                    return false; // the field's edge isn't a wall
+                int beside = cell + sign * k * steps[lateral];
+                if ((links[beside] & (1 << axis)) != 0)
+                    continue;
+                // Blocked: a wall across the step if there's open space on either side of it.
+                return data.IsOpen(beside) || data.IsOpen(beside + steps[axis]);
+            }
+            return false;
         }
 
         private static void AddToBucket(Dictionary<(int, int, int, int), Bucket> buckets, Vector3 point, Vector3 normal, float reflectivity, float hardness)
