@@ -75,7 +75,7 @@ namespace Remedy.Cameras
 
         protected override void OnUpdate()
         {
-            var follow = Follow.Value;
+            var follow = FollowTarget();
             var root = Root.Value;
             var camera = Camera.Value;
             if (follow == null || root == null || camera == null) return;
@@ -102,10 +102,7 @@ namespace Remedy.Cameras
             shoulderPosition.x = Mathf.Lerp(shoulderPosition.x, goalShoulderPosition, ShoulderSwitchSpeed.Value * dt);
             camera.localPosition = shoulderPosition;
 
-            // Keep the object at the Root without moving the Root.
-            var prevRootPos = root.position;
-            Self.Transform.position = root.position;
-            root.position = prevRootPos;
+            KeepObjectAtRoot(root, follow);
 
             horPos.x = Mathf.Lerp(root.position.x, follow.position.x + followOffset.x, HorizontalFollowSpeed.Value * dt);
             horPos.z = Mathf.Lerp(root.position.z, follow.position.z + followOffset.z, HorizontalFollowSpeed.Value * dt);

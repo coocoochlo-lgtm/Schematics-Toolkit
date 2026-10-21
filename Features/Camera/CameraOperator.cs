@@ -28,7 +28,8 @@ namespace Remedy.Cameras
 
         [SchematicDoc(@"{""name"": ""Properties"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""CameraOperatorProperties"", ""default"": ""null"", ""description"": ""Properties (CameraOperatorProperties) of Camera Operator.""}")]
         public readonly VariableHandle<CameraOperatorProperties> Properties = (CameraOperatorProperties)null;
-        [SchematicDoc(@"{""name"": ""Follow"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""Follow (Transform) of Camera Operator.""}")]
+        [SchematicDoc(@"{""name"": ""Follow"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""What the camera follows. Empty: in Play Mode, the root of the Schematic Object the camera is on.""}")]
+        [Tooltip("What the camera follows. Empty: in Play Mode, the root of the Schematic Object the camera is on.")]
         public readonly VariableHandle<Transform> Follow = (Transform)null;
         [SchematicDoc(@"{""name"": ""Root"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""Root (Transform) of Camera Operator.""}")]
         public readonly VariableHandle<Transform> Root = (Transform)null;
@@ -147,6 +148,33 @@ namespace Remedy.Cameras
         /// The Box3D body of what the Operator follows (the character), or <paramref name="assigned"/> when set: its
         /// casts skip it (so the camera never hits the character), and its velocity drives look-ahead.
         /// </summary>
+        /// <summary>
+        /// What the Operator follows: <see cref="Follow"/>, else (in Play Mode) the root of the Schematic Object it's
+        /// on, which then becomes its Follow.
+        /// </summary>
+        protected Transform FollowTarget()
+        {
+            var follow = Follow.Value;
+            if (follow == null && Application.isPlaying && Self.Owner != null)
+                Follow.Value = follow = Self.Owner.transform;
+            return follow;
+        }
+
+        /// <summary>
+        /// Moves the Operator's own object to the rig's Root (without moving the Root), so the object is where the
+        /// camera pivots. Not when the Operator is on what it follows (or on something holding it): that would drag
+        /// the character along with the camera.
+        /// </summary>
+        protected void KeepObjectAtRoot(Transform root, Transform follow)
+        {
+            var self = Self.Transform;
+            if (follow == self || follow.IsChildOf(self))
+                return;
+            var rootPosition = root.position;
+            self.position = rootPosition;
+            root.position = rootPosition;
+        }
+
         /// <summary>How far the aim ray looks for what the camera's pointing at, in meters.</summary>
         protected const float AimDistance = 1000f;
 
