@@ -92,12 +92,16 @@ namespace Remedy.Audio
 
         #endregion
 
-        /// <summary>The bar along the top of a Sound Cue's canvas: preview it, and see where it is and what's wrong.</summary>
+        /// <summary>
+        /// The bar along the top of a Sound Cue's canvas: preview it, and see where it is and what's wrong. The radar pad
+        /// shows the listener (in the middle, facing up) and the sound: drag the dot to place it, or pick a motion.
+        /// </summary>
         private sealed class PreviewBar : VisualElement
         {
             private readonly SoundCueGraph _cue;
             private readonly Button _play;
-            private readonly Label _time, _warnings;
+            private readonly Label _time, _warnings, _where;
+            private readonly RadarPad _radar;
 
             public PreviewBar(SoundCueGraph cue)
             {
@@ -112,29 +116,45 @@ namespace Remedy.Audio
                 style.backgroundColor = new Color(0.12f, 0.12f, 0.14f, 0.85f);
                 style.borderTopLeftRadius = style.borderTopRightRadius = style.borderBottomLeftRadius = style.borderBottomRightRadius = 6;
 
-                var row = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center } };
-                row.Add(new Label("SOUND CUE") { style = { unityFontStyleAndWeight = FontStyle.Bold, marginRight = 8, color = new Color(0.95f, 0.6f, 0.8f) } });
-
+                var top = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center } };
+                top.Add(new Label("SOUND CUE") { style = { unityFontStyleAndWeight = FontStyle.Bold, marginRight = 8, color = new Color(0.95f, 0.6f, 0.8f) } });
                 _play = new Button(Toggle) { tooltip = "Hear the cue (edits replay it as you make them)." };
                 _play.style.minWidth = 70;
-                row.Add(_play);
-
-                var distance = new Slider("Distance", 0f, 100f) { value = SoundCuePreview.Distance, tooltip = "What Distance To Listener nodes read while previewing (meters)." };
-                distance.style.width = 220;
-                distance.style.marginLeft = 8;
-                distance.labelElement.style.minWidth = 54;
-                var distanceValue = new Label($"{SoundCuePreview.Distance:0} m") { style = { minWidth = 40, unityTextAlign = TextAnchor.MiddleLeft } };
-                distance.RegisterValueChangedCallback(evt =>
-                {
-                    SoundCuePreview.Distance = evt.newValue;
-                    distanceValue.text = $"{evt.newValue:0} m";
-                });
-                row.Add(distance);
-                row.Add(distanceValue);
-
+                top.Add(_play);
                 _time = new Label { style = { marginLeft = 8, minWidth = 90, unityTextAlign = TextAnchor.MiddleLeft, opacity = 0.8f } };
-                row.Add(_time);
-                Add(row);
+                top.Add(_time);
+                Add(top);
+
+                var body = new VisualElement { style = { flexDirection = FlexDirection.Row, marginTop = 4 } };
+                _radar = new RadarPad();
+                body.Add(_radar);
+
+                var controls = new VisualElement { style = { marginLeft = 8, width = 230 } };
+                var spatial = new Toggle("3D") { value = SoundCuePreview.Spatial, tooltip = "Hear it panned and fading with distance, as in the game. Off: flat and centered." };
+                spatial.RegisterValueChangedCallback(evt => SoundCuePreview.Spatial = evt.newValue);
+                controls.Add(Narrow(spatial));
+
+                var motion = new EnumField("Motion", SoundCuePreview.Motion) { tooltip = "How the sound moves around the listener (Still: where you put it on the pad)." };
+                motion.RegisterValueChangedCallback(evt =>
+                {
+                    SoundCuePreview.Motion = (SoundCuePreview.PreviewMotion)evt.newValue;
+                    SoundCuePreview.RestartMotion();
+                });
+                controls.Add(Narrow(motion));
+                _radar.Dragged += () => motion.SetValueWithoutNotify(SoundCuePreview.PreviewMotion.Still);
+
+                var radius = new Slider("Radius", 1f, 100f) { value = SoundCuePreview.Radius, showInputField = true, tooltip = "How far the motion reaches (meters)." };
+                radius.RegisterValueChangedCallback(evt => SoundCuePreview.Radius = evt.newValue);
+                controls.Add(Narrow(radius));
+
+                var speed = new Slider("Speed", 0.2f, 60f) { value = SoundCuePreview.Speed, showInputField = true, tooltip = "How fast the motion moves (meters a second)." };
+                speed.RegisterValueChangedCallback(evt => SoundCuePreview.Speed = evt.newValue);
+                controls.Add(Narrow(speed));
+
+                _where = new Label { style = { opacity = 0.8f, marginTop = 2 } };
+                controls.Add(_where);
+                body.Add(controls);
+                Add(body);
 
                 _warnings = new Label { style = { color = new Color(1f, 0.75f, 0.3f), whiteSpace = WhiteSpace.Normal, maxWidth = 520, display = DisplayStyle.None } };
                 Add(_warnings);
@@ -142,7 +162,18 @@ namespace Remedy.Audio
                 Refresh();
                 SoundCuePreview.Changed += Refresh;
                 RegisterCallback<DetachFromPanelEvent>(_ => SoundCuePreview.Changed -= Refresh);
-                schedule.Execute(Tick).Every(100);
+                schedule.Execute(Tick).Every(33);
+            }
+
+            private static T Narrow<T>(T field) where T : VisualElement
+            {
+                var label = field.Q<Label>(className: "unity-base-field__label");
+                if (label != null)
+                {
+                    label.style.minWidth = 52;
+                    label.style.width = 52;
+                }
+                return field;
             }
 
             private bool IsMine => SoundCuePreview.Playing == _cue;
@@ -165,6 +196,10 @@ namespace Remedy.Audio
 
             private void Tick()
             {
+                var position = SoundCuePreview.CurrentPosition;
+                _where.text = $"{position.magnitude:0.0} m away, {Side(position)}";
+                _radar.MarkDirtyRepaint();
+
                 var voice = IsMine ? SoundCuePreview.Voice : null;
                 if (voice == null)
                 {
@@ -175,6 +210,104 @@ namespace Remedy.Audio
                 }
                 float length = voice.Context.Duration;
                 _time.text = length > 0f ? $"{voice.Time:0.00} / {length:0.00} s" : $"{voice.Time:0.00} s (endless)";
+            }
+
+            private static string Side(Vector2 p)
+            {
+                if (p.magnitude < 0.25f) return "on the listener";
+                float angle = Mathf.Atan2(p.x, p.y) * Mathf.Rad2Deg;
+                if (Mathf.Abs(angle) < 22.5f) return "ahead";
+                if (Mathf.Abs(angle) > 157.5f) return "behind";
+                string side = angle > 0 ? "right" : "left";
+                return Mathf.Abs(angle) < 67.5f ? $"ahead {side}" : Mathf.Abs(angle) > 112.5f ? $"behind {side}" : side;
+            }
+        }
+
+        /// <summary>
+        /// A top-down view around the listener: rings every 10 m, the listener in the middle facing up, and the sound
+        /// as a dot. Drag it to place the sound (which stops any motion).
+        /// </summary>
+        private sealed class RadarPad : VisualElement
+        {
+            private const float Size = 120f;
+            public event System.Action Dragged;
+            private bool _dragging;
+
+            public RadarPad()
+            {
+                style.width = style.height = Size;
+                style.backgroundColor = new Color(0f, 0f, 0f, 0.35f);
+                style.borderTopLeftRadius = style.borderTopRightRadius = style.borderBottomLeftRadius = style.borderBottomRightRadius = Size / 2f;
+                tooltip = "Drag the dot to place the sound around the listener (the listener faces up).";
+                generateVisualContent += Draw;
+                RegisterCallback<PointerDownEvent>(evt =>
+                {
+                    _dragging = true;
+                    this.CapturePointer(evt.pointerId);
+                    Place(evt.localPosition);
+                    evt.StopPropagation();
+                });
+                RegisterCallback<PointerMoveEvent>(evt =>
+                {
+                    if (_dragging)
+                        Place(evt.localPosition);
+                });
+                RegisterCallback<PointerUpEvent>(evt =>
+                {
+                    _dragging = false;
+                    this.ReleasePointer(evt.pointerId);
+                });
+            }
+
+            // How many meters the pad's edge is from the listener.
+            private static float Range => Mathf.Max(15f, SoundCuePreview.Motion == SoundCuePreview.PreviewMotion.Still
+                ? SoundCuePreview.Position.magnitude * 1.25f
+                : SoundCuePreview.Radius * (SoundCuePreview.Motion == SoundCuePreview.PreviewMotion.FlyBy ? 2.2f : 1.2f));
+
+            private void Place(Vector2 local)
+            {
+                float half = Size / 2f;
+                var offset = new Vector2(local.x - half, half - local.y) / half; // up is ahead
+                if (offset.magnitude > 1f)
+                    offset.Normalize();
+                SoundCuePreview.Motion = SoundCuePreview.PreviewMotion.Still;
+                SoundCuePreview.Position = offset * Range;
+                Dragged?.Invoke();
+                MarkDirtyRepaint();
+            }
+
+            private void Draw(MeshGenerationContext context)
+            {
+                var painter = context.painter2D;
+                float half = Size / 2f;
+                var center = new Vector2(half, half);
+                float range = Range, scale = (half - 4f) / range;
+
+                painter.lineWidth = 1f;
+                painter.strokeColor = new Color(1f, 1f, 1f, 0.15f);
+                for (float ring = 10f; ring < range; ring += 10f)
+                {
+                    painter.BeginPath();
+                    painter.Arc(center, ring * scale, Angle.Degrees(0f), Angle.Degrees(360f));
+                    painter.Stroke();
+                }
+
+                // The listener: a little arrow pointing ahead.
+                painter.fillColor = new Color(1f, 1f, 1f, 0.8f);
+                painter.BeginPath();
+                painter.MoveTo(center + new Vector2(0f, -7f));
+                painter.LineTo(center + new Vector2(5f, 5f));
+                painter.LineTo(center + new Vector2(-5f, 5f));
+                painter.ClosePath();
+                painter.Fill();
+
+                // The sound.
+                var p = SoundCuePreview.CurrentPosition * scale;
+                var dot = center + new Vector2(p.x, -p.y);
+                painter.fillColor = new Color(0.95f, 0.45f, 0.75f, 1f);
+                painter.BeginPath();
+                painter.Arc(dot, 5f, Angle.Degrees(0f), Angle.Degrees(360f));
+                painter.Fill();
             }
         }
     }
