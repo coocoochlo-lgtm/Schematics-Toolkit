@@ -29,6 +29,8 @@ namespace Remedy.Audio
         /// <summary>The room's floor plan (X, Z), when the space is a room.</summary>
         public readonly Rect? Room;
         public SpaceBus RoomBus { get; private set; }
+        private readonly TailPool _tails;
+        public override TailPool Tails => _tails;
         private readonly SoundAcoustics _place;
         private readonly int _rate;
 
@@ -38,6 +40,7 @@ namespace Remedy.Audio
         {
             Space = space;
             _rate = AudioSettings.outputSampleRate > 0 ? AudioSettings.outputSampleRate : 48000;
+            _tails = new TailPool(host, _rate, flat: true);
             // Rough places (the size is how far surfaces are on average), and their walls.
             switch (space)
             {

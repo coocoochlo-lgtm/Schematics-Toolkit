@@ -437,11 +437,18 @@ namespace Remedy.Audio
             protected override bool UseRooms => false;
             protected override float EchoAmount => Node.Echoes;
 
-            protected override void Shape(in SoundAcoustics place, bool inRoom)
+            protected override void Shape(in SoundAcoustics place, bool elsewhere)
             {
                 Set(0, place.SlapbackDelay);
                 Set(1, place.SlapbackFeedback);
-                Set(2, place.SlapbackWet);
+                Set(2, elsewhere ? 0f : place.SlapbackWet);
+            }
+
+            // A slapback left where the sound is, coming back off the nearest wall there.
+            protected override SpaceBus Tail(TailPool pool, Vector3 position, in SoundAcoustics place, out float amount)
+            {
+                amount = place.SlapbackWet;
+                return amount > 0.001f ? pool.Slap(position, place.SlapbackDelay, place.SlapbackFeedback, place.Damping) : null;
             }
 
             public override void Fallback()
@@ -648,11 +655,18 @@ namespace Remedy.Audio
             protected override bool UseRooms => true;
             protected override float EchoAmount => Node.Echoes;
 
-            protected override void Shape(in SoundAcoustics place, bool inRoom)
+            protected override void Shape(in SoundAcoustics place, bool elsewhere)
             {
                 Set(0, place.Feedback);
                 Set(1, place.Damping);
-                Set(2, inRoom ? 0f : place.Wet);
+                Set(2, elsewhere ? 0f : place.Wet);
+            }
+
+            // Outside rooms: a reverb left where the sound is, ringing like the place.
+            protected override SpaceBus Tail(TailPool pool, Vector3 position, in SoundAcoustics place, out float amount)
+            {
+                amount = place.Wet;
+                return amount > 0.001f ? pool.Reverb(position, place.Feedback, place.Damping, place.ReverbTime) : null;
             }
 
             // No Sound Field here: the node's own Room Size and Damping, heard a modest amount.

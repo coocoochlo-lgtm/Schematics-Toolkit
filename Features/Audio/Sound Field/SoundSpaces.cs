@@ -92,9 +92,17 @@ namespace Remedy.Audio
         private long _lastWrite = long.MinValue;
         private int _rate;
 
-        // Room: a reverb. Echo: darkened, diffused (three allpasses), then mostly a short smear (a brief reverb) with a
-        // little of the copy itself: a wall throws back a soft, blurred version of a sound, not a clean duplicate.
-        public bool IsRoom { get; private set; }
+        /// <summary>What a bus does with what it's sent.</summary>
+        public enum BusKind { Room, Echo, Slap }
+
+        // Room: a reverb (a ringing room, or a reverb tail left where a sound was). Echo: darkened, diffused (three
+        // allpasses), then mostly a short smear (a brief reverb) with a little of the copy itself: a wall throws back a
+        // soft, blurred version of a sound, not a clean duplicate. Slap: a slapback, repeating (left where a sound was).
+        public BusKind Kind { get; private set; }
+        public bool IsRoom => Kind == BusKind.Room;
+        private float[] _slapLine = Array.Empty<float>();
+        private int _slapWrite, _slapDelay = 1;
+        private float _slapFeedback, _slapLow, _slapLowAmount = 0.5f;
         private ReverbCore _reverb;
         private float _feedback = 0.85f, _damp = 0.15f;
         private float _lowpass, _lowpassAmount = 0.5f;
@@ -165,7 +173,7 @@ namespace Remedy.Audio
         internal void BeginRoom(object owner, Vector3 position, float radius)
         {
             Begin(owner, position);
-            IsRoom = true;
+            Kind = BusKind.Room;
             Source.minDistance = Mathf.Max(2f, radius);
             Source.maxDistance = Source.minDistance * 10f + 60f;
             Source.spread = 180f;
@@ -176,7 +184,7 @@ namespace Remedy.Audio
         internal void BeginEcho(object owner, Vector3 position, float size, float hardness)
         {
             Begin(owner, position);
-            IsRoom = false;
+            Kind = BusKind.Echo;
             Source.minDistance = Mathf.Clamp(size, 3f, 40f);
             Source.maxDistance = 600f;
             Source.spread = 60f;
@@ -216,6 +224,42 @@ namespace Remedy.Audio
                 _reverb.Clear();
                 _partner = null;
             }
+        }
+
+        /// <summary>Starts it as a slapback left at a place: what's sent comes back after the delay, repeating.</summary>
+        internal void BeginSlap(object owner, Vector3 position)
+        {
+            Begin(owner, position);
+            lock (_lock)
+            {
+                // (Under the lock: the audio thread reads the line.)
+                if (_slapLine.Length < (int)(1.6f * _rate))
+                    _slapLine = new float[(int)(1.6f * _rate)];
+                Array.Clear(_slapLine, 0, _slapLine.Length);
+                _slapWrite = 0;
+                _slapLow = 0f;
+            }
+            Kind = BusKind.Slap;
+            Source.minDistance = 2f;
+            Source.maxDistance = 300f;
+            Source.spread = 60f;
+            if (!Source.isPlaying) Source.Play();
+        }
+
+        /// <summary>A slapback's delay (seconds), how much comes round again, and how dull (0 bright, 1 dull) it is.</summary>
+        internal void SetSlap(float delay, float feedback, float damping)
+        {
+            _slapDelay = Mathf.Clamp((int)(delay * _rate), 1, Mathf.Max(1, _slapLine.Length - 2));
+            _slapFeedback = Mathf.Clamp(feedback, 0f, 0.9f);
+            float cutoff = Mathf.Lerp(9000f, 1500f, Mathf.Clamp01(damping));
+            _slapLowAmount = 1f - Mathf.Exp(-2f * Mathf.PI * cutoff / Mathf.Max(8000, _rate));
+        }
+
+        /// <summary>Nothing sent to it for longer than <paramref name="tail"/> seconds (and a bit): it has rung out.</summary>
+        public bool IsQuiet(float tail)
+        {
+            long last = LastWrite, head = ReadHead;
+            return last == long.MinValue || head < 0 || head - last > (long)((tail * 1.2f + 0.5f) * _rate);
         }
 
         /// <summary>
@@ -358,8 +402,19 @@ namespace Remedy.Audio
                     float input = _ring[slot];
                     _ring[slot] = 0f;
                     float output;
-                    if (IsRoom)
+                    if (Kind == BusKind.Room)
                         output = _reverb.Process(input * 0.015f, _feedback, _damp) * 3f;
+                    else if (Kind == BusKind.Slap)
+                    {
+                        int length = _slapLine.Length;
+                        int read = _slapWrite - _slapDelay;
+                        if (read < 0) read += length;
+                        float echo = _slapLine[read];
+                        _slapLow += (echo - _slapLow) * _slapLowAmount;
+                        _slapLine[_slapWrite] = input + _slapLow * _slapFeedback;
+                        _slapWrite = _slapWrite + 1 == length ? 0 : _slapWrite + 1;
+                        output = _slapLow;
+                    }
                     else
                     {
                         _lowpass += (input - _lowpass) * _lowpassAmount;
@@ -400,6 +455,120 @@ namespace Remedy.Audio
     }
 
     /// <summary>
+    /// Reverb and slapback tails left where sounds are: a sound's Spatial Reverb (outside rooms) and Spatial Delay feed
+    /// the spot where the sound is, which rings out there on its own; when the sound moves on (more than
+    /// <see cref="Handoff"/> meters) it feeds a new spot, and the old one finishes ringing where it was. Spots near each
+    /// other are shared. Placed in 3D in the game, or panned flat around the editor preview's listener.
+    /// </summary>
+    public sealed class TailPool
+    {
+        /// <summary>How far a sound moves before it leaves a tail behind and starts a new one, in meters.</summary>
+        public const float Handoff = 4f;
+
+        /// <summary>A tail spot: what it is, where, and how long it takes to ring out.</summary>
+        public sealed class Spot
+        {
+            public SpaceBus.BusKind Kind;
+            public Vector3 Position;
+            public float RingsFor;
+        }
+
+        private readonly Transform _parent;
+        private readonly int _rate;
+        private readonly bool _flat;
+        private readonly int _max;
+        private readonly List<SpaceBus> _buses = new();
+
+        public TailPool(Transform parent, int rate, bool flat, int max = 24)
+        {
+            _parent = parent;
+            _rate = rate;
+            _flat = flat;
+            _max = max;
+        }
+
+        public IReadOnlyList<SpaceBus> Buses => _buses;
+
+        /// <summary>A reverb spot at a position (the one there, or a new one), shaped by the place there.</summary>
+        public SpaceBus Reverb(Vector3 position, float feedback, float damping, float ringsFor)
+        {
+            var bus = Acquire(SpaceBus.BusKind.Room, position, ringsFor, out bool fresh);
+            if (bus == null) return null;
+            if (fresh) bus.BeginRoom(bus.Owner, position, 3f);
+            bus.SetRoom(feedback, damping);
+            Place(bus, position);
+            return bus;
+        }
+
+        /// <summary>A slapback spot at a position (the one there, or a new one).</summary>
+        public SpaceBus Slap(Vector3 position, float delay, float feedback, float damping)
+        {
+            var bus = Acquire(SpaceBus.BusKind.Slap, position, delay * 6f + 0.5f, out bool fresh);
+            if (bus == null) return null;
+            if (fresh) bus.BeginSlap(bus.Owner, position);
+            bus.SetSlap(delay, feedback, damping);
+            Place(bus, position);
+            return bus;
+        }
+
+        private SpaceBus Acquire(SpaceBus.BusKind kind, Vector3 position, float ringsFor, out bool fresh)
+        {
+            fresh = false;
+            SpaceBus nearest = null;
+            float best = Handoff;
+            foreach (var bus in _buses)
+                if (bus.Owner is Spot spot && spot.Kind == kind)
+                {
+                    float distance = Vector3.Distance(spot.Position, position);
+                    if (distance < best) { best = distance; nearest = bus; }
+                }
+            if (nearest != null)
+            {
+                ((Spot)nearest.Owner).RingsFor = Mathf.Max(((Spot)nearest.Owner).RingsFor, ringsFor);
+                return nearest;
+            }
+            SpaceBus free = null;
+            foreach (var bus in _buses)
+                if (bus.Owner == null) { free = bus; break; }
+            if (free == null && _buses.Count < _max)
+                _buses.Add(free = SpaceBus.Create(_parent, _rate));
+            if (free == null)
+                return null; // all ringing: the sound keeps its own effect for now
+            free.Owner = new Spot { Kind = kind, Position = position, RingsFor = ringsFor };
+            fresh = true;
+            return free;
+        }
+
+        // Where it's heard from: placed there in the world, or (the preview) panned and faded from the listener's middle.
+        private void Place(SpaceBus bus, Vector3 position)
+        {
+            if (!_flat) return;
+            var flat = new Vector2(position.x, position.z);
+            float distance = flat.magnitude;
+            bus.SetFlat(distance > 0.01f ? flat.x / distance : 0f, 1f / Mathf.Max(1f, distance));
+        }
+
+        /// <summary>Lets go of spots that have rung out.</summary>
+        public void Update()
+        {
+            foreach (var bus in _buses)
+                if (bus.Owner is Spot spot && bus.IsQuiet(spot.RingsFor))
+                    bus.End();
+        }
+
+        public void Destroy()
+        {
+            foreach (var bus in _buses)
+                if (bus != null)
+                {
+                    if (Application.isPlaying) UnityEngine.Object.Destroy(bus.gameObject);
+                    else UnityEngine.Object.DestroyImmediate(bus.gameObject);
+                }
+            _buses.Clear();
+        }
+    }
+
+    /// <summary>
     /// An acoustic room: a stretch of a Sound Field's cells that are closed in and sound alike (found when the field is
     /// first used, no bake needed), which rings with one shared reverb.
     /// </summary>
@@ -421,6 +590,9 @@ namespace Remedy.Audio
     {
         public SpaceBus Room;
         public float RoomGain;
+        /// <summary>The tail spot where the sound is (outside rooms): its reverb or slapback, left there.</summary>
+        public SpaceBus Tail;
+        public float TailGain;
         public SpaceBus EchoA, EchoB;
         public int DelayA, DelayB;
         public float GainA, GainB;
@@ -457,6 +629,10 @@ namespace Remedy.Audio
 
         /// <summary>The spaces, if they've been made (doesn't make them).</summary>
         public static SoundSpaces Current => _instance;
+
+        private TailPool _tails;
+        /// <summary>Reverb and slapback tails left where sounds are (outside rooms).</summary>
+        public TailPool Tails => _tails ??= new TailPool(transform, _rate, flat: false);
         private readonly List<SpaceBus> _rooms = new();
         private readonly List<SpaceBus> _echoes = new();
         private readonly Dictionary<SoundField, (SoundFieldData data, int[] regionOf, List<AcousticRoom> rooms)> _fields = new();
@@ -568,11 +744,7 @@ namespace Remedy.Audio
         }
 
         // Quiet: nothing sent for longer than its reverb takes to die away.
-        private bool IsQuiet(SpaceBus bus, float tail)
-        {
-            long last = bus.LastWrite, head = bus.ReadHead;
-            return last == long.MinValue || head < 0 || head - last > (long)((tail * 1.2f + 0.5f) * _rate);
-        }
+        private static bool IsQuiet(SpaceBus bus, float tail) => bus.IsQuiet(tail);
 
         private (SoundFieldData data, int[] regionOf, List<AcousticRoom> rooms) RoomsOf(SoundField field)
         {
@@ -724,6 +896,7 @@ namespace Remedy.Audio
             if (Time.unscaledTime < _nextEchoUpdate)
                 return;
             _nextEchoUpdate = Time.unscaledTime + 0.25f;
+            _tails?.Update();
             UpdateEchoes();
             ReleaseFarRooms();
         }

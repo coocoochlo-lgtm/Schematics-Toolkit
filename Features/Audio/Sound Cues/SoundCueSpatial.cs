@@ -26,8 +26,32 @@ namespace Remedy.Audio
         /// <summary>How much echo walls throw the sound back, 0 to 1.</summary>
         protected abstract float EchoAmount { get; }
 
-        /// <summary>The effect's settings for a place (<paramref name="inRoom"/>: a room is ringing with the sound).</summary>
-        protected abstract void Shape(in SoundAcoustics place, bool inRoom);
+        /// <summary>
+        /// The effect's settings for a place. <paramref name="elsewhere"/>: a room or a tail spot is making the effect
+        /// for the sound (so it stays where it happens), and the sound's own should fade out.
+        /// </summary>
+        protected abstract void Shape(in SoundAcoustics place, bool elsewhere);
+
+        /// <summary>
+        /// The tail spot for the effect where the sound is (a reverb or a slapback left there, from the pool), or null
+        /// when the place makes none; and how much the sound feeds it.
+        /// </summary>
+        protected abstract SpaceBus Tail(TailPool pool, Vector3 position, in SoundAcoustics place, out float amount);
+
+        // Outside rooms: the effect is made at a spot where the sound is, which stays there (and rings out there) when
+        // the sound moves on. The sound's own effect only fades once the spot is playing and taking its sends in time.
+        private bool AddTail(TailPool pool, Vector3 position, in SoundAcoustics place, ref SpaceSends sends)
+        {
+            if (pool == null)
+                return false;
+            var tail = Tail(pool, position, place, out float amount);
+            if (tail == null)
+                return false;
+            sends ??= new SpaceSends();
+            sends.Tail = tail;
+            sends.TailGain = amount * SoundSpaces.Exaggerate;
+            return tail.Healthy;
+        }
         /// <summary>The effect's settings with no Sound Field (or in the editor's preview): its own typed-in ones.</summary>
         public abstract void Fallback();
 
@@ -63,6 +87,8 @@ namespace Remedy.Audio
                     Echo(spaces, field, cell.AnchorA, world, ref sends.EchoA, ref sends.DelayA, ref sends.GainA);
                     Echo(spaces, field, cell.AnchorB, world, ref sends.EchoB, ref sends.DelayB, ref sends.GainB);
                 }
+                if (!inRoom && AddTail(spaces.Tails, world.Position, place, ref sends))
+                    inRoom = true;
             }
             Volatile.Write(ref Sends, sends);
             Shape(place, inRoom);
@@ -111,6 +137,8 @@ namespace Remedy.Audio
                     else { sends.EchoB = _simBuses[i]; sends.DelayB = delay; sends.GainB = gain; }
                 }
             }
+            if (!inRoom && AddTail(simulation.Tails, world.Position, place, ref sends))
+                inRoom = true;
             Volatile.Write(ref Sends, sends);
             Shape(place, inRoom);
             if (SoundSpaces.Exaggerate != 1f)
@@ -165,6 +193,8 @@ namespace Remedy.Audio
         /// length of the reflected path (sound, wall, listener) and how reflective they are. Returns how many.
         /// </summary>
         public abstract int Echoes(Vector3 position, Vector3 listener, SpaceBus[] buses, float[] paths, float[] reflectivity);
+        /// <summary>Reverb and slapback tails left where the previewed sound has been.</summary>
+        public abstract TailPool Tails { get; }
     }
 
     /// <summary>
@@ -175,16 +205,16 @@ namespace Remedy.Audio
     internal sealed class SpatialSender
     {
         private readonly int _rate;
-        private SpaceBus _room, _echoA, _echoB;
-        private float _roomGain, _gainA, _gainB;
-        private int _roomDelay, _delayA, _delayB;
+        private SpaceBus _room, _echoA, _echoB, _tail;
+        private float _roomGain, _gainA, _gainB, _tailGain;
+        private int _roomDelay, _delayA, _delayB, _tailDelay;
 
         public SpatialSender(int sampleRate) => _rate = sampleRate;
 
         public void Reset()
         {
-            _room = _echoA = _echoB = null;
-            _roomGain = _gainA = _gainB = 0f;
+            _room = _echoA = _echoB = _tail = null;
+            _roomGain = _gainA = _gainB = _tailGain = 0f;
         }
 
         /// <summary>Sends <paramref name="sound"/>'s block (Mix times each send's own amount).</summary>
@@ -195,6 +225,7 @@ namespace Remedy.Audio
             var sends = Volatile.Read(ref probe.Sends);
             long at = context.HeardSample(context.SamplePosition);
             SendTo(ref _room, ref _roomGain, ref _roomDelay, sends?.Room, (sends?.RoomGain ?? 0f) * mix, 0, sound, at, count);
+            SendTo(ref _tail, ref _tailGain, ref _tailDelay, sends?.Tail, (sends?.TailGain ?? 0f) * mix, 0, sound, at, count);
             SendTo(ref _echoA, ref _gainA, ref _delayA, sends?.EchoA, (sends?.GainA ?? 0f) * mix, sends?.DelayA ?? 0, sound, at, count);
             SendTo(ref _echoB, ref _gainB, ref _delayB, sends?.EchoB, (sends?.GainB ?? 0f) * mix, sends?.DelayB ?? 0, sound, at, count);
         }
