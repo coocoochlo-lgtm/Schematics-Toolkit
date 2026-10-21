@@ -250,6 +250,27 @@ namespace Remedy.Vehicles
         [Tooltip("A hop (m/s upward) as the car starts righting itself, so it has room to turn over.")]
         public float SelfRightLift = 3f;
 
+        [Header("Roll Save")]
+        [Tooltip("How fast the roll save winds up (per second) while the car is in a big turn. It goes from -1 to 1, so 1 = a full second of big turn before it starts pushing, two to full strength.")]
+        public float RollSaveRate = 1f;
+        [Tooltip("How fast it falls back toward -1 (per second) once the turn is over.")]
+        public float RollSaveRelaxRate = 2f;
+        [Range(0f, 1f)]
+        [Tooltip("How far the wheels must be turned (0-1) for a big turn.")]
+        public float RollSaveSteer = 0.6f;
+        [Min(0f)]
+        [Tooltip("...and how fast the car must be going (m/s).")]
+        public float RollSaveMinSpeed = 8f;
+        [Range(0f, 90f)]
+        [Tooltip("Tilted further than this from the ground (degrees, e.g. up on two wheels) also winds it up, turning or not. 0 = only big turns.")]
+        public float RollSaveTilt = 15f;
+        [Min(0f)]
+        [Tooltip("How hard it rolls the car back onto its wheels at full save (rad/s²); scales with the save above 0. 0 = off.")]
+        public float RollSaveStrength = 25f;
+        [Min(0f)]
+        [Tooltip("Damps the roll while saving, so it lands on its wheels instead of bouncing over the other way. Lower = bouncier.")]
+        public float RollSaveDamping = 3f;
+
         [Header("Feedback")]
         [Tooltip("Direction-adjusted impacts slower than this (m/s) don't send On Crash. Impacts aligned with the nearest tire's ground normal count less than side-on impacts.")]
         public float MinCrashSpeed = 4f;

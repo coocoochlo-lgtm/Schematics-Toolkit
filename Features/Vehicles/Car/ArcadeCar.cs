@@ -31,7 +31,7 @@ namespace Remedy.Vehicles
     /// player (proxies
     /// also update Is Drifting, Drift Level, Is Boosting and Is Flipped from them).
     /// </remarks>
-    [SchematicDoc(@"{""name"": ""Arcade Car"", ""kind"": ""behavior"", ""menu"": ""Vehicles/Arcade Car"", ""description"": ""An arcade car on a real Box3D body: NFS Underground / Mario Kart handling (drifts, mini-turbos, a car that wants to stay on its wheels) while crashes and rollovers are still physics. Tire-sized sphere probes; everything tunable in its Properties asset."", ""variables"": [""Properties"", ""Wheels"", ""AlwaysActive"", ""ParkWhenEmpty"", ""DriverInputs"", ""PlayerDriverOnly"", ""Speed"", ""ForwardSpeed"", ""IsGrounded"", ""GroundedWheels"", ""IsDrifting"", ""DriftAngle"", ""DriftCharge"", ""DriftLevel"", ""IsBoosting"", ""IsFlipped"", ""AirTime""], ""signals"": [""Target Speed"", ""Brake"", ""Steer"", ""Drive"", ""Handbrake"", ""Boost"", ""Unflip"", ""OnDriftStarted"", ""OnDriftEnded"", ""OnDriftLevel"", ""OnBoost"", ""OnLanded"", ""OnFlipped"", ""OnRighted"", ""OnCrash""], ""use_for"": [""drivable cars and karts"", ""racing games"", ""AI traffic""], ""notes"": ""Needs a Box3D Body and a shape (added for you). Add Vehicle Seats so it only drives with a driver. Multiplayer: the driver owns and simulates the car; its input Signals are networked from the owner, and drift/boost/flip/crash Signals reach every player for effects.""}")]
+    [SchematicDoc(@"{""name"": ""Arcade Car"", ""kind"": ""behavior"", ""menu"": ""Vehicles/Arcade Car"", ""description"": ""An arcade car on a real Box3D body: NFS Underground / Mario Kart handling (drifts, mini-turbos, a car that wants to stay on its wheels) while crashes and rollovers are still physics. Tire-sized sphere probes; everything tunable in its Properties asset."", ""variables"": [""Properties"", ""Wheels"", ""AlwaysActive"", ""ParkWhenEmpty"", ""DriverInputs"", ""PlayerDriverOnly"", ""Speed"", ""ForwardSpeed"", ""IsGrounded"", ""GroundedWheels"", ""IsDrifting"", ""DriftAngle"", ""DriftCharge"", ""DriftLevel"", ""IsBoosting"", ""IsFlipped"", ""AirTime"", ""RollSave""], ""signals"": [""Target Speed"", ""Brake"", ""Steer"", ""Drive"", ""Handbrake"", ""Boost"", ""Unflip"", ""OnDriftStarted"", ""OnDriftEnded"", ""OnDriftLevel"", ""OnBoost"", ""OnLanded"", ""OnFlipped"", ""OnRighted"", ""OnCrash""], ""use_for"": [""drivable cars and karts"", ""racing games"", ""AI traffic""], ""notes"": ""Needs a Box3D Body and a shape (added for you). Add Vehicle Seats so it only drives with a driver. Multiplayer: the driver owns and simulates the car; its input Signals are networked from the owner, and drift/boost/flip/crash Signals reach every player for effects.""}")]
     [SchematicBehaviorPath("Vehicles/Arcade Car")]
     [NetworkOwnerSimulated]
     [RequireComponent(typeof(Box3DBody), typeof(Box3DBoxShape), typeof(SchematicImpactRelay))]
@@ -107,6 +107,10 @@ namespace Remedy.Vehicles
         [SchematicDoc(@"{""name"": ""AirTime"", ""kind"": ""variable"", ""behavior"": ""Arcade Car"", ""type"": ""float"", ""default"": ""0"", ""description"": ""Seconds since all four wheels left the ground (0 on the ground). Read-only.""}")]
         [Tooltip("Seconds since all wheels left the ground (0 on the ground). Read-only.")]
         public readonly VariableHandle<float> AirTime = 0f;
+
+        [SchematicDoc(@"{""name"": ""RollSave"", ""kind"": ""variable"", ""behavior"": ""Arcade Car"", ""type"": ""float"", ""default"": ""-1"", ""description"": ""The roll save, -1 to 1: climbs while the car is in a big turn (or tipping), falls back otherwise. Past 0 it pushes the car back onto its wheels, harder the higher it gets. For tyre squeal or a wobble effect. Read-only.""}")]
+        [Tooltip("The roll save, -1 to 1: climbs in a big turn, and past 0 pushes the car back onto its wheels. Read-only.")]
+        public readonly VariableHandle<float> RollSave = -1f;
 
         // Everything else that changes per step, in one place per spawned car.
         private readonly VariableHandle<CarState> _state = (CarState)null;
@@ -951,6 +955,29 @@ namespace Remedy.Vehicles
                 }
             }
 
+            // Roll save: a big turn (or tipping onto one side) winds it up toward 1; past 0 it rolls the car back
+            // onto its wheels, harder the further it's wound. Cartoony on purpose.
+            Vector3 saveGround = isGrounded ? groundNormal : worldUp;
+            float tilt = Vector3.Angle(up, saveGround);
+            bool bigTurn = !airborne && !righting
+                && ((Mathf.Abs(state.Steer) >= p.RollSaveSteer && Mathf.Abs(forwardSpeed) >= p.RollSaveMinSpeed)
+                    || (p.RollSaveTilt > 0f && tilt >= p.RollSaveTilt && tilt < p.FlippedTilt));
+            state.RollSave = Mathf.Clamp(state.RollSave
+                + (bigTurn ? p.RollSaveRate : -p.RollSaveRelaxRate) * dt, -1f, 1f);
+            if (state.RollSave > 0f && p.RollSaveStrength > 0f && !airborne && !righting)
+            {
+                float save = state.RollSave;
+                angular += (UprightError(up, saveGround, forward) * p.RollSaveStrength
+                    - rollPitchVelocity * p.RollSaveDamping) * save;
+            }
+            RollSave.Value = state.RollSave;
+
+            // For the gizmo: the plane the tyres stand on and where the car is leveling to.
+            state.HasGroundPlane = isGrounded;
+            state.GroundPlaneNormal = groundNormal;
+            state.GroundPlanePoint = sharedGroundPoint;
+            state.GroundTargetUp = state.UprightBlend > 0f ? state.UprightNormal : targetUp;
+
             Vector3 requestedTorque = wheelForceTorque + stabilizationCompensation
                 + (Vector3)Torque(angular, rotation, state) + airControlTorque;
             Vector3 guardedAngularAcceleration = ApplyTorqueGuard(native, requestedTorque, p, dt, rotation, state);
@@ -1174,27 +1201,10 @@ namespace Remedy.Vehicles
 
             float blendTime = Mathf.Max(0f, properties.TorqueGuardBlendTime);
             float blend = blendTime > 0f ? 1f - Mathf.Exp(-dt / blendTime) : 1f;
-            float targetMagnitude = requestedAcceleration.magnitude;
-            if (!state.HasTorqueGuardAcceleration)
-            {
-                state.TorqueGuardAccelerationRotation = targetMagnitude > 1e-5f
-                    ? Quaternion.FromToRotation(Vector3.forward, requestedAcceleration / targetMagnitude)
-                    : Quaternion.identity;
-                state.TorqueGuardAccelerationMagnitude = 0f;
-                state.HasTorqueGuardAcceleration = true;
-            }
-            else if (targetMagnitude > 1e-5f)
-            {
-                Quaternion targetRotation = Quaternion.FromToRotation(Vector3.forward,
-                    requestedAcceleration / targetMagnitude);
-                state.TorqueGuardAccelerationRotation = blendTime > 0f
-                    ? Quaternion.Slerp(state.TorqueGuardAccelerationRotation, targetRotation, blend)
-                    : targetRotation;
-            }
-            state.TorqueGuardAccelerationMagnitude = Mathf.Lerp(state.TorqueGuardAccelerationMagnitude,
-                targetMagnitude, blend);
-            Vector3 guardedAcceleration = state.TorqueGuardAccelerationRotation * Vector3.forward
-                * state.TorqueGuardAccelerationMagnitude;
+            // Blended as a vector, axis by axis. (Turning the direction and the size separately swung a steering
+            // torque that changed sides through roll and pitch on the way, so the ground plane never fully held.)
+            state.TorqueGuardAcceleration = Vector3.Lerp(state.TorqueGuardAcceleration, requestedAcceleration, blend);
+            Vector3 guardedAcceleration = state.TorqueGuardAcceleration;
             Vector3 guardedTorque = (Vector3)Torque(guardedAcceleration, rotation, state);
             Vector3 correction = guardedTorque - requestedTorque;
             if (correction.sqrMagnitude > 0f)
@@ -1470,6 +1480,48 @@ namespace Remedy.Vehicles
             Gizmos.color = Color.yellow;
             Gizmos.DrawWireSphere(com, 0.12f);
             Gizmos.DrawLine(com - up * 0.25f, com + up * 0.25f);
+
+            if (state != null && state.HasGroundPlane)
+                DrawGroundPlane(state, car, com, up);
+        }
+
+        // The tyre-support plane (cyan, through the contacts), its normal, where the car is leveling to (magenta) and
+        // its own up (yellow). With Ground Plane Torque Compensation at 1 the yellow arrow should sit on the magenta one.
+        private static void DrawGroundPlane(CarState state, Transform car, Vector3 com, Vector3 up)
+        {
+            Vector3 normal = state.GroundPlaneNormal;
+            Vector3 center = state.GroundPlanePoint;
+            Vector3 along = Vector3.ProjectOnPlane(car.forward, normal);
+            if (along.sqrMagnitude < 0.001f) along = Vector3.ProjectOnPlane(car.up, normal);
+            along = along.normalized;
+            Vector3 side = Vector3.Cross(normal, along);
+            const float halfLength = 2.4f, halfWidth = 1.3f;
+            Vector3 a = center + along * halfLength + side * halfWidth, b = center + along * halfLength - side * halfWidth;
+            Vector3 c = center - along * halfLength - side * halfWidth, d = center - along * halfLength + side * halfWidth;
+            Gizmos.color = new Color(0.2f, 0.9f, 1f);
+            Gizmos.DrawLine(a, b); Gizmos.DrawLine(b, c); Gizmos.DrawLine(c, d); Gizmos.DrawLine(d, a);
+            Gizmos.DrawLine(a, c); Gizmos.DrawLine(b, d);
+            Gizmos.DrawRay(center, normal * 1.2f);
+#if UNITY_EDITOR
+            var corners = new[] { a, b, c, d };
+            UnityEditor.Handles.color = new Color(0.2f, 0.9f, 1f, 0.08f);
+            UnityEditor.Handles.DrawAAConvexPolygon(corners);
+#endif
+            Gizmos.color = Color.magenta;
+            Gizmos.DrawRay(com, state.GroundTargetUp * 1.5f);
+            Gizmos.color = Color.yellow;
+            Gizmos.DrawRay(com, up * 1.5f);
+            if (state.RollSave > 0f)
+            {
+                Gizmos.color = Color.Lerp(new Color(1f, 0.6f, 0.1f), Color.red, state.RollSave);
+                Gizmos.DrawWireSphere(com + up * 1.5f, 0.1f + 0.2f * state.RollSave);
+            }
+#if UNITY_EDITOR
+            float roll = Vector3.SignedAngle(Vector3.ProjectOnPlane(normal, car.forward),
+                Vector3.ProjectOnPlane(up, car.forward), car.forward);
+            UnityEditor.Handles.Label(com + up * 1.7f, $"roll {roll:0.0}°  save {state.RollSave:0.00}",
+                UnityEditor.EditorStyles.miniLabel);
+#endif
         }
 
         private static void DrawCircle(Vector3 center, Vector3 axis, float radius)
@@ -1512,9 +1564,10 @@ namespace Remedy.Vehicles
         public float AirTime;
         public bool WasGrounded = true;
         public Vector3 UprightNormal;
-        public Quaternion TorqueGuardAccelerationRotation;
-        public float TorqueGuardAccelerationMagnitude;
-        public bool HasTorqueGuardAcceleration;
+        public Vector3 TorqueGuardAcceleration;
+        public float RollSave = -1f;
+        public bool HasGroundPlane;
+        public Vector3 GroundPlaneNormal, GroundPlanePoint, GroundTargetUp;
         public Vector3 PreviousAngularVelocity;
         public bool HasDiagnosticAngularVelocity;
         public float NextTorqueDiagnosticTime;
