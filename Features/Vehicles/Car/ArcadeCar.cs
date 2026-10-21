@@ -649,36 +649,72 @@ namespace Remedy.Vehicles
                 float rest = Mathf.Max(0.01f, p.SuspensionRestLength);
                 bool actualGrounded = w.Grounded;
                 bool wasGrounded = w.WasGrounded;
-                float forceWeight = actualGrounded ? 1f : virtualGroundWeight;
-                Vector3 contactPoint;
-                Vector3 normal;
-                float contactDistance;
+                float targetForceWeight = actualGrounded ? 1f : virtualGroundWeight;
+                Vector3 targetNormal;
+                float targetContactDistance;
+                bool hasContactCandidate = true;
 
                 if (actualGrounded)
                 {
                     var hit = w.GroundHit;
-                    contactPoint = hit.point;
-                    normal = hit.normal;
-                    contactDistance = hit.distance;
-                    w.Point = contactPoint;
-                    w.Normal = normal;
+                    targetNormal = hit.normal;
+                    targetContactDistance = hit.distance;
                 }
                 else
                 {
                     w.TargetSpeedMultiplier = 1f;
                     w.RollSpeed *= 0.99f;
                     float upNormal = Vector3.Dot(up, sharedGroundNormal);
-                    contactDistance = upNormal > 0.1f
+                    targetContactDistance = upNormal > 0.1f
                         ? Vector3.Dot(origin - sharedGroundPoint, sharedGroundNormal) / upNormal
                         : float.MaxValue;
-                    if (grounded == 0 || contactDistance < 0f || contactDistance > groundCheckDistanceForWheels)
+                    if (grounded == 0 || targetContactDistance < 0f
+                        || targetContactDistance > groundCheckDistanceForWheels)
                     {
-                        w.Extension = rest;
-                        continue;
+                        hasContactCandidate = false;
+                        targetForceWeight = 0f;
+                        targetNormal = w.HasBlendedContact ? w.ContactNormal : up;
+                        targetContactDistance = w.HasBlendedContact ? w.ContactDistance : groundCheckDistanceForWheels;
                     }
-                    normal = sharedGroundNormal;
-                    contactPoint = origin - up * contactDistance;
+                    else
+                    {
+                        targetNormal = sharedGroundNormal;
+                    }
                 }
+
+                if (!hasContactCandidate && (!w.HasBlendedContact || w.ContactForceWeight <= 0f))
+                {
+                    w.ContactForceWeight = 0f;
+                    w.Extension = rest;
+                    continue;
+                }
+
+                float transitionTime = Mathf.Max(0f, p.StabilizeTransitionTime);
+                float blendStep = transitionTime > 0f ? dt / transitionTime : 1f;
+                if (!w.HasBlendedContact)
+                {
+                    w.ContactNormal = targetNormal;
+                    w.ContactDistance = targetContactDistance;
+                    w.ContactForceWeight = targetForceWeight;
+                    w.HasBlendedContact = true;
+                }
+                else
+                {
+                    w.ContactNormal = transitionTime > 0f
+                        ? Vector3.RotateTowards(w.ContactNormal, targetNormal, Mathf.PI * blendStep, 0f).normalized
+                        : targetNormal;
+                    float maxDistanceStep = transitionTime > 0f
+                        ? Mathf.Max(groundCheckDistanceForWheels, rest) * blendStep
+                        : float.MaxValue;
+                    w.ContactDistance = Mathf.MoveTowards(w.ContactDistance, targetContactDistance, maxDistanceStep);
+                    w.ContactForceWeight = Mathf.MoveTowards(w.ContactForceWeight, targetForceWeight, blendStep);
+                }
+                Vector3 normal = w.ContactNormal;
+                float contactDistance = w.ContactDistance;
+                float forceWeight = w.ContactForceWeight;
+                Vector3 contactPoint = origin - up * contactDistance;
+                w.Point = contactPoint;
+                w.Normal = normal;
 
                 // Spring and damper along the suspension, pushing at the wheel.
                 float placementDistance = groundCheckDistanceForWheels * Mathf.Clamp01(p.TirePlacementThreshold);
@@ -1362,7 +1398,10 @@ namespace Remedy.Vehicles
     {
         public bool Grounded;
         public bool WasGrounded;
+        public bool HasBlendedContact;
         public RaycastHit GroundHit;
+        public Vector3 ContactNormal;
+        public float ContactDistance, ContactForceWeight;
         public float TargetSpeedMultiplier;
         public bool IsFront;
         public float Extension;

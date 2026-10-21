@@ -147,7 +147,8 @@ The body is a real Box3D body, so it can roll, tumble and land on its roof. How 
   remains detected out to the full length. **Suspension Rest Length** is a further cap on travel.
 - Ungrounded tires within the check distance borrow an averaged ground plane from the tires that did hit. Their
   suspension, grip, sticky and drive forces are blended in by the grounded-tire fraction, so the assist fades toward
-  zero as actual support disappears. Only actual hits count as grounded or trigger landings.
+  zero as actual support disappears. **Stabilize Transition Time** also smooths each tire's contact normal, distance
+  and force handoff to soften brief missed hits. Only actual hits count as grounded or trigger landings.
 - **Sticky Threshold / Sticky Force**: above the speed threshold, tires with actual or blended ground contact get a
   force along the car's local -up direction, proportional to forward speed. This can press the car onto walls or
   ceilings when its wheels are oriented toward them.

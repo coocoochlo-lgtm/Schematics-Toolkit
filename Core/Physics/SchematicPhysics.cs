@@ -154,8 +154,15 @@ namespace Remedy.Box3DPhysics
                 return false;
 
             direction.Normalize();
-            Span<RayHit> raw = stackalloc RayHit[256];
+            var raw = _ignoredRayHits ??= new RayHit[256];
             int count = World.CastRay(origin, direction * distance, FilterFor(mask), raw);
+            while (count == raw.Length && raw.Length < MaxIgnoredRayHits)
+            {
+                Array.Resize(ref raw, Mathf.Min(raw.Length * 2, MaxIgnoredRayHits));
+                _ignoredRayHits = raw;
+                count = World.CastRay(origin, direction * distance, FilterFor(mask), raw);
+            }
+
             ulong ignoredBodyId = ignore.Body.IsValid ? ignore.Body.Id.ToUInt64() : 0UL;
             float closestDistance = float.MaxValue;
             for (int i = 0; i < count; i++)
@@ -181,7 +188,9 @@ namespace Remedy.Box3DPhysics
         }
 
         public const int RaycastHitBufferSize = 32;
+        private const int MaxIgnoredRayHits = 65536;
         [ThreadStatic] private static RaycastHit[] _single;
         [ThreadStatic] private static GameObject[] _singleObjects;
+        [ThreadStatic] private static RayHit[] _ignoredRayHits;
     }
 }
