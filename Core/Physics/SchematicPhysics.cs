@@ -97,7 +97,11 @@ namespace Remedy.Box3DPhysics
             float distance, LayerMask mask, Box3DBody ignore = null)
         {
             if (radius <= 0f)
-                return RaycastClosest(origin, direction, out hit, out hitObject, distance, mask, ignore);
+            {
+                if (ignore == null)
+                    return RaycastClosest(origin, direction, out hit, out hitObject, distance, mask);
+                return RaycastClosestIgnoringBody(origin, direction, out hit, out hitObject, distance, mask, ignore);
+            }
 
             var hits = _single ??= new RaycastHit[RaycastHitBufferSize];
             var objects = _singleObjects ??= new GameObject[RaycastHitBufferSize];
@@ -119,6 +123,29 @@ namespace Remedy.Box3DPhysics
         }
 
         private static bool RaycastClosest(Vector3 origin, Vector3 direction, out RaycastHit hit,
+            out GameObject hitObject, float distance, LayerMask mask)
+        {
+            hit = default;
+            hitObject = null;
+            if (distance <= 0f || direction.sqrMagnitude < 1e-8f)
+                return false;
+
+            direction.Normalize();
+            var result = World.CastRayClosest(origin, direction * distance, FilterFor(mask));
+            if (!result.Hit)
+                return false;
+
+            hit = new RaycastHit
+            {
+                point = (Vector3)result.Point,
+                normal = result.Normal,
+                distance = result.Fraction * distance,
+            };
+            hitObject = GameObjectOf(result.ShapeId);
+            return true;
+        }
+
+        private static bool RaycastClosestIgnoringBody(Vector3 origin, Vector3 direction, out RaycastHit hit,
             out GameObject hitObject, float distance, LayerMask mask, Box3DBody ignore)
         {
             hit = default;
@@ -127,32 +154,30 @@ namespace Remedy.Box3DPhysics
                 return false;
 
             direction.Normalize();
-            float traversed = 0f;
-            float advance = Mathf.Max(0.001f, distance * 1e-6f);
-            for (int attempt = 0; attempt < RaycastHitBufferSize && traversed < distance; attempt++)
+            Span<RayHit> raw = stackalloc RayHit[256];
+            int count = World.CastRay(origin, direction * distance, FilterFor(mask), raw);
+            ulong ignoredBodyId = ignore.Body.IsValid ? ignore.Body.Id.ToUInt64() : 0UL;
+            float closestDistance = float.MaxValue;
+            for (int i = 0; i < count; i++)
             {
-                float remaining = distance - traversed;
-                var result = World.CastRayClosest(origin + direction * traversed, direction * remaining, FilterFor(mask));
-                if (!result.Hit)
-                    return false;
+                var shape = new Shape { Id = raw[i].ShapeId };
+                if (ignoredBodyId != 0UL && shape.IsValid && shape.GetBody().Id.ToUInt64() == ignoredBodyId)
+                    continue;
 
-                var body = BodyOf(result.ShapeId);
-                float hitDistance = traversed + result.Fraction * remaining;
-                if (ignore == null || body != ignore)
+                float hitDistance = raw[i].Fraction * distance;
+                if (hitDistance >= closestDistance)
+                    continue;
+
+                closestDistance = hitDistance;
+                hit = new RaycastHit
                 {
-                    hit = new RaycastHit
-                    {
-                        point = (Vector3)result.Point,
-                        normal = result.Normal,
-                        distance = hitDistance,
-                    };
-                    hitObject = GameObjectOf(result.ShapeId);
-                    return true;
-                }
-
-                traversed = hitDistance + advance;
+                    point = (Vector3)raw[i].Point,
+                    normal = raw[i].Normal,
+                    distance = hitDistance,
+                };
+                hitObject = GameObjectOf(raw[i].ShapeId);
             }
-            return false;
+            return closestDistance < float.MaxValue;
         }
 
         public const int RaycastHitBufferSize = 32;
