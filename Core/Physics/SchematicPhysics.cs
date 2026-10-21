@@ -54,10 +54,11 @@ namespace Remedy.Box3DPhysics
 
         /// <summary>
         /// Sweeps a sphere and writes every hit into the buffers (both the same length), skipping the body
-        /// <paramref name="ignore"/> belongs to. Returns the hit count. Distances are measured from the origin.
+        /// <paramref name="ignore"/> belongs to (and trigger-only shapes, with <paramref name="includeSensors"/> off).
+        /// Returns the hit count. Distances are measured from the origin.
         /// </summary>
         public static int SphereCastAll(Vector3 origin, float radius, Vector3 direction, float distance, LayerMask mask,
-            RaycastHit[] hits, GameObject[] objects, Box3DBody ignore = null)
+            RaycastHit[] hits, GameObject[] objects, Box3DBody ignore = null, bool includeSensors = true)
         {
             Vector3 translation = direction.normalized * distance;
             Span<float3> proxy = stackalloc float3[1];
@@ -73,6 +74,8 @@ namespace Remedy.Box3DPhysics
             {
                 var shape = new Shape { Id = raw[i].ShapeId };
                 if (ignoreId != 0UL && shape.IsValid && shape.GetBody().Id.ToUInt64() == ignoreId)
+                    continue;
+                if (!includeSensors && shape.IsValid && shape.IsSensor())
                     continue;
 
                 var hit = new RaycastHit

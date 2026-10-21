@@ -145,8 +145,7 @@ namespace Remedy.Cameras
             var up = target.up;
             var bottom = BoundsBottom(target, up);
             const float skin = 0.1f, radius = 0.15f;
-            return SchematicPhysics.SphereCast(bottom + up * (skin + radius), radius, -up, out _, out _,
-                skin + Mathf.Max(0f, GroundProbeDistance.Value), layers, body);
+            return CameraCast(bottom + up * (skin + radius), radius, -up, skin + Mathf.Max(0f, GroundProbeDistance.Value), layers, target, out _);
         }
 
         // The bottom of the target along its up: from its Schematic Bounds (its physics shapes and what its parts push,
@@ -332,6 +331,45 @@ namespace Remedy.Cameras
             var rootPosition = root.position;
             self.position = rootPosition;
             root.position = rootPosition;
+        }
+
+        private static readonly RaycastHit[] _castHits = new RaycastHit[64];
+        private static readonly GameObject[] _castObjects = new GameObject[64];
+
+        /// <summary>
+        /// The camera's sweeps (radius 0: a ray): the nearest hit, skipping everything that's part of what it follows
+        /// (every body and child of its Schematic Object, wherever the physics body sits), trigger-only shapes, and
+        /// anything the sweep starts inside (there's no getting away from those, and counting them kept the camera
+        /// pulled in for good).
+        /// </summary>
+        protected static bool CameraCast(Vector3 origin, float radius, Vector3 direction, float distance, LayerMask mask,
+            Transform follow, out RaycastHit hit)
+        {
+            hit = default;
+            if (distance <= 0f || direction.sqrMagnitude < 1e-8f)
+                return false;
+            Transform own = null;
+            if (follow != null)
+            {
+                var schematic = follow.GetComponentInParent<SchematicObject>();
+                own = schematic != null ? schematic.transform : follow;
+            }
+            int count = SchematicPhysics.SphereCastAll(origin, radius, direction, distance, mask, _castHits, _castObjects, null, includeSensors: false);
+            float best = float.MaxValue;
+            for (int i = 0; i < count; i++)
+            {
+                if (_castHits[i].distance <= 0.001f)
+                    continue;
+                var hitObject = _castObjects[i];
+                if (own != null && hitObject != null && hitObject.transform.IsChildOf(own))
+                    continue;
+                if (_castHits[i].distance < best)
+                {
+                    best = _castHits[i].distance;
+                    hit = _castHits[i];
+                }
+            }
+            return best < float.MaxValue;
         }
 
         /// <summary>How far the aim ray looks for what the camera's pointing at, in meters.</summary>

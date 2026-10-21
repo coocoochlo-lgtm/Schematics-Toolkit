@@ -91,7 +91,7 @@ namespace Remedy.Cameras
             if (AutoSwitch.Value)
             {
                 var side = shoulder == Shoulders.Left ? -root.right : root.right;
-                if (SchematicPhysics.SphereCast(root.position + up, 0.25f, side, out _, out _, 1, collisionLayers, body))
+                if (CameraCast(root.position + up, 0.25f, side, 1f, collisionLayers, follow, out _))
                     shoulder = shoulder == Shoulders.Left ? Shoulders.Right : Shoulders.Left;
             }
 
@@ -119,7 +119,7 @@ namespace Remedy.Cameras
             Vector3 direction = -root.forward;
             float maxDistance = MaxDistance.Value;
 
-            if (SchematicPhysics.SphereCast(origin, CameraCollisionRadius.Value, direction, out RaycastHit hit, out _, maxDistance, collisionLayers, body))
+            if (CameraCast(origin, CameraCollisionRadius.Value, direction, maxDistance, collisionLayers, follow, out RaycastHit hit))
                 _targetScale.Value = Mathf.Clamp(hit.distance, 0.5f, maxDistance); // reduce distance based on hit
             else
                 _targetScale.Value = maxDistance;
@@ -133,7 +133,7 @@ namespace Remedy.Cameras
             GoalLookDirection.Invoke(_goalRotation.Value * Vector3.forward);
             ActualLookDirection.Invoke(root.forward);
 
-            if (SchematicPhysics.Raycast(camera.position, camera.forward, out RaycastHit aimHit, AimDistance, ~0, body))
+            if (CameraCast(camera.position, 0f, camera.forward, AimDistance, ~0, follow, out RaycastHit aimHit))
                 AimPosition.Invoke(aimHit.point);
         }
 

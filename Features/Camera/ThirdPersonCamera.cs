@@ -102,7 +102,7 @@ namespace Remedy.Cameras
             ref float currentYOffset = ref _currentYOffset.Ref;
             ref var lastFloorPoint = ref _lastFloorPoint.Ref;
 
-            if (SchematicPhysics.Raycast(camera.position, camera.forward, out RaycastHit aimHit, AimDistance, ~0, body))
+            if (CameraCast(camera.position, 0f, camera.forward, AimDistance, ~0, follow, out RaycastHit aimHit))
                 AimPosition.Invoke(aimHit.point);
 
             KeepObjectAtRoot(root, follow);
@@ -110,7 +110,7 @@ namespace Remedy.Cameras
             // The ground "below" the target (down its up). Near it, the camera keeps to a set height above it; off it,
             // it follows the target's own height.
             // TODO: Apply an Offset Grace Period (Transition between the two different offsets so the camera doesn't jump up and down)
-            bool grounded = SchematicPhysics.SphereCast(follow.position + up, 0.5f, -up, out RaycastHit floorHit, out _, yDistanceAllowance, collisionLayers, body);
+            bool grounded = CameraCast(follow.position + up, 0.5f, -up, yDistanceAllowance, collisionLayers, follow, out RaycastHit floorHit);
             if (grounded)
             {
                 currentYOffset = Mathf.Lerp(currentYOffset, 0f, YOffsetTransitionSpeed.Value * dt);
@@ -151,13 +151,13 @@ namespace Remedy.Cameras
                 }
 
                 // Orient relative to walls
-                if (SchematicPhysics.SphereCast(follow.position, 0.25f, follow.right, out RaycastHit wallHit, out _, OptimalDistance.Value, collisionLayers, body))
+                if (CameraCast(follow.position, 0.25f, follow.right, OptimalDistance.Value, collisionLayers, follow, out RaycastHit wallHit))
                 {
                     float heading = YawIn(frame, Vector3.ProjectOnPlane(follow.right, wallHit.normal));
                     if (Mathf.Abs(Mathf.DeltaAngle(heading, actualXAxis)) < 60)
                         xAxis = Mathf.LerpAngle(xAxis, heading, OptimalDistancePush.Value * dt);
                 }
-                else if (SchematicPhysics.SphereCast(follow.position, 0.25f, -follow.right, out wallHit, out _, OptimalDistance.Value, collisionLayers, body))
+                else if (CameraCast(follow.position, 0.25f, -follow.right, OptimalDistance.Value, collisionLayers, follow, out wallHit))
                 {
                     float heading = YawIn(frame, Vector3.ProjectOnPlane(-follow.right, wallHit.normal));
                     if (Mathf.Abs(Mathf.DeltaAngle(heading, actualXAxis)) < 100)
@@ -201,7 +201,7 @@ namespace Remedy.Cameras
 
             float targetDistance = volume != null && volume.ChangeZoom[volumeInstance] ? volume.Zoom[volumeInstance] : MaxDistance.Value;
 
-            if (SchematicPhysics.SphereCast(origin, CameraCollisionRadius.Value, direction, out RaycastHit hit, out _, targetDistance, collisionLayers, body))
+            if (CameraCast(origin, CameraCollisionRadius.Value, direction, targetDistance, collisionLayers, follow, out RaycastHit hit))
                 _targetScale.Value = Mathf.Clamp(hit.distance, 0.5f, targetDistance); // reduce distance based on hit
             else
                 _targetScale.Value = targetDistance;
