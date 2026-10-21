@@ -79,7 +79,7 @@ namespace Remedy.Cameras
             if (follow == null || root == null || camera == null) return;
             var body = BodyOf(follow, Body.Value);
             // Measured in the camera's frame: its eased up (the target's, on slopes, walls and loops).
-            var frame = UpFrame(follow);
+            var frame = UpFrame(follow, body, CollisionLayers.Value);
             var up = CameraUp;
 
             float dt = Time.deltaTime;

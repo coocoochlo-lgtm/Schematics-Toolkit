@@ -1,4 +1,6 @@
 using Box3D.Hybrid;
+using Remedy.Box3DPhysics;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Remedy.Cameras
@@ -7,7 +9,7 @@ namespace Remedy.Cameras
     /// The base of a camera rig: a Root that follows a target, with the Camera on a boom beneath it.
     /// The Camera Manager blends the scene camera toward the active Operator.
     /// </summary>
-    [SchematicDoc(@"{""name"": ""Camera Operator"", ""kind"": ""behavior"", ""description"": ""The base of a camera rig: a Root that follows a target, with the Camera on a boom beneath it. The Camera Manager blends the scene camera toward the active Operator."", ""variables"": [""Properties"", ""Follow"", ""Root"", ""Camera"", ""CameraCollisionRadius"", ""CurrentVolume"", ""AimDirection"", ""OrientCharacterToCamera"", ""XAxis"", ""YAxis"", ""ActualXAxis"", ""ActualYAxis"", ""AlignToTargetUp"", ""UpAlignSpeed"", ""HeadingRecovery""], ""signals"": [""SetObjectToFollow"", ""LookInput"", ""AimDirectionOutput"", ""OrientCharacterToCameraOutput""], ""use_for"": [""custom camera rigs""], ""notes"": ""Base of the camera Behaviors; use Third Person or Shoulder instead.""}")]
+    [SchematicDoc(@"{""name"": ""Camera Operator"", ""kind"": ""behavior"", ""description"": ""The base of a camera rig: a Root that follows a target, with the Camera on a boom beneath it. The Camera Manager blends the scene camera toward the active Operator."", ""variables"": [""Properties"", ""Follow"", ""Root"", ""Camera"", ""CameraCollisionRadius"", ""CurrentVolume"", ""AimDirection"", ""OrientCharacterToCamera"", ""XAxis"", ""YAxis"", ""ActualXAxis"", ""ActualYAxis"", ""AlignToTargetUp"", ""UpAlignSpeed"", ""GroundProbeDistance"", ""HeadingRecovery""], ""signals"": [""SetObjectToFollow"", ""LookInput"", ""AimDirectionOutput"", ""OrientCharacterToCameraOutput""], ""use_for"": [""custom camera rigs""], ""notes"": ""Base of the camera Behaviors; use Third Person or Shoulder instead.""}")]
     public abstract class CameraOperator : SchematicBehavior
     {
         [SchematicDoc(@"{""name"": ""SetObjectToFollow"", ""kind"": ""signal"", ""behavior"": ""Camera Operator"", ""direction"": ""input"", ""params"": [{""name"": ""Target"", ""type"": ""GameObject""}], ""description"": ""Tells Camera Operator to act."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
@@ -69,6 +71,9 @@ namespace Remedy.Cameras
         [SchematicDoc(@"{""name"": ""UpAlignSpeed"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""float"", ""default"": ""3f"", ""description"": ""How quickly the camera's up follows the target's (higher is snappier).""}")]
         [Tooltip("How quickly the camera's up follows the target's (higher is snappier).")]
         public readonly VariableHandle<float> UpAlignSpeed = 3f;
+        [SchematicDoc(@"{""name"": ""GroundProbeDistance"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""float"", ""default"": ""0.5f"", ""description"": ""How far below the bottom of the target's bounds (down its up) ground is looked for. With none there (jumping, falling), the camera keeps the up of the last ground instead of tilting with the target.""}")]
+        [Tooltip("How far below the bottom of the target's bounds (down its up) ground is looked for. With none there (jumping, falling), the camera keeps the up of the last ground instead of tilting with the target.")]
+        public readonly VariableHandle<float> GroundProbeDistance = 0.5f;
         [SchematicDoc(@"{""name"": ""HeadingRecovery"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""float"", ""default"": ""0.5f"", ""description"": ""After trips over walls and loops, how quickly the camera's idea of straight ahead settles back to the world's once it's on level-ish ground (the view doesn't move; 0: never).""}")]
         [Tooltip("After trips over walls and loops, how quickly the camera's idea of straight ahead settles back to the world's once it's on level-ish ground (the view doesn't move; 0: never).")]
         public readonly VariableHandle<float> HeadingRecovery = 0.5f;
@@ -80,13 +85,15 @@ namespace Remedy.Cameras
         // each frame (never rebuilt from world up), so headings stay continuous on walls, ceilings and loops.
         protected readonly VariableHandle<Vector3> _up = Vector3.up;
         protected readonly VariableHandle<Quaternion> _frame = Quaternion.identity;
+        // The target's up the last time there was ground under it: what the camera eases toward.
+        protected readonly VariableHandle<Vector3> _groundUp = Vector3.up;
 
         /// <summary>
         /// Eases the camera's up toward the target's (world up with Align To Target Up off) and returns the frame
         /// the rig's yaw and pitch are built in: <c>frame * Quaternion.Euler(pitch, yaw, 0)</c>. The frame's up is
         /// <see cref="CameraUp"/>; "height", "falling" and "level" are all measured along it.
         /// </summary>
-        protected Quaternion UpFrame(Transform follow)
+        protected Quaternion UpFrame(Transform follow, Box3DBody body, LayerMask groundLayers)
         {
             ref var up = ref _up.Ref;
             ref var frame = ref _frame.Ref;
@@ -95,7 +102,17 @@ namespace Remedy.Cameras
                 up = Vector3.up;
                 frame = Quaternion.identity;
             }
-            var goal = AlignToTargetUp.Value && follow != null ? follow.up : Vector3.up;
+            var goal = Vector3.up;
+            if (AlignToTargetUp.Value && follow != null)
+            {
+                // Only ground the target stands on tilts the camera: in the air it keeps the last ground's up.
+                ref var groundUp = ref _groundUp.Ref;
+                if (groundUp.sqrMagnitude < 0.5f)
+                    groundUp = Vector3.up;
+                if (HasGroundBelow(follow, body, groundLayers))
+                    groundUp = follow.up;
+                goal = groundUp;
+            }
             var next = Vector3.Slerp(up, goal, 1f - Mathf.Exp(-UpAlignSpeed.Value * Time.deltaTime)).normalized;
             frame = (Quaternion.FromToRotation(up, next) * frame).normalized;
             up = next;
@@ -117,6 +134,74 @@ namespace Remedy.Cameras
                 }
             }
             return frame;
+        }
+
+        /// <summary>
+        /// Whether there's ground just below the bottom of a target's bounds, looking down its up (within
+        /// <see cref="GroundProbeDistance"/>); the target's own body isn't counted.
+        /// </summary>
+        protected bool HasGroundBelow(Transform target, Box3DBody body, LayerMask layers)
+        {
+            var up = target.up;
+            var bottom = BoundsBottom(target, up);
+            const float skin = 0.1f, radius = 0.15f;
+            return SchematicPhysics.SphereCast(bottom + up * (skin + radius), radius, -up, out _, out _,
+                skin + Mathf.Max(0f, GroundProbeDistance.Value), layers, body);
+        }
+
+        private static readonly Dictionary<Transform, Renderer[]> _targetRenderers = new();
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetStatics() => _targetRenderers.Clear();
+
+        // The lowest point of a target's mesh bounds along a direction (its position when it has no meshes).
+        private static Vector3 BoundsBottom(Transform target, Vector3 up)
+        {
+            if (!_targetRenderers.TryGetValue(target, out var renderers) || System.Array.Exists(renderers, r => r == null))
+            {
+                var found = new List<Renderer>();
+                foreach (var renderer in target.GetComponentsInChildren<Renderer>())
+                    if (renderer is MeshRenderer || renderer is SkinnedMeshRenderer)
+                        found.Add(renderer);
+                _targetRenderers[target] = renderers = found.ToArray();
+            }
+            // Each mesh's own box (oriented with it, so a tilted target isn't measured by a loose world box): the
+            // lowest corner along the up, below the middle of them all.
+            bool any = false;
+            float lowest = float.MaxValue;
+            var middle = Vector3.zero;
+            int count = 0;
+            foreach (var renderer in renderers)
+            {
+                if (!renderer.enabled || !renderer.gameObject.activeInHierarchy) continue;
+                Transform space;
+                Bounds local;
+                if (renderer is SkinnedMeshRenderer skinned)
+                {
+                    space = skinned.rootBone != null ? skinned.rootBone : skinned.transform;
+                    local = skinned.localBounds;
+                }
+                else if (renderer.TryGetComponent(out MeshFilter filter) && filter.sharedMesh != null)
+                {
+                    space = renderer.transform;
+                    local = filter.sharedMesh.bounds;
+                }
+                else continue;
+                var toWorld = space.localToWorldMatrix;
+                for (int corner = 0; corner < 8; corner++)
+                {
+                    var offset = new Vector3((corner & 1) == 0 ? -1f : 1f, (corner & 2) == 0 ? -1f : 1f, (corner & 4) == 0 ? -1f : 1f);
+                    var point = toWorld.MultiplyPoint3x4(local.center + Vector3.Scale(local.extents, offset));
+                    lowest = Mathf.Min(lowest, Vector3.Dot(point, up));
+                }
+                middle += toWorld.MultiplyPoint3x4(local.center);
+                count++;
+                any = true;
+            }
+            if (!any)
+                return target.position;
+            middle /= count;
+            return middle - up * (Vector3.Dot(middle, up) - lowest);
         }
 
         /// <summary>The camera's current (eased) up.</summary>

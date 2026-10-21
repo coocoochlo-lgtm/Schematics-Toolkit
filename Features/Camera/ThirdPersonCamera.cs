@@ -87,7 +87,7 @@ namespace Remedy.Cameras
             var body = BodyOf(follow, Body.Value);
             // Everything below is measured in the camera's frame: "up" is its eased up (the target's, on slopes, walls
             // and loops), "height" is along it, "falling" is moving down it, and headings turn around it.
-            var frame = UpFrame(follow);
+            var frame = UpFrame(follow, body, CollisionLayers.Value);
             var up = CameraUp;
             var velocity = body.GetVelocity();
             float upSpeed = Vector3.Dot(velocity, up);
