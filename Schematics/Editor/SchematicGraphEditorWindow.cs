@@ -1011,6 +1011,15 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
         return true;
     }
 
+    // Whether this kind of graph offers a node type (by its tags).
+    private bool AllowsInGraph(Type nodeType)
+    {
+        var include = SchematicGraph != null
+            ? SchematicGraph.GetType().GetCustomAttributes(typeof(IncludeTagsAttribute), true).SelectMany(a => ((IncludeTagsAttribute)a).Tags ?? Array.Empty<string>()).ToList()
+            : new List<string>();
+        return DefaultSearchProvider.Allows(include, NodeReflection.GetNodeType(nodeType)?.Tags);
+    }
+
     private void AddAssetNode(AssetNodes.Match match, UnityEngine.Object asset, Vector2 position)
     {
         var node = AssetNodes.Create(match, asset);
@@ -1026,6 +1035,10 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
     private void DropSignal(SignalData signal, SignalDirection direction, Vector2 position)
     {
         if (signal == null)
+            return;
+        // A graph that can't send or react to Signals with flow nodes (a Sound Cue) makes what it offers for one instead
+        // (a Trigger).
+        if (!AllowsInGraph(typeof(SendSignalNode)) && DropAsset(signal, position))
             return;
         switch (direction)
         {

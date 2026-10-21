@@ -143,12 +143,29 @@ namespace Remedy.Audio
             // which Spatial reverb needs to feed rooms and echoes in time with it. Known before the clip is touched:
             // Unity reads the start of a streamed clip as soon as it's set up, and sends from samples rendered before
             // this was known were dropped (a short hit could lose all of its echoes).
-            bool scheduled = (Application.isPlaying || ScheduleInEditor) && Mathf.Approximately(Source.pitch, 1f);
+            // A cue that reacts as it plays (a Trigger) is rendered as it's heard instead (see SoundCueLiveRender).
+            bool live = voice.Context.LowLatency;
+            bool scheduled = !live && (Application.isPlaying || ScheduleInEditor) && Mathf.Approximately(Source.pitch, 1f);
             double at = AudioSettings.dspTime + 0.08;
             voice.Context.HeardStart = scheduled ? at - start / (double)rate : -1;
             _voice = voice;
             UpdateRoom(immediate: true);
             RunProbes(voice);
+
+            if (live)
+            {
+                if (_live == null && !TryGetComponent(out _live))
+                    _live = gameObject.AddComponent<SoundCueLiveRender>();
+                _live.Begin(voice);
+                Source.clip = SpaceBus.DcClip(rate);
+                Source.loop = true;
+                UpdateControls(voice);
+                Source.Play();
+                MakeNoise(voice, start, rate, endless: true);
+                return;
+            }
+            if (_live != null)
+                _live.End();
 
             // Endless cues: a long clip that loops (the voice keeps counting time across loops). The clip is kept
             // and reused while its rate and length stay the same.
@@ -176,13 +193,23 @@ namespace Remedy.Audio
             else
                 Source.Play();
 
-            // What AI hear (in the game): a noise where it plays, for as long as it plays.
+            MakeNoise(voice, start, rate, endless);
+        }
+
+        // What AI hear (in the game): a noise where it plays, for as long as it plays.
+        private void MakeNoise(SoundCueVoice voice, long start, int rate, bool endless)
+        {
             var output = Cue.Output;
             if (Application.isPlaying && output != null && output.HeardByAI > 0f)
                 _noise = SoundHearing.Make(transform.position, output.HeardByAI,
                     endless ? float.PositiveInfinity : (voice.LengthSamples - start) / (float)rate,
                     Follow != null ? Follow.gameObject : gameObject, Cue.name, transform);
         }
+
+        private SoundCueLiveRender _live;
+
+        /// <summary>Whether the cue's being rendered as it's heard (it has a Trigger).</summary>
+        public bool IsLive => _live != null && _live.Voice != null && _live.Voice == _voice;
 
         /// <summary>Stops the cue (its voice goes back to the pool).</summary>
         public void Stop()
@@ -191,6 +218,8 @@ namespace Remedy.Audio
             _voice = null;
             _noise?.End();
             _noise = null;
+            if (_live != null)
+                _live.End();
             if (_source != null)
                 _source.Stop();
             SoundCueVoicePool.Return(voice);
@@ -222,7 +251,8 @@ namespace Remedy.Audio
                 return;
             }
             UpdateControls(voice);
-            if (voice.Finished && !Source.isPlaying)
+            // (A live cue's source plays on: its end is the voice's.)
+            if (voice.Finished && (!Source.isPlaying || IsLive))
             {
                 Stop();
                 if (_pooled || (DestroyWhenDone && Application.isPlaying))
@@ -261,7 +291,9 @@ namespace Remedy.Audio
                 CurrentDistance(); // finds the listener
             var world = new SoundProbeWorld
             {
-                Self = gameObject,
+                // What it belongs to: the object a one-shot follows, else its own (Signals to it reach Triggers; casts
+                // from it don't hit it).
+                Self = Follow != null ? Follow.gameObject : gameObject,
                 Position = transform.position,
                 Rotation = transform.rotation,
                 Listener = DistanceOverride.HasValue || _listener == null ? null : _listener.gameObject,

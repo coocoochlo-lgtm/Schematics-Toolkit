@@ -322,7 +322,7 @@ namespace Remedy.Audio
                 return;
             }
             var voice = _player.Voice;
-            if (voice == null || (voice.Finished && !_player.Source.isPlaying))
+            if (voice == null || (voice.Finished && (!_player.Source.isPlaying || _player.IsLive)))
             {
                 if (voice != null && Loop)
                 {
@@ -336,7 +336,8 @@ namespace Remedy.Audio
             // Past the end of the cue, by the clock (the AudioSource can keep "playing" its streamed clip's silence):
             // start over with Loop on, otherwise stop.
             float duration = voice.Context.Duration;
-            if (duration > 0f && _playedFrom + (EditorApplication.timeSinceStartup - _playedAt) >= duration)
+            // (A cue waiting on a Trigger ends when its voice does, not by the clock.)
+            if (duration > 0f && voice.Context.AfterTrigger <= 0f && _playedFrom + (EditorApplication.timeSinceStartup - _playedAt) >= duration)
             {
                 if (Loop)
                 {

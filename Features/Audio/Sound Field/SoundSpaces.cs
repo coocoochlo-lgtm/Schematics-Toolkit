@@ -172,7 +172,7 @@ namespace Remedy.Audio
         // A clip of ones: Unity places and attenuates it, and the filter below multiplies in the bus's own sound, so it
         // comes out placed and attenuated the same.
         private static AudioClip _dc;
-        private static AudioClip DcClip(int rate)
+        internal static AudioClip DcClip(int rate)
         {
             if (_dc != null) return _dc;
             var ones = new float[rate];

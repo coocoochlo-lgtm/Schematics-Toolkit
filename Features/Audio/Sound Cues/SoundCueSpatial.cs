@@ -307,7 +307,7 @@ namespace Remedy.Audio
         {
             if (context.HeardStart < 0 || count <= 0)
                 return;
-            long at = context.HeardSample(context.SamplePosition) + (Travel != null ? Volatile.Read(ref Travel.Samples) : 0);
+            long at = context.HeardSample(context.SamplePosition) + context.SendLead + (Travel != null ? Volatile.Read(ref Travel.Samples) : 0);
             SendTo(ref _room, ref _roomGain, ref _roomDelay, sends?.Room, (sends?.RoomGain ?? 0f) * mix, 0, sound, at, count);
             SendTo(ref _tail, ref _tailGain, ref _tailDelay, sends?.Tail, (sends?.TailGain ?? 0f) * mix, 0, sound, at, count);
             SendTo(ref _echoA, ref _gainA, ref _delayA, sends?.EchoA, (sends?.GainA ?? 0f) * mix, sends?.DelayA ?? 0, sound, at, count);

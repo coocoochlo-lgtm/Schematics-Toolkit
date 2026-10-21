@@ -145,6 +145,30 @@ namespace Remedy.Audio
         public float[] ListenerInput;
         public int BlockStart;
 
+        /// <summary>
+        /// The cue reacts as it plays (a Trigger): it's played with as little delay as possible (rendered as it's
+        /// heard, not ahead), so what fires it is heard at once.
+        /// </summary>
+        public bool LowLatency;
+        /// <summary>How much later than when they're heard sends to the world's spaces go (low latency: past what they're playing).</summary>
+        public int SendLead;
+        /// <summary>
+        /// An Auto-length cue with a Trigger: how long it plays on after it's fired (its longest sound), in seconds;
+        /// it plays until then. 0: not that kind of cue.
+        /// </summary>
+        public float AfterTrigger;
+        /// <summary>The sample it ends at (set when a Trigger fires; long.MaxValue: by its length alone).</summary>
+        public long EndAt = long.MaxValue;
+
+        /// <summary>A Trigger fired at a sample: an Auto-length cue now ends once its sound has played from there.</summary>
+        public void Fired(long sample)
+        {
+            if (AfterTrigger <= 0f)
+                return;
+            long end = sample + (long)Math.Ceiling(AfterTrigger * SampleRate);
+            EndAt = EndAt == long.MaxValue ? end : Math.Max(EndAt, end);
+        }
+
         /// <summary>The audio-clock sample a sample of the cue is heard at (meaningless when HeardStart is below 0).</summary>
         public long HeardSample(long cueSample) => (long)Math.Round(HeardStart * SampleRate) + cueSample;
     }
@@ -451,6 +475,12 @@ namespace Remedy.Audio
                     builder.Warnings.Add("Length is Auto but nothing in the cue has a length (no Sound Wave or Generator), so it plays until it's stopped.");
                 context.Duration = Mathf.Max(0f, seconds);
                 length = context.Duration > 0f ? (long)Math.Ceiling((context.Duration + builder.Tail) * sampleRate) : 0;
+                // Auto with a Trigger: it plays until it's fired, then for as long as its sound.
+                if (output.Length == SoundCueOutput.LengthMode.Auto && context.LowLatency && length > 0)
+                {
+                    context.AfterTrigger = context.Duration + builder.Tail;
+                    length = 0;
+                }
             }
             var voice = new SoundCueVoice(cue, context, builder, audio, volume, length) { BuiltVersion = SoundCueVoicePool.Version(cue) };
             voice.Restart(seed);
@@ -467,6 +497,7 @@ namespace Remedy.Audio
             Context.Distance = 0f;
             Context.ReverbSend = 0f;
             Context.HeardStart = -1;
+            Context.EndAt = long.MaxValue;
             Context.Random = seed != 0 ? new System.Random(seed) : new System.Random();
             Array.Copy(_parameterDefaults, Context.Parameters, _parameterDefaults.Length);
             _finished = false;
@@ -502,7 +533,7 @@ namespace Remedy.Audio
                 // Not heard: silence, but time goes on (and the end comes when it should).
                 Array.Clear(data, offset, count);
                 Context.SamplePosition += count;
-                if (LengthSamples > 0 && Context.SamplePosition >= LengthSamples)
+                if ((LengthSamples > 0 && Context.SamplePosition >= LengthSamples) || Context.SamplePosition >= Context.EndAt)
                     _finished = true;
                 return;
             }
@@ -512,9 +543,10 @@ namespace Remedy.Audio
                 while (written < count)
                 {
                     int n = Math.Min(SoundCueBuilder.BlockSize, count - written);
-                    if (LengthSamples > 0)
+                    if (LengthSamples > 0 || Context.EndAt != long.MaxValue)
                     {
-                        long left = LengthSamples - Context.SamplePosition;
+                        long end = LengthSamples > 0 ? Math.Min(LengthSamples, Context.EndAt) : Context.EndAt;
+                        long left = end - Context.SamplePosition;
                         if (left <= 0)
                         {
                             _finished = true;
