@@ -476,12 +476,18 @@ namespace Remedy.Audio
                 int length = Line.Length;
                 for (int i = 0; i < count; i++)
                 {
-                    float delaySamples = Mathf.Clamp(Delay[i] * context.SampleRate, 1f, length - 2);
-                    float readPos = _write - delaySamples;
-                    if (readPos < 0f) readPos += length;
+                    // In doubles, with the index wrapped explicitly: in a long line a float can't tell "just before the
+                    // end" from the end itself, and reading there ran off the line.
+                    double delaySamples = Delay[i] * (double)context.SampleRate;
+                    if (double.IsNaN(delaySamples)) delaySamples = 1.0;
+                    delaySamples = Math.Max(1.0, Math.Min(length - 2, delaySamples));
+                    double readPos = _write - delaySamples;
+                    if (readPos < 0.0) readPos += length;
                     int a = (int)readPos;
-                    float f = readPos - a;
-                    float echo = Line[a] + (Line[(a + 1) % length] - Line[a]) * f;
+                    float f = (float)(readPos - a);
+                    if (a >= length) a -= length;
+                    int next = a + 1 == length ? 0 : a + 1;
+                    float echo = Line[a] + (Line[next] - Line[a]) * f;
                     float x = In[i];
                     Line[_write] = x + echo * Mathf.Clamp(Feedback[i], 0f, 0.98f);
                     _write = (_write + 1) % length;
