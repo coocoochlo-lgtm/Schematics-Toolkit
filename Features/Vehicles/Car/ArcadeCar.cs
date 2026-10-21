@@ -234,6 +234,8 @@ namespace Remedy.Vehicles
             var properties = Properties.Value;
             var state = new CarState { Wheels = new WheelState[wheels != null ? wheels.Length : 0] };
             var car = instance.Transform;
+            state.LastMovementPosition = car.position;
+            state.HasMovementPosition = true;
             for (int i = 0; i < state.Wheels.Length; i++)
             {
                 var wheel = wheels[i];
@@ -472,6 +474,12 @@ namespace Remedy.Vehicles
             Vector3 centerOfMass = (Vector3)native.GetWorldCenterOfMass();
             Vector3 velocity = native.GetLinearVelocity();
             Vector3 angularVelocity = native.GetAngularVelocity();
+            Vector3 carPosition = car.position;
+            float movementSpeed = 0f;
+            if (state.HasMovementPosition && dt > 0f)
+                movementSpeed = Vector3.Distance(carPosition, state.LastMovementPosition) / dt;
+            state.LastMovementPosition = carPosition;
+            state.HasMovementPosition = true;
             if (state.HasDiagnosticAngularVelocity && dt > 0f)
             {
                 Vector3 measuredAngularAcceleration = (angularVelocity - state.PreviousAngularVelocity) / dt;
@@ -650,13 +658,16 @@ namespace Remedy.Vehicles
                 w.SteerAngle = wheel.Steers ? steerAngle : 0f;
                 w.WasGrounded = w.Grounded;
                 float tireRadius = Mathf.Max(0.05f, wheel.Radius);
-                float probeRadius = groundCheckDistanceForWheels > tireRadius ? tireRadius : 0f;
-                float castDistance = groundCheckDistanceForWheels - probeRadius;
-                w.Grounded = SchematicPhysics.SphereCast(origin, probeRadius, -up, out w.GroundHit, out _,
+                float bodyTopOffset = BodyTopOffsetAlong(native, origin, up);
+                Vector3 probeOrigin = origin + up * bodyTopOffset;
+                float tireTopHeight = Vector3.Dot(origin, up) - w.Extension + tireRadius;
+                float castDistance = Mathf.Max(0f, Vector3.Dot(probeOrigin, up)
+                    - tireTopHeight + groundCheckDistanceForWheels);
+                w.Grounded = SchematicPhysics.SphereCast(probeOrigin, tireRadius, -up, out w.GroundHit, out _,
                     castDistance, p.GroundLayers, body);
                 if (w.Grounded)
                 {
-                    w.GroundHit.distance += probeRadius;
+                    w.GroundHit.distance += bodyTopOffset + tireRadius;
                     grounded++;
                     Vector3 castNormal = w.GroundHit.normal;
                     w.GroundNormal = w.HasBlendedContact && contactTransitionTime > 0f
@@ -822,6 +833,14 @@ namespace Remedy.Vehicles
 
             bool isGrounded = grounded > 0;
             Vector3 groundNormal = isGrounded ? normalSum.normalized : worldUp;
+            bool slowSingleTireContact = grounded == 1
+                && velocity.magnitude <= Mathf.Max(0f, p.SingleTireRecoveryMaxSpeed)
+                && movementSpeed <= Mathf.Max(0f, p.SingleTireRecoveryMovementSpeed);
+            state.SingleTireStationaryTime = slowSingleTireContact
+                ? state.SingleTireStationaryTime + dt
+                : 0f;
+            bool singleTireRecovery = slowSingleTireContact
+                && state.SingleTireStationaryTime >= Mathf.Max(0f, p.SingleTireRecoveryDelay);
             IsGrounded.Value = isGrounded;
             GroundedWheels.Value = grounded;
 
@@ -833,7 +852,8 @@ namespace Remedy.Vehicles
             float speedFactor = 1f - Mathf.Clamp01(velocity.magnitude / Mathf.Max(0.1f, p.MaxSpeed));
             float stabilizationFactor = isGrounded ? supportFactor * speedFactor : 0f;
             bool airborne = !isGrounded && IsAirborne(body, centerOfMass, worldUp, p);
-            bool groundLeveling = isGrounded && (p.StabilizeStrength > 0f || p.StabilizeDamping > 0f);
+            bool groundLeveling = (isGrounded && (p.StabilizeStrength > 0f || p.StabilizeDamping > 0f))
+                || singleTireRecovery;
             bool airLeveling = airborne && (p.AirLevelStrength > 0f || p.AirLevelDamping > 0f);
             Vector3 stabilizationCompensation = Vector3.zero;
             Vector3 targetUp = isGrounded ? groundNormal : worldUp;
@@ -855,13 +875,19 @@ namespace Remedy.Vehicles
             state.UprightBlend = Mathf.MoveTowards(state.UprightBlend,
                 groundLeveling || airLeveling ? 1f : 0f, blendStep);
             state.UprightSupportBlend = Mathf.MoveTowards(state.UprightSupportBlend,
-                stabilizationFactor, blendStep);
+                singleTireRecovery ? 1f : stabilizationFactor, blendStep);
             state.UprightAirBlend = Mathf.MoveTowards(state.UprightAirBlend,
                 airLeveling ? 1f : 0f, blendStep);
 
             float uprightStrength = Mathf.Lerp(p.StabilizeStrength, p.AirLevelStrength, state.UprightAirBlend);
             float uprightDamping = Mathf.Lerp(p.StabilizeDamping, p.AirLevelDamping, state.UprightAirBlend);
             float uprightSupport = Mathf.Lerp(state.UprightSupportBlend, 1f, state.UprightAirBlend);
+            if (singleTireRecovery)
+            {
+                uprightStrength = Mathf.Max(uprightStrength, p.SingleTireRecoveryStrength);
+                uprightDamping = Mathf.Max(uprightDamping, p.SingleTireRecoveryDamping);
+                uprightSupport = 1f;
+            }
             if (state.UprightBlend > 0f)
             {
                 angular += (UprightError(up, state.UprightNormal, forward) * uprightStrength
@@ -1113,6 +1139,18 @@ namespace Remedy.Vehicles
             var inertia = new float3x3(state.InertiaX, state.InertiaY, state.InertiaZ);
             Vector3 localAcceleration = math.mul(math.inverse(inertia), (float3)localTorque);
             return rotation * localAcceleration;
+        }
+
+        private static float BodyTopOffsetAlong(Body body, Vector3 reference, Vector3 up)
+        {
+            B3Aabb bounds = body.ComputeAABB();
+            Vector3 lower = (Vector3)(float3)bounds.LowerBound;
+            Vector3 upper = (Vector3)(float3)bounds.UpperBound;
+            Vector3 center = (lower + upper) * 0.5f;
+            Vector3 halfExtents = (upper - lower) * 0.5f;
+            float topHeight = Vector3.Dot(center, up)
+                + Vector3.Dot(new Vector3(Mathf.Abs(up.x), Mathf.Abs(up.y), Mathf.Abs(up.z)), halfExtents);
+            return Mathf.Max(0f, topHeight - Vector3.Dot(reference, up));
         }
 
         private static Vector3 ApplyTorqueGuard(Body body, Vector3 requestedTorque, ArcadeCarProperties properties,
@@ -1370,6 +1408,7 @@ namespace Remedy.Vehicles
             var car = context.Transform;
             float rest = p != null ? p.SuspensionRestLength : 0.45f;
             var state = context.Instance != null && context.Instance.IsSpawned ? _state[context.Instance] : null;
+            var body = context.GetComponent<Box3DBody>();
             Vector3 up = car.up;
 
             if (wheels != null)
@@ -1381,17 +1420,21 @@ namespace Remedy.Vehicles
                     bool live = state != null && i < state.Wheels.Length;
                     var w = live ? state.Wheels[i] : default;
                     Vector3 origin = wheel.Anchor.position;
+                    float bodyTopOffset = live && body != null && body.IsLive()
+                        ? BodyTopOffsetAlong(body.Body, origin, up)
+                        : 0f;
+                    Vector3 probeOrigin = origin + up * bodyTopOffset;
 
                     // The tire-sized ground sweep: green on the ground, red in the air, cyan in Edit Mode.
                     Gizmos.color = !live ? Color.cyan : w.Grounded ? Color.green : Color.red;
                     float checkDistance = Mathf.Max(0f, p != null ? p.GroundCheckDistance : 1.6f);
-                    float probeRadius = checkDistance > radius ? radius : 0f;
-                    float castDistance = checkDistance - probeRadius;
-                    Vector3 castEnd = origin - up * castDistance;
-                    Gizmos.DrawLine(origin, castEnd);
-                    if (probeRadius > 0f)
-                        Gizmos.DrawWireSphere(castEnd, probeRadius);
-                    Gizmos.DrawWireSphere(origin, 0.04f);
+                    float tireTopHeight = Vector3.Dot(origin, up) - (live ? w.Extension : rest) + radius;
+                    float castDistance = Mathf.Max(0f, Vector3.Dot(probeOrigin, up)
+                        - tireTopHeight + checkDistance);
+                    Vector3 castEnd = probeOrigin - up * castDistance;
+                    Gizmos.DrawLine(probeOrigin, castEnd);
+                    Gizmos.DrawWireSphere(castEnd, radius);
+                    Gizmos.DrawWireSphere(probeOrigin, 0.04f);
 
                     // The wheel, steered.
                     Vector3 center = origin - up * (live ? w.Extension : rest);
@@ -1410,7 +1453,6 @@ namespace Remedy.Vehicles
                 }
 
             // Centre of mass: the real one while playing, an estimate (origin + offset) in Edit Mode.
-            var body = context.GetComponent<Box3DBody>();
             Vector3 com = body != null && body.IsLive()
                 ? (Vector3)body.Body.GetWorldCenterOfMass()
                 : car.TransformPoint(p != null ? p.CenterOfMassOffset : Vector3.zero);
@@ -1470,6 +1512,9 @@ namespace Remedy.Vehicles
         public Vector3 LastRotationAssistAngularAcceleration, LastAirControlAngularAcceleration;
         public int LastGroundedWheels;
         public float UprightBlend, UprightAirBlend, UprightSupportBlend;
+        public Vector3 LastMovementPosition;
+        public bool HasMovementPosition;
+        public float SingleTireStationaryTime;
 
         public bool BodyConfigured;
         public Vector3 InertiaX, InertiaY, InertiaZ;

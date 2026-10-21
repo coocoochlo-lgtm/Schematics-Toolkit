@@ -142,10 +142,10 @@ The body is a real Box3D body, so it can roll, tumble and land on its roof. How 
   Time** smooths the correction's fade and direction changes as the car moves between ramps and airborne states. The
   controller compensates for the torque from grounded tires' suspension, traction and sticky forces; 0 strength and
   damping = pure physics.
-- **Ground Check Distance** sets the full wheel ground-probe reach. Each probe sweeps a sphere up to the tire's radius
-  from its anchor along the car's local down axis, so curved surfaces and edges are detected around the tire
-  instead of only along a thin ray. **Tire Placement Threshold** (0..1) places the tire's outer edge at that fraction
-  of the probe when ground is farther away (0.5 places it halfway along); a nearer hit moves it toward the surface.
+- **Ground Check Distance** sets how far below the tire top each probe continues. The probe sweeps a sphere up to the
+  tire's radius, starting at the top of the car body's bounds and going down along the car's local down axis. This
+  avoids starting an underbody check inside the floor. **Tire Placement Threshold** (0..1) limits how far the tire
+  bottom hangs below its anchor when no ground is found; a nearer hit moves it toward the surface.
   **Suspension Rest Length** limits spring travel, not tire placement.
 - Ungrounded tires within the check distance borrow an averaged ground plane from the tires that did hit. Their
   suspension, grip, sticky and drive forces are blended in by the grounded-tire fraction, so the assist fades toward
@@ -159,6 +159,10 @@ The body is a real Box3D body, so it can roll, tumble and land on its roof. How 
 - **Air Level Strength / Damping**: levelling and damping in the air. **Air Control** applies steering as roll about
   the car's forward axis and signed Target Speed as pitch about its right axis, using forces at ungrounded tire
   anchors; it only runs when really airborne, not when lying on its roof.
+- **Single Tire Recovery**: if exactly one tire remains grounded while the car is below **Single Tire Recovery Max
+  Speed** and moves below **Single Tire Recovery Movement Speed** for **Single Tire Recovery Delay**, the controller
+  turns the body toward that tire's ground normal using the configured recovery strength and damping. This helps a
+  car recover when wedged on its side.
 - **On Crash** uses a direction-adjusted impact speed: impacts aligned with the nearest tire's ground normal count
   less, while side-on impacts retain their full speed. This helps prevent curved-ground contact from being treated
   as a crash. If no tire has ground contact, the car's local up axis is used. **Min Crash Speed** is compared against
@@ -233,8 +237,8 @@ networked object (an NPC without a NetworkObject) as an empty seat: give such oc
 
 ## Notes
 
-- Wheels use tire-radius sphere casts against **Ground Layers**, ignoring the car's own body. A wheel visual that is
-  its anchor (or contains it) isn't moved, since that would move the probe.
+- Wheels use tire-radius sphere casts from the top of the car body's bounds against **Ground Layers**, ignoring the
+  car's own body. A wheel visual that is its anchor (or contains it) isn't moved, since that would move the probe.
 - The car body uses Box3D continuous collision detection to reduce tunneling through thin walls and floors at speed;
   the wheel sphere casts only sense ground and do not replace or modify physical collision response.
 - Mass, centre of mass and inertia come from the Properties on top of what the shapes give, each spawn.

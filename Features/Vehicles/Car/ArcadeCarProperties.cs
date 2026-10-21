@@ -57,10 +57,10 @@ namespace Remedy.Vehicles
         [Tooltip("How far each wheel hangs below its anchor when nothing presses on it (metres). Longer = softer, more body roll, bigger jumps soaked up.")]
         public float SuspensionRestLength = 0.45f;
         [Min(0f)]
-        [Tooltip("Total distance from each wheel anchor checked for ground (metres).")]
+        [Tooltip("How far below the top of the tire each ground probe continues (metres). Probes start at the top of the car body's bounds.")]
         public float GroundCheckDistance = 1.6f;
         [Range(0f, 1f)]
-        [Tooltip("Places the tire's outer edge at this fraction of Ground Check Distance when the ground is farther away. A nearer hit moves the tire toward the ground; the full cast still checks beyond the tire. Suspension Rest Length limits spring travel, not tire placement.")]
+        [Tooltip("When no ground is found, places the tire bottom no farther than this fraction of Ground Check Distance below its anchor. A nearer hit moves it toward the surface. Ground sensing extends farther, from the body top to below the tire. Suspension Rest Length limits spring travel, not tire placement.")]
         public float TirePlacementThreshold = 0.5f;
         [Tooltip("Spring stiffness: m/s² of push per metre compressed. ~10 / Stiffness is how far the car sags at rest (60 → 17 cm). Higher = stiffer, twitchier.")]
         public float SpringStiffness = 60f;
@@ -195,6 +195,21 @@ namespace Remedy.Vehicles
         [Min(0f)]
         [Tooltip("Time for tilt correction to fade in/out and turn toward a new support normal. Softens changes in tire contact over ramps; 0 is immediate.")]
         public float StabilizeTransitionTime = 0.25f;
+        [Min(0f)]
+        [Tooltip("When exactly one tire is grounded, maximum car speed for the stuck recovery timer (m/s).")]
+        public float SingleTireRecoveryMaxSpeed = 1f;
+        [Min(0f)]
+        [Tooltip("Maximum measured car movement speed while counting as stuck on one tire (m/s).")]
+        public float SingleTireRecoveryMovementSpeed = 0.15f;
+        [Min(0f)]
+        [Tooltip("How long the car must remain nearly still with exactly one tire grounded before it rights toward that surface normal (seconds).")]
+        public float SingleTireRecoveryDelay = 2f;
+        [Min(0f)]
+        [Tooltip("Righting angular acceleration toward the grounded surface normal during single-tire stuck recovery (rad/s²).")]
+        public float SingleTireRecoveryStrength = 18f;
+        [Min(0f)]
+        [Tooltip("Angular damping during single-tire stuck recovery.")]
+        public float SingleTireRecoveryDamping = 4f;
         [Range(0f, 1f)]
         [Tooltip("Minimum fraction of Max Speed before sticky force applies to grounded tires.")]
         public float StickyThreshold = 0.1f;
