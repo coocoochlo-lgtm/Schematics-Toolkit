@@ -79,15 +79,21 @@ namespace Remedy.Schematics.Browsers
             SchematicTemplateGrid.SharedTileSizeChanged -= OnSharedTileSizeChanged;
             AssetTags.Changed -= OnTagsChanged;
             StopPreview();
+            StopCuePreview();
             foreach (var waveform in _ownedWaveforms)
                 DestroyImmediate(waveform);
             _ownedWaveforms.Clear();
             _waveforms.Clear();
+            _cueWaveforms.Clear();
             _waveformsPending.Clear();
             base.OnDisable();
         }
 
-        private void OnLostFocus() => StopPreview();
+        private void OnLostFocus()
+        {
+            StopPreview();
+            StopCuePreview();
+        }
 
         private void OnTagsChanged() => _page?.schedule.Execute(RebuildCards);
 
@@ -302,6 +308,7 @@ namespace Remedy.Schematics.Browsers
             {
                 _clipGrid.Clear();
                 _players.Clear();
+                _cuePlayers.Clear();
                 _nameLabels.Clear();
                 _clipGrid.Add(InCues ? BuildNewCueCard() : BuildImportCard());
                 var folders = FolderView ? FoldersInView().Where(f => MatchesSearch(Path.GetFileName(f))).ToList() : new List<string>();
@@ -381,82 +388,175 @@ namespace Remedy.Schematics.Browsers
             AssetDatabase.OpenAsset(made);
         }
 
-        // A Sound Cue's card: click to hear it, double-click to open it, drag it into a graph for Play Sound Cue.
+        // A Sound Cue's card, like an audio clip's: its sound as a waveform (rendered from the cue), a timeline to drag
+        // through it, its name (double-click to rename), its tags, and a Sound Cue icon. Click to hear it (Stereo cues
+        // circle you once a second, so you hear them moving), double-click to open it, drag it into a graph to play it.
         private VisualElement BuildCueCard(Remedy.Audio.SoundCueGraph cue)
         {
-            var card = new VisualElement { tooltip = $"{cue.name}\nClick to hear it, double-click to open it, drag it into a graph to play it." };
+            var card = new VisualElement();
             card.AddToClassList("audio-browser__card");
+            card.AddToClassList("audio-preview-surface");
             SizeCard(card, TileSize);
             card.style.flexDirection = FlexDirection.Column;
-            card.style.justifyContent = Justify.SpaceBetween;
+            var baseBorder = EditorGUIUtility.isProSkin ? new Color(1f, 1f, 1f, 0.35f) : new Color(0f, 0f, 0f, 0.35f);
+            card.style.borderTopColor = card.style.borderRightColor = card.style.borderBottomColor = card.style.borderLeftColor = baseBorder;
             card.style.backgroundColor = CueColor;
-            card.style.borderTopColor = card.style.borderRightColor = card.style.borderBottomColor = card.style.borderLeftColor =
-                EditorGUIUtility.isProSkin ? new Color(1f, 1f, 1f, 0.35f) : new Color(0f, 0f, 0f, 0.35f);
 
-            var icon = new Image { image = EditorGUIUtility.IconContent("AudioMixerController Icon").image, pickingMode = PickingMode.Ignore };
-            icon.style.width = icon.style.height = 20;
-            icon.style.marginLeft = icon.style.marginTop = 6;
-            card.Add(icon);
+            var thumbnail = new Image { scaleMode = ScaleMode.StretchToFill, pickingMode = PickingMode.Ignore };
+            thumbnail.AddToClassList("audio-browser__waveform");
+            card.Add(thumbnail);
+            var gloss = new Image { image = GlossTexture, scaleMode = ScaleMode.StretchToFill, pickingMode = PickingMode.Ignore };
+            gloss.AddToClassList("audio-browser__gloss");
+            card.Add(gloss);
 
-            var play = new Label { pickingMode = PickingMode.Ignore };
-            play.style.fontSize = 28;
-            play.style.unityTextAlign = TextAnchor.MiddleCenter;
-            play.style.color = Color.white;
-            play.style.flexGrow = 1;
-            void Paint() => play.text = Remedy.Audio.SoundCuePreview.Playing == cue ? "■" : "▶";
-            Paint();
-            card.Add(play);
-            Remedy.Audio.SoundCuePreview.Changed += Paint;
-            card.RegisterCallback<DetachFromPanelEvent>(_ => Remedy.Audio.SoundCuePreview.Changed -= Paint);
+            var flash = new VisualElement { pickingMode = PickingMode.Ignore };
+            flash.AddToClassList("audio-browser__flash");
+            var playCue = new Label("▶") { pickingMode = PickingMode.Ignore };
+            playCue.AddToClassList("audio-browser__play-cue");
 
-            var name = new Label(cue.name) { pickingMode = PickingMode.Ignore };
-            name.style.color = Color.white;
-            name.style.unityTextAlign = TextAnchor.MiddleCenter;
-            name.style.whiteSpace = WhiteSpace.Normal;
-            name.style.marginBottom = 6;
-            name.style.paddingLeft = name.style.paddingRight = 4;
+            var name = new Label(cue.name) { tooltip = AssetDatabase.GetAssetPath(cue) };
+            name.AddToClassList("audio-browser__clip-name");
+            name.style.color = TextColorFor(CueColor);
             card.Add(name);
+            name.RegisterCallback<PointerDownEvent>(evt =>
+            {
+                if (evt.button != 0 || evt.clickCount != 2)
+                    return;
+                evt.StopPropagation();
+                StopCuePreview();
+                EditorApplication.delayCall += () => BeginRenameCue(cue, name);
+            });
+
+            var tags = AssetTags.Of(cue, TagSection);
+            var tagRow = AssetTags.Dots(tags);
+            tagRow.style.marginLeft = 2;
+            tagRow.style.marginRight = 2;
+            if (tags.Count == 0)
+            {
+                var none = new Label("No tags") { tooltip = "Drag a tag onto the Sound Cue" };
+                none.AddToClassList("audio-browser__card-tag");
+                none.style.color = TextColorFor(CueColor);
+                tagRow.Add(none);
+            }
+            card.Add(tagRow);
+
+            var kind = new Image { image = CueIcon, pickingMode = PickingMode.Ignore, tooltip = "Sound Cue" };
+            kind.AddToClassList("audio-browser__kind-icon");
+            card.Add(kind);
+
+            // The timeline: the same fill, handle and time as a clip's.
+            var container = new VisualElement { pickingMode = PickingMode.Ignore };
+            container.AddToClassList("audio-browser__timeline");
+            var time = new Label("") { pickingMode = PickingMode.Ignore };
+            time.AddToClassList("audio-browser__time");
+            container.Add(time);
+            container.style.position = Position.Absolute;
+            container.style.left = 7f;
+            container.style.right = 7f;
+            container.style.bottom = 5f;
+            card.Add(container);
+            var fill = new VisualElement { pickingMode = PickingMode.Ignore };
+            fill.AddToClassList("audio-browser__progress");
+            var handle = new VisualElement { tooltip = "Drag through the Sound Cue" };
+            handle.AddToClassList("audio-browser__scrub");
+            handle.AddToClassList("audio-player-control");
+            var grip = new VisualElement { pickingMode = PickingMode.Ignore };
+            grip.AddToClassList("audio-browser__scrub-grip");
+            handle.Add(grip);
+            card.Insert(Mathf.Min(2, card.childCount), fill);
+            card.Add(handle);
+            card.Add(flash);
+            card.Add(playCue);
+
+            var player = new CuePlayer { Cue = cue, Fill = fill, Handle = handle, Time = time, PlayCue = playCue };
+            _cuePlayers.Add(player);
+            player.SetFraction(0f);
+            // The waveform (and length) once the card's on screen: rendering the cue takes a moment.
+            card.schedule.Execute(() =>
+            {
+                var (waveform, length) = CueWaveform(cue);
+                thumbnail.image = waveform;
+                player.Length = length;
+                player.ShowTime(0f);
+            });
+
+            handle.RegisterCallback<PointerDownEvent>(evt =>
+            {
+                if (evt.button != 0) return;
+                handle.CapturePointer(evt.pointerId);
+                player.Scrubbing = true;
+                ScrubCue(player, card, evt.position);
+                evt.StopPropagation();
+            });
+            handle.RegisterCallback<PointerMoveEvent>(evt =>
+            {
+                if (!player.Scrubbing || !handle.HasPointerCapture(evt.pointerId)) return;
+                ScrubCue(player, card, evt.position);
+                evt.StopPropagation();
+            });
+            handle.RegisterCallback<PointerUpEvent>(evt =>
+            {
+                if (!player.Scrubbing) return;
+                player.Scrubbing = false;
+                if (handle.HasPointerCapture(evt.pointerId))
+                    handle.ReleasePointer(evt.pointerId);
+                evt.StopPropagation();
+            });
 
             Vector2 down = default;
+            double downTime = 0;
             bool pressed = false;
             card.RegisterCallback<PointerDownEvent>(evt =>
             {
-                if (evt.button != 0) return;
+                if (evt.button != 0 || IsWithin(evt.target as VisualElement, "audio-player-control")) return;
                 if (evt.clickCount == 2)
                 {
-                    Remedy.Audio.SoundCuePreview.Stop();
+                    pressed = false;
+                    StopCuePreview();
                     AssetDatabase.OpenAsset(cue);
                     evt.StopPropagation();
                     return;
                 }
                 pressed = true;
                 down = evt.position;
+                downTime = EditorApplication.timeSinceStartup;
             });
             card.RegisterCallback<PointerMoveEvent>(evt =>
             {
-                if (!pressed || ((Vector2)evt.position - down).sqrMagnitude < 36f) return;
+                if (!pressed || (evt.pressedButtons & 1) == 0 || ((Vector2)evt.position - down).sqrMagnitude < 36f) return;
                 pressed = false;
                 DragAndDrop.PrepareStartDrag();
                 DragAndDrop.objectReferences = new UnityEngine.Object[] { cue };
                 DragAndDrop.paths = new[] { AssetDatabase.GetAssetPath(cue) };
                 DragAndDrop.StartDrag(cue.name);
+                evt.StopPropagation();
             });
             card.RegisterCallback<PointerUpEvent>(evt =>
             {
                 if (!pressed || evt.button != 0) return;
                 pressed = false;
-                if (Remedy.Audio.SoundCuePreview.Playing == cue) Remedy.Audio.SoundCuePreview.Stop();
-                else Remedy.Audio.SoundCuePreview.Play(cue);
+                if (IsWithin(evt.target as VisualElement, "audio-player-control") || EditorApplication.timeSinceStartup - downTime > 0.45d)
+                    return;
+                FlashCard(card);
+                ToggleCuePreview(cue);
                 Selection.activeObject = cue;
             });
+            card.RegisterCallback<PointerLeaveEvent>(_ =>
+            {
+                pressed = false;
+                card.style.borderTopColor = card.style.borderRightColor = card.style.borderBottomColor = card.style.borderLeftColor = baseBorder;
+            });
+            card.RegisterCallback<PointerEnterEvent>(_ =>
+            {
+                var highlight = EditorGUIUtility.isProSkin ? new Color(0.65f, 0.82f, 1f, 0.9f) : new Color(0.12f, 0.38f, 0.7f, 0.85f);
+                card.style.borderTopColor = card.style.borderRightColor = card.style.borderBottomColor = card.style.borderLeftColor = highlight;
+            });
+
             card.AddManipulator(new ContextualMenuManipulator(evt =>
             {
                 evt.menu.AppendAction("Open", _ => AssetDatabase.OpenAsset(cue));
-                evt.menu.AppendAction(Remedy.Audio.SoundCuePreview.Playing == cue ? "Stop Preview" : "Preview", _ =>
-                {
-                    if (Remedy.Audio.SoundCuePreview.Playing == cue) Remedy.Audio.SoundCuePreview.Stop();
-                    else Remedy.Audio.SoundCuePreview.Play(cue);
-                });
+                evt.menu.AppendAction(IsPlayingCue(cue) ? "Stop Preview" : "Preview", _ => ToggleCuePreview(cue));
+                evt.menu.AppendAction("Rename", _ => BeginRenameCue(cue, name));
                 evt.menu.AppendSeparator();
                 evt.menu.AppendAction("Show in Project", _ => Ping(cue));
                 evt.menu.AppendAction("Delete Sound Cue…", _ =>
@@ -470,7 +570,196 @@ namespace Remedy.Schematics.Browsers
                 });
                 evt.StopPropagation();
             }));
+            AssetTags.MakeDropTarget(card, () => cue, "audio-browser__card--drop");
             return card;
+        }
+
+        /// <summary>A Sound Cue card's timeline: its fill and handle, the time, and the ▶ / ■ that flashes.</summary>
+        private sealed class CuePlayer
+        {
+            public Remedy.Audio.SoundCueGraph Cue;
+            public VisualElement Fill, Handle;
+            public Label Time, PlayCue;
+            public float Length = -1f; // seconds; 0: endless; below 0: not rendered yet
+            public bool Scrubbing;
+            public int CueToken;
+
+            public void SetFraction(float fraction)
+            {
+                fraction = Mathf.Clamp01(fraction);
+                Fill.style.width = UnityEngine.UIElements.Length.Percent(fraction * 100f);
+                Handle.style.left = UnityEngine.UIElements.Length.Percent(fraction * 100f);
+            }
+
+            public void ShowTime(float seconds)
+            {
+                Time.text = Length < 0f ? "" : Length > 0f ? FormatTime(seconds) + " / " + FormatTime(Length) : FormatTime(seconds) + " / endless";
+                Handle.style.display = Length > 0f ? DisplayStyle.Flex : DisplayStyle.None;
+            }
+        }
+
+        private readonly List<CuePlayer> _cuePlayers = new();
+        private readonly Dictionary<Remedy.Audio.SoundCueGraph, (int dirty, Texture2D waveform, float length)> _cueWaveforms = new();
+        private static Texture2D _cueIcon, _clipIcon;
+
+        private static Texture2D CueIcon => _cueIcon != null ? _cueIcon : _cueIcon = Resources.Load<Texture2D>("Textures/sound-cue-icon");
+        private static Texture2D ClipIcon => _clipIcon != null ? _clipIcon : _clipIcon = Resources.Load<Texture2D>("Textures/audio-clip-icon");
+
+        // This window's Sound Cue preview (what it started), if that's what's playing.
+        private bool IsPlayingCue(Remedy.Audio.SoundCueGraph cue)
+            => Remedy.Audio.SoundCuePreview.Playing == cue && ReferenceEquals(Remedy.Audio.SoundCuePreview.Owner, this);
+
+        // Plays a cue from a time: a Stereo cue circles the listener once a second (how it sounds moving), a Mono
+        // one plays flat.
+        private void PlayCue(Remedy.Audio.SoundCueGraph cue, float time)
+        {
+            StopPreview(); // a clip playing in the browser
+            if (Remedy.Audio.SoundCuePreview.Playing != cue || !ReferenceEquals(Remedy.Audio.SoundCuePreview.Owner, this))
+            {
+                if (cue.IsSpatial)
+                    Remedy.Audio.SoundCuePreview.PlayOrbiting(cue, radius: 3f, turnsPerSecond: 1f, owner: this);
+                else
+                    Remedy.Audio.SoundCuePreview.Play(cue, owner: this);
+            }
+            if (time > 0f)
+                Remedy.Audio.SoundCuePreview.Seek(cue, time, owner: this);
+        }
+
+        private void ToggleCuePreview(Remedy.Audio.SoundCueGraph cue)
+        {
+            bool playing = IsPlayingCue(cue);
+            if (playing)
+                StopCuePreview();
+            else
+                PlayCue(cue, 0f);
+            ShowCueFlash(cue, !playing);
+        }
+
+        private void StopCuePreview()
+        {
+            if (ReferenceEquals(Remedy.Audio.SoundCuePreview.Owner, this))
+                Remedy.Audio.SoundCuePreview.Stop();
+        }
+
+        // Drags the handle: plays from there.
+        private void ScrubCue(CuePlayer player, VisualElement card, Vector2 worldPosition)
+        {
+            if (player.Length <= 0f) return;
+            var rect = card.worldBound;
+            float fraction = rect.width > 0f ? Mathf.Clamp01((worldPosition.x - rect.xMin) / rect.width) : 0f;
+            PlayCue(player.Cue, Mathf.Min(fraction * player.Length, player.Length - 0.01f));
+            player.SetFraction(fraction);
+            player.ShowTime(fraction * player.Length);
+        }
+
+        // The ▶ / ■ in the middle of the card, flashed when the cue starts or stops.
+        private void ShowCueFlash(Remedy.Audio.SoundCueGraph cue, bool playing)
+        {
+            var player = _cuePlayers.FirstOrDefault(p => p.Cue == cue);
+            var label = player?.PlayCue;
+            if (label == null) return;
+            label.text = playing ? "▶" : "■";
+            label.RemoveFromClassList("audio-browser__play-cue--visible");
+            label.schedule.Execute(() => label.AddToClassList("audio-browser__play-cue--visible")).ExecuteLater(1);
+            int token = ++player.CueToken;
+            label.schedule.Execute(() =>
+            {
+                if (player.CueToken == token)
+                    label.RemoveFromClassList("audio-browser__play-cue--visible");
+            }).ExecuteLater(650);
+        }
+
+        // Every card's timeline: the playing one follows the preview, the rest rest at the start.
+        private void UpdateCuePlayers()
+        {
+            var voice = Remedy.Audio.SoundCuePreview.Voice;
+            foreach (var player in _cuePlayers)
+            {
+                if (player.Scrubbing) continue;
+                if (voice != null && IsPlayingCue(player.Cue))
+                {
+                    float t = voice.Time;
+                    player.SetFraction(player.Length > 0f ? t / player.Length : 0f);
+                    player.ShowTime(player.Length > 0f ? Mathf.Min(t, player.Length) : t);
+                }
+                else if (player.Length >= 0f)
+                {
+                    player.SetFraction(0f);
+                    player.ShowTime(0f);
+                }
+            }
+        }
+
+        private void BeginRenameCue(Remedy.Audio.SoundCueGraph cue, Label label)
+        {
+            if (cue == null || label?.parent == null)
+                return;
+            var field = InlineRename.Begin(label, cue.name, value =>
+            {
+                if (InlineRename.RenameAsset(AssetDatabase.GetAssetPath(cue), SanitizeName(value)))
+                    label.text = value;
+            });
+            field?.AddToClassList("audio-player-control");
+            field?.AddToClassList("audio-browser__rename");
+        }
+
+        // A cue's sound drawn like a clip's waveform: rendered offline (at a low rate; a few seconds of an endless
+        // one), kept until the cue is edited.
+        private (Texture2D waveform, float length) CueWaveform(Remedy.Audio.SoundCueGraph cue)
+        {
+            int dirty = EditorUtility.GetDirtyCount(cue);
+            if (_cueWaveforms.TryGetValue(cue, out var cached) && cached.dirty == dirty && cached.waveform != null)
+                return (cached.waveform, cached.length);
+
+            const int rate = 11025;
+            const float endlessSeconds = 4f, longestSeconds = 20f;
+            var amplitudes = new float[WaveformWidth];
+            float length = 0f;
+            try
+            {
+                var voice = Remedy.Audio.SoundCueVoice.Create(cue, rate, 1);
+                length = voice.LengthSamples > 0 ? voice.LengthSamples / (float)rate : 0f;
+                int total = Mathf.Max(1, (int)((length > 0f ? Mathf.Min(length, longestSeconds) : endlessSeconds) * rate));
+                var block = new float[Remedy.Audio.SoundCueBuilder.BlockSize];
+                for (int done = 0; done < total; done += block.Length)
+                {
+                    int count = Mathf.Min(block.Length, total - done);
+                    voice.Render(block, 0, count);
+                    for (int i = 0; i < count; i++)
+                    {
+                        int bucket = (int)((long)(done + i) * WaveformWidth / total);
+                        amplitudes[bucket] = Mathf.Max(amplitudes[bucket], Mathf.Abs(block[i]));
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"Sound Cue \"{cue.name}\": couldn't draw its waveform ({e.Message}).", cue);
+            }
+
+            var waveform = cached.waveform;
+            if (waveform == null)
+            {
+                waveform = new Texture2D(WaveformWidth, WaveformHeight, TextureFormat.RGBA32, false)
+                {
+                    name = $"{cue.name} Waveform",
+                    hideFlags = HideFlags.HideAndDontSave,
+                    wrapMode = TextureWrapMode.Clamp,
+                    filterMode = FilterMode.Bilinear
+                };
+                _ownedWaveforms.Add(waveform);
+            }
+            var pixels = new Color[WaveformWidth * WaveformHeight];
+            for (int x = 0; x < WaveformWidth; x++)
+            {
+                int halfHeight = Mathf.Clamp(Mathf.CeilToInt(Mathf.Min(1f, amplitudes[x]) * (WaveformHeight * 0.46f)), 1, WaveformHeight / 2);
+                for (int y = WaveformHeight / 2 - halfHeight; y <= WaveformHeight / 2 + halfHeight; y++)
+                    pixels[y * WaveformWidth + x] = new Color(1f, 1f, 1f, 0.9f);
+            }
+            waveform.SetPixels(pixels);
+            waveform.Apply(false, false);
+            _cueWaveforms[cue] = (dirty, waveform, length);
+            return (waveform, length);
         }
 
         #endregion
@@ -683,10 +972,10 @@ namespace Remedy.Schematics.Browsers
             }
             card.Add(tagRow);
 
-            // "This is audio": a small speaker in the corner (Audio Graphs will show something of their own).
+            // "This is an audio clip": a white waveform in the corner (Sound Cues show their own).
             var speaker = new Image
             {
-                image = EditorGUIUtility.IconContent(EditorGUIUtility.isProSkin ? "d_AudioSource Icon" : "AudioSource Icon")?.image,
+                image = ClipIcon,
                 pickingMode = PickingMode.Ignore,
                 tooltip = "Audio clip",
             };
@@ -832,6 +1121,7 @@ namespace Remedy.Schematics.Browsers
             if (_previewClip != clip)
             {
                 StopPreview();
+                StopCuePreview();
                 _previewClip = clip;
                 _previewPaused = true;
             }
@@ -863,6 +1153,7 @@ namespace Remedy.Schematics.Browsers
 
         private void TogglePreview(AudioClip clip)
         {
+            StopCuePreview();
             if (_previewClip == clip)
             {
                 if (_previewPaused)
@@ -904,6 +1195,7 @@ namespace Remedy.Schematics.Browsers
         {
             if (_previewClip == null)
                 return;
+            // (A clip and a Sound Cue don't play over each other: starting either stops the other, see PlayCue.)
             AudioPreview.Stop();
             _previewClip = null;
             _previewSamplePosition = 0;
@@ -928,6 +1220,7 @@ namespace Remedy.Schematics.Browsers
         private void UpdatePreview()
         {
             RefreshPendingWaveforms();
+            UpdateCuePlayers();
             if (_previewClip == null)
                 return;
             if (_previewPaused)
