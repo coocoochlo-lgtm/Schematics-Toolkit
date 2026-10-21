@@ -109,9 +109,9 @@ namespace Remedy.Audio
         private float[] _allpassA = new float[1], _allpassB = new float[1], _allpassC = new float[1];
         private int _allpassIndexC;
         /// <summary>An echo's blend: how much of the copy is left (the rest is the smear).</summary>
-        public const float EchoDirect = 0.25f;
-        // The smear's feedback (about a quarter second) and damping.
-        private const float SmearFeedback = 0.62f, SmearDamp = 0.3f;
+        public const float EchoDirect = 0.5f;
+        // The smear's feedback (about a sixth of a second) and damping: enough to soften it, not to muddy it.
+        private const float SmearFeedback = 0.5f, SmearDamp = 0.3f;
         private int _allpassIndexA, _allpassIndexB;
 
         // Flutter: what an echo wall sends on to the wall facing it.
@@ -119,6 +119,9 @@ namespace Remedy.Audio
         private int _partnerDelay;
         private float _partnerGain;
         private float[] _scratch = new float[2048];
+        // An echo wall's clean echo (before its smear): what it passes on to the facing wall. Passing the smear on too
+        // made the two walls feed each other's ringing until it built into a howl.
+        private float[] _clean = new float[2048];
 
         /// <summary>The room this bus is ringing for, or the field and anchor it echoes for (set by the manager).</summary>
         public object Owner;
@@ -469,7 +472,10 @@ namespace Remedy.Audio
         {
             int frames = data.Length / channels;
             if (_scratch.Length < frames)
+            {
                 _scratch = new float[frames];
+                _clean = new float[frames];
+            }
             SpaceBus partner;
             int partnerDelay;
             float partnerGain;
@@ -517,7 +523,7 @@ namespace Remedy.Audio
                     int slot = (int)((head + f) & RingMask);
                     float input = _ring[slot];
                     _ring[slot] = 0f;
-                    float output;
+                    float output, clean = 0f;
                     if (Kind == BusKind.Room)
                         output = _reverb.Process(input * 0.015f, _feedback, _damp) * 3f;
                     else if (Kind == BusKind.Slap)
@@ -537,16 +543,18 @@ namespace Remedy.Audio
                         float diffused = Allpass(Allpass(Allpass(_lowpass, _allpassA, ref _allpassIndexA), _allpassB, ref _allpassIndexB), _allpassC, ref _allpassIndexC);
                         float smear = _reverb.Process(diffused * 0.015f, SmearFeedback, SmearDamp) * 3f;
                         output = diffused * EchoDirect + smear * (1f - EchoDirect);
+                        clean = diffused;
                     }
                     if (float.IsNaN(output) || float.IsInfinity(output) || Mathf.Abs(output) > 8f)
                     {
                         // Running away (it shouldn't): start clean rather than howl.
                         ClearEffect();
                         Interlocked.Increment(ref _resets);
-                        output = 0f;
+                        output = clean = 0f;
                     }
                     _envelope = Mathf.Max(0f, _envelope - fade);
                     _scratch[f] = output * _envelope;
+                    _clean[f] = clean * _envelope;
                 }
                 if (over && _envelope <= 0f)
                 {
@@ -573,7 +581,7 @@ namespace Remedy.Audio
             // A canyon: the echo carries on to the facing wall (outside this bus's lock).
             long fedUntil = Interlocked.Read(ref _lastWrite);
             if (partner != null && partnerGain > 0f)
-                partner.Add(head + partnerDelay, _scratch, frames, partnerGain, partnerGain, fedUntil);
+                partner.Add(head + partnerDelay, _clean, frames, partnerGain, partnerGain, fedUntil);
             // A Trail spot: on to the place's effects (outside this bus's lock, as above).
             if (forward != null && forwardMix > 0f)
             {

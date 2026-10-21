@@ -21,10 +21,11 @@ namespace Remedy.Audio
         /// <summary>The effect's settings the place makes, glided between by a <see cref="ProbedProcessor"/>.</summary>
         public float[] Targets;
         /// <summary>
-        /// Trails before this effect: their spots (where the sound is now) go on to this place's effects too, so a trail
-        /// left behind also rings the room and comes back off the walls. Null: none.
+        /// Trails linked to this effect (before or after it in the cue): each spot they leave goes on to this place's
+        /// effects too, from where it is, so a trail left behind also rings the room and comes back off the walls. Null:
+        /// none.
         /// </summary>
-        public TrailProbe[] Trails;
+        public System.Collections.Generic.List<TrailProbe> Trails;
         /// <summary>The effect's Mix, from the audio thread (how much a Trail's spots send on).</summary>
         public float SendMix = 1f;
 
@@ -64,38 +65,33 @@ namespace Remedy.Audio
 
         public override void Update(in SoundProbeWorld world)
         {
+            SoundAcoustics place;
+            TailPool tails;
             if (world.Previewing)
             {
-                Simulated(world);
-                return;
+                // The editor's preview: the made-up surroundings picked in its bar (SoundSpaceSimulation), if any.
+                var simulation = SoundSpaceSimulation.Current;
+                if (simulation == null || !simulation.Sample(world.Position, out place))
+                {
+                    Volatile.Write(ref Sends, null);
+                    ForwardTrails(world, previewing: true, active: false);
+                    Fallback();
+                    return;
+                }
+                tails = simulation.Tails;
             }
-            // Outside every Sound Field: open air (nearly dry), the same as open ground inside one.
-            if (!SoundField.Sample(world.Position, out var place))
-                place = SoundAcoustics.OpenAir;
-            SpaceSends sends = null;
-            bool inRoom = false;
-            var spaces = SoundSpaces.Get();
-            if (spaces != null)
+            else
             {
-                var room = UseRooms ? spaces.RoomAt(world.Position) : null;
-                if (room != null)
-                {
-                    // In a room: the room rings (and keeps ringing after the sound's gone). The sound only hands its own
-                    // reverb over once the room's is playing and taking its sends in time; until then it keeps both.
-                    sends = new SpaceSends { Room = room.Bus, RoomGain = room.Acoustics.Wet * SoundSpaces.Exaggerate };
-                    inRoom = room.Bus != null && room.Bus.Healthy;
-                }
-                else if (EchoAmount > 0f && SoundField.TryGetCell(world.Position, out var field, out int index) && field.Data.TryGet(index, out var cell))
-                {
-                    sends = new SpaceSends();
-                    Echo(spaces, field, cell.AnchorA, world, ref sends.EchoA, ref sends.DelayA, ref sends.GainA);
-                    Echo(spaces, field, cell.AnchorB, world, ref sends.EchoB, ref sends.DelayB, ref sends.GainB);
-                }
-                if (!inRoom && AddTail(spaces.Tails, world.Position, place, ref sends))
-                    inRoom = true;
+                // Outside every Sound Field: open air (nearly dry), the same as open ground inside one.
+                if (!SoundField.Sample(world.Position, out place))
+                    place = SoundAcoustics.OpenAir;
+                tails = SoundSpaces.Get()?.Tails;
             }
+            var sends = SendsFrom(world.Position, world.ListenerPosition, world.Previewing, out bool inRoom);
+            if (!inRoom && AddTail(tails, world.Position, place, ref sends))
+                inRoom = true;
             Volatile.Write(ref Sends, sends);
-            ForwardTrails(sends);
+            ForwardTrails(world, world.Previewing, active: true);
             Shape(place, inRoom);
             // Testing (the Sound Spaces window's Exaggerate): the effect's own amount too (index 2 is it, in both).
             if (SoundSpaces.Exaggerate != 1f)
@@ -108,33 +104,35 @@ namespace Remedy.Audio
         private readonly SpaceBus[] _simBuses = new SpaceBus[2];
         private readonly float[] _simPaths = new float[2], _simReflectivity = new float[2];
 
-        // The editor's preview: the made-up surroundings picked in its bar (SoundSpaceSimulation), if any.
-        private void Simulated(in SoundProbeWorld world)
+        /// <summary>
+        /// Where a sound at <paramref name="position"/> also goes: the ringing room it's in (then <paramref name="inRoom"/>
+        /// says whether the room is playing in time to take over its reverb), or the echo walls that throw it back to the
+        /// listener, each as late as the path there and on. In the game from the Sound Fields, in the preview from its
+        /// surroundings. Null: nowhere.
+        /// </summary>
+        private SpaceSends SendsFrom(Vector3 position, Vector3 listener, bool previewing, out bool inRoom)
         {
-            var simulation = SoundSpaceSimulation.Current;
-            if (simulation == null || !simulation.Sample(world.Position, out var place))
+            inRoom = false;
+            if (previewing)
             {
-                Volatile.Write(ref Sends, null);
-                ForwardTrails(null);
-                Fallback();
-                return;
-            }
-            SpaceSends sends = null;
-            bool inRoom = false;
-            float roomWet = 0f;
-            var room = UseRooms ? simulation.RoomAt(world.Position, out roomWet) : null;
-            if (room != null)
-            {
-                sends = new SpaceSends { Room = room, RoomGain = roomWet * SoundSpaces.Exaggerate };
-                inRoom = room.Healthy;
-            }
-            else if (EchoAmount > 0f)
-            {
-                int count = simulation.Echoes(world.Position, world.ListenerPosition, _simBuses, _simPaths, _simReflectivity);
-                float direct = Vector3.Distance(world.Position, world.ListenerPosition);
+                var simulation = SoundSpaceSimulation.Current;
+                if (simulation == null)
+                    return null;
+                float roomWet = 0f;
+                var room = UseRooms ? simulation.RoomAt(position, out roomWet) : null;
+                if (room != null)
+                {
+                    inRoom = room.Healthy;
+                    return new SpaceSends { Room = room, RoomGain = roomWet * SoundSpaces.Exaggerate };
+                }
+                if (EchoAmount <= 0f)
+                    return null;
+                SpaceSends sends = null;
+                int count = simulation.Echoes(position, listener, _simBuses, _simPaths, _simReflectivity);
+                float direct = Vector3.Distance(position, listener);
                 for (int i = 0; i < count; i++)
                 {
-                    float gate = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(EchoGateStart, EchoGateFull, (_simPaths[i] - direct) / SoundSpaces.SpeedOfSound));
+                    float gate = Gate((_simPaths[i] - direct) / SoundSpaces.SpeedOfSound);
                     if (gate <= 0f) continue;
                     sends ??= new SpaceSends();
                     int delay = (int)(_simPaths[i] / SoundSpaces.SpeedOfSound * simulation.Rate);
@@ -142,29 +140,43 @@ namespace Remedy.Audio
                     if (sends.EchoA == null) { sends.EchoA = _simBuses[i]; sends.DelayA = delay; sends.GainA = gain; }
                     else { sends.EchoB = _simBuses[i]; sends.DelayB = delay; sends.GainB = gain; }
                 }
+                return sends;
             }
-            if (!inRoom && AddTail(simulation.Tails, world.Position, place, ref sends))
-                inRoom = true;
-            Volatile.Write(ref Sends, sends);
-            ForwardTrails(sends);
-            Shape(place, inRoom);
-            if (SoundSpaces.Exaggerate != 1f)
-                Set(WetIndex, Mathf.Clamp01(Volatile.Read(ref Targets[WetIndex]) * SoundSpaces.Exaggerate));
+            var spaces = SoundSpaces.Get();
+            if (spaces == null)
+                return null;
+            var acoustic = UseRooms ? spaces.RoomAt(position) : null;
+            if (acoustic != null)
+            {
+                // In a room: the room rings (and keeps ringing after the sound's gone). The sound only hands its own
+                // reverb over once the room's is playing and taking its sends in time; until then it keeps both.
+                inRoom = acoustic.Bus != null && acoustic.Bus.Healthy;
+                return new SpaceSends { Room = acoustic.Bus, RoomGain = acoustic.Acoustics.Wet * SoundSpaces.Exaggerate };
+            }
+            if (EchoAmount > 0f && SoundField.TryGetCell(position, out var field, out int index) && field.Data.TryGet(index, out var cell))
+            {
+                var sends = new SpaceSends();
+                Echo(spaces, field, cell.AnchorA, position, listener, ref sends.EchoA, ref sends.DelayA, ref sends.GainA);
+                Echo(spaces, field, cell.AnchorB, position, listener, ref sends.EchoB, ref sends.DelayB, ref sends.GainB);
+                return sends;
+            }
+            return null;
         }
+
+        // An echo arriving soon after the sound itself is heard as the same sound doubled, out of step (under ~50 ms the
+        // ear merges it in anyway, and the reverb covers it): none until 50 ms behind, fading in until 100 ms.
+        private static float Gate(float lag) => Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(EchoGateStart, EchoGateFull, lag));
 
         // An echo wall the place can see: its bus (if it's one of the live ones), the path's delay and how much it
         // throws back (more for reflective walls, less the farther the sound is from it).
-        private void Echo(SoundSpaces spaces, SoundField field, ushort anchor, in SoundProbeWorld world, ref SpaceBus bus, ref int delay, ref float gain)
+        private void Echo(SoundSpaces spaces, SoundField field, ushort anchor, Vector3 position, Vector3 listener, ref SpaceBus bus, ref int delay, ref float gain)
         {
             if (anchor == SoundFieldData.NoAnchor || anchor >= field.Data.Anchors.Count)
                 return;
             var data = field.Data.Anchors[anchor];
             var wall = field.transform.TransformPoint(data.Position);
-            float toWall = Vector3.Distance(world.Position, wall), toListener = Vector3.Distance(wall, world.ListenerPosition);
-            // An echo arriving soon after the sound itself is heard as the same sound doubled, out of step (under ~50 ms
-            // the ear merges it in anyway, and the reverb covers it): none until 50 ms behind, fading in until 100 ms.
-            float lag = (toWall + toListener - Vector3.Distance(world.Position, world.ListenerPosition)) / SoundSpaces.SpeedOfSound;
-            float gate = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(EchoGateStart, EchoGateFull, lag));
+            float toWall = Vector3.Distance(position, wall), toListener = Vector3.Distance(wall, listener);
+            float gate = Gate((toWall + toListener - Vector3.Distance(position, listener)) / SoundSpaces.SpeedOfSound);
             if (gate <= 0f)
                 return;
             bus = spaces.RequestEcho(field, anchor);
@@ -174,14 +186,24 @@ namespace Remedy.Audio
             gain = data.Reflectivity / (1f + toWall / 25f) * Mathf.Clamp01(EchoAmount) * gate * SoundSpaces.Exaggerate;
         }
 
-        // The Trails' current spots send on to where this sound goes (its room, echo walls and tail spot), times Mix.
-        private void ForwardTrails(SpaceSends sends)
+        private readonly System.Collections.Generic.List<SpaceBus> _spots = new();
+
+        // Each spot a linked Trail has left is a sound of its own where it is: it goes on to the room it's in, or the
+        // echo walls that throw it back from there (each with its own path and delay), times this effect's Mix.
+        private void ForwardTrails(in SoundProbeWorld world, bool previewing, bool active)
         {
             if (Trails == null)
                 return;
             float mix = Mathf.Clamp01(Volatile.Read(ref SendMix));
             foreach (var trail in Trails)
-                trail.Spot?.SetForward(sends, mix);
+            {
+                trail.Spots(_spots);
+                foreach (var spot in _spots)
+                {
+                    var sends = active ? SendsFrom(((TailPool.Spot)spot.Owner).Position, world.ListenerPosition, previewing, out _) : null;
+                    spot.SetForward(sends, mix);
+                }
+            }
         }
 
         /// <summary>How far behind the sound itself an echo starts being heard, and is heard fully, in seconds.</summary>
@@ -296,9 +318,23 @@ namespace Remedy.Audio
         /// <summary>The spot where the sound is now (null: none: the node runs its own effect instead).</summary>
         public SpaceBus Spot => Volatile.Read(ref Sends)?.Tail;
 
+        private TailPool _pool;
+
+        /// <summary>The spots it has left that are still ringing (main thread).</summary>
+        public void Spots(System.Collections.Generic.List<SpaceBus> into)
+        {
+            into.Clear();
+            if (_pool == null)
+                return;
+            foreach (var bus in _pool.Buses)
+                if (bus != null && bus.Owner is TailPool.Spot spot && spot.Trail == this)
+                    into.Add(bus);
+        }
+
         public override void Update(in SoundProbeWorld world)
         {
             var pool = world.Previewing ? SoundSpaceSimulation.Current?.Tails : SoundSpaces.Get()?.Tails;
+            _pool = pool;
             SpaceBus spot = null;
             if (pool != null)
             {
@@ -315,14 +351,27 @@ namespace Remedy.Audio
         private static float RingsFor(float feedback)
             => Mathf.Clamp(3f * 0.0308f / Mathf.Max(1e-4f, -Mathf.Log10(Mathf.Clamp(feedback, 0.01f, 0.995f))), 0.1f, 20f);
 
-        /// <summary>The Trails among processors (a Spatial effect's upstream), or null when there are none.</summary>
-        public static TrailProbe[] Among(System.Collections.Generic.List<SoundProcessor> processors)
+        /// <summary>
+        /// Links Trails and Spatial effects that feed one another (either way round, however far apart in the chain):
+        /// <paramref name="upstream"/> is what feeds the node being built, which is the Trail
+        /// <paramref name="trail"/> or the Spatial effect <paramref name="spatial"/>.
+        /// </summary>
+        public static void Link(System.Collections.Generic.List<SoundProcessor> upstream, TrailProbe trail, SpatialProbe spatial)
         {
-            System.Collections.Generic.List<TrailProbe> found = null;
-            foreach (var processor in processors)
-                if (processor is ITrailed trailed && trailed.Trail != null)
-                    (found ??= new()).Add(trailed.Trail);
-            return found?.ToArray();
+            foreach (var processor in upstream)
+            {
+                if (spatial != null && processor is ITrailed trailed && trailed.Trail != null)
+                    Join(spatial, trailed.Trail);
+                if (trail != null && processor is ISpatial placed && placed.Place != null)
+                    Join(placed.Place, trail);
+            }
+        }
+
+        private static void Join(SpatialProbe spatial, TrailProbe trail)
+        {
+            spatial.Trails ??= new();
+            if (!spatial.Trails.Contains(trail))
+                spatial.Trails.Add(trail);
         }
     }
 
@@ -330,5 +379,11 @@ namespace Remedy.Audio
     internal interface ITrailed
     {
         TrailProbe Trail { get; }
+    }
+
+    /// <summary>A processor shaped by the place (a Reverb or Delay in Spatial mode).</summary>
+    internal interface ISpatial
+    {
+        SpatialProbe Place { get; }
     }
 }
