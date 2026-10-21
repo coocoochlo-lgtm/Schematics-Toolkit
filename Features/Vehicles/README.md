@@ -235,6 +235,8 @@ networked object (an NPC without a NetworkObject) as an empty seat: give such oc
 
 - Wheels use tire-radius sphere casts against **Ground Layers**, ignoring the car's own body. A wheel visual that is
   its anchor (or contains it) isn't moved, since that would move the probe.
+- The car body uses Box3D continuous collision detection to reduce tunneling through thin walls and floors at speed;
+  the wheel sphere casts only sense ground and do not replace or modify physical collision response.
 - Mass, centre of mass and inertia come from the Properties on top of what the shapes give, each spawn.
 - Seat Signals are sent to the vehicle (its UID), so the vehicle's graph hears them. Copies of a vehicle prefab
   share its Seat Signals asset until you give a copy's seats new ones (**Create Signals** after clearing them).

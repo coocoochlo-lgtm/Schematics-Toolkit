@@ -1206,6 +1206,7 @@ namespace Remedy.Vehicles
         // Mass, centre of mass and inertia from the Properties, on top of what the shapes give (so it's the same every spawn).
         private static void ConfigureBody(Body native, ArcadeCarProperties p, CarState state)
         {
+            native.SetBullet(true);
             native.ApplyMassFromShapes();
             var massData = native.GetMassData();
             float inertiaScale = Mathf.Max(0.01f, p.InertiaScale);
