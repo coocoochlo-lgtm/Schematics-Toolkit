@@ -100,7 +100,7 @@ public class FlowVisualizer : VisualElement
     private readonly List<Ball> _balls = new();
     private readonly Dictionary<GraphViewEdge, double> _lastBallAt = new();
 
-    // The object being followed (null: every object running the graph).
+    // The object being followed: the selected instance running the graph, else the first one spawned (null: none).
     private GameObject _inspected;
 
     private sealed class ValueWire
@@ -456,16 +456,34 @@ public class FlowVisualizer : VisualElement
 
     #region Following an object
 
-    // The selected object (or the one it's part of) when it runs this graph in the scene; otherwise everyone.
+    // The selected object's instance of this graph: the Schematic Object it's part of that runs the graph (walking up
+    // past nested ones that run others). With none selected, the first instance spawned that's still alive, so the
+    // graph always shows one object's flow rather than everyone's at once.
     private GameObject FindInspected()
     {
+        var graph = _window.SchematicGraph;
         var selected = Selection.activeGameObject;
-        if (selected == null || EditorUtility.IsPersistent(selected))
-            return null;
-        var schematic = selected.GetComponentInParent<SchematicObject>(true);
-        if (schematic == null || schematic.SchematicGraph != _window.SchematicGraph)
-            return null;
-        return schematic.gameObject;
+        if (selected != null && !EditorUtility.IsPersistent(selected))
+        {
+            for (var t = selected.transform; t != null; t = t.parent)
+                if (t.TryGetComponent(out SchematicObject schematic) && schematic.SchematicGraph == graph)
+                    return schematic.gameObject;
+        }
+
+        SchematicObject first = null;
+        int firstUid = int.MaxValue;
+        foreach (var pair in ExecutionContext.Objects)
+        {
+            var candidate = pair.Value;
+            if (candidate == null || candidate.SchematicGraph != graph || !candidate.gameObject.activeInHierarchy)
+                continue;
+            if (pair.Key < firstUid)
+            {
+                first = candidate;
+                firstUid = pair.Key;
+            }
+        }
+        return first != null ? first.gameObject : null;
     }
 
     #endregion

@@ -7,7 +7,7 @@ using UnityEngine.UIElements;
 
 public partial class SchematicGraphEditorWindow
 {
-    /// <summary>Opened for Prefab Mode (closed again on leaving it). Serialized, so it survives script reloads.</summary>
+    /// <summary>Opened for Prefab Mode (reused when that prefab opens again). Serialized, so it survives script reloads.</summary>
     [SerializeField] internal bool OpenedForPrefabStage;
 }
 
@@ -15,8 +15,9 @@ namespace Remedy.Schematics
 {
     /// <summary>
     /// Opening a Schematic Object in Prefab Mode also opens its Schematic Graph, as a tab docked beside the Scene view,
-    /// so the prefab and its graph are one click apart. Leaving Prefab Mode closes the tab again (only tabs opened this
-    /// way; a graph window you opened yourself stays). The Hierarchy's Scene | Graph bar switches between them. Turn the
+    /// so the prefab and its graph are one click apart. The tab stays open after leaving Prefab Mode (in Play Mode it
+    /// shows the graph's flow on a running instance), and opening the prefab again brings it back to the front rather
+    /// than opening another. The Hierarchy's Scene | Graph bar switches between them. Turn the
     /// automatic tab off under Tools > Remedy > Schematics > Open Graph with Prefab.
     /// </summary>
     [InitializeOnLoad]
@@ -34,7 +35,6 @@ namespace Remedy.Schematics
         static PrefabGraphTab()
         {
             PrefabStage.prefabStageOpened += OnStageOpened;
-            PrefabStage.prefabStageClosing += OnStageClosing;
         }
 
         [MenuItem(MenuPath, false, 30)]
@@ -65,8 +65,8 @@ namespace Remedy.Schematics
             // Wait a tick: the stage's contents and the Scene view are still being set up.
             EditorApplication.delayCall += () =>
             {
+                // Graph tabs from other prefabs stay open: closing or leaving a prefab doesn't close its graph.
                 var graph = CurrentGraph;
-                CloseOpened(except: graph);
                 if (graph == null)
                     return;
                 var window = Show(graph, focus: false);
@@ -76,15 +76,6 @@ namespace Remedy.Schematics
             };
         }
 
-        private static void OnStageClosing(PrefabStage stage)
-        {
-            // Closing happens before the next stage (a parent prefab, or the scene) opens; that one reopens its own.
-            EditorApplication.delayCall += () =>
-            {
-                if (PrefabStageUtility.GetCurrentPrefabStage() == null)
-                    CloseOpened(except: null);
-            };
-        }
 
         /// <summary>
         /// Shows a graph's window: the one already open for it, else a new one docked beside the Scene view.
@@ -107,18 +98,6 @@ namespace Remedy.Schematics
             if (focus)
                 window.Focus();
             return window;
-        }
-
-        private static void CloseOpened(SchematicGraph except)
-        {
-            foreach (var window in Resources.FindObjectsOfTypeAll<SchematicGraphEditorWindow>())
-            {
-                if (window == null || !window.OpenedForPrefabStage)
-                    continue;
-                if (except != null && window.SchematicGraph == except)
-                    continue;
-                window.Close();
-            }
         }
     }
 
