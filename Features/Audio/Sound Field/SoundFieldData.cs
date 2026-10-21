@@ -140,6 +140,8 @@ namespace Remedy.Audio
     public struct SoundAcoustics
     {
         public float Size, Enclosure, Absorption, Hardness, Wetness;
+        /// <summary>How far the nearest wall is, in meters (slapback echoes come off it).</summary>
+        public float NearestWall;
 
         /// <summary>
         /// What open sky soaks up: everything. A place half open to the sky loses half its sound that way.
@@ -165,6 +167,19 @@ namespace Remedy.Audio
             Absorption = Mathf.Lerp(a.Absorption, b.Absorption, t),
             Hardness = Mathf.Lerp(a.Hardness, b.Hardness, t),
             Wetness = Mathf.Lerp(a.Wetness, b.Wetness, t),
+            NearestWall = Mathf.Lerp(a.NearestWall, b.NearestWall, t),
         };
+
+        /// <summary>A slapback off the nearest wall: there and back, in seconds.</summary>
+        public float SlapbackDelay => Mathf.Clamp(2f * NearestWall / 343f, 0.005f, 1.5f);
+
+        /// <summary>
+        /// How much a slapback is heard, 0 to 0.6: none off near walls (it melts into the reverb), more off far, hard,
+        /// bare ones.
+        /// </summary>
+        public float SlapbackWet => Mathf.Clamp01((NearestWall - 3f) / 12f) * (1f - Absorption) * Hardness * 0.6f;
+
+        /// <summary>How much each slapback comes round again (between parallel walls: flutter), 0 to 0.85.</summary>
+        public float SlapbackFeedback => Mathf.Clamp(Enclosure * (1f - Absorption) * Hardness * 0.85f, 0f, 0.85f);
     }
 }

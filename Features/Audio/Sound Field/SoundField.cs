@@ -145,6 +145,7 @@ namespace Remedy.Audio
                 sum.Absorption += cell.Absorption * weight;
                 sum.Hardness += cell.Hardness * weight;
                 sum.Wetness += cell.Wetness * weight;
+                sum.NearestWall += cell.NearestDistance * weight;
             }
             if (total <= 1e-5f)
                 return false;
@@ -155,6 +156,7 @@ namespace Remedy.Audio
                 Absorption = sum.Absorption / total,
                 Hardness = sum.Hardness / total,
                 Wetness = sum.Wetness / total,
+                NearestWall = sum.NearestWall / total,
             };
             return true;
         }

@@ -12,8 +12,8 @@ namespace Remedy.Audio
     /// <summary>
     /// Bakes a <see cref="SoundField"/>: from every cell, rays go out in all directions against the scene's meshes (not
     /// physics, which doesn't run in Edit Mode), and what they hit -- how far, how many, which side, made of what Surface
-    /// Material (painted per triangle, else the object's tag, else the project's default) -- becomes the cell's
-    /// measurements. Far, reflective hits are gathered into echo anchors, and each cell remembers the two it hears best.
+    /// Material (painted per triangle, else the object's tag; with neither, bare and fully hard: no absorption, full
+    /// hardness) -- becomes the cell's measurements. Far, reflective hits are gathered into echo anchors, and each cell remembers the two it hears best.
     /// </summary>
     public static class SoundFieldBaker
     {
@@ -296,7 +296,6 @@ namespace Remedy.Audio
             // The field's box in the world, grown by how far rays reach.
             var fieldBounds = TransformBounds(field.transform.localToWorldMatrix, field.Box);
             fieldBounds.Expand(Mathf.Max(1f, field.BakeReach) * 2f);
-            var fallback = SurfaceLibrary.DefaultMaterial;
 
             for (int s = 0; s < SceneManager.sceneCount; s++)
             {
@@ -311,7 +310,7 @@ namespace Remedy.Audio
                     if (!filter.TryGetComponent(out Renderer renderer) || !renderer.enabled || !renderer.bounds.Intersects(fieldBounds))
                         continue;
                     var paint = filter.GetComponent<SurfacePaint>();
-                    var objectMaterial = SurfaceMaterialTag.Of(filter.gameObject) ?? fallback;
+                    var objectMaterial = SurfaceMaterialTag.Of(filter.gameObject);
                     var vertices = mesh.vertices;
                     var triangles = mesh.triangles;
                     var matrix = filter.transform.localToWorldMatrix;
@@ -320,9 +319,10 @@ namespace Remedy.Audio
                         a.Add(matrix.MultiplyPoint3x4(vertices[triangles[t * 3]]));
                         b.Add(matrix.MultiplyPoint3x4(vertices[triangles[t * 3 + 1]]));
                         c.Add(matrix.MultiplyPoint3x4(vertices[triangles[t * 3 + 2]]));
+                        // No material (not painted, not tagged): bare and fully hard -- the most reverb and echo.
                         var material = (paint != null ? paint.MaterialOfTriangle(t) : null) ?? objectMaterial;
-                        absorption.Add(material != null ? Mathf.Clamp01(material.Absorption) : 0.1f);
-                        hardness.Add(material != null ? Mathf.Clamp01(material.Hardness) : 0.6f);
+                        absorption.Add(material != null ? Mathf.Clamp01(material.Absorption) : 0f);
+                        hardness.Add(material != null ? Mathf.Clamp01(material.Hardness) : 1f);
                         wetness.Add(material != null ? Mathf.Clamp01(material.Wetness) : 0f);
                     }
                 }
