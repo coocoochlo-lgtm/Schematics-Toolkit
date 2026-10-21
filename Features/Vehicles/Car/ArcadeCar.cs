@@ -689,8 +689,8 @@ namespace Remedy.Vehicles
                     continue;
                 }
 
-                float transitionTime = Mathf.Max(0f, p.StabilizeTransitionTime);
-                float blendStep = transitionTime > 0f ? dt / transitionTime : 1f;
+                float contactTransitionTime = Mathf.Max(0f, p.StabilizeTransitionTime);
+                float contactBlendStep = contactTransitionTime > 0f ? dt / contactTransitionTime : 1f;
                 if (!w.HasBlendedContact)
                 {
                     w.ContactNormal = targetNormal;
@@ -700,14 +700,14 @@ namespace Remedy.Vehicles
                 }
                 else
                 {
-                    w.ContactNormal = transitionTime > 0f
-                        ? Vector3.RotateTowards(w.ContactNormal, targetNormal, Mathf.PI * blendStep, 0f).normalized
+                    w.ContactNormal = contactTransitionTime > 0f
+                        ? Vector3.RotateTowards(w.ContactNormal, targetNormal, Mathf.PI * contactBlendStep, 0f).normalized
                         : targetNormal;
-                    float maxDistanceStep = transitionTime > 0f
-                        ? Mathf.Max(groundCheckDistanceForWheels, rest) * blendStep
+                    float maxDistanceStep = contactTransitionTime > 0f
+                        ? Mathf.Max(groundCheckDistanceForWheels, rest) * contactBlendStep
                         : float.MaxValue;
                     w.ContactDistance = Mathf.MoveTowards(w.ContactDistance, targetContactDistance, maxDistanceStep);
-                    w.ContactForceWeight = Mathf.MoveTowards(w.ContactForceWeight, targetForceWeight, blendStep);
+                    w.ContactForceWeight = Mathf.MoveTowards(w.ContactForceWeight, targetForceWeight, contactBlendStep);
                 }
                 Vector3 normal = w.ContactNormal;
                 float contactDistance = w.ContactDistance;
