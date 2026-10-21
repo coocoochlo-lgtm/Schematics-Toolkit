@@ -10,7 +10,7 @@ namespace Remedy.Cameras
         public float XAxisSpeed = 3f;
         public float YAxisSpeed = 2f;
         public float SmoothSpeed = 10f;
-        [Tooltip("If True, the Camera Manager will follow refer to this Operator's Current Volume for Camera Properties.")]
-        public bool UseVolumes = false;
+        [Tooltip("Whether Camera Properties Volumes (zoom, resting angle, FOV, Reference Cameras) affect this Operator. Operators without Properties always use them.")]
+        public bool UseVolumes = true;
     }
 }

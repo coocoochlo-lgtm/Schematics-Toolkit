@@ -1,8 +1,10 @@
+using Box3D.Hybrid;
+using Remedy.Box3DPhysics;
 using UnityEngine;
 
 namespace Remedy.Cameras
 {
-    [SchematicDoc(@"{""name"": ""Third Person Camera"", ""kind"": ""behavior"", ""menu"": ""Cameras/Third Person"", ""description"": ""A third-person camera that follows its target from behind at a set distance, staying near the ground beneath it, levelling itself out over time and pushing away from walls. Reports where it's aiming."", ""variables"": [""FollowOffset"", ""HorizontalFollowSpeed"", ""VerticalFollowSpeed"", ""YDistanceAllowance"", ""GroundedOffset"", ""MaxDistance"", ""LevelAngle"", ""AutoLevelDelay"", ""AutoLevelSpeed"", ""OptimalDistancePush"", ""OptimalDistance"", ""Rigidbody"", ""LookaheadOrientationStrength"", ""LookdownOrientationMaxVelocity"", ""LookdownOrientationMaxAngle"", ""LookupOrientationMaxVelocity"", ""LookupOrientationMaxAngle"", ""LookdownOrientationSpeed"", ""CollisionLayers"", ""CollisionReactSpeed"", ""YOffsetTransitionSpeed""], ""signals"": [""AimPosition""], ""use_for"": [""third-person action and adventure cameras""]}")]
+    [SchematicDoc(@"{""name"": ""Third Person Camera"", ""kind"": ""behavior"", ""menu"": ""Cameras/Third Person"", ""description"": ""A third-person camera that follows its target from behind at a set distance, staying near the ground beneath it, levelling itself out over time and pushing away from walls. Reports where it's aiming."", ""variables"": [""FollowOffset"", ""HorizontalFollowSpeed"", ""VerticalFollowSpeed"", ""YDistanceAllowance"", ""GroundedOffset"", ""MaxDistance"", ""LevelAngle"", ""AutoLevelDelay"", ""AutoLevelSpeed"", ""OptimalDistancePush"", ""OptimalDistance"", ""Body"", ""LookaheadOrientationStrength"", ""LookdownOrientationMaxVelocity"", ""LookdownOrientationMaxAngle"", ""LookupOrientationMaxVelocity"", ""LookupOrientationMaxAngle"", ""LookdownOrientationSpeed"", ""CollisionLayers"", ""CollisionReactSpeed"", ""YOffsetTransitionSpeed""], ""signals"": [""AimPosition""], ""use_for"": [""third-person action and adventure cameras""]}")]
     [SchematicBehaviorPath("Cameras/Third Person")]
     public class ThirdPersonCamera : CameraOperator
     {
@@ -39,18 +41,19 @@ namespace Remedy.Cameras
         [SchematicDoc(@"{""name"": ""OptimalDistance"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""Optimal Distance (float) of Third Person Camera.""}")]
         public readonly VariableHandle<float> OptimalDistance = 10f;
 
-        [SchematicDoc(@"{""name"": ""Rigidbody"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""Rigidbody"", ""default"": ""null"", ""description"": ""Rigidbody (Rigidbody) of Third Person Camera.""}")]
-        public readonly VariableHandle<Rigidbody> Rigidbody = (Rigidbody)null;
+        [SchematicDoc(@"{""name"": ""Body"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""Box3DBody"", ""default"": ""null"", ""description"": ""The followed character's physics body, for looking ahead and tilting when falling; empty uses the one on what it follows.""}")]
+        [Tooltip("The followed character's physics body (look-ahead, tilting when falling). Empty: the one on what it follows.")]
+        public readonly VariableHandle<Box3DBody> Body = (Box3DBody)null;
         [SchematicDoc(@"{""name"": ""LookaheadOrientationStrength"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""1f"", ""description"": ""Lookahead Orientation Strength (float) of Third Person Camera.""}")]
         public readonly VariableHandle<float> LookaheadOrientationStrength = 1f;
-        [SchematicDoc(@"{""name"": ""LookdownOrientationMaxVelocity"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""The Velocity (downward) at which the Rigidbody must be moving to fully forcefully orient the camera down.""}")]
-        [Tooltip("The Velocity (downward) at which the Rigidbody must be moving to fully forcefully orient the camera down.")]
+        [SchematicDoc(@"{""name"": ""LookdownOrientationMaxVelocity"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""The Velocity (downward) at which the character must be moving to fully forcefully orient the camera down.""}")]
+        [Tooltip("The Velocity (downward) at which the character must be moving to fully forcefully orient the camera down.")]
         public readonly VariableHandle<float> LookdownOrientationMaxVelocity = 10f;
         [SchematicDoc(@"{""name"": ""LookdownOrientationMaxAngle"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""40f"", ""description"": ""The maximum angle downward the to orient the camera when falling""}")]
         [Tooltip("The maximum angle downward the to orient the camera when falling")]
         public readonly VariableHandle<float> LookdownOrientationMaxAngle = 40f;
-        [SchematicDoc(@"{""name"": ""LookupOrientationMaxVelocity"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""The Velocity (upward) at which the Rigidbody must be moving to fully forcefully orient the camera up.""}")]
-        [Tooltip("The Velocity (upward) at which the Rigidbody must be moving to fully forcefully orient the camera up.")]
+        [SchematicDoc(@"{""name"": ""LookupOrientationMaxVelocity"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""The Velocity (upward) at which the character must be moving to fully forcefully orient the camera up.""}")]
+        [Tooltip("The Velocity (upward) at which the character must be moving to fully forcefully orient the camera up.")]
         public readonly VariableHandle<float> LookupOrientationMaxVelocity = 10f;
         [SchematicDoc(@"{""name"": ""LookupOrientationMaxAngle"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""30f"", ""description"": ""The maximum angle upward to orient the camera when rising""}")]
         [Tooltip("The maximum angle upward to orient the camera when rising")]
@@ -83,7 +86,8 @@ namespace Remedy.Cameras
 
             float dt = Time.deltaTime;
             var collisionLayers = CollisionLayers.Value;
-            var rigidbody = Rigidbody.Value;
+            var body = BodyOf(follow, Body.Value);
+            var velocity = body.GetVelocity();
             var followOffset = FollowOffset.Value;
             float yDistanceAllowance = YDistanceAllowance.Value;
 
@@ -97,7 +101,7 @@ namespace Remedy.Cameras
             ref float currentYOffset = ref _currentYOffset.Ref;
             ref float lastFloorHit = ref _lastFloorHit.Ref;
 
-            if (Physics.Raycast(camera.position, camera.forward, out RaycastHit aimHit, Mathf.Infinity))
+            if (SchematicPhysics.Raycast(camera.position, camera.forward, out RaycastHit aimHit, AimDistance, ~0, body))
                 AimPosition.Invoke(aimHit.point);
 
             // Keep the object at the Root without moving the Root.
@@ -109,7 +113,7 @@ namespace Remedy.Cameras
             horPos.z = Mathf.Lerp(root.position.z, follow.position.z + followOffset.z, HorizontalFollowSpeed.Value * dt);
 
             // TODO: Apply an Offset Grace Period (Transition between the two different offsets so the camera doesn't jump up and down)
-            if (Physics.SphereCast(follow.position + Vector3.up, 0.5f, Vector3.down, out RaycastHit floorHit, yDistanceAllowance, collisionLayers))
+            if (SchematicPhysics.SphereCast(follow.position + Vector3.up, 0.5f, Vector3.down, out RaycastHit floorHit, out _, yDistanceAllowance, collisionLayers, body))
             {
                 currentYOffset = Mathf.Lerp(currentYOffset, 0f, YOffsetTransitionSpeed.Value * dt);
                 lastFloorHit = floorHit.point.y + GroundedOffset.Value.y;
@@ -141,15 +145,15 @@ namespace Remedy.Cameras
                     yAxis = Mathf.Lerp(yAxis, restingAngle, AutoLevelSpeed.Value * dt);
                 }
 
-                // Lookahead in the direction of the Rigidbody Horizontal Velocity
-                if (rigidbody != null && (Mathf.Abs(rigidbody.linearVelocity.x) > 1 || Mathf.Abs(rigidbody.linearVelocity.z) > 1))
+                // Lookahead in the direction the character is moving
+                if (body != null && (Mathf.Abs(velocity.x) > 1 || Mathf.Abs(velocity.z) > 1))
                 {
-                    actualXAxis = Mathf.LerpAngle(actualXAxis, rigidbody.transform.eulerAngles.y, LookaheadOrientationStrength.Value * dt);
-                    xAxis = Mathf.LerpAngle(xAxis, rigidbody.transform.eulerAngles.y, LookaheadOrientationStrength.Value * dt);
+                    actualXAxis = Mathf.LerpAngle(actualXAxis, body.transform.eulerAngles.y, LookaheadOrientationStrength.Value * dt);
+                    xAxis = Mathf.LerpAngle(xAxis, body.transform.eulerAngles.y, LookaheadOrientationStrength.Value * dt);
                 }
 
                 // Orient relative to walls
-                if (Physics.SphereCast(follow.position, 0.25f, follow.right, out RaycastHit wallHit, OptimalDistance.Value, collisionLayers))
+                if (SchematicPhysics.SphereCast(follow.position, 0.25f, follow.right, out RaycastHit wallHit, out _, OptimalDistance.Value, collisionLayers, body))
                 {
                     Vector3 projectedForward = Vector3.ProjectOnPlane(follow.right, wallHit.normal).normalized;
                     var euler = Quaternion.LookRotation(projectedForward, Vector3.up).eulerAngles.y;
@@ -157,7 +161,7 @@ namespace Remedy.Cameras
                     if (Mathf.Abs(Mathf.DeltaAngle(euler, root.eulerAngles.y)) < 60)
                         xAxis = Mathf.LerpAngle(xAxis, euler, OptimalDistancePush.Value * dt);
                 }
-                else if (Physics.SphereCast(follow.position, 0.25f, -follow.right, out wallHit, OptimalDistance.Value, collisionLayers))
+                else if (SchematicPhysics.SphereCast(follow.position, 0.25f, -follow.right, out wallHit, out _, OptimalDistance.Value, collisionLayers, body))
                 {
                     Vector3 projectedForward = Vector3.ProjectOnPlane(-follow.right, wallHit.normal).normalized;
                     var euler = Quaternion.LookRotation(projectedForward, Vector3.up).eulerAngles.y;
@@ -172,20 +176,20 @@ namespace Remedy.Cameras
             }
 
             // Aim down when falling
-            if (!Physics.SphereCast(follow.position + Vector3.up, 0.5f, Vector3.down, out floorHit, yDistanceAllowance, collisionLayers))
+            if (!SchematicPhysics.SphereCast(follow.position + Vector3.up, 0.5f, Vector3.down, out floorHit, out _, yDistanceAllowance, collisionLayers, body))
             {
                 _lookingDown.Value = true;
 
-                if (rigidbody != null && rigidbody.linearVelocity.y <= 0)
+                if (body != null && velocity.y <= 0)
                 {
-                    float t = Mathf.Clamp(Mathf.Abs(rigidbody.linearVelocity.y) / LookdownOrientationMaxVelocity.Value, 0.2f, 1f);
+                    float t = Mathf.Clamp(Mathf.Abs(velocity.y) / LookdownOrientationMaxVelocity.Value, 0.2f, 1f);
                     float angle = Mathf.Lerp(0, LookdownOrientationMaxAngle.Value, t);
                     yAxis = Mathf.Lerp(yAxis, angle, LookdownOrientationSpeed.Value * dt);
                     actualYAxis = Mathf.Lerp(actualYAxis, angle, LookdownOrientationSpeed.Value * dt);
                 }
-                else if (rigidbody != null && rigidbody.linearVelocity.y > 0)
+                else if (body != null && velocity.y > 0)
                 {
-                    float t = Mathf.Clamp(Mathf.Abs(rigidbody.linearVelocity.y) / LookupOrientationMaxVelocity.Value, 0f, 1f);
+                    float t = Mathf.Clamp(Mathf.Abs(velocity.y) / LookupOrientationMaxVelocity.Value, 0f, 1f);
                     float angle = Mathf.Lerp(0, -LookupOrientationMaxAngle.Value, t);
                     yAxis = Mathf.Lerp(yAxis, angle, LookdownOrientationSpeed.Value * dt);
                     actualYAxis = Mathf.Lerp(actualYAxis, angle, LookdownOrientationSpeed.Value * dt);
@@ -203,7 +207,7 @@ namespace Remedy.Cameras
 
             float targetDistance = volume != null && volume.ChangeZoom[volumeInstance] ? volume.Zoom[volumeInstance] : MaxDistance.Value;
 
-            if (Physics.SphereCast(origin, CameraCollisionRadius.Value, direction, out RaycastHit hit, targetDistance, collisionLayers, QueryTriggerInteraction.Ignore))
+            if (SchematicPhysics.SphereCast(origin, CameraCollisionRadius.Value, direction, out RaycastHit hit, out _, targetDistance, collisionLayers, body))
                 _targetScale.Value = Mathf.Clamp(hit.distance, 0.5f, targetDistance); // reduce distance based on hit
             else
                 _targetScale.Value = targetDistance;
