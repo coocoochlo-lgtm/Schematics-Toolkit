@@ -1093,9 +1093,28 @@ namespace Remedy.Vehicles
 
             float blendTime = Mathf.Max(0f, properties.TorqueGuardBlendTime);
             float blend = blendTime > 0f ? 1f - Mathf.Exp(-dt / blendTime) : 1f;
-            state.TorqueGuardAngularAcceleration = Vector3.Lerp(state.TorqueGuardAngularAcceleration,
-                requestedAcceleration, blend);
-            Vector3 guardedTorque = (Vector3)Torque(state.TorqueGuardAngularAcceleration, rotation, state);
+            float targetMagnitude = requestedAcceleration.magnitude;
+            if (!state.HasTorqueGuardAcceleration)
+            {
+                state.TorqueGuardAccelerationRotation = targetMagnitude > 1e-5f
+                    ? Quaternion.FromToRotation(Vector3.forward, requestedAcceleration / targetMagnitude)
+                    : Quaternion.identity;
+                state.TorqueGuardAccelerationMagnitude = 0f;
+                state.HasTorqueGuardAcceleration = true;
+            }
+            else if (targetMagnitude > 1e-5f)
+            {
+                Quaternion targetRotation = Quaternion.FromToRotation(Vector3.forward,
+                    requestedAcceleration / targetMagnitude);
+                state.TorqueGuardAccelerationRotation = blendTime > 0f
+                    ? Quaternion.Slerp(state.TorqueGuardAccelerationRotation, targetRotation, blend)
+                    : targetRotation;
+            }
+            state.TorqueGuardAccelerationMagnitude = Mathf.Lerp(state.TorqueGuardAccelerationMagnitude,
+                targetMagnitude, blend);
+            Vector3 guardedAcceleration = state.TorqueGuardAccelerationRotation * Vector3.forward
+                * state.TorqueGuardAccelerationMagnitude;
+            Vector3 guardedTorque = (Vector3)Torque(guardedAcceleration, rotation, state);
             Vector3 correction = guardedTorque - requestedTorque;
             if (correction.sqrMagnitude > 0f)
                 body.ApplyTorque(correction, true);
@@ -1367,7 +1386,9 @@ namespace Remedy.Vehicles
         public float AirTime;
         public bool WasGrounded = true;
         public Vector3 UprightNormal;
-        public Vector3 TorqueGuardAngularAcceleration;
+        public Quaternion TorqueGuardAccelerationRotation;
+        public float TorqueGuardAccelerationMagnitude;
+        public bool HasTorqueGuardAcceleration;
         public float UprightBlend, UprightAirBlend, UprightSupportBlend;
 
         public bool BodyConfigured;
