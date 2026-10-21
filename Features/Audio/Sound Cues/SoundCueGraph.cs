@@ -137,6 +137,14 @@ namespace Remedy.Audio
         /// </summary>
         public double HeardStart = -1;
 
+        /// <summary>
+        /// The Listener Chain's input: one channel of everything the player hears, for the Listener Input node (null
+        /// when the cue isn't running as a Listener Chain). <see cref="BlockStart"/> is where the block being rendered
+        /// starts in it.
+        /// </summary>
+        public float[] ListenerInput;
+        public int BlockStart;
+
         /// <summary>The audio-clock sample a sample of the cue is heard at (meaningless when HeardStart is below 0).</summary>
         public long HeardSample(long cueSample) => (long)Math.Round(HeardStart * SampleRate) + cueSample;
     }
@@ -517,6 +525,7 @@ namespace Remedy.Audio
                     }
 
                     FillTime(n);
+                    Context.BlockStart = written;
                     for (int p = 0; p < _order.Length; p++)
                         _order[p].Process(Context, n);
                     for (int i = 0; i < n; i++)
