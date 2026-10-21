@@ -144,11 +144,15 @@ namespace Remedy.Surfaces
             Changed();
         }
 
+        /// <summary>Goes up whenever the paint changes (for views that draw it).</summary>
+        [NonSerialized] public int Version;
+
         /// <summary>Forgets cached lookups (after an Undo, or the data changed some other way).</summary>
         public void Changed()
         {
             _slotOfTriangle = null;
             _bvh = null;
+            Version++;
         }
 
         // Palette entries no triangle uses any more are removed (and the indices moved down).

@@ -1,0 +1,22 @@
+{
+    "name": "Remedy.Surfaces.Editor",
+    "rootNamespace": "Remedy.Surfaces",
+    "references": [
+        "Remedy.Surfaces",
+        "GUID:d4eddfc2c675df44ba1a1a5b47787444",
+        "GUID:9cef1c0784dad074282847b193c0d47b",
+        "GUID:0a22d72520a82174ab746de6d8876564",
+        "GUID:6082862122ef11a49bf208ee4ec62519"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
