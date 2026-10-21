@@ -60,7 +60,7 @@ namespace Remedy.Vehicles
         [Tooltip("Total distance from each wheel anchor checked for ground (metres).")]
         public float GroundCheckDistance = 1.6f;
         [Range(0f, 1f)]
-        [Tooltip("Maximum wheel/suspension placement as a fraction of Ground Check Distance. Ground can still be detected beyond this point; placement is also capped by Suspension Rest Length.")]
+        [Tooltip("Places the tire's outer edge at this fraction of Ground Check Distance when the ground is farther away. A nearer hit moves the tire toward the ground; the full cast still checks beyond the tire. Suspension Rest Length limits spring travel, not tire placement.")]
         public float TirePlacementThreshold = 0.5f;
         [Tooltip("Spring stiffness: m/s² of push per metre compressed. ~10 / Stiffness is how far the car sags at rest (60 → 17 cm). Higher = stiffer, twitchier.")]
         public float SpringStiffness = 60f;

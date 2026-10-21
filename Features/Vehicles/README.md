@@ -142,9 +142,10 @@ The body is a real Box3D body, so it can roll, tumble and land on its roof. How 
   Time** smooths the correction's fade and direction changes as the car moves between ramps and airborne states. The
   controller compensates for the torque from grounded tires' suspension, traction and sticky forces; 0 strength and
   damping = pure physics.
-- **Ground Check Distance** sets the full wheel ground-probe length. **Tire Placement Threshold** (0..1) caps
-  suspension and visual placement to that fraction of the probe (0.5 places the tire halfway along it), while ground
-  remains detected out to the full length. **Suspension Rest Length** is a further cap on travel.
+- **Ground Check Distance** sets the full wheel ground-probe length. **Tire Placement Threshold** (0..1) places the
+  tire's outer edge at that fraction of the probe when ground is farther away (0.5 places it halfway along); a nearer
+  hit moves the tire toward the surface. The full cast continues beyond the tire, including while it is airborne.
+  **Suspension Rest Length** limits spring travel, not tire placement.
 - Ungrounded tires within the check distance borrow an averaged ground plane from the tires that did hit. Their
   suspension, grip, sticky and drive forces are blended in by the grounded-tire fraction, so the assist fades toward
   zero as actual support disappears. **Stabilize Transition Time** also smooths each tire's contact normal, distance

@@ -236,7 +236,10 @@ namespace Remedy.Vehicles
             for (int i = 0; i < state.Wheels.Length; i++)
             {
                 var wheel = wheels[i];
-                state.Wheels[i].Extension = properties != null ? properties.SuspensionRestLength : 0.45f;
+                state.Wheels[i].Extension = properties != null
+                    ? Mathf.Max(0f, Mathf.Max(0f, properties.GroundCheckDistance)
+                        * Mathf.Clamp01(properties.TirePlacementThreshold) - Mathf.Max(0.05f, wheel?.Radius ?? 0.3f))
+                    : 0.45f;
                 state.Wheels[i].VisualRest = Quaternion.identity;
                 state.Wheels[i].TargetSpeedMultiplier = 1f;
                 if (wheel?.Anchor == null)
@@ -669,6 +672,8 @@ namespace Remedy.Vehicles
                 Vector3 origin = wheel.Anchor.position;
                 float radius = Mathf.Max(0.05f, wheel.Radius);
                 float rest = Mathf.Max(0.01f, p.SuspensionRestLength);
+                float placementDistance = groundCheckDistanceForWheels * Mathf.Clamp01(p.TirePlacementThreshold);
+                float maxExtension = Mathf.Max(0f, placementDistance - radius);
                 bool actualGrounded = w.Grounded;
                 bool wasGrounded = w.WasGrounded;
                 float targetForceWeight = actualGrounded ? 1f : virtualGroundWeight;
@@ -707,7 +712,7 @@ namespace Remedy.Vehicles
                 if (!hasContactCandidate && (!w.HasBlendedContact || w.ContactForceWeight <= 0f))
                 {
                     w.ContactForceWeight = 0f;
-                    w.Extension = rest;
+                    w.Extension = maxExtension;
                     continue;
                 }
 
@@ -739,10 +744,8 @@ namespace Remedy.Vehicles
                 w.Normal = normal;
 
                 // Spring and damper along the suspension, pushing at the wheel.
-                float placementDistance = groundCheckDistanceForWheels * Mathf.Clamp01(p.TirePlacementThreshold);
-                float maxExtension = Mathf.Clamp(placementDistance - radius, 0f, rest);
                 float extension = Mathf.Clamp(contactDistance - radius, 0f, maxExtension);
-                float compression = rest - extension;
+                float compression = rest - Mathf.Min(extension, rest);
                 w.Extension = extension;
                 Vector3 hubVelocity = native.GetWorldPointVelocity(origin);
                 float suspensionSpeed = Vector3.Dot(hubVelocity, up);
