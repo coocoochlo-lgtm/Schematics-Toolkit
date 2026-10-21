@@ -90,10 +90,29 @@ namespace Remedy.Cameras
             var instance = Self;
             LookInput.Subscribe(axis => Look(instance, axis));
             SetObjectToFollow.Subscribe(target => Follow.Value = target != null ? target.transform : null);
+            DetachRig();
+        }
+
+        /// <summary>
+        /// At play time the rig (Root, and the Camera under it) moves out to the top of the hierarchy, so it isn't
+        /// carried around (or scaled, or turned) by the object it's on. Only its place in the hierarchy changes: Root
+        /// and Camera still refer to it, it's switched on and off with the Operator, and destroyed with it.
+        /// </summary>
+        private void DetachRig()
+        {
+            var root = Root.Value;
+            if (root == null || !Application.isPlaying || root.parent == null)
+                return;
+            root.SetParent(null, worldPositionStays: true);
+            root.name = $"{Self.GameObject.name} (Camera Rig)";
         }
 
         protected override void OnEnable()
         {
+            var root = Root.Value;
+            if (root != null && root.parent == null)
+                root.gameObject.SetActive(true);
+
             var camera = Camera.Value;
             if (camera != null && camera.TryGetComponent(out UnityEngine.Camera cameraComponent))
                 cameraComponent.enabled = false; // the Camera Manager's camera renders; this one is a target
@@ -105,6 +124,17 @@ namespace Remedy.Cameras
         protected override void OnDisable()
         {
             CameraManager.RemoveOperator(Self);
+            // A detached rig goes with its Operator (it's no longer under it in the hierarchy).
+            var root = Root.Value;
+            if (root != null && root.parent == null)
+                root.gameObject.SetActive(false);
+        }
+
+        protected override void OnDestroy()
+        {
+            var root = Root.Value;
+            if (root != null && root.parent == null && Application.isPlaying)
+                Object.Destroy(root.gameObject);
         }
 
         /// <summary>Updates the selected Operator's aim direction and applies pending look input.</summary>
@@ -162,13 +192,13 @@ namespace Remedy.Cameras
 
         /// <summary>
         /// Moves the Operator's own object to the rig's Root (without moving the Root), so the object is where the
-        /// camera pivots. Not when the Operator is on what it follows (or on something holding it): that would drag
-        /// the character along with the camera.
+        /// camera pivots. Not when the Operator is on what it follows, on something holding it, or inside it (a part of
+        /// the character): that would drag the character, or a piece of it, along with the camera.
         /// </summary>
         protected void KeepObjectAtRoot(Transform root, Transform follow)
         {
             var self = Self.Transform;
-            if (follow == self || follow.IsChildOf(self))
+            if (follow == self || follow.IsChildOf(self) || self.IsChildOf(follow))
                 return;
             var rootPosition = root.position;
             self.position = rootPosition;
