@@ -218,7 +218,11 @@ namespace Remedy.Schematics
         private void Start()
         {
             if (SchematicGraph != null)
+            {
                 SchematicGraph.TriggerEvent<OnCreate>(gameObject);
+                // On Start isn't only for singleton graphs: in an object's graph it runs as the object starts.
+                SchematicGraph.TriggerEvent<global::OnStart>(gameObject);
+            }
             Started?.Invoke(this);
         }
 
