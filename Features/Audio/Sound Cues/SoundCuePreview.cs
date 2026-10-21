@@ -349,6 +349,7 @@ namespace Remedy.Audio
             }
             Apply();
             Simulation?.Tails.Update();
+            Simulation?.Corners.Update();
             // Edited while playing: play it again with the changes.
             int dirty = EditorUtility.GetDirtyCount(_player.Cue);
             if (dirty != _dirtyCount)

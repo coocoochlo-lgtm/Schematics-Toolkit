@@ -45,7 +45,18 @@ namespace Remedy.Audio
         [Tooltip("Rays cast from each cell.")] public int Rays;
         [Tooltip("When it was baked.")] public string BakedAt;
         [HideInInspector] public byte[] Packed = Array.Empty<byte>();
+        /// <summary>
+        /// Per cell: whether sound passes straight to the next cell along +X (bit 0), +Y (bit 1) and +Z (bit 2): both
+        /// open, nothing between their middles. The ways sound can get round corners (empty in older bakes).
+        /// </summary>
+        [HideInInspector] public byte[] Links = Array.Empty<byte>();
         public List<SoundFieldAnchor> Anchors = new();
+
+        /// <summary>Whether the bake has links (sound around corners); older bakes don't until baked again.</summary>
+        public bool HasLinks => Links != null && Links.Length == Count && Count > 0;
+
+        /// <summary>Whether sound passes from a cell to the next one along +<paramref name="axis"/> (0 X, 1 Y, 2 Z).</summary>
+        public bool Linked(int index, int axis) => (Links[index] & (1 << axis)) != 0;
 
         public int Count => Cells.x * Cells.y * Cells.z;
 

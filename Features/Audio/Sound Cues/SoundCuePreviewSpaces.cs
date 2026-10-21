@@ -5,7 +5,7 @@ using UnityEngine;
 namespace Remedy.Audio
 {
     /// <summary>Surroundings the Sound Cue preview can play in (Spatial Reverb and Delay hear them like a baked Sound Field).</summary>
-    public enum PreviewSpace { None, OpenField, SmallRoom, Hall, Cave, Tunnel, Street, Canyon, Cliff }
+    public enum PreviewSpace { None, OpenField, SmallRoom, Hall, Cave, Tunnel, Street, Canyon, Cliff, Doorway, Corner }
 
     /// <summary>
     /// Editor only: made-up surroundings around the preview's imaginary listener (at the middle, facing +Z): walls with
@@ -31,6 +31,10 @@ namespace Remedy.Audio
         public SpaceBus RoomBus { get; private set; }
         private readonly TailPool _tails;
         public override TailPool Tails => _tails;
+        private readonly CornerPool _corners;
+        public override CornerPool Corners => _corners;
+        // The points a sound can turn round: just past each wall's ends.
+        private readonly List<Vector2> _turns = new();
         private readonly SoundAcoustics _place;
         private readonly int _rate;
 
@@ -41,6 +45,7 @@ namespace Remedy.Audio
             Space = space;
             _rate = AudioSettings.outputSampleRate > 0 ? AudioSettings.outputSampleRate : 48000;
             _tails = new TailPool(host, _rate, flat: true);
+            _corners = new CornerPool(host, _rate, flat: true);
             // Rough places (the size is how far surfaces are on average), and their walls.
             switch (space)
             {
@@ -81,6 +86,32 @@ namespace Remedy.Audio
                     _place = Place(40f, 0.35f, 0.05f, 1f);
                     Line(new Vector2(-120f, 70f), new Vector2(120f, 70f), Vector2.down, 0.95f, 1f);
                     break;
+                case PreviewSpace.Doorway: // a 10 x 10 m plastered room, its doorway ahead opening outside
+                    _place = Place(5f, 0.9f, 0.2f, 0.75f);
+                    Line(new Vector2(-5f, -5f), new Vector2(-5f, 5f), Vector2.right, 0.8f, 0.75f);
+                    Line(new Vector2(5f, -5f), new Vector2(5f, 5f), Vector2.left, 0.8f, 0.75f);
+                    Line(new Vector2(-5f, -5f), new Vector2(5f, -5f), Vector2.up, 0.8f, 0.75f);
+                    Line(new Vector2(-5f, 5f), new Vector2(-0.9f, 5f), Vector2.down, 0.8f, 0.75f);
+                    Line(new Vector2(0.9f, 5f), new Vector2(5f, 5f), Vector2.down, 0.8f, 0.75f);
+                    Room = new Rect(-5f, -5f, 10f, 10f);
+                    break;
+                case PreviewSpace.Corner: // a 4 m concrete corridor, turning right 10 m ahead
+                    _place = Place(4f, 0.9f, 0.08f, 0.9f);
+                    Line(new Vector2(-2f, -30f), new Vector2(-2f, 12f), Vector2.right, 0.9f, 0.9f);
+                    Line(new Vector2(2f, -30f), new Vector2(2f, 8f), Vector2.left, 0.9f, 0.9f);
+                    Line(new Vector2(-2f, 12f), new Vector2(40f, 12f), Vector2.down, 0.9f, 0.9f);
+                    Line(new Vector2(2f, 8f), new Vector2(40f, 8f), Vector2.up, 0.9f, 0.9f);
+                    break;
+            }
+            // Where a sound can turn round a wall's end: just past it, on either side of the wall.
+            foreach (var wall in Walls)
+            {
+                var along = (wall.B - wall.A).normalized;
+                var off = new Vector2(-along.y, along.x) * 0.3f;
+                _turns.Add(wall.A - along * 0.4f + off);
+                _turns.Add(wall.A - along * 0.4f - off);
+                _turns.Add(wall.B + along * 0.4f + off);
+                _turns.Add(wall.B + along * 0.4f - off);
             }
 
             // The fixed sources: the room around the listener, and each wall (heard from its nearest point).
@@ -150,6 +181,83 @@ namespace Remedy.Audio
         {
             wet = _place.Wet;
             return Room.HasValue && Room.Value.Contains(Flat(position)) ? RoomBus : null;
+        }
+
+        // Whether the straight line between two points crosses no wall.
+        private bool Clear(Vector2 p, Vector2 q)
+        {
+            foreach (var wall in Walls)
+                if (Cross(p, q, wall.A, wall.B))
+                    return false;
+            return true;
+        }
+
+        private static bool Cross(Vector2 p, Vector2 q, Vector2 a, Vector2 b)
+        {
+            static float Side(Vector2 o, Vector2 u, Vector2 v) => (u.x - o.x) * (v.y - o.y) - (u.y - o.y) * (v.x - o.x);
+            float d1 = Side(a, b, p), d2 = Side(a, b, q), d3 = Side(p, q, a), d4 = Side(p, q, b);
+            // Through a wall's very end counts too (where two walls meet there's no gap).
+            return d1 * d2 < 0f && d3 * d4 <= 0f;
+        }
+
+        private readonly List<Vector2> _points = new();
+        private float[] _distance = new float[0];
+        private int[] _previous = new int[0];
+        private bool[] _done = new bool[0];
+
+        // The shortest way round the walls (through the points just past their ends), found afresh each time: there
+        // are only a few.
+        public override SoundRoute Around(Vector3 source, Vector3 listener, out Vector3 heardFrom, out float length, out float bend)
+        {
+            heardFrom = source;
+            length = Vector3.Distance(source, listener);
+            bend = 0f;
+            var s = Flat(source);
+            var l = Flat(listener);
+            if (Clear(s, l))
+                return SoundRoute.Clear;
+            _points.Clear();
+            _points.Add(s);
+            _points.AddRange(_turns);
+            _points.Add(l);
+            int n = _points.Count, goal = n - 1;
+            if (_distance.Length < n)
+            {
+                _distance = new float[n];
+                _previous = new int[n];
+                _done = new bool[n];
+            }
+            for (int i = 0; i < n; i++) { _distance[i] = float.MaxValue; _previous[i] = -1; _done[i] = false; }
+            _distance[0] = 0f;
+            for (int round = 0; round < n; round++)
+            {
+                int best = -1;
+                for (int i = 0; i < n; i++)
+                    if (!_done[i] && _distance[i] < float.MaxValue && (best < 0 || _distance[i] < _distance[best]))
+                        best = i;
+                if (best < 0 || best == goal)
+                    break;
+                _done[best] = true;
+                for (int i = 1; i < n; i++)
+                {
+                    if (_done[i]) continue;
+                    float through = _distance[best] + (_points[i] - _points[best]).magnitude;
+                    if (through < _distance[i] && Clear(_points[best], _points[i]))
+                    {
+                        _distance[i] = through;
+                        _previous[i] = best;
+                    }
+                }
+            }
+            int corner = _previous[goal];
+            if (corner <= 0)
+                return SoundRoute.Sealed;
+            var at = _points[corner];
+            var before = _points[Mathf.Max(0, _previous[corner])];
+            heardFrom = new Vector3(at.x, 0f, at.y);
+            length = _distance[goal];
+            bend = Vector2.Angle(at - before, l - at) / 180f;
+            return SoundRoute.Around;
         }
 
         // Mirror-image echoes: the sound reflected in a wall's line is heard along the straight path from its image to

@@ -142,7 +142,8 @@ namespace Remedy.Audio
                     float gate = Gate((_simPaths[i] - direct) / SoundSpaces.SpeedOfSound, _simReflectivity[i], _simHardness[i]);
                     if (gate <= 0f) continue;
                     sends ??= new SpaceSends();
-                    int delay = (int)(_simPaths[i] / SoundSpaces.SpeedOfSound * simulation.Rate);
+                    // Behind the sound itself by the extra way round (the sound is heard with no travel time of its own).
+                    int delay = (int)((_simPaths[i] - direct) / SoundSpaces.SpeedOfSound * simulation.Rate);
                     float gain = _simReflectivity[i] / (1f + _simPaths[i] / 50f) * Mathf.Clamp01(EchoAmount) * gate * SoundSpaces.Exaggerate;
                     if (sends.EchoA == null) { sends.EchoA = _simBuses[i]; sends.DelayA = delay; sends.GainA = gain; }
                     else { sends.EchoB = _simBuses[i]; sends.DelayB = delay; sends.GainB = gain; }
@@ -189,13 +190,16 @@ namespace Remedy.Audio
             var data = field.Data.Anchors[anchor];
             var wall = field.transform.TransformPoint(data.Position);
             float toWall = Vector3.Distance(position, wall), toListener = Vector3.Distance(wall, listener);
-            float gate = Gate((toWall + toListener - Vector3.Distance(position, listener)) / SoundSpaces.SpeedOfSound, data.Reflectivity, data.Hardness);
+            float extra = toWall + toListener - Vector3.Distance(position, listener);
+            float gate = Gate(extra / SoundSpaces.SpeedOfSound, data.Reflectivity, data.Hardness);
             if (gate <= 0f)
                 return;
             bus = spaces.RequestEcho(field, anchor);
             if (bus == null)
                 return;
-            delay = (int)((toWall + toListener) / SoundSpaces.SpeedOfSound * spaces.Rate);
+            // Behind the sound itself by the extra way round: Unity plays the sound with no travel time, so an echo
+            // delayed by its whole path came later and later after it the farther away the sound was (a muddy smear).
+            delay = (int)(extra / SoundSpaces.SpeedOfSound * spaces.Rate);
             gain = data.Reflectivity / (1f + toWall / 25f) * Mathf.Clamp01(EchoAmount) * gate * SoundSpaces.Exaggerate;
         }
 
@@ -250,6 +254,17 @@ namespace Remedy.Audio
         public abstract int Echoes(Vector3 position, Vector3 listener, SpaceBus[] buses, float[] paths, float[] reflectivity, float[] hardness);
         /// <summary>Reverb and slapback tails left where the previewed sound has been.</summary>
         public abstract TailPool Tails { get; }
+        /// <summary>Sounds coming round corners (Around Corners).</summary>
+        public abstract CornerPool Corners { get; }
+
+        /// <summary>
+        /// How a sound reaches the listener round the walls: like <see cref="SoundPaths.Around"/> in the game.
+        /// </summary>
+        public abstract SoundRoute Around(Vector3 source, Vector3 listener, out Vector3 heardFrom, out float length, out float bend);
+
+        /// <summary>The last corner a previewed sound came round, and when (for drawing it).</summary>
+        public Vector3 LastCorner;
+        public double LastCornerAt = -1;
     }
 
     /// <summary>
@@ -260,16 +275,16 @@ namespace Remedy.Audio
     internal sealed class SpatialSender
     {
         private readonly int _rate;
-        private SpaceBus _room, _echoA, _echoB, _tail;
-        private float _roomGain, _gainA, _gainB, _tailGain;
-        private int _roomDelay, _delayA, _delayB, _tailDelay;
+        private SpaceBus _room, _echoA, _echoB, _tail, _corner;
+        private float _roomGain, _gainA, _gainB, _tailGain, _cornerGain;
+        private int _roomDelay, _delayA, _delayB, _tailDelay, _cornerDelay;
 
         public SpatialSender(int sampleRate) => _rate = sampleRate;
 
         public void Reset()
         {
-            _room = _echoA = _echoB = _tail = null;
-            _roomGain = _gainA = _gainB = _tailGain = 0f;
+            _room = _echoA = _echoB = _tail = _corner = null;
+            _roomGain = _gainA = _gainB = _tailGain = _cornerGain = 0f;
         }
 
         /// <summary>Sends <paramref name="sound"/>'s block (Mix times each send's own amount).</summary>
@@ -292,6 +307,7 @@ namespace Remedy.Audio
             SendTo(ref _tail, ref _tailGain, ref _tailDelay, sends?.Tail, (sends?.TailGain ?? 0f) * mix, 0, sound, at, count);
             SendTo(ref _echoA, ref _gainA, ref _delayA, sends?.EchoA, (sends?.GainA ?? 0f) * mix, sends?.DelayA ?? 0, sound, at, count);
             SendTo(ref _echoB, ref _gainB, ref _delayB, sends?.EchoB, (sends?.GainB ?? 0f) * mix, sends?.DelayB ?? 0, sound, at, count);
+            SendTo(ref _corner, ref _cornerGain, ref _cornerDelay, sends?.Corner, (sends?.CornerGain ?? 0f) * mix, sends?.CornerDelay ?? 0, sound, at, count);
         }
 
         private void SendTo(ref SpaceBus current, ref float gain, ref int delay, SpaceBus target, float targetGain, int targetDelay, float[] sound, long at, int count)

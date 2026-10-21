@@ -118,9 +118,10 @@ namespace Remedy.Audio
                 foreach (var bus in spaces.RoomBuses) if (bus != null && bus.Source.isPlaying) playing++;
                 foreach (var bus in spaces.EchoBuses) if (bus != null && bus.Source.isPlaying) playing++;
                 foreach (var bus in spaces.Tails.Buses) if (bus != null && bus.Source.isPlaying) playing++;
+                foreach (var bus in spaces.Corners.Buses) if (bus != null && bus.Source.isPlaying) playing++;
             }
             int real = AudioSettings.GetConfiguration().numRealVoices;
-            Row("Rooms, walls and spots playing", $"{playing} of Unity's {real} real voices");
+            Row("Rooms, walls, spots and corners playing", $"{playing} of Unity's {real} real voices");
             if (playing * 2 > real)
                 Verdict($"Spatial effects are using over half of Unity's voices: other sounds may be cut. Raise Max Real Voices (Project Settings > Audio) to 64 or more.");
         }

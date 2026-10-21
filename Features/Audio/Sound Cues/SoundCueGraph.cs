@@ -158,6 +158,11 @@ namespace Remedy.Audio
         public bool Previewing;
         /// <summary>The Sound Room the sound is in (null when none, or the player doesn't use rooms).</summary>
         public SoundRoom Room;
+        /// <summary>
+        /// How loud the player's own source makes the sound at a distance (its volume and distance falloff), 0 to 1: for
+        /// sound that reaches the listener some other way (round a corner) falling off as the sound itself would.
+        /// </summary>
+        public Func<float, float> Hearing;
     }
 
     /// <summary>

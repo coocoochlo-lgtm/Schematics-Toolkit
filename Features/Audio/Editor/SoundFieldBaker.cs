@@ -147,6 +147,29 @@ namespace Remedy.Audio
                     }
                 }
 
+                // Links: where sound passes straight from a cell to the next (both open, nothing between their middles),
+                // the ways it finds round corners.
+                var links = new byte[count];
+                int[] steps = { 1, cells.x, cells.x * cells.y };
+                for (int i = 0; i < open.Count; i++)
+                {
+                    if (i % 4096 == 0 && EditorUtility.DisplayCancelableProgressBar("Baking Sound Field", $"{field.name}: ways round corners", i / (float)open.Count))
+                        return false;
+                    int cellIndex = open[i];
+                    int cx = cellIndex % cells.x, cy = cellIndex / cells.x % cells.y, cz = cellIndex / (cells.x * cells.y);
+                    var from = toWorld.MultiplyPoint3x4(scratch.CellCenter(cx, cy, cz));
+                    for (int axis = 0; axis < 3; axis++)
+                    {
+                        if ((axis == 0 ? cx + 1 >= cells.x : axis == 1 ? cy + 1 >= cells.y : cz + 1 >= cells.z) || !scratch.IsOpen(cellIndex + steps[axis]))
+                            continue;
+                        var to = toWorld.MultiplyPoint3x4(scratch.CellCenter(cx + (axis == 0 ? 1 : 0), cy + (axis == 1 ? 1 : 0), cz + (axis == 2 ? 1 : 0)));
+                        var between = to - from;
+                        float distance = between.magnitude;
+                        if (!geometry.Raycast(from, between / distance, distance, out _, out _, out _))
+                            links[cellIndex] |= (byte)(1 << axis);
+                    }
+                }
+
                 // Echo anchors: the most-seen, most reflective surfaces far from the cells.
                 int totalAnchorHits = buckets.Values.Sum(b => b.Count);
                 int minimum = Mathf.Max(8, (int)(totalAnchorHits * 0.002f));
@@ -211,6 +234,7 @@ namespace Remedy.Audio
                 data.Box = box;
                 data.Rays = field.BakeRays;
                 data.Packed = packed;
+                data.Links = links;
                 data.Anchors = anchors;
                 data.BakedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
                 EditorUtility.SetDirty(data);

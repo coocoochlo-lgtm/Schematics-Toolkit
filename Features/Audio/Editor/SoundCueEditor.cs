@@ -467,6 +467,24 @@ namespace Remedy.Audio
                 // The sound.
                 var p = SoundCuePreview.CurrentPosition * scale;
                 var dot = center + new Vector2(p.x, -p.y);
+
+                // Round a corner: the way it comes, through the corner it's heard from.
+                if (simulation != null && Time.realtimeSinceStartupAsDouble - simulation.LastCornerAt < 0.3)
+                {
+                    var bendAt = center + new Vector2(simulation.LastCorner.x, -simulation.LastCorner.z) * scale;
+                    painter.strokeColor = new Color(0.95f, 0.45f, 0.75f, 0.55f);
+                    painter.lineWidth = 1.5f;
+                    painter.BeginPath();
+                    painter.MoveTo(dot);
+                    painter.LineTo(bendAt);
+                    painter.LineTo(center);
+                    painter.Stroke();
+                    painter.fillColor = new Color(1f, 0.8f, 0.9f, 0.9f);
+                    painter.BeginPath();
+                    painter.Arc(bendAt, 3.5f, Angle.Degrees(0f), Angle.Degrees(360f));
+                    painter.Fill();
+                    painter.lineWidth = 1f;
+                }
                 painter.fillColor = new Color(0.95f, 0.45f, 0.75f, 1f);
                 painter.BeginPath();
                 painter.Arc(dot, 5f, Angle.Degrees(0f), Angle.Degrees(360f));

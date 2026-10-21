@@ -258,6 +258,8 @@ namespace Remedy.Audio
                 ListenerPosition = DistanceOverride.HasValue ? Vector3.zero : _listener != null ? _listener.transform.position : transform.position,
                 Previewing = DistanceOverride.HasValue,
                 Room = _room,
+                // The preview fades a sound by 1 / distance itself (its source is flat).
+                Hearing = DistanceOverride.HasValue ? PreviewHearing : _hearing ??= HearingAt,
             };
             for (int i = 0; i < probes.Count; i++)
             {
@@ -272,8 +274,18 @@ namespace Remedy.Audio
             var source = Source;
             if (source.mute)
                 return true;
+            return (_listener != null ? HearingAt(distance) : source.volume) < CullBelow;
+        }
+
+        private Func<float, float> _hearing;
+        private static readonly Func<float, float> PreviewHearing = distance => 1f / Mathf.Max(1f, distance);
+
+        // How loud the source makes the sound at a distance: its volume, times its distance falloff when it's 3D.
+        private float HearingAt(float distance)
+        {
+            var source = Source;
             float gain = source.volume;
-            if (source.spatialBlend >= 0.99f && _listener != null)
+            if (source.spatialBlend >= 0.99f)
             {
                 float min = Mathf.Max(0.01f, source.minDistance), max = Mathf.Max(min, source.maxDistance);
                 switch (source.rolloffMode)
@@ -292,7 +304,7 @@ namespace Remedy.Audio
                         break;
                 }
             }
-            return gain < CullBelow;
+            return gain;
         }
 
         private float CurrentDistance()

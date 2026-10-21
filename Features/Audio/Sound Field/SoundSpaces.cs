@@ -93,11 +93,12 @@ namespace Remedy.Audio
         private int _rate;
 
         /// <summary>What a bus does with what it's sent.</summary>
-        public enum BusKind { Room, Echo, Slap }
+        public enum BusKind { Room, Echo, Slap, Corner }
 
         // Room: a reverb (a ringing room, or a reverb tail left where a sound was). Echo: darkened, diffused (three
-        // allpasses), then mostly a short smear (a brief reverb) with a little of the copy itself: a wall throws back a
-        // soft, blurred version of a sound, not a clean duplicate. Slap: a slapback, repeating (left where a sound was).
+        // allpasses), then half a short smear (a brief reverb), half the clean copy: a wall throws back a soft version
+        // of a sound, not a sharp duplicate. Slap: a slapback, repeating (left where a sound was). Corner: the sound
+        // itself, darkened by how sharply it bends, heard from the corner it comes round.
         public BusKind Kind { get; private set; }
         public bool IsRoom => Kind == BusKind.Room;
         private float[] _slapLine = Array.Empty<float>();
@@ -163,7 +164,7 @@ namespace Remedy.Audio
         /// Where buses stand when Unity runs short of real voices (lower is kept first; ordinary sounds are 128): a room
         /// carries every sound in it, an echo wall many, a tail or trail spot one sound's ringing. Idle: last.
         /// </summary>
-        public const int RoomPriority = 64, EchoPriority = 100, SpotPriority = 160, IdlePriority = 256;
+        public const int RoomPriority = 64, EchoPriority = 100, CornerPriority = 110, SpotPriority = 160, IdlePriority = 256;
 
         /// <summary>Its place when Unity runs short of real voices (see <see cref="RoomPriority"/>).</summary>
         internal void SetPriority(int priority) => Source.priority = Mathf.Clamp(priority, 0, 256);
@@ -209,6 +210,7 @@ namespace Remedy.Audio
         private void Begin(object owner, Vector3 position)
         {
             Owner = owner;
+            Source.rolloffMode = AudioRolloffMode.Logarithmic; // (a corner's has none of its own)
             _begunAt = Time.realtimeSinceStartup;
             transform.position = position;
             lock (_lock)
@@ -254,6 +256,34 @@ namespace Remedy.Audio
                 Source.priority = IdlePriority;
             }
         }
+
+        private static AnimationCurve _noFalloff;
+
+        /// <summary>
+        /// Starts it carrying a sound round a corner, heard from <paramref name="position"/> (the corner). It has no
+        /// distance falloff of its own: what's sent already fell off over the whole way round.
+        /// </summary>
+        internal void BeginCorner(object owner, Vector3 position)
+        {
+            Begin(owner, position);
+            Kind = BusKind.Corner;
+            Source.priority = CornerPriority;
+            _noFalloff ??= AnimationCurve.Constant(0f, 1f, 1f);
+            Source.rolloffMode = AudioRolloffMode.Custom;
+            Source.SetCustomCurve(AudioSourceCurveType.CustomRolloff, _noFalloff);
+            Source.minDistance = 1f;
+            Source.maxDistance = 1000f;
+            Source.spread = 30f;
+            SetRingTime(0.3f);
+            if (!Source.isPlaying) Source.Play();
+        }
+
+        /// <summary>A corner's darkening: the highest pitch that gets round (Hz).</summary>
+        internal void SetCorner(float cutoff)
+            => _lowpassAmount = 1f - Mathf.Exp(-2f * Mathf.PI * Mathf.Clamp(cutoff, 200f, 20000f) / Mathf.Max(8000, _rate));
+
+        /// <summary>Moves it (a corner, as the way round changes).</summary>
+        internal void MoveTo(Vector3 position) => transform.position = position;
 
         /// <summary>Starts it as a slapback left at a place: what's sent comes back after the delay, repeating.</summary>
         internal void BeginSlap(object owner, Vector3 position)
@@ -545,6 +575,11 @@ namespace Remedy.Audio
                         _slapWrite = _slapWrite + 1 == length ? 0 : _slapWrite + 1;
                         output = _slapLow;
                     }
+                    else if (Kind == BusKind.Corner)
+                    {
+                        _lowpass += (input - _lowpass) * _lowpassAmount;
+                        output = _lowpass;
+                    }
                     else
                     {
                         _lowpass += (input - _lowpass) * _lowpassAmount;
@@ -793,6 +828,92 @@ namespace Remedy.Audio
         public SpaceBus EchoA, EchoB;
         public int DelayA, DelayB;
         public float GainA, GainB;
+        /// <summary>Round a corner: the bus at the corner, how much later than the sound itself, and how loud.</summary>
+        public SpaceBus Corner;
+        public int CornerDelay;
+        public float CornerGain;
+    }
+
+    /// <summary>
+    /// Buses carrying sounds round corners (one per sound that's going round one), each moved to the corner its sound
+    /// comes round. A sound keeps its bus by touching its claim each time it looks for its way round; a bus whose claim
+    /// hasn't been touched for a second (the sound stopped, or its way is clear again) is let go once it's quiet.
+    /// </summary>
+    public sealed class CornerPool
+    {
+        /// <summary>A sound's hold on a bus.</summary>
+        public sealed class Claim
+        {
+            public float TouchedAt;
+        }
+
+        private readonly Transform _parent;
+        private readonly int _rate;
+        private readonly bool _flat;
+        private readonly int _max;
+        private readonly List<SpaceBus> _buses = new();
+
+        public CornerPool(Transform parent, int rate, bool flat, int max = 16)
+        {
+            _parent = parent;
+            _rate = rate;
+            _flat = flat;
+            _max = max;
+        }
+
+        public IReadOnlyList<SpaceBus> Buses => _buses;
+
+        /// <summary>The claim's bus (or a free one), at <paramref name="corner"/>, letting through up to <paramref name="cutoff"/> Hz.</summary>
+        public SpaceBus Take(Claim claim, Vector3 corner, float cutoff)
+        {
+            claim.TouchedAt = Time.realtimeSinceStartup;
+            SpaceBus bus = null, free = null;
+            foreach (var candidate in _buses)
+            {
+                if (candidate.Owner == claim) { bus = candidate; break; }
+                if (free == null && candidate.Owner == null) free = candidate;
+            }
+            if (bus == null)
+            {
+                bus = free;
+                if (bus == null && _buses.Count < _max)
+                    _buses.Add(bus = SpaceBus.Create(_parent, _rate));
+                if (bus == null)
+                    return null; // all busy: the sound is heard straight, through the walls
+                bus.BeginCorner(claim, corner);
+            }
+            bus.SetCorner(cutoff);
+            if (_flat)
+            {
+                // The preview: panned from the corner's direction around its listener (the falloff is in what's sent).
+                var flat = new Vector2(corner.x, corner.z);
+                float distance = flat.magnitude;
+                bus.SetFlat(distance > 0.01f ? flat.x / distance : 0f, 1f);
+            }
+            else
+                bus.MoveTo(corner);
+            return bus;
+        }
+
+        /// <summary>Lets go of buses whose sound has stopped asking (once they're quiet).</summary>
+        public void Update()
+        {
+            float now = Time.realtimeSinceStartup;
+            foreach (var bus in _buses)
+                if (bus.Owner is Claim claim && now - claim.TouchedAt > 1f && bus.IsQuiet(0.3f))
+                    bus.End();
+        }
+
+        public void Destroy()
+        {
+            foreach (var bus in _buses)
+                if (bus != null)
+                {
+                    if (Application.isPlaying) UnityEngine.Object.Destroy(bus.gameObject);
+                    else UnityEngine.Object.DestroyImmediate(bus.gameObject);
+                }
+            _buses.Clear();
+        }
     }
 
     /// <summary>
@@ -832,6 +953,9 @@ namespace Remedy.Audio
         private TailPool _tails;
         /// <summary>Reverb and slapback tails left where sounds are (outside rooms).</summary>
         public TailPool Tails => _tails ??= new TailPool(transform, _rate, flat: false);
+        private CornerPool _corners;
+        /// <summary>Sounds coming round corners (Around Corners).</summary>
+        public CornerPool Corners => _corners ??= new CornerPool(transform, _rate, flat: false);
         private readonly List<SpaceBus> _rooms = new();
         private readonly List<SpaceBus> _echoes = new();
         private readonly Dictionary<SoundField, (SoundFieldData data, int[] regionOf, List<AcousticRoom> rooms)> _fields = new();
@@ -1096,6 +1220,7 @@ namespace Remedy.Audio
                 return;
             _nextEchoUpdate = Time.unscaledTime + 0.25f;
             _tails?.Update();
+            _corners?.Update();
             UpdateEchoes();
             ReleaseFarRooms();
         }
