@@ -126,6 +126,8 @@ namespace Remedy.Audio
             source.spatialBlend = 1f;
             source.dopplerLevel = 0f;
             source.rolloffMode = AudioRolloffMode.Logarithmic;
+            // Ahead of ordinary sounds when Unity runs short of voices: dropping a room or wall drops every sound's share.
+            source.priority = 32;
             try
             {
                 var prefab = AudioData.SFXSourcePrefab;
@@ -140,7 +142,8 @@ namespace Remedy.Audio
             bus._allpassA = new float[Mathf.Max(1, (int)(0.0071f * rate))];
             bus._allpassB = new float[Mathf.Max(1, (int)(0.0117f * rate))];
             bus._allpassC = new float[Mathf.Max(1, (int)(0.0173f * rate))];
-            host.SetActive(false);
+            // Always running, silent while unused: its clock is ready for the first send whenever it's taken.
+            source.Play();
             return bus;
         }
 
@@ -165,7 +168,7 @@ namespace Remedy.Audio
             Source.minDistance = Mathf.Max(2f, radius);
             Source.maxDistance = Source.minDistance * 10f + 60f;
             Source.spread = 180f;
-            Source.Play();
+            if (!Source.isPlaying) Source.Play();
         }
 
         /// <summary>Starts it echoing as a wall, at a place, about <paramref name="size"/> meters across.</summary>
@@ -177,7 +180,7 @@ namespace Remedy.Audio
             Source.maxDistance = 600f;
             Source.spread = 60f;
             SetEcho(hardness);
-            Source.Play();
+            if (!Source.isPlaying) Source.Play();
         }
 
         private void Begin(object owner, Vector3 position)
@@ -186,8 +189,8 @@ namespace Remedy.Audio
             transform.position = position;
             lock (_lock)
             {
+                // (The clock keeps running: only what it held is cleared.)
                 Array.Clear(_ring, 0, _ring.Length);
-                _readHead = -1;
                 _reverb.Clear();
                 _lowpass = 0f;
                 Array.Clear(_allpassA, 0, _allpassA.Length);
@@ -200,14 +203,18 @@ namespace Remedy.Audio
             Interlocked.Exchange(ref _late, 0);
             Interlocked.Exchange(ref _early, 0);
             Volatile.Write(ref _peak, 0f);
-            gameObject.SetActive(true);
         }
 
+        /// <summary>Lets it go: silent and empty, but still running, ready to be taken again.</summary>
         internal void End()
         {
             Owner = null;
-            if (Source != null) Source.Stop();
-            gameObject.SetActive(false);
+            lock (_lock)
+            {
+                Array.Clear(_ring, 0, _ring.Length);
+                _reverb.Clear();
+                _partner = null;
+            }
         }
 
         /// <summary>A room's reverb: <paramref name="feedback"/> (how long) and <paramref name="damping"/> (0 bright, 1 dull).</summary>
@@ -276,10 +283,11 @@ namespace Remedy.Audio
                 return;
             lock (_lock)
             {
-                long head = _readHead;
-                if (head < 0 || at < head)
+                // Before its first callback, the audio clock itself says what "now" is.
+                long head = _readHead >= 0 ? _readHead : (long)Math.Round(AudioSettings.dspTime * _rate);
+                if (at < head)
                 {
-                    if (head >= 0) Interlocked.Increment(ref _late);
+                    Interlocked.Increment(ref _late);
                     return;
                 }
                 if (at + count >= head + RingSize - 4096)
@@ -310,8 +318,19 @@ namespace Remedy.Audio
             long head;
             lock (_lock)
             {
+                // Back in step with the audio clock: on its first call, and after Unity skipped calling it (a far or quiet
+                // source is set aside to save time, and its clock stops). What it missed is cleared, so it isn't played
+                // late (or again, when the ring comes round).
+                long now = (long)Math.Round(AudioSettings.dspTime * _rate);
                 if (_readHead < 0)
-                    _readHead = (long)Math.Round(AudioSettings.dspTime * _rate);
+                    _readHead = now;
+                else if (now - _readHead > frames * 2L)
+                {
+                    long gap = Math.Min(now - _readHead, RingSize);
+                    for (long i = 0; i < gap; i++)
+                        _ring[(_readHead + i) & RingMask] = 0f;
+                    _readHead = now;
+                }
                 head = _readHead;
                 for (int f = 0; f < frames; f++)
                 {
@@ -398,7 +417,7 @@ namespace Remedy.Audio
         /// <summary>Most rooms ringing at once.</summary>
         public const int MaxRooms = 6;
         /// <summary>Most echo walls at once.</summary>
-        public const int MaxEchoes = 8;
+        public const int MaxEchoes = 12;
         /// <summary>How far from the listener echo walls are kept, in meters.</summary>
         public const float EchoRange = 220f;
         public const float SpeedOfSound = 343f;
@@ -632,9 +651,51 @@ namespace Remedy.Audio
 
         #region Echo walls
 
-        /// <summary>The echo wall ringing for a field's anchor, if it's one of the live ones near the listener (else null).</summary>
+        /// <summary>The echo wall ringing for a field's anchor, if it's one of the live ones (else null).</summary>
         public SpaceBus EchoBus(SoundField field, int anchor)
             => _liveAnchors.TryGetValue((field, anchor), out var bus) && bus != null && Equals(bus.Owner, (field, anchor)) ? bus : null;
+
+        // Anchors sounds have asked for lately (when), which are kept over ones merely near the listener.
+        private readonly Dictionary<(SoundField, int), float> _asked = new();
+        /// <summary>Seconds an anchor stays wanted after a sound last asked for it.</summary>
+        public const float AskedFor = 3f;
+
+        /// <summary>
+        /// The echo wall for an anchor a sound wants to be heard off: the live one, or one made for it now if there's
+        /// room (within reach of the listener); and it's kept while sounds keep asking.
+        /// </summary>
+        public SpaceBus RequestEcho(SoundField field, int anchor)
+        {
+            var key = (field, anchor);
+            _asked[key] = Time.unscaledTime;
+            var bus = EchoBus(field, anchor);
+            if (bus != null || field?.Data?.Anchors == null || anchor < 0 || anchor >= field.Data.Anchors.Count)
+                return bus;
+            var data = field.Data.Anchors[anchor];
+            var position = field.transform.TransformPoint(data.Position);
+            if (Vector3.Distance(ListenerPosition, position) > EchoRange)
+                return null;
+            int live = 0;
+            foreach (var candidate in _echoes)
+                if (candidate.Owner != null) live++;
+            if (live >= MaxEchoes)
+                return null; // the next update makes room, if it's wanted more than one that's ringing
+            return StartEcho(key, position, data);
+        }
+
+        private SpaceBus StartEcho((SoundField, int) key, Vector3 position, SoundFieldAnchor data)
+        {
+            SpaceBus bus = null;
+            foreach (var candidate in _echoes)
+                if (candidate.Owner == null) { bus = candidate; break; }
+            if (bus == null && _echoes.Count < MaxEchoes * 2)
+                _echoes.Add(bus = SpaceBus.Create(transform, _rate));
+            if (bus == null)
+                return null;
+            bus.BeginEcho(key, position, Mathf.Sqrt(data.Area), data.Hardness);
+            _liveAnchors[key] = bus;
+            return bus;
+        }
 
         private float _nextEchoUpdate;
 
@@ -664,6 +725,9 @@ namespace Remedy.Audio
                     float distance = Vector3.Distance(listener, position);
                     if (distance > EchoRange) continue;
                     float score = anchor.Reflectivity * Mathf.Sqrt(anchor.Area) / (1f + distance / 30f);
+                    // Walls sounds are being heard off come first.
+                    if (_asked.TryGetValue((field, a), out float asked) && Time.unscaledTime - asked < AskedFor)
+                        score += 1000f;
                     wanted.Add((score, field, a, position, toWorld.MultiplyVector(anchor.Normal).normalized, anchor));
                 }
             }
@@ -683,16 +747,16 @@ namespace Remedy.Audio
             // Start the new ones.
             foreach (var w in wanted)
             {
-                var key = (w.field, w.anchor);
                 if (EchoBus(w.field, w.anchor) != null) continue;
-                SpaceBus bus = null;
-                foreach (var candidate in _echoes)
-                    if (candidate.Owner == null) { bus = candidate; break; }
-                if (bus == null && _echoes.Count < MaxEchoes * 2)
-                    _echoes.Add(bus = SpaceBus.Create(transform, _rate));
-                if (bus == null) break;
-                bus.BeginEcho(key, w.position, Mathf.Sqrt(w.data.Area), w.data.Hardness);
-                _liveAnchors[key] = bus;
+                if (StartEcho((w.field, w.anchor), w.position, w.data) == null) break;
+            }
+            // Forget old asks.
+            if (_asked.Count > 256)
+            {
+                var stale = new List<(SoundField, int)>();
+                foreach (var pair in _asked)
+                    if (Time.unscaledTime - pair.Value > AskedFor || pair.Key.Item1 == null) stale.Add(pair.Key);
+                foreach (var key in stale) _asked.Remove(key);
             }
             // Facing walls echo into each other (a canyon's flutter): each to its nearest face-to-face partner.
             foreach (var w in wanted)

@@ -75,9 +75,6 @@ namespace Remedy.Audio
         {
             if (anchor == SoundFieldData.NoAnchor || anchor >= field.Data.Anchors.Count)
                 return;
-            bus = spaces.EchoBus(field, anchor);
-            if (bus == null)
-                return;
             var data = field.Data.Anchors[anchor];
             var wall = field.transform.TransformPoint(data.Position);
             float toWall = Vector3.Distance(world.Position, wall), toListener = Vector3.Distance(wall, world.ListenerPosition);
@@ -86,10 +83,10 @@ namespace Remedy.Audio
             float lag = (toWall + toListener - Vector3.Distance(world.Position, world.ListenerPosition)) / SoundSpaces.SpeedOfSound;
             float gate = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(EchoGateStart, EchoGateFull, lag));
             if (gate <= 0f)
-            {
-                bus = null;
                 return;
-            }
+            bus = spaces.RequestEcho(field, anchor);
+            if (bus == null)
+                return;
             delay = (int)((toWall + toListener) / SoundSpaces.SpeedOfSound * spaces.Rate);
             gain = data.Reflectivity / (1f + toWall / 25f) * Mathf.Clamp01(EchoAmount) * gate * SoundSpaces.Exaggerate;
         }
