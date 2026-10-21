@@ -230,7 +230,7 @@ namespace Remedy.Vehicles
         public float SelfRightLift = 3f;
 
         [Header("Feedback")]
-        [Tooltip("Impacts slower than this (m/s) don't send On Crash.")]
+        [Tooltip("Direction-adjusted impacts slower than this (m/s) don't send On Crash. Impacts aligned with the car's up/down axis count less than side-on impacts.")]
         public float MinCrashSpeed = 4f;
         [Tooltip("Shorter time in the air than this (seconds) doesn't send On Landed (bumps).")]
         public float MinAirTimeForLanding = 0.3f;

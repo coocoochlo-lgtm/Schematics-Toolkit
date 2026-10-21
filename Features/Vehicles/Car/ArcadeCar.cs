@@ -196,8 +196,8 @@ namespace Remedy.Vehicles
         [OutputSignal, NetworkSync(SignalSender.Anyone)]
         public readonly SignalHandle OnRighted;
 
-        [SchematicDoc(@"{""name"": ""OnCrash"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""output"", ""params"": [{""name"": ""Speed"", ""type"": ""float""}], ""description"": ""Sent when the car hits something (or something hits it) faster than the Properties' Min Crash Speed, with the impact speed in m/s. For damage, sounds and camera shake."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock).""}")]
-        [Tooltip("Sent when the car hits something faster than Min Crash Speed, with the impact speed in m/s.")]
+        [SchematicDoc(@"{""name"": ""OnCrash"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""output"", ""params"": [{""name"": ""Speed"", ""type"": ""float""}], ""description"": ""Sent when the direction-adjusted impact speed exceeds Properties' Min Crash Speed. Impacts aligned with the car's up/down axis count less. The adjusted speed is passed in m/s. For damage, sounds and camera shake."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock).""}")]
+        [Tooltip("Sent when the direction-adjusted impact speed exceeds Min Crash Speed. Impacts aligned with the car's up/down axis count less; the adjusted speed is passed in m/s.")]
         [OutputSignal, NetworkSync(SignalSender.Anyone)]
         [Parameter("Speed", typeof(float))]
         public readonly SignalHandle<float> OnCrash;
@@ -1227,6 +1227,11 @@ namespace Remedy.Vehicles
             var p = Properties.Value;
             var wheels = Wheels.Value;
             var state = _state.Value;
+            Vector3 impactDirection = impact.Direction.normalized;
+            float crashRatio = impactDirection.sqrMagnitude > 0.001f
+                ? Mathf.Clamp01(1f - Mathf.Abs(Vector3.Dot(impactDirection, Self.Transform.up)))
+                : 1f;
+            float crashSpeed = impact.Speed * crashRatio;
             if (p != null && wheels != null && state != null && state.Wheels.Length == wheels.Length
                 && wheels.Length > 0 && !IsProxy(Self))
             {
@@ -1247,12 +1252,12 @@ namespace Remedy.Vehicles
                     var body = Self.GetComponent<Box3DBody>();
                     float mass = p.Mass > 0f ? p.Mass : body != null && body.IsLive() ? body.Body.GetMass() : 0f;
                     float massShare = mass / wheels.Length;
-                    ApplyWheelTargetSpeedLoss(ref state.Wheels[nearestWheel], impact.Speed, massShare, p, 1f);
+                    ApplyWheelTargetSpeedLoss(ref state.Wheels[nearestWheel], crashSpeed, massShare, p, 1f);
                 }
             }
             // Whoever simulates the car reports crashes (OnCrash is networked), so proxies don't add their own.
-            if (p != null && impact.Speed >= p.MinCrashSpeed && !IsProxy(Self))
-                OnCrash.Invoke(Self, impact.Speed);
+            if (p != null && crashSpeed >= p.MinCrashSpeed && !IsProxy(Self))
+                OnCrash.Invoke(Self, crashSpeed);
         }
 
         private static void ApplyWheelTargetSpeedLoss(ref WheelState wheel, float impactSpeed, float wheelMass,

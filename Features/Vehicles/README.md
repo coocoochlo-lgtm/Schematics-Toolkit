@@ -158,6 +158,10 @@ The body is a real Box3D body, so it can roll, tumble and land on its roof. How 
 - **Air Level Strength / Damping**: levelling and damping in the air. **Air Control** applies steering as roll about
   the car's forward axis and signed Target Speed as pitch about its right axis, using forces at ungrounded tire
   anchors; it only runs when really airborne, not when lying on its roof.
+- **On Crash** uses a direction-adjusted impact speed: impacts aligned with the car's local up/down axis count less,
+  while side-on impacts retain their full speed. This helps prevent curved-ground contact from being treated as a
+  crash. **Min Crash Speed** is compared against this adjusted speed, which is also sent with the signal and used
+  for wheel impact slowdown.
 - **Torque Guard Max Angular Acceleration / Blend Time** caps and smooths the combined rotational effect of the car's
   tire forces and handling assists. The requested rotation still contributes, but a sudden spike is limited and
   blended instead of jolting the chassis. 0 max acceleration disables the cap; external collision impulses are
@@ -171,7 +175,7 @@ The body is a real Box3D body, so it can roll, tumble and land on its roof. How 
 For a car that flips like a real one, use the **Physical** preset: stabilizing, levelling and self-righting at 0,
 Tyre Force Height 0.15, real-ish tyre limits.
 
-Also: **On Crash** (impact speed, above **Min Crash Speed**), **On Landed** (air time), and the variables
+Also: **On Crash** (direction-adjusted impact speed, above **Min Crash Speed**), **On Landed** (air time), and the variables
 **Speed** (km/h), **Forward Speed** (m/s, negative reversing), **Is Grounded**, **Grounded Wheels**,
 **Is Drifting**, **Drift Angle**, **Drift Charge**, **Drift Level**, **Is Boosting**, **Air Time**.
 
