@@ -902,11 +902,11 @@ namespace Remedy.Vehicles
                     - rollPitchVelocity * uprightDamping) * (uprightSupport * state.UprightBlend);
             }
             // Keep surface-following roll/pitch independent of suspension visuals and steering yaw.
-            if (isGrounded && p.GroundedTorqueCompensation > 0f)
+            if (isGrounded && p.GroundPlaneTorqueCompensation > 0f)
             {
                 float supportBlend = Mathf.InverseLerp(1f, 2f, grounded);
                 stabilizationCompensation = -Vector3.ProjectOnPlane(wheelForceTorque, groundNormal)
-                    * (Mathf.Clamp01(p.GroundedTorqueCompensation) * supportBlend);
+                    * (Mathf.Clamp01(p.GroundPlaneTorqueCompensation) * supportBlend);
             }
 
             Vector3 airControlTorque = Vector3.zero;
