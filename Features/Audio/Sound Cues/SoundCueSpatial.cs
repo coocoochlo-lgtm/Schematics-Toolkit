@@ -47,9 +47,10 @@ namespace Remedy.Audio
                 var room = UseRooms ? spaces.RoomAt(world.Position) : null;
                 if (room != null)
                 {
-                    // In a room: the room rings (and keeps ringing after the sound's gone).
-                    sends = new SpaceSends { Room = room.Bus, RoomGain = room.Acoustics.Wet };
-                    inRoom = true;
+                    // In a room: the room rings (and keeps ringing after the sound's gone). The sound only hands its own
+                    // reverb over once the room's is playing and taking its sends in time; until then it keeps both.
+                    sends = new SpaceSends { Room = room.Bus, RoomGain = room.Acoustics.Wet * SoundSpaces.Exaggerate };
+                    inRoom = room.Bus != null && room.Bus.Healthy;
                 }
                 else if (EchoAmount > 0f && SoundField.TryGetCell(world.Position, out var field, out int index) && field.Data.TryGet(index, out var cell))
                 {
@@ -60,7 +61,13 @@ namespace Remedy.Audio
             }
             Volatile.Write(ref Sends, sends);
             Shape(place, inRoom);
+            // Testing (the Sound Spaces window's Exaggerate): the effect's own amount too (index 2 is it, in both).
+            if (SoundSpaces.Exaggerate != 1f)
+                Set(WetIndex, Mathf.Clamp01(Volatile.Read(ref Targets[WetIndex]) * SoundSpaces.Exaggerate));
         }
+
+        /// <summary>Which of the targets is the effect's own amount (Exaggerate scales it).</summary>
+        protected const int WetIndex = 2;
 
         // An echo wall the place can see: its bus (if it's one of the live ones), the path's delay and how much it
         // throws back (more for reflective walls, less the farther the sound is from it).
@@ -75,7 +82,7 @@ namespace Remedy.Audio
             var wall = field.transform.TransformPoint(data.Position);
             float toWall = Vector3.Distance(world.Position, wall), toListener = Vector3.Distance(wall, world.ListenerPosition);
             delay = (int)((toWall + toListener) / SoundSpaces.SpeedOfSound * spaces.Rate);
-            gain = data.Reflectivity / (1f + toWall / 25f) * Mathf.Clamp01(EchoAmount);
+            gain = data.Reflectivity / (1f + toWall / 25f) * Mathf.Clamp01(EchoAmount) * SoundSpaces.Exaggerate;
         }
 
         protected void Set(int index, float value) => Volatile.Write(ref Targets[index], value);

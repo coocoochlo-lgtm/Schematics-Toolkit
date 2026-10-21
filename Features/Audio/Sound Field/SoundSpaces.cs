@@ -188,6 +188,10 @@ namespace Remedy.Audio
                 _partner = null;
             }
             Interlocked.Exchange(ref _lastWrite, long.MinValue);
+            Interlocked.Exchange(ref _accepted, 0);
+            Interlocked.Exchange(ref _late, 0);
+            Interlocked.Exchange(ref _early, 0);
+            Volatile.Write(ref _peak, 0f);
             gameObject.SetActive(true);
         }
 
@@ -226,6 +230,28 @@ namespace Remedy.Audio
         /// <summary>The audio-clock sample it's playing now (below 0 before it starts).</summary>
         public long ReadHead => Interlocked.Read(ref _readHead);
 
+        // What the debug window shows: sends taken in time, too late (already played) or too early (beyond the ring), how
+        // far ahead the last one was, and how loud the bus is.
+        private long _accepted, _late, _early;
+        private float _lead, _peak;
+
+        /// <summary>Sends taken in time.</summary>
+        public long Accepted => Interlocked.Read(ref _accepted);
+        /// <summary>Sends dropped because they arrived after their moment had already played.</summary>
+        public long Late => Interlocked.Read(ref _late);
+        /// <summary>Sends dropped because they were further ahead than the bus can hold.</summary>
+        public long Early => Interlocked.Read(ref _early);
+        /// <summary>How far ahead of being heard the latest send arrived, in seconds.</summary>
+        public float LeadSeconds => Volatile.Read(ref _lead);
+        /// <summary>How loud the bus is (its peak, fading), 0 to 1-ish.</summary>
+        public float Peak => Volatile.Read(ref _peak);
+        /// <summary>Playing (its first audio callback has come).</summary>
+        public bool Running => ReadHead >= 0;
+        /// <summary>
+        /// Playing, and taking sends in time rather than dropping them: what a sound needs to hand its reverb over to it.
+        /// </summary>
+        public bool Healthy => Running && Late <= Accepted;
+
         /// <summary>The audio-clock sample of the latest send (long.MinValue when none).</summary>
         public long LastWrite => Interlocked.Read(ref _lastWrite);
 
@@ -243,8 +269,18 @@ namespace Remedy.Audio
             lock (_lock)
             {
                 long head = _readHead;
-                if (head < 0 || at < head || at + count >= head + RingSize - 4096)
+                if (head < 0 || at < head)
+                {
+                    if (head >= 0) Interlocked.Increment(ref _late);
                     return;
+                }
+                if (at + count >= head + RingSize - 4096)
+                {
+                    Interlocked.Increment(ref _early);
+                    return;
+                }
+                Interlocked.Increment(ref _accepted);
+                Volatile.Write(ref _lead, (at - head) / (float)Mathf.Max(1, _rate));
                 float step = (gainTo - gainFrom) / count;
                 for (int i = 0; i < count; i++)
                     _ring[(at + i) & RingMask] += block[i] * (gainFrom + step * i);
@@ -289,6 +325,10 @@ namespace Remedy.Audio
                 partnerDelay = _partnerDelay;
                 partnerGain = _partnerGain;
             }
+            float peak = Volatile.Read(ref _peak) * 0.9f;
+            for (int f = 0; f < frames; f++)
+                peak = Mathf.Max(peak, Mathf.Abs(_scratch[f]));
+            Volatile.Write(ref _peak, peak);
             for (int f = 0; f < frames; f++)
             {
                 float sample = _scratch[f];
@@ -354,6 +394,20 @@ namespace Remedy.Audio
         public const float SpeedOfSound = 343f;
 
         private static SoundSpaces _instance;
+
+        /// <summary>
+        /// Multiplies every spatial effect (sounds' place reverb and slapback, and what they send to rooms and echo walls),
+        /// for hearing clearly whether they work. 1 is as designed. Set from the Sound Spaces debug window.
+        /// </summary>
+        public static float Exaggerate = 1f;
+
+        /// <summary>The room reverbs (in use or idle).</summary>
+        public IReadOnlyList<SpaceBus> RoomBuses => _rooms;
+        /// <summary>The echo walls (in use or idle).</summary>
+        public IReadOnlyList<SpaceBus> EchoBuses => _echoes;
+
+        /// <summary>The spaces, if they've been made (doesn't make them).</summary>
+        public static SoundSpaces Current => _instance;
         private readonly List<SpaceBus> _rooms = new();
         private readonly List<SpaceBus> _echoes = new();
         private readonly Dictionary<SoundField, (SoundFieldData data, int[] regionOf, List<AcousticRoom> rooms)> _fields = new();
@@ -378,7 +432,28 @@ namespace Remedy.Audio
         }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-        private static void ResetStatics() => _instance = null;
+        private static void ResetStatics()
+        {
+            _instance = null;
+            Exaggerate = 1f;
+        }
+
+        // Rooms and echo walls in the Scene view while playing: brighter the louder they are.
+        private void OnDrawGizmos()
+        {
+            foreach (var bus in _rooms)
+            {
+                if (!(bus.Owner is AcousticRoom room)) continue;
+                Gizmos.color = Color.Lerp(new Color(0.4f, 0.6f, 1f, 0.35f), new Color(1f, 0.4f, 0.8f, 1f), Mathf.Clamp01(bus.Peak * 4f));
+                Gizmos.DrawWireSphere(room.Center, room.Radius);
+            }
+            foreach (var bus in _echoes)
+            {
+                if (bus.Owner == null) continue;
+                Gizmos.color = Color.Lerp(new Color(1f, 0.85f, 0.3f, 0.4f), new Color(1f, 0.4f, 0.2f, 1f), Mathf.Clamp01(bus.Peak * 4f));
+                Gizmos.DrawSphere(bus.transform.position, 1f + bus.Peak * 6f);
+            }
+        }
 
         public Vector3 ListenerPosition
         {
