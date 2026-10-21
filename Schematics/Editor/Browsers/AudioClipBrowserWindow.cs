@@ -593,7 +593,7 @@ namespace Remedy.Schematics.Browsers
 
             public void ShowTime(float seconds)
             {
-                Time.text = Length < 0f ? "" : Length > 0f ? FormatTime(seconds) + " / " + FormatTime(Length) : FormatTime(seconds) + " / endless";
+                Time.text = Length < 0f ? "" : Length > 0f ? FormatCueTime(seconds, Length) + " / " + FormatCueTime(Length, Length) : FormatCueTime(seconds, 60f) + " / endless";
                 Handle.style.display = Length > 0f ? DisplayStyle.Flex : DisplayStyle.None;
             }
         }
@@ -678,7 +678,8 @@ namespace Remedy.Schematics.Browsers
                 if (player.Scrubbing) continue;
                 if (voice != null && IsPlayingCue(player.Cue))
                 {
-                    float t = voice.Time;
+                    // As heard: the voice itself renders ahead (a short cue all at once).
+                    float t = Remedy.Audio.SoundCuePreview.HeardTime;
                     player.SetFraction(player.Length > 0f ? t / player.Length : 0f);
                     player.ShowTime(player.Length > 0f ? Mathf.Min(t, player.Length) : t);
                 }
@@ -689,6 +690,10 @@ namespace Remedy.Schematics.Browsers
                 }
             }
         }
+
+        // Cue times: short cues (most sound effects) in seconds with hundredths, long ones as minutes:seconds.
+        private static string FormatCueTime(float seconds, float length)
+            => length < 60f ? $"{Mathf.Max(0f, seconds):0.00}s" : FormatTime(seconds);
 
         private void BeginRenameCue(Remedy.Audio.SoundCueGraph cue, Label label)
         {
@@ -707,7 +712,7 @@ namespace Remedy.Schematics.Browsers
         // one), kept until the cue is edited.
         private (Texture2D waveform, float length) CueWaveform(Remedy.Audio.SoundCueGraph cue)
         {
-            int dirty = EditorUtility.GetDirtyCount(cue);
+            int dirty = Remedy.Audio.SoundCueVoicePool.Version(cue); // its edits, and those of cues played inside it
             if (_cueWaveforms.TryGetValue(cue, out var cached) && cached.dirty == dirty && cached.waveform != null)
                 return (cached.waveform, cached.length);
 

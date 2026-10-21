@@ -309,9 +309,10 @@ namespace Remedy.Audio
                         Refresh();
                     return;
                 }
+                float heard = SoundCuePreview.HeardTime;
                 if (!endless && !_scrubbing)
-                    _timeline.SetValueWithoutNotify(Mathf.Min(voice.Time, _length));
-                _time.text = !endless ? $"{voice.Time:0.00} / {_length:0.00} s" : $"{voice.Time:0.00} s (endless)";
+                    _timeline.SetValueWithoutNotify(Mathf.Min(heard, _length));
+                _time.text = !endless ? $"{heard:0.00} / {_length:0.00} s" : $"{heard:0.00} s (endless)";
             }
 
             private static string Side(Vector2 p)

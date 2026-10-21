@@ -41,7 +41,24 @@ namespace Remedy.Audio
         /// <summary>The cue being previewed (null when nothing is).</summary>
         public static SoundCueGraph Playing => _player != null && _player.Voice != null ? _player.Cue : null;
 
-        /// <summary>The previewing voice (for its time and warnings), or null.</summary>
+        /// <summary>
+        /// How far into the cue the preview is, as heard, in seconds (0 when nothing's playing). The voice renders ahead
+        /// of what's heard (a whole short cue at once), so its own time runs early: show this one.
+        /// </summary>
+        public static float HeardTime
+        {
+            get
+            {
+                var voice = Voice;
+                if (voice == null || Playing == null)
+                    return 0f;
+                float time = _playedFrom + (float)(EditorApplication.timeSinceStartup - _playedAt);
+                float duration = voice.Context.Duration;
+                return duration > 0f ? Mathf.Clamp(time, 0f, duration) : Mathf.Max(0f, time);
+            }
+        }
+
+        /// <summary>The previewing voice (for its warnings), or null.</summary>
         public static SoundCueVoice Voice => _player != null ? _player.Voice : null;
 
         /// <summary>Raised when a preview starts or stops.</summary>
