@@ -20,8 +20,11 @@ namespace Remedy.Audio
         public const string Folder = "Assets/Content/Audio/Sound Fields";
         /// <summary>Above this many cells, baking asks first.</summary>
         public const int LargeBake = 400_000;
-        /// <summary>Hits nearer than this don't make echo anchors (they're reverb, not echoes).</summary>
-        public const float AnchorMinDistance = 6f;
+        /// <summary>
+        /// Hits nearer than this don't make echo anchors (closer, they're part of the sound itself). Small hard rooms
+        /// echo too: whether a near wall's echo is heard is down to its material (see the Spatial effects' echo gate).
+        /// </summary>
+        public const float AnchorMinDistance = 1.5f;
         /// <summary>The grid hits are gathered into anchors on, in meters.</summary>
         public const float AnchorGrid = 8f;
         public const int MaxAnchors = 64;
@@ -118,7 +121,8 @@ namespace Remedy.Audio
                                 nearest = t;
                                 nearestDirection = (byte)d;
                             }
-                            if (t >= AnchorMinDistance)
+                            // (Not the floor: it's under every sound, and would crowd out the walls.)
+                            if (t >= AnchorMinDistance && geometry.Normal[triangle].y < 0.7f)
                                 AddToBucket(buckets, origin + directions[d] * t, geometry.Normal[triangle], 1f - geometry.Absorption[triangle], geometry.Hardness[triangle]);
                         }
 

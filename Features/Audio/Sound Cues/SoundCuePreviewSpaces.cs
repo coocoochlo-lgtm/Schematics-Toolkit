@@ -154,7 +154,7 @@ namespace Remedy.Audio
 
         // Mirror-image echoes: the sound reflected in a wall's line is heard along the straight path from its image to
         // the listener, if that path crosses the wall itself (and both are on the wall's open side).
-        public override int Echoes(Vector3 position, Vector3 listener, SpaceBus[] buses, float[] paths, float[] reflectivity)
+        public override int Echoes(Vector3 position, Vector3 listener, SpaceBus[] buses, float[] paths, float[] reflectivity, float[] hardness)
         {
             var s = Flat(position);
             var l = Flat(listener);
@@ -173,13 +173,13 @@ namespace Remedy.Audio
                 float score = wall.Reflectivity / (1f + path / 50f);
                 if (score > scoreA)
                 {
-                    if (count > 0) { buses[1] = buses[0]; paths[1] = paths[0]; reflectivity[1] = reflectivity[0]; scoreB = scoreA; }
-                    buses[0] = wall.Bus; paths[0] = path; reflectivity[0] = wall.Reflectivity; scoreA = score;
+                    if (count > 0) { buses[1] = buses[0]; paths[1] = paths[0]; reflectivity[1] = reflectivity[0]; hardness[1] = hardness[0]; scoreB = scoreA; }
+                    buses[0] = wall.Bus; paths[0] = path; reflectivity[0] = wall.Reflectivity; hardness[0] = wall.Hardness; scoreA = score;
                     count = Mathf.Min(2, count + 1);
                 }
                 else if (score > scoreB)
                 {
-                    buses[1] = wall.Bus; paths[1] = path; reflectivity[1] = wall.Reflectivity; scoreB = score;
+                    buses[1] = wall.Bus; paths[1] = path; reflectivity[1] = wall.Reflectivity; hardness[1] = wall.Hardness; scoreB = score;
                     count = 2;
                 }
             }

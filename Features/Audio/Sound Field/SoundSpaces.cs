@@ -229,6 +229,8 @@ namespace Remedy.Audio
             Interlocked.Exchange(ref _resets, 0);
             Interlocked.Exchange(ref _accepted, 0);
             Interlocked.Exchange(ref _late, 0);
+            Interlocked.Exchange(ref _lastAcceptedSend, 0);
+            Interlocked.Exchange(ref _lastLateSend, 0);
             Interlocked.Exchange(ref _early, 0);
             Volatile.Write(ref _peak, 0f);
         }
@@ -377,7 +379,11 @@ namespace Remedy.Audio
         /// <summary>
         /// Playing, and taking sends in time rather than dropping them: what a sound needs to hand its reverb over to it.
         /// </summary>
-        public bool Healthy => Running && Late <= Accepted;
+        public bool Healthy => Running && Interlocked.Read(ref _lastAcceptedSend) >= Interlocked.Read(ref _lastLateSend);
+
+        // Which send (by a running count) was last taken, and last too late: healthy while the latest ones are taken.
+        private static long _sendCount;
+        private long _lastAcceptedSend, _lastLateSend;
 
         /// <summary>
         /// The audio-clock sample the latest sound feeding it was heard until (long.MinValue when none). Blocks passed on
@@ -413,6 +419,7 @@ namespace Remedy.Audio
                 if (at < head)
                 {
                     Interlocked.Increment(ref _late);
+                    Interlocked.Exchange(ref _lastLateSend, Interlocked.Increment(ref _sendCount));
                     return;
                 }
                 if (at + count >= head + RingSize - 4096)
@@ -421,6 +428,7 @@ namespace Remedy.Audio
                     return;
                 }
                 Interlocked.Increment(ref _accepted);
+                Interlocked.Exchange(ref _lastAcceptedSend, Interlocked.Increment(ref _sendCount));
                 Volatile.Write(ref _lead, (at - head) / (float)Mathf.Max(1, _rate));
                 float step = (gainTo - gainFrom) / count;
                 for (int i = 0; i < count; i++)

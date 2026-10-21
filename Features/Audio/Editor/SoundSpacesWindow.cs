@@ -138,7 +138,7 @@ namespace Remedy.Audio
                     ? $"no slapback (the nearest surface, {place.NearestWall:0.0} m, is too close to be heard as an echo)"
                     : "no slapback (the surfaces are soft or absorbent)");
             if (EchoSurfacesInReach(listener) == 0)
-                reasons.Add("no echo surfaces in reach (no big hard surfaces were found 6 m+ away when baking)");
+                reasons.Add($"no echo surfaces in reach (no reflective surfaces were found {SoundFieldBaker.AnchorMinDistance:0.#} m+ away when baking; re-bake after changing materials)");
             return reasons.Count == 0 ? "Reverb, slapback and echoes are all available here." : char.ToUpper(reasons[0][0]) + string.Join("; ", reasons).Substring(1) + ".";
         }
 
