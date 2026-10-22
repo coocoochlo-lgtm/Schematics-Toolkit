@@ -347,6 +347,19 @@ namespace Remedy.Vehicles
         [Tooltip("Damps that twist, so it settles instead of slapping down.")]
         public float FeetDownDamping = 3f;
 
+        [Header("Rollover")]
+        [Range(0f, 1f)]
+        [Tooltip("How uneven the car's load may get across it before it acts (the Load Transfer variable: 0 even, 1 one side carrying everything). Past it, the two below fade in.")]
+        public float RolloverThreshold = 0.6f;
+        [Min(0f)]
+        [Tooltip("At full risk, how fast the car's ground velocity is calmed (per second), at the centre of mass so it can't tip the car. Only the sideways slide unless Rollover Damps All.")]
+        public float RolloverDamping = 4f;
+        [Tooltip("Damp all of the car's ground velocity (it slows down too), not just its sideways slide.")]
+        public bool RolloverDampsAll;
+        [Range(0f, 1f)]
+        [Tooltip("At full risk, how far the sideways grip's push moves up toward the centre of mass height (1 = all the way): it still turns the car, but can't trip it.")]
+        public float RolloverGripLift = 1f;
+
         [Header("Roll Save")]
         [Tooltip("How fast the roll save winds up (per second) while the car is in a big turn. It goes from -1 to 1, so 1 = a full second of big turn before it starts pushing, two to full strength.")]
         public float RollSaveRate = 1f;

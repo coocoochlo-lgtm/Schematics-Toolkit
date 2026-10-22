@@ -31,7 +31,7 @@ namespace Remedy.Vehicles
     /// player (proxies
     /// also update Is Drifting, Drift Level, Is Boosting and Is Flipped from them).
     /// </remarks>
-    [SchematicDoc(@"{""name"": ""Arcade Car"", ""kind"": ""behavior"", ""menu"": ""Vehicles/Arcade Car"", ""description"": ""An arcade car on a real Box3D body: NFS Underground / Mario Kart handling (drifts, mini-turbos, a car that wants to stay on its wheels) while crashes and rollovers are still physics. Tire-sized sphere probes; everything tunable in its Properties asset."", ""variables"": [""Properties"", ""Wheels"", ""AlwaysActive"", ""ParkWhenEmpty"", ""DriverInputs"", ""PlayerDriverOnly"", ""Speed"", ""ForwardSpeed"", ""IsGrounded"", ""GroundedWheels"", ""IsDrifting"", ""DriftAngle"", ""DriftCharge"", ""DriftLevel"", ""IsBoosting"", ""IsFlipped"", ""AirTime"", ""RollSave""], ""signals"": [""Target Speed"", ""Brake"", ""Steer"", ""Drive"", ""Handbrake"", ""Boost"", ""Unflip"", ""OnDriftStarted"", ""OnDriftEnded"", ""OnDriftLevel"", ""OnBoost"", ""OnLanded"", ""OnFlipped"", ""OnRighted"", ""OnCrash""], ""use_for"": [""drivable cars and karts"", ""racing games"", ""AI traffic""], ""notes"": ""Needs a Box3D Body and a shape (added for you). Add Vehicle Seats so it only drives with a driver. Multiplayer: the driver owns and simulates the car; its input Signals are networked from the owner, and drift/boost/flip/crash Signals reach every player for effects.""}")]
+    [SchematicDoc(@"{""name"": ""Arcade Car"", ""kind"": ""behavior"", ""menu"": ""Vehicles/Arcade Car"", ""description"": ""An arcade car on a real Box3D body: NFS Underground / Mario Kart handling (drifts, mini-turbos, a car that wants to stay on its wheels) while crashes and rollovers are still physics. Tire-sized sphere probes; everything tunable in its Properties asset."", ""variables"": [""Properties"", ""Wheels"", ""AlwaysActive"", ""ParkWhenEmpty"", ""DriverInputs"", ""PlayerDriverOnly"", ""Speed"", ""ForwardSpeed"", ""IsGrounded"", ""GroundedWheels"", ""IsDrifting"", ""DriftAngle"", ""DriftCharge"", ""DriftLevel"", ""IsBoosting"", ""IsFlipped"", ""AirTime"", ""RollSave"", ""LoadTransfer""], ""signals"": [""Target Speed"", ""Brake"", ""Steer"", ""Drive"", ""Handbrake"", ""Boost"", ""Unflip"", ""OnDriftStarted"", ""OnDriftEnded"", ""OnDriftLevel"", ""OnBoost"", ""OnLanded"", ""OnFlipped"", ""OnRighted"", ""OnCrash""], ""use_for"": [""drivable cars and karts"", ""racing games"", ""AI traffic""], ""notes"": ""Needs a Box3D Body and a shape (added for you). Add Vehicle Seats so it only drives with a driver. Multiplayer: the driver owns and simulates the car; its input Signals are networked from the owner, and drift/boost/flip/crash Signals reach every player for effects.""}")]
     [SchematicBehaviorPath("Vehicles/Arcade Car")]
     [NetworkOwnerSimulated]
     [RequireComponent(typeof(Box3DBody), typeof(Box3DBoxShape), typeof(SchematicImpactRelay))]
@@ -111,6 +111,10 @@ namespace Remedy.Vehicles
         [SchematicDoc(@"{""name"": ""RollSave"", ""kind"": ""variable"", ""behavior"": ""Arcade Car"", ""type"": ""float"", ""default"": ""-1"", ""description"": ""The roll save, -1 to 1: climbs while the car is in a big turn (or tipping), falls back otherwise. Past 0 it pushes the car back onto its wheels, harder the higher it gets. For tyre squeal or a wobble effect. Read-only.""}")]
         [Tooltip("The roll save, -1 to 1: climbs in a big turn, and past 0 pushes the car back onto its wheels. Read-only.")]
         public readonly VariableHandle<float> RollSave = -1f;
+
+        [SchematicDoc(@"{""name"": ""LoadTransfer"", ""kind"": ""variable"", ""behavior"": ""Arcade Car"", ""type"": ""float"", ""default"": ""0"", ""description"": ""How unevenly the car's weight sits across it, -1 to 1: 0 evenly (whatever the slope), toward 1 all on the right tyres (the left about to lift), toward -1 all on the left. Past Rollover Threshold the car calms its slide and its grip stops tipping it. For tyre squeal or a tipping warning. Read-only.""}")]
+        [Tooltip("How unevenly the weight sits across the car, -1 (all on the left tyres) to 1 (all on the right). Read-only.")]
+        public readonly VariableHandle<float> LoadTransfer = 0f;
 
         // Everything else that changes per step, in one place per spawned car.
         private readonly VariableHandle<CarState> _state = (CarState)null;
@@ -768,6 +772,15 @@ namespace Remedy.Vehicles
                     sharedGroundNormal = agreeing.normalized;
             }
             Vector3 sharedGroundPoint = grounded > 0 ? groundPointSum / grounded : Vector3.zero;
+            // Rollover risk (from last step's load transfer): 0 below Rollover Threshold, 1 with one side's tyres
+            // carrying everything.
+            float rolloverRisk = p.RolloverThreshold < 1f
+                ? Mathf.Clamp01((Mathf.Abs(state.LoadTransfer) - p.RolloverThreshold) / (1f - p.RolloverThreshold))
+                : 0f;
+            // At risk the sideways grip pushes higher, toward the centre of mass height: it turns the car as hard
+            // but can't trip it.
+            float sideForceHeight = Mathf.Lerp(p.SideForceHeight, 1f, rolloverRisk * Mathf.Clamp01(p.RolloverGripLift));
+            float loadLeft = 0f, loadRight = 0f;
             float virtualGroundWeight = grounded > 0 ? Mathf.Clamp01((float)grounded / Mathf.Max(1f, wheelCount)) : 0f;
 
             for (int i = 0; i < wheels.Length; i++)
@@ -866,6 +879,11 @@ namespace Remedy.Vehicles
                 // falls at once, so a tyre leaving the ground lets go.
                 springAcceleration = Mathf.Min(springAcceleration, w.SpringPush + springMaxRise);
                 w.SpringPush = springAcceleration;
+                float carried = springAcceleration * forceWeight;
+                if (Vector3.Dot(origin - centerOfMass, right) >= 0f)
+                    loadRight += carried;
+                else
+                    loadLeft += carried;
                 Vector3 suspensionForce = suspensionUp * (springAcceleration * massShare * forceWeight);
                 native.ApplyForce(suspensionForce, origin, true);
                 wheelForceTorque += Vector3.Cross(origin - centerOfMass, suspensionForce);
@@ -923,7 +941,7 @@ namespace Remedy.Vehicles
                 // (Engine and brakes at Tyre Force Height; sideways grip at Side Force Height, the one that rolls the car.)
                 float heightToCenter = Vector3.Dot(centerOfMass - contactPoint, up);
                 Vector3 at = contactPoint + up * (heightToCenter * p.TyreForceHeight);
-                Vector3 sideAt = contactPoint + up * (heightToCenter * p.SideForceHeight);
+                Vector3 sideAt = contactPoint + up * (heightToCenter * sideForceHeight);
                 Vector3 rollForce = rollDirection * (rollAcceleration * massShare * forceWeight);
                 Vector3 sideForce = sideDirection * (sideAcceleration * massShare * forceWeight);
                 Vector3 tyreForce = rollForce + sideForce;
@@ -979,6 +997,24 @@ namespace Remedy.Vehicles
                 ? Vector3.Dot(acceleration, Vector3.Cross(groundNormal, planeForward))
                 : 0f;
             state.LateralAcceleration = Mathf.Lerp(state.LateralAcceleration, lateral, 1f - Mathf.Exp(-dt / 0.1f));
+
+            // Load transfer (see the LoadTransfer variable), lightly smoothed.
+            float transfer = loadLeft + loadRight > 0.5f ? (loadRight - loadLeft) / (loadLeft + loadRight) : 0f;
+            state.LoadTransfer = Mathf.Lerp(state.LoadTransfer, transfer, 1f - Mathf.Exp(-dt / 0.05f));
+            LoadTransfer.Value = state.LoadTransfer;
+
+            // Rollover damping: at risk, the car's ground velocity (only the sideways slide, unless Rollover Damps
+            // All) is calmed at the centre of mass, which can't tip it, more the more at risk. Not in arcade drifts
+            // (their slide is the point).
+            if (isGrounded && !arcadeDrift && rolloverRisk > 0f && p.RolloverDamping > 0f)
+            {
+                Vector3 groundVelocity = Vector3.ProjectOnPlane(velocity, groundNormal);
+                Vector3 calmed = p.RolloverDampsAll
+                    ? groundVelocity
+                    : Vector3.Project(groundVelocity, Vector3.ProjectOnPlane(right, groundNormal).normalized);
+                float fraction = 1f - Mathf.Exp(-p.RolloverDamping * rolloverRisk * dt);
+                native.ApplyForceToCenter(-calmed * (fraction / dt * mass), true);
+            }
 
             // Cornering drag: turning costs speed, in proportion to how hard (tyres scrubbing). Arcade drifts have
             // their own (Drift Speed Loss).
