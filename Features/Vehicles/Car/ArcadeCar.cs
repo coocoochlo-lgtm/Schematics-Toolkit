@@ -700,7 +700,12 @@ namespace Remedy.Vehicles
                 0.9f / dt);
             // After an arcade drift the tyres grip again gradually, so the car slides out of it instead of snapping.
             // After a bounce the tyres grip again gradually too, so they don't snap the car round as it lands.
-            state.BounceGrip = Mathf.MoveTowards(state.BounceGrip, 1f, p.BounceGripTime > 0f ? dt / p.BounceGripTime : 1f);
+            // While a bounce is in control (Bounce Align Time) it owns the car's motion: the tyres' grip, engine and
+            // sticky force, the drift and the driving assists stand aside, so nothing pushes against it (the
+            // springs still hold the car up). Grip starts coming back once it lets go.
+            bool bounceHeld = state.BounceAlignTime > 0f;
+            if (!bounceHeld)
+                state.BounceGrip = Mathf.MoveTowards(state.BounceGrip, 1f, p.BounceGripTime > 0f ? dt / p.BounceGripTime : 1f);
             state.DriftGripReturn = arcadeDrift ? 0f
                 : Mathf.MoveTowards(state.DriftGripReturn, 1f, p.DriftExitTime > 0f ? dt / p.DriftExitTime : 1f);
             float contactMaxAngle = p.ContactNormalMaxAngle > 0f ? p.ContactNormalMaxAngle * Mathf.Deg2Rad : Mathf.PI;
@@ -923,7 +928,7 @@ namespace Remedy.Vehicles
                 Vector3 contactVelocity = native.GetWorldPointVelocity(contactPoint);
                 Vector3 stickyForce = Vector3.zero;
                 if (p.StickyForce > 0f && speedFraction >= Mathf.Clamp01(p.StickyThreshold))
-                    stickyForce = -normal * (p.StickyForce * Mathf.Abs(forwardSpeed) * massShare * forceWeight);
+                    stickyForce = -normal * (p.StickyForce * Mathf.Abs(forwardSpeed) * massShare * forceWeight * (bounceHeld ? 0f : 1f));
                 native.ApplyForce(stickyForce, contactPoint, true);
                 wheelForceTorque += Vector3.Cross(contactPoint - centerOfMass, stickyForce);
                 if (actualGrounded && !wasGrounded)
@@ -958,6 +963,11 @@ namespace Remedy.Vehicles
                     rollAcceleration -= rollSpeed * p.RollingResistance;
                 if (arcadeDrift)
                     rollAcceleration = 0f; // pushed along the drift's heading instead (below)
+                if (bounceHeld)
+                {
+                    rollAcceleration = 0f; // the bounce holds the car's motion (below)
+                    sideAcceleration = 0f;
+                }
 
                 // Pushed somewhere between the road (rolls the car) and the centre of mass height (doesn't).
                 // (Engine and brakes at Tyre Force Height; sideways grip at Side Force Height, the one that rolls the car.)
@@ -1029,7 +1039,7 @@ namespace Remedy.Vehicles
             // Rollover damping: at risk, the car's ground velocity (only the sideways slide, unless Rollover Damps
             // All) is calmed at the centre of mass, which can't tip it, more the more at risk. Not in arcade drifts
             // (their slide is the point).
-            if (isGrounded && !arcadeDrift && rolloverRisk > 0f && p.RolloverDamping > 0f)
+            if (isGrounded && !arcadeDrift && !bounceHeld && rolloverRisk > 0f && p.RolloverDamping > 0f)
             {
                 Vector3 groundVelocity = Vector3.ProjectOnPlane(velocity, groundNormal);
                 Vector3 calmed = p.RolloverDampsAll
@@ -1041,7 +1051,7 @@ namespace Remedy.Vehicles
 
             // Cornering drag: turning costs speed, in proportion to how hard (tyres scrubbing). Arcade drifts have
             // their own (Drift Speed Loss).
-            if (isGrounded && !arcadeDrift && p.CorneringDrag > 0f && planarSpeed > 0.5f)
+            if (isGrounded && !arcadeDrift && !bounceHeld && p.CorneringDrag > 0f && planarSpeed > 0.5f)
             {
                 float scrub = Mathf.Min(Mathf.Abs(state.LateralAcceleration) * p.CorneringDrag, planarSpeed / dt);
                 native.ApplyForceToCenter(-planarVelocity / planarSpeed * (scrub * mass), true);
@@ -1121,7 +1131,7 @@ namespace Remedy.Vehicles
             }
 
             // Drift: the steering swings the tail, the counter-steer stops a spin, and the speed follows the nose.
-            if (drifting && isGrounded && !arcadeDrift)
+            if (drifting && isGrounded && !arcadeDrift && !bounceHeld)
             {
                 float yaw = state.Steer * p.DriftSteerAssist + state.DriftDirection * p.DriftAutoTurn;
                 float excess = Mathf.Abs(driftAngle) - p.DriftMaxAngle;
@@ -1140,7 +1150,7 @@ namespace Remedy.Vehicles
                 }
             }
 
-            state.DriftHeadingActive = arcadeDrift && isGrounded;
+            state.DriftHeadingActive = arcadeDrift && isGrounded && !bounceHeld;
             if (state.DriftHeadingActive)
                 ApplyArcadeDrift(native, p, state, groundNormal, forward, velocity, angularVelocity,
                     driveAcceleration, brakeDeceleration, topSpeed, mass, dt, ref angular);
@@ -1153,19 +1163,6 @@ namespace Remedy.Vehicles
                 ApplyBounce(instance, native, p, state, previousVelocity, velocity, groundNormal, isGrounded,
                     centerOfMass, forward);
             }
-            // (A Spin Kick wants it spinning: nothing steadies or turns it then.)
-            if (state.BounceAlignTime > 0f && p.BounceSpinKick <= 0f)
-            {
-                state.BounceAlignTime -= dt;
-                float yawRate = Vector3.Dot(angularVelocity, groundNormal);
-                float error = 0f;
-                Vector3 nose = Vector3.ProjectOnPlane(forward, groundNormal);
-                Vector3 wanted = Vector3.ProjectOnPlane(state.BounceAlignDirection, groundNormal);
-                if (state.BounceAlignHasDirection && nose.sqrMagnitude > 0.001f && wanted.sqrMagnitude > 0.001f)
-                    error = Vector3.SignedAngle(nose, wanted, groundNormal) * Mathf.Deg2Rad;
-                angular += groundNormal * (error * 20f * p.BounceAlign - yawRate * Mathf.Max(6f, 4f * p.BounceAlign));
-            }
-
             // Flipped: report it, and turn back over after a while (or on Unflip).
             UpdateFlipped(instance, p, state, up, worldUp, velocity.magnitude, dt, out bool righting);
             Vector3 rollSpin = Vector3.zero;
@@ -1229,12 +1226,20 @@ namespace Remedy.Vehicles
             state.GroundPlanePoint = sharedGroundPoint;
             state.GroundTargetUp = state.UprightBlend > 0f ? state.UprightNormal : targetUp;
 
+            // A bounce in control: the assists' own turning stands aside (the bounce holds the spin below).
+            if (bounceHeld && !righting)
+                angular = Vector3.zero;
             Vector3 requestedTorque = wheelForceTorque + stabilizationCompensation
                 + (Vector3)Torque(angular, rotation, state) + airControlTorque;
             Vector3 guardedAngularAcceleration = ApplyTorqueGuard(native, requestedTorque, p, dt, rotation, state);
             // The auto-roll is a move, not a push: it sets the spin that follows its path, so the floor can't stall it.
             if (autoRolling)
                 native.SetAngularVelocity((float3)rollSpin);
+            // The bounce in control: each step it reads how the car is actually moving and pushes back by the
+            // difference from how the bounce wants it to move (within Bounce Hold Acceleration), whatever is
+            // pushing (tyres, the wall, the guard's leftovers). Applied after the torque guard, so it isn't delayed.
+            else if (bounceHeld)
+                HoldBounce(native, p, state, velocity, angularVelocity, groundNormal, forward, rotation, mass, dt);
             state.LastGuardedAngularAcceleration = guardedAngularAcceleration;
             state.LastTireAngularAcceleration = AngularAcceleration(wheelForceTorque, rotation, state);
             state.LastStabilizationAngularAcceleration = AngularAcceleration(stabilizationCompensation, rotation, state);
@@ -1344,6 +1349,8 @@ namespace Remedy.Vehicles
                 result += planeUp * Mathf.Max(0f, hop - rising);
             }
             body.SetLinearVelocity((float3)result);
+            state.BounceTargetVelocity = along + away * push;
+            state.TorqueGuardAcceleration = Vector3.zero; // nothing smoothed from before the hit carries over
 
             // The hit's own spin goes: the physics gives an off-centre hit a twist, and with the car hopped off its
             // tyres (and their grip eased) nothing stopped it, so a head-on hit could spin it round and round.
@@ -1377,6 +1384,32 @@ namespace Remedy.Vehicles
             state.WobbleSquashSpeed += Mathf.Min(state.BounceSpeed * share * p.BodySquash, 0.3f) * wobble;
 
             OnBounce.Invoke(instance, state.BounceSpeed * share);
+        }
+
+        // The bounce holding the car: its ground velocity on the bounce's (the slide along the wall plus the push
+        // away), its roll and pitch still, and its yaw either still or easing the nose along the wall. Counter-forces
+        // for the difference each step, capped at Bounce Hold Acceleration so it stays physical.
+        private static void HoldBounce(Body body, ArcadeCarProperties p, CarState state, Vector3 velocity,
+            Vector3 angularVelocity, Vector3 planeUp, Vector3 forward, Quaternion rotation, float mass, float dt)
+        {
+            state.BounceAlignTime -= dt;
+            float most = Mathf.Max(1f, p.BounceHoldAcceleration);
+
+            Vector3 planar = Vector3.ProjectOnPlane(velocity, planeUp);
+            Vector3 wanted = Vector3.ProjectOnPlane(state.BounceTargetVelocity, planeUp);
+            Vector3 fix = Vector3.ClampMagnitude((wanted - planar) / dt, most);
+            body.ApplyForceToCenter((float3)(fix * mass), true);
+
+            float wantedYaw = 0f;
+            Vector3 nose = Vector3.ProjectOnPlane(forward, planeUp);
+            Vector3 along = Vector3.ProjectOnPlane(state.BounceAlignDirection, planeUp);
+            if (state.BounceAlignHasDirection && p.BounceSpinKick <= 0f && nose.sqrMagnitude > 0.001f && along.sqrMagnitude > 0.001f)
+                wantedYaw = Mathf.Clamp(Vector3.SignedAngle(nose, along, planeUp) * Mathf.Deg2Rad * 8f * p.BounceAlign, -6f, 6f);
+            Vector3 wantedSpin = planeUp * wantedYaw;
+            if (p.BounceSpinKick > 0f)
+                wantedSpin = planeUp * Vector3.Dot(angularVelocity, planeUp); // a Spin Kick keeps its swing
+            Vector3 spinFix = Vector3.ClampMagnitude((wantedSpin - angularVelocity) / dt, most);
+            body.ApplyTorque(Torque(spinFix, rotation, state), true);
         }
 
         private void UpdateDrift(BehaviorInstance instance, ArcadeCarProperties p, CarState state, bool active, bool handbrake,
@@ -2188,6 +2221,7 @@ namespace Remedy.Vehicles
         public Vector3 BounceAway, BouncePoint, BounceAlignDirection;
         public float BounceSpeed, BounceReadyTime, BounceAlignTime;
         public bool BounceAlignHasDirection;
+        public Vector3 BounceTargetVelocity;
         public float BounceGrip = 1f;
         public Quaternion BodyRestRotation;
         public Vector3 BodyRestScale = Vector3.one;

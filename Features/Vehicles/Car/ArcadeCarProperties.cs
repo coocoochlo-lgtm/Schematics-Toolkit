@@ -404,8 +404,11 @@ namespace Remedy.Vehicles
         [Tooltip("How firmly the nose turns along the wall after a bounce, so it lands pointing down the road. 0 = off.")]
         public float BounceAlign = 1f;
         [Min(0f)]
-        [Tooltip("How long it turns the nose (seconds).")]
+        [Tooltip("How long the bounce is in control (seconds): it holds the car's motion (the slide and push, no spin, the nose easing along the wall) while the tyres and assists stand aside.")]
         public float BounceAlignTime = 0.35f;
+        [Min(1f)]
+        [Tooltip("The hardest the bounce may push to hold the car's motion (m/s² and rad/s²), so it stays physical against the wall and the tyres.")]
+        public float BounceHoldAcceleration = 80f;
         [Range(0f, 1f)]
         [Tooltip("How much grip the tyres lose right after a bounce (returning over Bounce Grip Time), so they don't snap the car round as it lands.")]
         public float BounceGripEase = 0.6f;
