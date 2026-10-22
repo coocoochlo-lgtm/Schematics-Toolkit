@@ -717,16 +717,35 @@ namespace Remedy.Vehicles
                     // A tyre's sphere touching a kerb or wall with its side reports a sideways normal: kept within
                     // Contact Normal Max Angle of the car's up, so grip can't point up and launch the car.
                     Vector3 castNormal = Vector3.RotateTowards(up, w.GroundHit.normal, contactMaxAngle, 0f).normalized;
-                    w.GroundNormal = w.HasBlendedContact && contactTransitionTime > 0f
+                    // Blended only while it stays on the ground (softens a change of surface): a tyre just touching
+                    // down takes the ground as it is, not turned from whatever it last had (after a roll that was
+                    // upside down, and the plane swung through the side and threw the car back over).
+                    w.GroundNormal = w.HasBlendedContact && w.WasGrounded && contactTransitionTime > 0f
                         ? Vector3.RotateTowards(w.ContactNormal, castNormal, Mathf.PI * contactBlendStep, 0f).normalized
                         : castNormal;
-                    normalSum += w.GroundNormal;
+                    // The support plane uses the ground's own normal: kept to the car's up (as above), it followed
+                    // the car whenever the car tilted further than that from the road.
+                    w.RawGroundNormal = w.GroundHit.normal.normalized;
+                    normalSum += w.RawGroundNormal;
                     groundPointSum += w.GroundHit.point;
                 }
             }
 
             // Actual contacts define a shared support plane; virtual wheel forces fade with real tire support.
+            // The ground under the car: the tyres' contact normals, leaving out any far from the rest (a tyre on a
+            // kerb's side or a wall), so one odd hit doesn't tilt it.
             Vector3 sharedGroundNormal = grounded > 0 ? normalSum.normalized : Vector3.zero;
+            if (grounded > 1 && contactMaxAngle < Mathf.PI)
+            {
+                Vector3 agreeing = Vector3.zero;
+                float agreeCos = Mathf.Cos(contactMaxAngle);
+                for (int i = 0; i < wheels.Length; i++)
+                    if (wheels[i]?.Anchor != null && state.Wheels[i].Grounded
+                        && Vector3.Dot(state.Wheels[i].RawGroundNormal, sharedGroundNormal) >= agreeCos)
+                        agreeing += state.Wheels[i].RawGroundNormal;
+                if (agreeing.sqrMagnitude > 0.001f)
+                    sharedGroundNormal = agreeing.normalized;
+            }
             Vector3 sharedGroundPoint = grounded > 0 ? groundPointSum / grounded : Vector3.zero;
             float virtualGroundWeight = grounded > 0 ? Mathf.Clamp01((float)grounded / Mathf.Max(1f, wheelCount)) : 0f;
 
@@ -897,7 +916,7 @@ namespace Remedy.Vehicles
             }
 
             bool isGrounded = grounded > 0;
-            Vector3 groundNormal = isGrounded ? normalSum.normalized : worldUp;
+            Vector3 groundNormal = isGrounded ? sharedGroundNormal : worldUp;
             if (groundNormal.sqrMagnitude < 0.001f)
                 groundNormal = up;
             bool slowSingleTireContact = grounded == 1
@@ -956,7 +975,9 @@ namespace Remedy.Vehicles
 
             if (groundLeveling || airLeveling)
             {
-                if (state.UprightNormal.sqrMagnitude < 0.001f)
+                // Starting to level again (after the air, a roll, a flip): from the target itself, not from
+                // whatever it was aiming at back then.
+                if (state.UprightNormal.sqrMagnitude < 0.001f || state.UprightBlend <= 0f)
                     state.UprightNormal = targetUp;
                 else if (transitionTime <= 0f)
                     state.UprightNormal = targetUp;
@@ -1322,6 +1343,12 @@ namespace Remedy.Vehicles
                 state.AutoRolling = false;
                 state.FlippedTime = 0f;
                 spin = Vector3.zero;
+                // Lands with a clean slate: nothing remembered from upside down pulls it back over.
+                state.UprightNormal = worldUp;
+                state.TorqueGuardAcceleration = Vector3.zero;
+                state.HasGroundPlane = false;
+                for (int i = 0; i < state.Wheels.Length; i++)
+                    state.Wheels[i].ContactNormal = worldUp;
                 return true; // this last step: stop the spin
             }
 
@@ -1883,6 +1910,8 @@ namespace Remedy.Vehicles
         public bool HasBlendedContact;
         public RaycastHit GroundHit;
         public Vector3 GroundNormal;
+        /// <summary>The ground's own normal where the tyre touches (not kept to the car's up).</summary>
+        public Vector3 RawGroundNormal;
         public Vector3 ContactNormal;
         public float ContactDistance, ContactForceWeight;
         public float TargetSpeedMultiplier;
