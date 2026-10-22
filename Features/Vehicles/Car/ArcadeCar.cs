@@ -1456,7 +1456,7 @@ namespace Remedy.Vehicles
             => Mathf.Sin(Mathf.Clamp(p.BounceMinWallAngle, 0f, 90f) * Mathf.Deg2Rad);
 
         // Bounces are found by casts, not by the physics contacts (whose surfaces gave odd results): every step each
-        // tyre casts a sphere (a little smaller than it, lifted off the floor) along the car's velocity on the ground
+        // tyre casts a sphere (half its size, from the top of the tyre) along the car's velocity on the ground
         // plane, as far as the body reaches past that tyre in that direction plus this step's travel and Bounce Look
         // Ahead. A wall-like surface (Bounce Min Wall Angle) the car is moving into at Bounce Min Speed or more starts
         // a candidate: the tyres that found one decide its direction (weighted by how hard each is coming in), its
@@ -1543,7 +1543,7 @@ namespace Remedy.Vehicles
             state.BounceFoundSteps = 0;
         }
 
-        // One tyre's wall cast: a sphere a little smaller than the tyre, lifted off the floor, from its centre along
+        // One tyre's wall cast: a sphere half the tyre's size, from the top of the tyre along
         // `direction`, as far as the body reaches past the tyre that way plus `beyond`. The nearest wall-like surface
         // facing it (and, with a `planar` velocity, one it's moving into at Bounce Min Speed or more): its direction
         // away from the wall, how fast the car comes into it, where, and what it is.
@@ -1570,7 +1570,9 @@ namespace Remedy.Vehicles
             }
             var hits = _bounceHits ??= new RaycastHit[16];
             var objects = _bounceObjects ??= new GameObject[16];
-            int count = SchematicPhysics.SphereCastAll(centre + planeUp * (radius * 0.25f), radius * 0.8f, direction,
+            // From the top of the tyre, half its size: the sphere's bottom stays above the tyre's centre, so kerbs,
+            // bumps and anything else under the tyres aren't walls.
+            int count = SchematicPhysics.SphereCastAll(centre + up * radius, radius * 0.5f, direction,
                 reach + beyond, p.GroundLayers, hits, objects, ignore, includeSensors: false);
             float nearest = float.MaxValue;
             bool found = false;
