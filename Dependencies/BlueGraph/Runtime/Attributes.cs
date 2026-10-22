@@ -47,6 +47,12 @@ namespace BlueGraph
     [AttributeUsage(AttributeTargets.Class, AllowMultiple = false)]
     public class TagsAttribute : Attribute
     {
+        /// <summary>
+        /// A tag that lets a node into every kind of graph, whatever its [IncludeTags]: plain values (Float Value...)
+        /// that make sense anywhere.
+        /// </summary>
+        public const string AnyGraph = "Any Graph";
+
         public string[] Tags { get; set; }
 
         public TagsAttribute(params string[] tags)

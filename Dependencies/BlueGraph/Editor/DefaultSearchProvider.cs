@@ -61,6 +61,8 @@ namespace BlueGraph.Editor
         public static bool Allows(IEnumerable<string> supported, IEnumerable<string> tags)
         {
             tags ??= Enumerable.Empty<string>();
+            if (tags.Contains(TagsAttribute.AnyGraph))
+                return true;
             if (supported == null || !supported.Any())
                 return !tags.Any(ExclusiveTags.Contains);
             return supported.Intersect(tags).Any();

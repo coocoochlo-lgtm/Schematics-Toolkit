@@ -302,7 +302,7 @@ namespace Remedy.Audio
             if (input == null)
                 return false;
             foreach (var source in input.ConnectedPorts)
-                if (source?.Node is SoundNode)
+                if (source?.Node is SoundNode || source?.Node is SchematicGraphNode)
                     return true;
             return false;
         }
@@ -368,9 +368,35 @@ namespace Remedy.Audio
             if (input == null)
                 return null;
             foreach (var source in input.ConnectedPorts)
+            {
                 if (source?.Node is SoundNode sourceNode)
                     return Build(sourceNode)?.Output(source.Name);
+                // A plain value node (Float Value...), which works in any graph: its value, read once as the cue is built.
+                if (source?.Node is SchematicGraphNode valueNode)
+                    return Constant(ValueOf(valueNode, source));
+            }
             return null;
+        }
+
+        private float ValueOf(SchematicGraphNode node, Port port)
+        {
+            try
+            {
+                return node.OnRequestValue(port) switch
+                {
+                    float f => f,
+                    int i => i,
+                    bool b => b ? 1f : 0f,
+                    double d => (float)d,
+                    IConvertible convertible => Convert.ToSingle(convertible, System.Globalization.CultureInfo.InvariantCulture),
+                    _ => 0f,
+                };
+            }
+            catch (Exception exception)
+            {
+                Warnings.Add($"\"{node.Name}\" couldn't give a value: {exception.Message}");
+                return 0f;
+            }
         }
 
         /// <summary>

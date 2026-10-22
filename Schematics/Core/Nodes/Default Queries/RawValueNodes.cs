@@ -7,7 +7,7 @@ namespace Remedy.Schematics
     [SchematicDoc(@"{""name"": ""Boolean Value"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Values"", ""description"": ""Outputs the Boolean value entered on the node or connected to its input."", ""inputs"": [{""name"": ""Input"", ""type"": ""bool""}], ""outputs"": [{""name"": ""value"", ""type"": ""bool""}], ""use_for"": [""providing a fixed true or false value""], ""notes"": ""A value node: no flow arrows; connect its outputs to other nodes' inputs.""}")]
     [Serializable]
     [NodeColor(NodeColors.Value)]
-    [Node(Name = "Boolean Value", Path = "Values"), Tags("Default")]
+    [Node(Name = "Boolean Value", Path = "Values"), Tags("Default", TagsAttribute.AnyGraph)]
     public class BooleanValue : SchematicGraphNode
     {
         [Input("Input", Editable = true)]
@@ -22,7 +22,7 @@ namespace Remedy.Schematics
     [SchematicDoc(@"{""name"": ""Integer Value"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Values"", ""description"": ""Outputs the integer value entered on the node or connected to its input."", ""inputs"": [{""name"": ""Input"", ""type"": ""int""}], ""outputs"": [{""name"": ""value"", ""type"": ""int""}], ""use_for"": [""providing a fixed whole-number value""], ""notes"": ""A value node: no flow arrows; connect its outputs to other nodes' inputs.""}")]
     [Serializable]
     [NodeColor(NodeColors.Value)]
-    [Node(Name = "Integer Value", Path = "Values"), Tags("Default")]
+    [Node(Name = "Integer Value", Path = "Values"), Tags("Default", TagsAttribute.AnyGraph)]
     public class IntegerValue : SchematicGraphNode
     {
         [Input("Input", Editable = true)]
@@ -34,10 +34,10 @@ namespace Remedy.Schematics
         public override object OnRequestValue(Port port) => GetInputValue(nameof(InputValue), InputValue);
     }
 
-    [SchematicDoc(@"{""name"": ""Float Value"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Values"", ""description"": ""Outputs the float value entered on the node or connected to its input."", ""inputs"": [{""name"": ""Input"", ""type"": ""float""}], ""outputs"": [{""name"": ""value"", ""type"": ""float""}], ""use_for"": [""providing a fixed decimal number""], ""notes"": ""A value node: no flow arrows; connect its outputs to other nodes' inputs.""}")]
+    [SchematicDoc(@"{""name"": ""Float Value"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Values"", ""description"": ""Outputs the float value entered on the node or connected to its input. Works in every kind of graph (a Sound Cue too, as a fixed number)."", ""inputs"": [{""name"": ""Input"", ""type"": ""float""}], ""outputs"": [{""name"": ""value"", ""type"": ""float""}], ""use_for"": [""providing a fixed decimal number""], ""notes"": ""A value node: no flow arrows; connect its outputs to other nodes' inputs.""}")]
     [Serializable]
     [NodeColor(NodeColors.Value)]
-    [Node(Name = "Float Value", Path = "Values"), Tags("Default")]
+    [Node(Name = "Float Value", Path = "Values"), Tags("Default", TagsAttribute.AnyGraph)]
     public class FloatValue : SchematicGraphNode
     {
         [Input("Input", Editable = true)]

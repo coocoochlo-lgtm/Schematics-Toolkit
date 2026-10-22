@@ -91,7 +91,7 @@ namespace BlueGraph.Editor
             {
                 graph.Nodes = graph.Nodes.FindAll((node) => {
                     var reflectedNode = NodeReflection.GetNodeType(node.GetType());
-                    var allowed = includeTags.Intersect(reflectedNode.Tags).Count() > 0;
+                    var allowed = DefaultSearchProvider.Allows(includeTags, reflectedNode.Tags);
                     allowedAllNodes = allowedAllNodes && allowed;
                     
                     return allowed;
