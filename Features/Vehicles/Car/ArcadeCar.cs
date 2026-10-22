@@ -683,17 +683,21 @@ namespace Remedy.Vehicles
                 float castStart = bodyTopOffset;
                 w.Grounded = SchematicPhysics.SphereCast(probeOrigin, tireRadius, -up, out w.GroundHit, out _,
                     castDistance, p.GroundLayers, body);
-                // A ceiling isn't ground: on its back the car's roof lies in the floor, so the probe (from the body's
-                // top) starts in it and "hits" it. A hit above the wheel, or a surface facing away from the car's up,
-                // is cast again from the wheel itself, under whatever is on the roof.
-                if (w.Grounded && !IsGround(w.GroundHit, origin, up))
+                // A ceiling isn't ground: on its back the car's roof lies in the floor, so the probe (from the top of
+                // the body) starts inside it and "hits" it at once. Something touching the probe where it starts, at
+                // the body's top, or a surface facing away from the car's up, is a ceiling: cast again from the wheel
+                // itself, under whatever is on the roof.
+                w.HasCeiling = false;
+                if (w.Grounded && IsCeiling(w.GroundHit, up))
                 {
+                    w.HasCeiling = true;
+                    w.CeilingPoint = w.GroundHit.point;
                     castStart = 0f;
                     float fromWheel = castDistance - bodyTopOffset;
                     w.Grounded = fromWheel > 0f
                         && SchematicPhysics.SphereCast(origin, tireRadius, -up, out w.GroundHit, out _,
                             fromWheel, p.GroundLayers, body)
-                        && IsGround(w.GroundHit, origin, up);
+                        && !IsCeiling(w.GroundHit, up);
                 }
                 if (w.Grounded)
                 {
@@ -1265,9 +1269,10 @@ namespace Remedy.Vehicles
         /// <summary>How far below the centre of mass (plus the suspension length) the ground must be for the car to count as flying.</summary>
         public const float AirborneClearance = 1.2f;
 
-        // Ground under a wheel: below its anchor, facing the car's up (not a ceiling, nor the floor a flipped roof lies in).
-        private static bool IsGround(in RaycastHit hit, Vector3 anchor, Vector3 up)
-            => Vector3.Dot(hit.point - anchor, up) <= 0.01f && Vector3.Dot(hit.normal, up) > 0.05f;
+        // A probe hit that isn't ground: touching where the probe starts (the floor a flipped roof lies in, or
+        // something on the roof), or a surface facing away from the car's up.
+        private static bool IsCeiling(in RaycastHit hit, Vector3 up)
+            => hit.distance <= 0.001f || Vector3.Dot(hit.normal, up) <= 0.05f;
 
         // The rotation (axis × angle, radians) that takes `up` to `target`; upside down, it rolls over the nose axis.
         private static Vector3 UprightError(Vector3 up, Vector3 target, Vector3 fallbackAxis)
@@ -1577,6 +1582,20 @@ namespace Remedy.Vehicles
                     Gizmos.DrawWireSphere(castEnd, radius);
                     Gizmos.DrawWireSphere(probeOrigin, 0.04f);
 
+                    // The ceiling check where the probe starts, at the body's top: purple, red with the hit when it
+                    // found one (a roof in the floor, something on the roof).
+                    bool ceiling = live && w.HasCeiling;
+                    Gizmos.color = ceiling ? Color.red : new Color(0.65f, 0.4f, 1f);
+                    Gizmos.DrawWireSphere(probeOrigin, radius);
+                    if (ceiling)
+                    {
+                        Gizmos.DrawLine(probeOrigin, w.CeilingPoint);
+                        Gizmos.DrawWireCube(w.CeilingPoint, Vector3.one * 0.12f);
+#if UNITY_EDITOR
+                        UnityEditor.Handles.Label(w.CeilingPoint, "ceiling", UnityEditor.EditorStyles.miniLabel);
+#endif
+                    }
+
                     // The wheel, steered.
                     Vector3 center = origin - up * (live ? w.Extension : rest);
                     Vector3 axle = Quaternion.AngleAxis(live ? w.SteerAngle : 0f, up) * car.right;
@@ -1786,5 +1805,8 @@ namespace Remedy.Vehicles
         public Vector3 Point;
         public Vector3 Normal;
         public Quaternion VisualRest;
+        /// <summary>The probe hit a ceiling (at the body's top) this step, and where.</summary>
+        public bool HasCeiling;
+        public Vector3 CeilingPoint;
     }
 }
