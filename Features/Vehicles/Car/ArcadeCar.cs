@@ -1276,7 +1276,7 @@ namespace Remedy.Vehicles
 
             // Bounce: a wall (or another car) hit since last step picks the car up, carries it away and drops it
             // back, keeping its slide along the wall. Then the nose eases along the wall for a moment.
-            ConfirmBounce(native, p, state, groundNormal, dt);
+            DetectBounce(native, body, wheels, state.Wheels, p, state, velocity, up, groundNormal, dt);
             if (state.PendingBounce)
             {
                 state.PendingBounce = false;
@@ -1455,55 +1455,89 @@ namespace Remedy.Vehicles
         private static float WallFlatness(ArcadeCarProperties p)
             => Mathf.Sin(Mathf.Clamp(p.BounceMinWallAngle, 0f, 90f) * Mathf.Deg2Rad);
 
-        // A candidate bounce is watched for Bounce Confirm Time: each step the car's live contacts are read, and a
-        // wall-like one still touching counts that step (its direction joins the average). At the end it bounces
-        // only if the wall was there for at least half the steps: a tap or a graze that came and went never was a
-        // proper collision.
-        private static void ConfirmBounce(Body body, ArcadeCarProperties p, CarState state, Vector3 planeUp, float dt)
+        // Bounces are found by casts, not by the physics contacts (whose surfaces gave odd results): every step each
+        // tyre casts a sphere (a little smaller than it, lifted off the floor) along the car's velocity on the ground
+        // plane, as far as the body reaches past that tyre in that direction plus this step's travel and Bounce Look
+        // Ahead. A wall-like surface (Bounce Min Wall Angle) the car is moving into at Bounce Min Speed or more is a
+        // bounce: the tyres that found one decide its direction (weighted by how hard each is coming in), its
+        // strength (the hardest) and where on the car it struck (their hit points).
+        private static void DetectBounce(Body body, Box3DBody ignore, Wheel[] wheels, WheelState[] wheelStates,
+            ArcadeCarProperties p, CarState state, Vector3 velocity, Vector3 up, Vector3 planeUp, float dt)
         {
-            if (!state.BounceCandidate)
+            if (p.BounceMinSpeed <= 0f || state.PendingBounce || Time.time < state.BounceReadyTime)
                 return;
-            state.BounceCandidateTime += dt;
-            state.BounceCandidateSteps++;
+            Vector3 planar = Vector3.ProjectOnPlane(velocity, planeUp);
+            float speed = planar.magnitude;
+            if (speed < p.BounceMinSpeed)
+                return;
+            Vector3 direction = planar / speed;
             float wall = WallFlatness(p);
-            ulong self = body.Id.ToUInt64();
-            bool touching = false;
-            foreach (var contact in body.GetContacts())
-            {
-                bool selfIsA = contact.ShapeA.IsValid && contact.ShapeA.GetBody().Id.ToUInt64() == self;
-                foreach (var manifold in contact.Manifolds)
-                {
-                    bool close = false;
-                    for (int k = 0; k < manifold.PointCount; k++)
-                        if (manifold[k].Separation <= 0.02f)
-                        {
-                            close = true;
-                            break;
-                        }
-                    if (!close)
-                        continue;
-                    // The normal points from shape A to shape B: the car is pushed along it if it's B.
-                    Vector3 push = (Vector3)manifold.Normal * (selfIsA ? -1f : 1f);
-                    Vector3 away = Vector3.ProjectOnPlane(push, planeUp);
-                    if (away.magnitude < wall)
-                        continue;
-                    touching = true;
-                    state.BounceNormalSum += away.normalized;
-                }
-            }
-            if (touching)
-                state.BounceContactSteps++;
-            if (state.BounceCandidateTime < p.BounceConfirmTime)
-                return;
 
-            state.BounceCandidate = false;
-            Vector3 direction = Vector3.ProjectOnPlane(state.BounceNormalSum, planeUp);
-            bool real = p.BounceConfirmTime <= 0f || state.BounceContactSteps * 2 >= state.BounceCandidateSteps;
-            if (!real || direction.sqrMagnitude < 1e-6f)
+            B3Aabb bounds = body.ComputeAABB();
+            Vector3 lower = (Vector3)(float3)bounds.LowerBound, upper = (Vector3)(float3)bounds.UpperBound;
+            var hits = _bounceHits ??= new RaycastHit[16];
+            var objects = _bounceObjects ??= new GameObject[16];
+            Vector3 directionSum = Vector3.zero, pointSum = Vector3.zero;
+            float strongest = 0f;
+            int struck = 0;
+            bool offCar = false;
+            for (int i = 0; i < wheels.Length && i < wheelStates.Length; i++)
+            {
+                var wheel = wheels[i];
+                if (wheel?.Anchor == null)
+                    continue;
+                float radius = Mathf.Max(0.05f, wheel.Radius);
+                Vector3 centre = wheel.Anchor.position - up * wheelStates[i].Extension;
+                // How far the body sticks out past this tyre the way the car is going (the bumper's overhang).
+                float reach = 0f;
+                for (int c = 0; c < 8; c++)
+                {
+                    var corner = new Vector3((c & 1) != 0 ? upper.x : lower.x, (c & 2) != 0 ? upper.y : lower.y, (c & 4) != 0 ? upper.z : lower.z);
+                    reach = Mathf.Max(reach, Vector3.Dot(corner - centre, direction));
+                }
+                float distance = reach + speed * dt + Mathf.Max(0f, p.BounceLookAhead);
+                int count = SchematicPhysics.SphereCastAll(centre + planeUp * (radius * 0.25f), radius * 0.8f, direction,
+                    distance, p.GroundLayers, hits, objects, ignore, includeSensors: false);
+                float nearest = float.MaxValue;
+                int best = -1;
+                Vector3 bestAway = Vector3.zero;
+                for (int h = 0; h < count; h++)
+                {
+                    Vector3 away = Vector3.ProjectOnPlane(hits[h].normal, planeUp);
+                    if (away.magnitude < wall || hits[h].distance >= nearest)
+                        continue;
+                    away.Normalize();
+                    if (-Vector3.Dot(planar, away) < p.BounceMinSpeed)
+                        continue;
+                    nearest = hits[h].distance;
+                    best = h;
+                    bestAway = away;
+                }
+                if (best < 0)
+                    continue;
+                float into = -Vector3.Dot(planar, bestAway);
+                directionSum += bestAway * into;
+                pointSum += hits[best].point;
+                strongest = Mathf.Max(strongest, into);
+                offCar |= IsCar(objects[best]);
+                struck++;
+            }
+            if (struck == 0)
+                return;
+            Vector3 awayFromWall = Vector3.ProjectOnPlane(directionSum, planeUp);
+            if (awayFromWall.sqrMagnitude < 1e-6f)
                 return;
             state.PendingBounce = true;
-            state.BounceAway = direction.normalized;
+            state.BounceAway = awayFromWall.normalized;
+            state.BounceSpeed = strongest;
+            state.BouncePoint = pointSum / struck;
+            state.BounceOffCar = offCar;
+            state.BounceBefore = velocity;
+            state.LastBounceTime = Time.time;
         }
+
+        private static RaycastHit[] _bounceHits;
+        private static GameObject[] _bounceObjects;
 
         // The bounce: the velocity into the wall goes, the slide along it stays (less a little, more head-on), a push
         // carries the car away from the wall, and a hard enough hit on the ground hops it so the tyres don't grind
@@ -2180,39 +2214,6 @@ namespace Remedy.Vehicles
             // Whoever simulates the car reports crashes (OnCrash is networked), so proxies don't add their own.
             if (p != null && crashSpeed >= p.MinCrashSpeed && !IsProxy(Self))
                 OnCrash.Invoke(Self, crashSpeed);
-
-            // A wall or another car (at least Bounce Min Wall Angle from the ground the car is on, so not a floor or a
-            // ramp): a candidate bounce, confirmed over the next steps (ConfirmBounce) only if it's still touching.
-            if (p != null && state != null && !IsProxy(Self) && p.BounceMinSpeed > 0f && Time.time >= state.BounceReadyTime
-                && !state.PendingBounce)
-            {
-                Vector3 planeUp = state.HasGroundPlane ? state.GroundPlaneNormal : Self.Transform.up;
-                Vector3 away = Vector3.ProjectOnPlane(impactDirection, planeUp);
-                float flat = away.magnitude;
-                float into = impact.Speed * flat;
-                if (flat >= WallFlatness(p) && into >= p.BounceMinSpeed)
-                {
-                    if (!state.BounceCandidate)
-                    {
-                        // The car's velocity from before the hit (the step it struck in has already stopped it).
-                        state.BounceCandidate = true;
-                        state.BounceCandidateTime = 0f;
-                        state.BounceCandidateSteps = 0;
-                        state.BounceContactSteps = 0;
-                        state.BounceNormalSum = Vector3.zero;
-                        state.BounceSpeed = 0f;
-                        state.BounceOffCar = false;
-                        state.BounceBefore = state.HasLeanVelocity ? state.LeanPreviousVelocity : Vector3.zero;
-                    }
-                    state.BounceNormalSum += away / flat * into;
-                    if (into > state.BounceSpeed)
-                    {
-                        state.BounceSpeed = into;
-                        state.BouncePoint = impact.Point;
-                    }
-                    state.BounceOffCar |= IsCar(impact.Other);
-                }
-            }
         }
 
         private static void ApplyWheelTargetSpeedLoss(ref WheelState wheel, float impactSpeed, float wheelMass,
@@ -2435,6 +2436,13 @@ namespace Remedy.Vehicles
 
             if (state != null && state.HasGroundPlane)
                 DrawGroundPlane(state, car, com, up);
+            // Where the last bounce struck (from the tyre casts), for half a second.
+            if (state != null && Time.time - state.LastBounceTime < 0.5f)
+            {
+                Gizmos.color = Color.red;
+                Gizmos.DrawWireSphere(state.BouncePoint, 0.25f);
+                Gizmos.DrawRay(state.BouncePoint, state.BounceAway * 1.5f);
+            }
         }
 
         // The tyre-support plane (cyan, through the contacts), its normal, where the car is leveling to (magenta) and
@@ -2543,10 +2551,8 @@ namespace Remedy.Vehicles
         public float JumpBoostTotal, JumpBoostClock, HoverClock = -1f;
         public Vector3 TakeoffNormal = Vector3.up;
         public Vector3 BounceTargetVelocity;
-        public bool BounceCandidate;
-        public float BounceCandidateTime;
-        public int BounceCandidateSteps, BounceContactSteps;
-        public Vector3 BounceNormalSum, BounceBefore;
+        public Vector3 BounceBefore;
+        public float LastBounceTime = -10f;
         public float BounceGrip = 1f;
         public Quaternion BodyRestRotation;
         public Vector3 BodyRestScale = Vector3.one;

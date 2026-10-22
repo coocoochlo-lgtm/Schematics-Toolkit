@@ -463,8 +463,8 @@ namespace Remedy.Vehicles
         [Tooltip("How steep a surface must be, from the ground the car is on, to bounce off (degrees): flatter is a floor or a ramp to drive up.")]
         public float BounceMinWallAngle = 45f;
         [Min(0f)]
-        [Tooltip("How long a hit is watched before the bounce (seconds): it only bounces if the wall is still touching for at least half of it, so taps and grazes that come and go don't. 0 = straight away.")]
-        public float BounceConfirmTime = 0.06f;
+        [Tooltip("Bounces are found by a cast from each tyre along the car's velocity, reaching past the body's edge by this much (metres) beyond this step's travel: more catches walls a moment earlier.")]
+        public float BounceLookAhead = 0.1f;
         [Min(0f)]
         [Tooltip("Push away from what was hit, per m/s it was hit at (m/s). Half each against another car (it bounces too).")]
         public float BouncePush = 0.35f;
