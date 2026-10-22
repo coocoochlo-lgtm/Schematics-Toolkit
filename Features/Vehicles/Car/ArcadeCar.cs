@@ -817,7 +817,7 @@ namespace Remedy.Vehicles
                 0.9f / dt);
             // After an arcade drift the tyres grip again gradually, so the car slides out of it instead of snapping.
             // After a bounce the tyres grip again gradually too, so they don't snap the car round as it lands.
-            // While a bounce is in control (Bounce Align Time) it owns the car's motion: the tyres' grip, engine and
+            // While a bounce is in control (Bounce Time) it owns the car's motion: the tyres' grip, engine and
             // sticky force, the drift and the driving assists stand aside, so nothing pushes against it (the
             // springs still hold the car up). Grip starts coming back once it lets go.
             bool bounceHeld = state.BounceAlignTime > 0f;
@@ -1772,9 +1772,11 @@ namespace Remedy.Vehicles
         private static RaycastHit[] _bounceHits;
         private static GameObject[] _bounceObjects;
 
-        // The bounce: the velocity into the wall goes, the slide along it stays (less a little, more head-on), a push
-        // carries the car away from the wall, and a hard enough hit on the ground hops it so the tyres don't grind
-        // (none in the air). Against another car each bounces half as hard (it gets its own impact).
+        // The bounce: the velocity into the wall goes, the slide along it stays (less a little, more head-on), and
+        // over Bounce Time the car is moved Bounce Distance away from the wall (fast, then easing to a stop: a
+        // planned move, not a shove, so a snappy bounce doesn't fly far), a hard enough hit on the ground hopping it
+        // up and back down so the tyres don't grind (none in the air). Against another car each bounces half as far
+        // (it gets its own impact).
         private void ApplyBounce(BehaviorInstance instance, Body body, ArcadeCarProperties p, CarState state,
             Vector3 before, Vector3 now, Vector3 planeUp, bool grounded, Vector3 centerOfMass, Vector3 forward)
         {
@@ -1786,18 +1788,19 @@ namespace Remedy.Vehicles
             Vector3 along = intoWall > 0f ? planar + away * intoWall : planar;
             float headOn = speed > 0.1f ? Mathf.Clamp01(intoWall / speed) : 1f;
             along *= 1f - Mathf.Clamp01(p.BounceSpeedLoss) * headOn;
-            float push = Mathf.Min(state.BounceSpeed * p.BouncePush, p.BounceMaxPush) * share;
-            float rising = Mathf.Max(0f, Vector3.Dot(now, planeUp));
-            Vector3 result = along + away * push + planeUp * rising;
-            if (grounded && p.BounceHop > 0f && state.BounceSpeed >= p.BounceHopSpeed)
-            {
-                float hop = p.BounceHop * Mathf.Lerp(0.5f, 1f,
-                    Mathf.InverseLerp(p.BounceHopSpeed, p.BounceHopSpeed * 3f, state.BounceSpeed));
-                result += planeUp * Mathf.Max(0f, hop - rising);
-            }
-            body.SetLinearVelocity((float3)result);
+            // The move: Bounce Distance per m/s hit at (at most Bounce Max Distance) away over Bounce Time, and the
+            // hop's arc, followed step by step from here (BouncePathVelocity).
+            state.BounceDuration = Mathf.Max(0.05f, p.BounceTime);
+            state.BounceTravel = Mathf.Min(state.BounceSpeed * p.BounceDistance, p.BounceMaxDistance) * share;
+            state.BounceHopHeight = grounded && p.BounceHopHeight > 0f && state.BounceSpeed >= p.BounceHopSpeed
+                ? p.BounceHopHeight * Mathf.Lerp(0.5f, 1f, Mathf.InverseLerp(p.BounceHopSpeed, p.BounceHopSpeed * 3f, state.BounceSpeed))
+                : 0f;
+            state.BounceOrigin = (Vector3)body.GetWorldCenterOfMass();
+            state.BounceUp = planeUp;
+            state.BounceTargetVelocity = along;
+            float dt = Time.fixedDeltaTime;
+            body.SetLinearVelocity((float3)BouncePathVelocity(state, state.BounceOrigin, now, SchematicPhysics.Gravity, dt, dt));
             state.AllowForcesUntil = Time.time + 0.2f;
-            state.BounceTargetVelocity = along + away * push;
             state.TorqueGuardAcceleration = Vector3.zero; // nothing smoothed from before the hit carries over
 
             // The hit's own spin goes: the physics gives an off-centre hit a twist, and with the car hopped off its
@@ -1812,10 +1815,10 @@ namespace Remedy.Vehicles
             }
             body.SetAngularVelocity((float3)spin);
 
-            // For Bounce Align Time the car's yaw is held steady, and the nose eases along the wall (the way it was
+            // For Bounce Time the car's yaw is held steady, and the nose eases along the wall (the way it was
             // already going) when it slides along one, so it lands pointing down the road. (A head-on hit has no
             // slide to turn to: just steadied.)
-            state.BounceAlignTime = Mathf.Max(0.1f, p.BounceAlignTime);
+            state.BounceAlignTime = state.BounceDuration - dt; // (this step's part of the path is done)
             state.BounceAlignHasDirection = p.BounceAlign > 0f && along.sqrMagnitude > 1f;
             if (state.BounceAlignHasDirection)
                 state.BounceAlignDirection = Vector3.Dot(along, forward) >= 0f ? along.normalized : -along.normalized;
@@ -1835,19 +1838,19 @@ namespace Remedy.Vehicles
             OnBounce.Invoke(instance, state.BounceSpeed * share);
         }
 
-        // The bounce holding the car: its ground velocity on the bounce's (the slide along the wall plus the push
-        // away), its roll and pitch still, and its yaw either still or easing the nose along the wall. Counter-forces
-        // for the difference each step, capped at Bounce Hold Acceleration so it stays physical.
+        // The bounce moving the car: each step its velocity is set to reach where the bounce's path has it by the
+        // step's end (from where it really is, so a wall or car in the way just stops it there); its roll and
+        // pitch steadied, and its yaw either still or easing the nose along the wall (torques, within Bounce Hold
+        // Acceleration).
         private static void HoldBounce(Body body, ArcadeCarProperties p, CarState state, Vector3 velocity,
             Vector3 angularVelocity, Vector3 planeUp, Vector3 forward, Quaternion rotation, float mass, float dt)
         {
             state.BounceAlignTime -= dt;
             float most = Mathf.Max(1f, p.BounceHoldAcceleration);
 
-            Vector3 planar = Vector3.ProjectOnPlane(velocity, planeUp);
-            Vector3 wanted = Vector3.ProjectOnPlane(state.BounceTargetVelocity, planeUp);
-            Vector3 fix = Vector3.ClampMagnitude((wanted - planar) / dt, most);
-            body.ApplyForceToCenter((float3)(fix * mass), true);
+            float elapsed = state.BounceDuration - Mathf.Max(0f, state.BounceAlignTime);
+            body.SetLinearVelocity((float3)BouncePathVelocity(state, (Vector3)body.GetWorldCenterOfMass(), velocity,
+                SchematicPhysics.Gravity, elapsed, dt));
 
             float wantedYaw = 0f;
             Vector3 nose = Vector3.ProjectOnPlane(forward, planeUp);
@@ -1859,6 +1862,33 @@ namespace Remedy.Vehicles
                 wantedSpin = planeUp * Vector3.Dot(angularVelocity, planeUp); // a Spin Kick keeps its swing
             Vector3 spinFix = Vector3.ClampMagnitude((wantedSpin - angularVelocity) / dt, most);
             body.ApplyTorque(Torque(spinFix, rotation, state), true);
+        }
+
+        // The velocity that puts the car where the bounce's path has it at `elapsed` (by the end of this step): away
+        // from the wall an ease-out (fast, then easing to a stop at Bounce Distance), up and back down the hop's
+        // arc (with this step's gravity made up for), and the slide along the wall kept. No hop: up and down are
+        // left to the springs and gravity.
+        private static Vector3 BouncePathVelocity(CarState state, Vector3 centerOfMass, Vector3 velocity, Vector3 gravity,
+            float elapsed, float dt)
+        {
+            float u = Mathf.Clamp01(elapsed / state.BounceDuration);
+            Vector3 offset = centerOfMass - state.BounceOrigin;
+            Vector3 up = state.BounceUp;
+            float startSpeed = 3f * state.BounceTravel / state.BounceDuration; // the ease-out's speed at the start
+            float eased = 1f - (1f - u) * (1f - u) * (1f - u);
+            float away = Mathf.Clamp((state.BounceTravel * eased - Vector3.Dot(offset, state.BounceAway)) / dt,
+                0f, startSpeed * 1.5f + 1f);
+            Vector3 result = Vector3.ProjectOnPlane(state.BounceTargetVelocity, up) + state.BounceAway * away;
+            if (state.BounceHopHeight > 0f)
+            {
+                float arc = 4f * u * (1f - u) * state.BounceHopHeight;
+                float most = 8f * state.BounceHopHeight / state.BounceDuration + 1f;
+                float rise = Mathf.Clamp((arc - Vector3.Dot(offset, up)) / dt, -most, most);
+                result += up * (rise - Vector3.Dot(gravity, up) * dt);
+            }
+            else
+                result += up * Vector3.Dot(velocity, up);
+            return result;
         }
 
         // Jumps: leaving the ground is noted at takeoff (how fast it went away from the ground it was on); once it's
@@ -1890,6 +1920,8 @@ namespace Remedy.Vehicles
                 // Takeoff: how fast it's leaving the ground it was on.
                 state.InAirFor = 0f;
                 state.TakeoffLaunch = Mathf.Max(0f, Vector3.Dot(velocity, state.TakeoffNormal));
+                // A bounce's hop is the bounce's own arc, never a jump.
+                state.TakeoffFromBounce = state.BounceAlignTime > 0f;
                 // Faster takeoffs float longer: the hover and hang times are scaled by 1 + Jump Time Speed Factor x
                 // (speed / Max Speed), from the speed it left the ground at.
                 float takeoffSpeed = Vector3.ProjectOnPlane(velocity, state.TakeoffNormal).magnitude;
@@ -1898,7 +1930,7 @@ namespace Remedy.Vehicles
             }
             state.InAirFor += dt;
 
-            if (!state.Jumping && state.InAirFor >= p.JumpMinAirTime)
+            if (!state.Jumping && !state.TakeoffFromBounce && state.InAirFor >= p.JumpMinAirTime)
             {
                 // The launch, checked again now (with the gravity since takeoff put back): the lower of the two, so
                 // a one-step spike at takeoff can't make a big jump.
@@ -3220,6 +3252,9 @@ namespace Remedy.Vehicles
         public bool PendingBounce, BounceOffCar;
         public Vector3 BounceAway, BouncePoint, BounceAlignDirection;
         public float BounceSpeed, BounceReadyTime, BounceAlignTime;
+        public float BounceDuration = 1f, BounceTravel, BounceHopHeight;
+        public Vector3 BounceOrigin, BounceUp = Vector3.up;
+        public bool TakeoffFromBounce;
         public bool BounceAlignHasDirection;
         public float AirThrottleBase, AirThrottleGate;
         public bool AirThrottleOpen;
