@@ -141,6 +141,9 @@ namespace Remedy.Vehicles
         [Range(0f, 90f)]
         [Tooltip("The steepest a tyre's ground can be from the car's own up (degrees). A tyre touching a kerb or wall with its side reports it nearly sideways, and grip from it launches the car. 0 = no limit.")]
         public float ContactNormalMaxAngle = 50f;
+        [Range(0f, 90f)]
+        [Tooltip("Ground further than this from the car's up (degrees) is a tyre's sidewall touching, not the tyre standing on it: it doesn't count as grounded, so a car on its side can't drive on two tyres. 0 = no limit.")]
+        public float TyreContactMaxAngle = 60f;
 
         [Header("Handbrake")]
         [Tooltip("Grip of the handbrake wheels while it's pulled (a multiplier: 0.3 = 30% grip). Low = easy flicks into a slide.")]
@@ -303,6 +306,9 @@ namespace Remedy.Vehicles
         public float SelfRightMaxSpeed = 3f;
         [Tooltip("A hop (m/s upward) as the car starts righting itself, so it has room to turn over.")]
         public float SelfRightLift = 3f;
+        [Range(0f, 180f)]
+        [Tooltip("Tilted further than this (degrees from upright) and nearly stopped counts as stuck, so it rights itself after Self Right Delay: 70 includes lying on its side, not just its roof.")]
+        public float SelfRightTilt = 70f;
         [Min(0f)]
         [Tooltip("Stuck on its roof or side for Self Right Delay: how long the automatic roll back onto the wheels takes (seconds). It rolls over the nose the short way round, floaty, and lands level. 0 = the old spring (turns toward upright with Self Right Strength).")]
         public float SelfRightRollTime = 0.6f;
@@ -320,6 +326,14 @@ namespace Remedy.Vehicles
         [Range(0f, 1f)]
         [Tooltip("How quickly the wobble settles (1 = no wobble, low = wobbles on and on).")]
         public float WhoahWobbleDamping = 0.25f;
+
+        [Header("Feet Down")]
+        [Min(0f)]
+        [Tooltip("While some tyres stand on the ground and others are lifted, how hard the lifted ones are pulled down (rad/s², times the share of tyres lifted: half of it with two of four up). A twist only, so it doesn't shove the car. 0 = off.")]
+        public float FeetDownStrength = 12f;
+        [Min(0f)]
+        [Tooltip("Damps that twist, so it settles instead of slapping down.")]
+        public float FeetDownDamping = 3f;
 
         [Header("Roll Save")]
         [Tooltip("How fast the roll save winds up (per second) while the car is in a big turn. It goes from -1 to 1, so 1 = a full second of big turn before it starts pushing, two to full strength.")]

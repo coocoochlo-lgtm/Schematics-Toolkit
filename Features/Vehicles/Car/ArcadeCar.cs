@@ -645,9 +645,11 @@ namespace Remedy.Vehicles
             // Wheels.
             //
             // READ THIS BEFORE CHANGING ANYTHING ABOUT THE GROUND CASTS OR THE SUSPENSION:
-            // The ground casts are DETECTION, not suspension. They start at the top of the body and deliberately
-            // shoot far past the tyres, through where the ground will be (Ground Check Distance), so ground is seen
-            // early and contact doesn't flicker: a longer cast makes the car stick better, and that is on purpose.
+            // The ground casts are DETECTION, not suspension. Each is bent: straight down the car's own up from the
+            // top of the body to the tyre, then on toward the ground the tyres stood on (the support plane), and it
+            // deliberately shoots far past the tyre, through where the ground will be (Ground Check Distance), so
+            // ground is seen early and contact doesn't flicker: a longer cast makes the car stick better, and that
+            // is on purpose.
             // The car must still sit on its TYRES: a tyre only pushes (spring, damper, grip, sticky force) when the
             // ground is within its reach, Tire Placement Threshold x Ground Check Distance below its anchor. A hit
             // further along the cast is ground nearby (it counts for the support plane and for being grounded), but
@@ -679,6 +681,7 @@ namespace Remedy.Vehicles
             if (p.CastTowardGround && state.HasGroundPlane && state.LastGroundedWheels >= 2)
                 suspensionUp = Vector3.RotateTowards(up, state.GroundPlaneNormal, contactMaxAngle, 0f).normalized;
             float springMaxRise = p.SpringMaxRise > 0f ? p.SpringMaxRise * dt : float.MaxValue;
+            float tyreContactCos = p.TyreContactMaxAngle > 0f ? Mathf.Cos(p.TyreContactMaxAngle * Mathf.Deg2Rad) : -2f;
 
             for (int i = 0; i < wheels.Length; i++)
             {
@@ -696,34 +699,35 @@ namespace Remedy.Vehicles
                 w.WasGrounded = w.Grounded;
                 float tireRadius = Mathf.Max(0.05f, wheel.Radius);
                 w.SuspensionUpLocal = Quaternion.Inverse(rotation) * suspensionUp;
-                float bodyTopOffset = BodyTopOffsetAlong(native, origin, suspensionUp);
-                Vector3 probeOrigin = origin + suspensionUp * bodyTopOffset;
-                float tireTopHeight = Vector3.Dot(origin, suspensionUp) - w.Extension + tireRadius;
-                float castDistance = Mathf.Max(0f, Vector3.Dot(probeOrigin, suspensionUp)
-                    - tireTopHeight + groundCheckDistanceForWheels);
-                float castStart = bodyTopOffset;
-                w.Grounded = SchematicPhysics.SphereCast(probeOrigin, tireRadius, -suspensionUp, out w.GroundHit, out _,
-                    castDistance, p.GroundLayers, body);
-                // A ceiling isn't ground: on its back the car's roof lies in the floor, so the probe (from the top of
-                // the body) starts inside it and "hits" it at once. Something touching the probe where it starts, at
-                // the body's top, or a surface facing away from the car's up, is a ceiling: cast again from the wheel
+                // The bent cast (see "READ THIS" above): straight down the car's own up from the top of the body to
+                // the tyre, then on toward the ground the tyres stood on.
+                float bodyTopOffset = BodyTopOffsetAlong(native, origin, up);
+                float tyreDrop = Mathf.Max(0f, w.Extension);
+                float beyond = Mathf.Max(0f, groundCheckDistanceForWheels - tireRadius);
+                w.Grounded = CastWheel(origin, bodyTopOffset, up, suspensionUp, tireRadius, tyreDrop, beyond,
+                    p.GroundLayers, body, out w.GroundHit, out bool ceiling);
+                // A ceiling isn't ground: on its back the car's roof lies in the floor, so the cast (from the top of
+                // the body) starts inside it and "hits" it at once. Something touching the cast where it starts, at
+                // the body's top, or a surface facing away from the car, is a ceiling: cast again from the wheel
                 // itself, under whatever is on the roof.
-                w.HasCeiling = false;
-                if (w.Grounded && IsCeiling(w.GroundHit, suspensionUp))
+                w.HasCeiling = ceiling;
+                if (ceiling)
                 {
-                    w.HasCeiling = true;
                     w.CeilingPoint = w.GroundHit.point;
-                    castStart = 0f;
-                    float fromWheel = castDistance - bodyTopOffset;
-                    w.Grounded = fromWheel > 0f
-                        && SchematicPhysics.SphereCast(origin, tireRadius, -suspensionUp, out w.GroundHit, out _,
-                            fromWheel, p.GroundLayers, body)
-                        && !IsCeiling(w.GroundHit, suspensionUp);
+                    w.Grounded = CastWheel(origin, 0f, up, suspensionUp, tireRadius, tyreDrop, beyond,
+                        p.GroundLayers, body, out w.GroundHit, out _);
+                }
+                // A tyre touching the ground with its sidewall isn't standing on it (a car on its side, a tyre
+                // against a kerb's face): ground further than Tyre Contact Max Angle from the car's up doesn't count,
+                // so a car on its side can't drive along on two tyres.
+                w.Sidewall = false;
+                if (w.Grounded && Vector3.Dot(w.GroundHit.normal.normalized, up) < tyreContactCos)
+                {
+                    w.Sidewall = true;
+                    w.Grounded = false;
                 }
                 if (w.Grounded)
                 {
-                    // Convert the raised cast's travel back to distance from the wheel anchor.
-                    w.GroundHit.distance += tireRadius - castStart;
                     grounded++;
                     // A tyre's sphere touching a kerb or wall with its side reports a sideways normal: kept within
                     // Contact Normal Max Angle of the car's up, so grip can't point up and launch the car.
@@ -1085,6 +1089,29 @@ namespace Remedy.Vehicles
                 }
             }
 
+            // Feet down: while some tyres stand on the ground and others are lifted, the lifted ones are pulled down
+            // the car's own down, as a twist only (no shove), so the car settles back onto all its tyres.
+            if (p.FeetDownStrength > 0f && grounded > 0 && grounded < wheelCount && !righting && !airborne)
+            {
+                Vector3 twist = Vector3.zero;
+                int lifted = 0;
+                for (int i = 0; i < wheels.Length; i++)
+                {
+                    if (wheels[i]?.Anchor == null || state.Wheels[i].Grounded)
+                        continue;
+                    twist += Vector3.Cross(wheels[i].Anchor.position - centerOfMass, -up);
+                    lifted++;
+                }
+                twist = Vector3.ProjectOnPlane(twist, up);
+                if (lifted > 0 && twist.sqrMagnitude > 1e-6f)
+                {
+                    Vector3 axis = twist.normalized;
+                    float share = lifted / Mathf.Max(1f, wheelCount);
+                    angular += axis * (p.FeetDownStrength * share
+                        - Vector3.Dot(rollPitchVelocity, axis) * p.FeetDownDamping * share);
+                }
+            }
+
             // Roll save: a big turn (or tipping onto one side) winds it up toward 1; past 0 it rolls the car back
             // onto its wheels, harder the further it's wound. Cartoony on purpose.
             Vector3 saveGround = isGrounded ? groundNormal : worldUp;
@@ -1296,6 +1323,13 @@ namespace Remedy.Vehicles
                 state.FlippedTime += dt;
             else if (!tilted)
                 state.FlippedTime = 0f;
+            // Stuck: on its roof or its side (past Self Right Tilt), nearly stopped. Counted on its own, so a car
+            // lying on its side (90°, not "flipped") still rights itself.
+            bool stuckTilted = tilt > Mathf.Min(p.FlippedTilt, p.SelfRightTilt);
+            if (stuckTilted && speed < p.SelfRightMaxSpeed)
+                state.StuckTime += dt;
+            else if (!stuckTilted)
+                state.StuckTime = 0f;
 
             if (!IsFlipped.Value && tilted && state.FlippedTime > 0.5f)
             {
@@ -1309,6 +1343,7 @@ namespace Remedy.Vehicles
             {
                 state.SelfRighting = false;
                 state.UnflipQueued = false;
+                state.StuckTime = 0f;
                 if (IsFlipped.Value)
                 {
                     IsFlipped.Value = false;
@@ -1318,7 +1353,7 @@ namespace Remedy.Vehicles
             }
 
             righting = state.UnflipQueued
-                       || (IsFlipped.Value && p.SelfRightStrength > 0f && state.FlippedTime >= p.SelfRightDelay)
+                       || (p.SelfRightStrength > 0f && state.StuckTime >= p.SelfRightDelay)
                        || state.SelfRighting || state.AutoRolling;
         }
 
@@ -1357,6 +1392,7 @@ namespace Remedy.Vehicles
             {
                 state.AutoRolling = false;
                 state.FlippedTime = 0f;
+                state.StuckTime = 0f;
                 spin = Vector3.zero;
                 // Lands with a clean slate: nothing remembered from upside down pulls it back over.
                 state.UprightNormal = worldUp;
@@ -1391,9 +1427,41 @@ namespace Remedy.Vehicles
         /// <summary>How far below the centre of mass (plus the suspension length) the ground must be for the car to count as flying.</summary>
         public const float AirborneClearance = 1.2f;
 
-        // Which way a wheel's suspension pointed last step (toward the ground), turned with the car.
-        private static Vector3 SuspensionUp(in WheelState w, Quaternion rotation)
-            => w.SuspensionUpLocal.sqrMagnitude > 0.5f ? rotation * w.SuspensionUpLocal : rotation * Vector3.up;
+        // The bent ground cast: from `startAbove` over the anchor straight down the car's `up` to the tyre's centre
+        // (`tyreDrop` under the anchor), then `beyond` further along -`toward` (the ground the tyres stood on).
+        // The hit's distance comes back as the distance down the suspension from the anchor to the ground (to the
+        // centre at the bend, then along `toward`, plus the tyre's radius). `ceiling`: the first hit was a ceiling
+        // (touching where the cast starts, or facing away from the car), and nothing came back.
+        private static bool CastWheel(Vector3 anchor, float startAbove, Vector3 up, Vector3 toward, float radius,
+            float tyreDrop, float beyond, LayerMask mask, Box3DBody body, out RaycastHit hit, out bool ceiling)
+        {
+            ceiling = false;
+            float first = startAbove + tyreDrop;
+            if (first > 0f && SchematicPhysics.SphereCast(anchor + up * startAbove, radius, -up, out hit, out _,
+                    first, mask, body))
+            {
+                if (IsCeiling(hit, up))
+                {
+                    ceiling = true;
+                    return false;
+                }
+                hit.distance = hit.distance - startAbove + radius;
+                return true;
+            }
+            Vector3 bend = anchor - up * tyreDrop;
+            if (beyond > 0f && SchematicPhysics.SphereCast(bend, radius, -toward, out hit, out _, beyond, mask, body))
+            {
+                if (Vector3.Dot(hit.normal, toward) <= 0.05f)
+                {
+                    ceiling = true;
+                    return false;
+                }
+                hit.distance = tyreDrop + hit.distance + radius;
+                return true;
+            }
+            hit = default;
+            return false;
+        }
 
         // A probe hit that isn't ground: touching where the probe starts (the floor a flipped roof lies in, or
         // something on the roof), or a surface facing away from the car's up.
@@ -1632,7 +1700,7 @@ namespace Remedy.Vehicles
             if (bounds != null)
                 for (int i = 0; i < wheels.Length; i++)
                     if (wheels[i]?.Anchor != null)
-                        bounds.SetSphere(wheels[i], wheels[i].Anchor.position - SuspensionUp(state.Wheels[i], rotation) * state.Wheels[i].Extension,
+                        bounds.SetSphere(wheels[i], wheels[i].Anchor.position - up * state.Wheels[i].Extension,
                             Mathf.Max(0.05f, wheels[i].Radius));
 
             for (int i = 0; i < wheels.Length; i++)
@@ -1644,7 +1712,7 @@ namespace Remedy.Vehicles
                 float radius = Mathf.Max(0.05f, wheel.Radius);
                 w.Spin = (w.Spin + w.RollSpeed / radius * Mathf.Rad2Deg * dt) % 360f;
 
-                Vector3 position = wheel.Anchor.position - SuspensionUp(w, rotation) * w.Extension;
+                Vector3 position = wheel.Anchor.position - up * w.Extension;
                 // Spin about the axle first, then steer about the car's up.
                 Quaternion turn = rotation * Quaternion.AngleAxis(w.SteerAngle, Vector3.up) * Quaternion.AngleAxis(w.Spin, Vector3.right);
                 wheel.Visual.SetPositionAndRotation(position, turn * w.VisualRest);
@@ -1701,12 +1769,22 @@ namespace Remedy.Vehicles
                     // The tire-sized ground sweep: green on the ground, red in the air, cyan in Edit Mode.
                     Gizmos.color = !live ? Color.cyan : w.Grounded ? Color.green : Color.red;
                     float checkDistance = Mathf.Max(0f, p != null ? p.GroundCheckDistance : 1.6f);
-                    float tireTopHeight = Vector3.Dot(origin, up) - (live ? w.Extension : rest) + radius;
-                    float castDistance = Mathf.Max(0f, Vector3.Dot(probeOrigin, up)
-                        - tireTopHeight + checkDistance);
-                    Vector3 castEnd = probeOrigin - up * castDistance;
-                    Gizmos.DrawLine(probeOrigin, castEnd);
+                    // Bent: down the car's up to the tyre, then toward the ground the tyres stood on.
+                    Vector3 bend = origin - up * (live ? w.Extension : rest);
+                    Vector3 toward = live && w.SuspensionUpLocal.sqrMagnitude > 0.5f ? car.rotation * w.SuspensionUpLocal : up;
+                    Vector3 castEnd = bend - toward * Mathf.Max(0f, checkDistance - radius);
+                    Gizmos.DrawLine(probeOrigin, bend);
+                    Gizmos.DrawLine(bend, castEnd);
                     Gizmos.DrawWireSphere(castEnd, radius);
+                    if (live && w.Sidewall)
+                    {
+                        // Touching with its sidewall: not standing on it.
+                        Gizmos.color = new Color(1f, 0.85f, 0.1f);
+                        Gizmos.DrawWireSphere(w.GroundHit.point, 0.1f);
+#if UNITY_EDITOR
+                        UnityEditor.Handles.Label(w.GroundHit.point, "sidewall", UnityEditor.EditorStyles.miniLabel);
+#endif
+                    }
                     Gizmos.DrawWireSphere(probeOrigin, 0.04f);
 
                     // The ceiling check where the probe starts, at the body's top: purple, red with the hit when it
@@ -1834,6 +1912,7 @@ namespace Remedy.Vehicles
         public float FlippedTime;
         public bool SelfRighting;
         public bool AutoRolling;
+        public float StuckTime;
         public Vector3 AutoRollAxis;
         public float AutoRollAngle, AutoRollTime;
         public Quaternion AutoRollStart, AutoRollEnd;
@@ -1941,6 +2020,8 @@ namespace Remedy.Vehicles
         /// <summary>The probe hit a ceiling (at the body's top) this step, and where.</summary>
         public bool HasCeiling;
         public Vector3 CeilingPoint;
+        /// <summary>Touching the ground with its sidewall this step (so not grounded).</summary>
+        public bool Sidewall;
         /// <summary>The suspension's direction last step, in the car's space (toward the ground it stood on).</summary>
         public Vector3 SuspensionUpLocal;
         /// <summary>The spring's push last step (m/s²), so a sudden rise can be limited.</summary>
