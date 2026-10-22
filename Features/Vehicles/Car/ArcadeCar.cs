@@ -1739,15 +1739,17 @@ namespace Remedy.Vehicles
 
             // The boost's lift: a sine-shaped push over Jump Boost Time that adds up to the whole boost.
             bool lifting = false;
-            if (state.JumpBoostTotal > 0f && state.JumpBoostClock < p.JumpBoostTime)
+            // (Its time, like the hover's, stretches with the takeoff speed.)
+            float boostTime = p.JumpBoostTime * state.JumpTimeScale;
+            if (state.JumpBoostTotal > 0f && state.JumpBoostClock < boostTime)
             {
-                float time = Mathf.Max(0.01f, p.JumpBoostTime);
+                float time = Mathf.Max(0.01f, boostTime);
                 float lift = state.JumpBoostTotal * Mathf.PI / (2f * time) * Mathf.Sin(Mathf.PI * state.JumpBoostClock / time);
                 body.ApplyForceToCenter((float3)(worldUp * (lift * mass)), true);
                 state.JumpBoostClock += dt;
                 lifting = true;
             }
-            else if (state.JumpBoostTotal > 0f && p.JumpBoostTime <= 0f && state.JumpBoostClock <= 0f)
+            else if (state.JumpBoostTotal > 0f && boostTime <= 0f && state.JumpBoostClock <= 0f)
             {
                 // No lift time: all at once.
                 body.SetLinearVelocity((float3)(velocity + worldUp * state.JumpBoostTotal));
