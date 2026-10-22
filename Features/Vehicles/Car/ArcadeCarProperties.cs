@@ -551,11 +551,11 @@ namespace Remedy.Vehicles
         [Tooltip("How long a found wall is checked before the bounce (seconds): the tyres that found it cast again along the way the car came in each step, and the first step that misses it drops the bounce at once. 0 = straight away.")]
         public float BounceConfirmTime = 0.06f;
         [Min(0f)]
-        [Tooltip("How far a bounce carries the car away from what was hit, per m/s it was hit at (metres). It's a move over Bounce Time, fast at first and easing to a stop, so a short Bounce Time is a snappy bounce that still only goes this far. Half against another car (it bounces too).")]
-        public float BounceDistance = 0.08f;
+        [Tooltip("Push away from what was hit, per m/s it was hit at (m/s). Half each against another car (it bounces too).")]
+        public float BouncePush = 0.35f;
         [Min(0f)]
-        [Tooltip("The furthest a bounce carries the car (metres), however hard the hit.")]
-        public float BounceMaxDistance = 2f;
+        [Tooltip("The most push (m/s), so a huge hit doesn't fire the car across the map.")]
+        public float BounceMaxPush = 8f;
         [Range(0f, 1f)]
         [Tooltip("Speed lost along the wall on a head-on hit (a fraction; glancing hits lose less). 0 = keeps every bit.")]
         public float BounceSpeedLoss = 0.3f;
@@ -563,17 +563,21 @@ namespace Remedy.Vehicles
         [Tooltip("Hits at least this hard (m/s) on the ground also hop the car, so the tyres leave the ground and nothing grinds: picked up, moved over, plopped down.")]
         public float BounceHopSpeed = 6f;
         [Min(0f)]
-        [Tooltip("How high the hop lifts the car (metres; half at Bounce Hop Speed, all of it at three times that): up and back down over Bounce Time, an arc, not a launch (it's never taken for a jump). 0 = no hop.")]
-        public float BounceHopHeight = 0.4f;
+        [Tooltip("The hop (m/s upward; half at Bounce Hop Speed, all of it at three times that). 0 = no hop.")]
+        public float BounceHop = 2.5f;
         [Range(0f, 2f)]
         [Tooltip("How firmly the nose turns along the wall after a bounce, so it lands pointing down the road. 0 = off.")]
         public float BounceAlign = 1f;
         [Min(0f)]
+        [Tooltip("How long a bounce's push and hop take to come in (seconds): spread over this like the jump's boost (easing in and out), adding up to the same push and hop. 0 = all at once.")]
+        public float BounceBoostTime = 0.1f;
+        [Min(0f)]
         [FormerlySerializedAs("BounceAlignTime")]
-        [Tooltip("How long a bounce takes (seconds): it moves the car the bounce's distance away (and through the hop), keeps its slide along the wall, steadies its spin and eases the nose along the wall, while the tyres and assists stand aside. Shorter = snappier, not further.")]
-        public float BounceTime = 0.3f;
+        [FormerlySerializedAs("BounceTime")]
+        [Tooltip("How long the bounce keeps control after its push is in (seconds): the car keeps its speed away from the wall and its slide along it (no spin, the nose easing along the wall) while the tyres and assists stand aside, then they take over.")]
+        public float BounceHangTime = 0.25f;
         [Min(1f)]
-        [Tooltip("The hardest the bounce may turn the car to steady its spin and ease the nose along the wall (rad/s²).")]
+        [Tooltip("The hardest the bounce may push to hold the car's motion (m/s² and rad/s²), so it stays physical against the wall and the tyres.")]
         public float BounceHoldAcceleration = 80f;
         [Range(0f, 1f)]
         [Tooltip("How much grip the tyres lose right after a bounce (returning over Bounce Grip Time), so they don't snap the car round as it lands.")]
