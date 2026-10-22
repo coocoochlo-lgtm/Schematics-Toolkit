@@ -302,20 +302,20 @@ namespace Remedy.Vehicles
         [Tooltip("Air control: how fast steering rolls the car (degrees per second at full input, through the gates below). Rocket League, gently. 0 (with Air Pitch Rate 0) = the old Air Control push instead.")]
         public float AirRollRate = 60f;
         [Min(0f)]
-        [Tooltip("Air control: how fast throttle (Target Speed) pitches the car (degrees per second at full input; forward tips the nose down). A throttle held from the ground doesn't count until it's moved in the air.")]
+        [Tooltip("Air control: how fast Target Speed pitches the car (degrees per second at full input; forward tips the nose down).")]
         public float AirPitchRate = 60f;
         [Min(0f)]
         [Tooltip("How quickly the car's spin follows what the air control asks for (per second).")]
         public float AirControlResponse = 6f;
         [Min(0.01f)]
         [Tooltip("Spatial gate: air control opens as the ground gets further than the tyres can reach, fully this far beyond (metres), per tyre, averaged.")]
-        public float AirGateDistance = 2.5f;
+        public float AirGateDistance = 1f;
         [Min(0.01f)]
         [Tooltip("Temporal gate: air control opens over this long after a tyre leaves the ground (seconds), per tyre, averaged; it closes four times as fast when the tyre's back down.")]
         public float AirGateTime = 0.4f;
-        [Min(0.01f)]
-        [Tooltip("The throttle's own gate: once the throttle moves in the air from where it was at takeoff, pitching opens over this long (seconds).")]
-        public float AirThrottleGateTime = 0.3f;
+        [Min(0f)]
+        [Tooltip("Optional gate for pitching: above 0, a Target Speed held from the ground doesn't pitch the car until it's moved in the air, then pitching opens over this long (seconds). 0 = Target Speed pitches straight away (through the gates).")]
+        public float AirThrottleGateTime = 0f;
         [Tooltip("Only with Air Roll Rate and Air Pitch Rate at 0: forces at ungrounded tire anchors roll the car with steer and pitch it with signed Target Speed, in rad/s², for as long as they're held (holding the throttle spins it forward). 0 = no air control.")]
         public float AirControl = 4f;
         [Min(0f)]

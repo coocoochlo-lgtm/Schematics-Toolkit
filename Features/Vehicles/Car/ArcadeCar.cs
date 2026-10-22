@@ -1041,11 +1041,13 @@ namespace Remedy.Vehicles
             // Air control's gates, merged by kind (the tyres' average) and multiplied: none on the ground, opening
             // as the car leaves it, more the higher and longer it's up.
             float airGate = gatedWheels > 0 ? (spatialGates / gatedWheels) * (temporalGates / gatedWheels) : 0f;
-            // The throttle's own gate: shut while any tyre is down, it opens (over Air Throttle Gate Time) only once
-            // the throttle moves from where it was when the car left the ground, so a throttle held off a ramp
-            // doesn't pitch the car.
-            float throttleNow = Mathf.Clamp(effectiveTargetSpeed, -1f, 1f);
-            if (touching > 0)
+            // Pitch comes from Target Speed. Optionally (Air Throttle Gate Time above 0) it has its own gate: shut
+            // while any tyre is down, opening only once Target Speed moves from where it was at takeoff, so one held
+            // off a ramp doesn't pitch the car.
+            float throttleNow = Mathf.Clamp(state.TargetSpeed, -1f, 1f);
+            if (p.AirThrottleGateTime <= 0f)
+                state.AirThrottleGate = 1f;
+            else if (touching > 0)
             {
                 state.AirThrottleBase = throttleNow;
                 state.AirThrottleOpen = false;
@@ -1058,11 +1060,14 @@ namespace Remedy.Vehicles
                 state.AirThrottleGate = Mathf.MoveTowards(state.AirThrottleGate, state.AirThrottleOpen ? 1f : 0f,
                     dt / Mathf.Max(0.01f, p.AirThrottleGateTime));
             }
-            float rollInput = active ? Mathf.Clamp(steerInput, -1f, 1f) * airGate : 0f;
-            float pitchInput = active ? throttleNow * airGate * Mathf.SmoothStep(0f, 1f, state.AirThrottleGate) : 0f;
-            bool airControl = p.AirRollRate > 0f || p.AirPitchRate > 0f;
-            // How much the player is steering the car in the air: the leveling stands aside that much.
-            float airInput = airControl ? Mathf.Clamp01(Mathf.Max(Mathf.Abs(rollInput), Mathf.Abs(pitchInput))) : 0f;
+            float rollStick = active ? Mathf.Clamp(steerInput, -1f, 1f) : 0f;
+            float pitchStick = active ? throttleNow * Mathf.SmoothStep(0f, 1f, state.AirThrottleGate) : 0f;
+            bool airControl = (p.AirRollRate > 0f || p.AirPitchRate > 0f) && airGate > 0.001f;
+            // How much the player is steering the car in the air (any real input counts in full, through the gates):
+            // the leveling stands aside that much.
+            float airInput = airControl
+                ? airGate * Mathf.Clamp01(Mathf.Max(Mathf.Abs(rollStick), Mathf.Abs(pitchStick)) * 3f)
+                : 0f;
 
             // Rotation helpers, as angular accelerations (turned into torque with the body's own inertia below).
             Vector3 angular = Vector3.zero;
@@ -1185,13 +1190,19 @@ namespace Remedy.Vehicles
             // and it's handed back to the leveling. A rate, so it turns as long as asked and stops when not.
             if (airControl && airInput > 0f && !state.SelfRighting && !state.AutoRolling)
             {
-                float wantedRoll = -rollInput * p.AirRollRate * Mathf.Deg2Rad;
-                float wantedPitch = pitchInput * p.AirPitchRate * Mathf.Deg2Rad;
-                float rollRate = Vector3.Dot(angularVelocity, forward);
-                float pitchRate = Vector3.Dot(angularVelocity, right);
+                // The rate asked for is the input through the gates; the car is driven toward it at full response
+                // on each axis that has input (the gates aren't applied twice).
                 float response = Mathf.Max(0f, p.AirControlResponse);
-                angular += forward * ((wantedRoll - rollRate) * response * Mathf.Abs(rollInput))
-                    + right * ((wantedPitch - pitchRate) * response * Mathf.Abs(pitchInput));
+                if (Mathf.Abs(rollStick) > 0.05f)
+                {
+                    float wantedRoll = -rollStick * airGate * p.AirRollRate * Mathf.Deg2Rad;
+                    angular += forward * ((wantedRoll - Vector3.Dot(angularVelocity, forward)) * response);
+                }
+                if (Mathf.Abs(pitchStick) > 0.05f)
+                {
+                    float wantedPitch = pitchStick * airGate * p.AirPitchRate * Mathf.Deg2Rad;
+                    angular += right * ((wantedPitch - Vector3.Dot(angularVelocity, right)) * response);
+                }
             }
 
             // Keep surface-following roll/pitch independent of suspension visuals and steering yaw.
