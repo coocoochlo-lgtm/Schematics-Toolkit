@@ -516,6 +516,28 @@ namespace Remedy.Vehicles
             Vector3 centerOfMass = (Vector3)native.GetWorldCenterOfMass();
             Vector3 velocity = native.GetLinearVelocity();
             Vector3 angularVelocity = native.GetAngularVelocity();
+            // Position guard: a step that lands the car far from where its last position and velocity put it (more
+            // than Position Guard Distance off) is a glitch, not driving: it goes back to where it was, moving as it
+            // was. (A deliberate teleport: call MarkTeleported first.)
+            Vector3 bodyPosition = (Vector3)native.GetPosition();
+            if (p.PositionGuardDistance > 0f && state.HasGuardPosition && dt > 0f)
+            {
+                Vector3 expected = state.GuardPosition + state.GuardVelocity * dt;
+                float allowed = p.PositionGuardDistance + (state.GuardVelocity.magnitude + velocity.magnitude) * dt;
+                if (Vector3.Distance(bodyPosition, expected) > allowed)
+                {
+                    native.SetTransform(state.GuardPosition, state.GuardRotation);
+                    native.SetLinearVelocity((float3)state.GuardVelocity);
+                    native.SetAngularVelocity((float3)state.GuardAngularVelocity);
+                    return;
+                }
+            }
+            state.GuardPosition = bodyPosition;
+            state.GuardRotation = native.GetRotation();
+            state.GuardVelocity = velocity;
+            state.GuardAngularVelocity = angularVelocity;
+            state.HasGuardPosition = true;
+
             Vector3 carPosition = car.position;
             float movementSpeed = 0f;
             if (state.HasMovementPosition && dt > 0f)
@@ -1070,6 +1092,7 @@ namespace Remedy.Vehicles
             // as the car leaves it, more the higher and longer it's up.
             float airGate = gatedWheels > 0 ? (spatialGates / gatedWheels) * (temporalGates / gatedWheels) : 0f;
             UpdateJump(instance, native, p, state, velocity, gravity, touching, gatedWheels > 0 ? spatialGates / gatedWheels : 0f, mass, dt);
+            ApplyGroundGlue(native, p, state, velocity, groundNormal, touching, mass, dt);
             // Pitch comes from Target Speed. Optionally (Air Throttle Gate Time above 0) it has its own gate: shut
             // while any tyre is down, opening only once Target Speed moves from where it was at takeoff, so one held
             // off a ramp doesn't pitch the car.
@@ -1497,7 +1520,7 @@ namespace Remedy.Vehicles
                 bool stillThere = false;
                 for (int i = 0; i < wheels.Length && i < 32; i++)
                     if ((state.BounceStruckWheels & (1u << i)) != 0
-                        && CastWall(body, ignore, wheels[i], wheelStates[i], p, state.BounceApproach, Vector3.zero, up, planeUp,
+                        && CastWall(body, ignore, wheels[i], ref wheelStates[i], p, state.BounceApproach, Vector3.zero, up, planeUp,
                             lookAhead + 0.1f, wall, out _, out _, out _, out _))
                     {
                         stillThere = true;
@@ -1535,7 +1558,7 @@ namespace Remedy.Vehicles
             bool offCar = false;
             for (int i = 0; i < wheels.Length && i < wheelStates.Length && i < 32; i++)
             {
-                if (!CastWall(body, ignore, wheels[i], wheelStates[i], p, direction, planar, up, planeUp,
+                if (!CastWall(body, ignore, wheels[i], ref wheelStates[i], p, direction, planar, up, planeUp,
                         speed * dt + lookAhead, wall, out Vector3 away, out float into, out Vector3 point, out GameObject other))
                     continue;
                 directionSum += away * into;
@@ -1573,7 +1596,7 @@ namespace Remedy.Vehicles
         // `direction`, as far as the body reaches past the tyre that way plus `beyond`. The nearest wall-like surface
         // facing it (and, with a `planar` velocity, one it's moving into at Bounce Min Speed or more): its direction
         // away from the wall, how fast the car comes into it, where, and what it is.
-        private static bool CastWall(Body body, Box3DBody ignore, Wheel wheel, WheelState wheelState, ArcadeCarProperties p,
+        private static bool CastWall(Body body, Box3DBody ignore, Wheel wheel, ref WheelState wheelState, ArcadeCarProperties p,
             Vector3 direction, Vector3 planar, Vector3 up, Vector3 planeUp, float beyond, float wall,
             out Vector3 away, out float into, out Vector3 point, out GameObject other)
         {
@@ -1600,6 +1623,11 @@ namespace Remedy.Vehicles
             // bumps and anything else under the tyres aren't walls.
             int count = SchematicPhysics.SphereCastAll(centre + up * radius, radius * 0.5f, direction,
                 reach + beyond, p.GroundLayers, hits, objects, ignore, includeSensors: false);
+            // For the gizmo.
+            wheelState.WallCastFrom = centre + up * radius;
+            wheelState.WallCastTo = wheelState.WallCastFrom + direction * (reach + beyond);
+            wheelState.WallCastRadius = radius * 0.5f;
+            wheelState.WallCastTime = Time.time;
             float nearest = float.MaxValue;
             bool found = false;
             for (int h = 0; h < count; h++)
@@ -1723,6 +1751,9 @@ namespace Remedy.Vehicles
             Vector3 worldUp = gravity.sqrMagnitude > 0.001f ? -gravity.normalized : Vector3.up;
             if (touching > 0)
             {
+                // Landing after real air time arms the ground glue (ApplyGroundGlue).
+                if (state.InAirFor >= p.GroundGlueMinAirTime && p.GroundGlueTime > 0f)
+                    state.GlueTime = p.GroundGlueTime;
                 if (state.Jumping)
                 {
                     state.Jumping = false;
@@ -1810,6 +1841,36 @@ namespace Remedy.Vehicles
             scale = Mathf.Lerp(1f, scale, fade);
             // (Gravity itself still pulls; this adds the difference.)
             body.ApplyForceToCenter((float3)(gravity * ((scale - 1f) * mass)), true);
+        }
+
+        // Ground glue: for Ground Glue Time after landing, the car is held to the ground: any speed carrying it away
+        // from the ground is taken off (Ground Glue Strength of it each step) and it's pressed down with Ground Glue
+        // Press, fading out over the time, so a landing doesn't hop back off.
+        private static void ApplyGroundGlue(Body body, ArcadeCarProperties p, CarState state, Vector3 velocity,
+            Vector3 groundNormal, int touching, float mass, float dt)
+        {
+            if (state.GlueTime <= 0f)
+                return;
+            state.GlueTime -= dt;
+            if (touching == 0 || dt <= 0f)
+                return;
+            float left = Mathf.Clamp01(state.GlueTime / Mathf.Max(0.01f, p.GroundGlueTime));
+            float away = Vector3.Dot(velocity, groundNormal);
+            Vector3 push = -groundNormal * (p.GroundGluePress * left);
+            if (away > 0f)
+                push -= groundNormal * (away / dt * Mathf.Clamp01(p.GroundGlueStrength));
+            body.ApplyForceToCenter((float3)(push * mass), true);
+        }
+
+        /// <summary>
+        /// Call before moving a car on purpose (a respawn, a teleporter), so the position guard doesn't take the jump
+        /// for a glitch and put it back.
+        /// </summary>
+        public void MarkTeleported(BehaviorInstance instance)
+        {
+            var state = _state[instance];
+            if (state != null)
+                state.HasGuardPosition = false;
         }
 
         private void UpdateDrift(BehaviorInstance instance, ArcadeCarProperties p, CarState state, bool active, bool handbrake,
@@ -2520,6 +2581,21 @@ namespace Remedy.Vehicles
 #endif
                 }
 
+            // The wall casts (bounces): green while the check over time is positive for that tyre (a wall it found
+            // that every step since has found again, or the bounce it confirmed), red otherwise.
+            if (state != null && wheels != null)
+                for (int i = 0; i < wheels.Length && i < state.Wheels.Length; i++)
+                {
+                    var w = state.Wheels[i];
+                    if (Time.time - w.WallCastTime > 0.1f)
+                        continue;
+                    bool struck = i < 32 && (state.BounceStruckWheels & (1u << i)) != 0;
+                    bool positive = struck && (state.BounceCandidate || Time.time - state.LastBounceTime < 0.5f);
+                    Gizmos.color = positive ? Color.green : Color.red;
+                    Gizmos.DrawLine(w.WallCastFrom, w.WallCastTo);
+                    Gizmos.DrawWireSphere(w.WallCastTo, w.WallCastRadius);
+                }
+
             // Centre of mass: the real one while playing, an estimate (origin + offset) in Edit Mode.
             Vector3 com = body != null && body.IsLive()
                 ? (Vector3)body.Body.GetWorldCenterOfMass()
@@ -2644,6 +2720,10 @@ namespace Remedy.Vehicles
         public float InAirFor = -1f, TakeoffLaunch;
         public float JumpBoostTotal, JumpBoostClock, HoverClock = -1f;
         public float JumpTimeScale = 1f;
+        public float GlueTime;
+        public Vector3 GuardPosition, GuardVelocity, GuardAngularVelocity;
+        public quaternion GuardRotation;
+        public bool HasGuardPosition;
         public Vector3 TakeoffNormal = Vector3.up;
         public Vector3 BounceTargetVelocity;
         public Vector3 BounceBefore, BounceApproach;
@@ -2764,6 +2844,9 @@ namespace Remedy.Vehicles
         public RaycastHit LastGroundHit;
         public bool HasLastGroundHit;
         public float MissTime;
+        /// <summary>This tyre's last wall cast, for the gizmo.</summary>
+        public Vector3 WallCastFrom, WallCastTo;
+        public float WallCastRadius, WallCastTime;
         /// <summary>The suspension's direction last step, in the car's space (toward the ground it stood on).</summary>
         public Vector3 SuspensionUpLocal;
         /// <summary>The spring's push last step (m/s²), so a sudden rise can be limited.</summary>

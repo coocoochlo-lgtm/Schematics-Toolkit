@@ -72,8 +72,23 @@ namespace Remedy.Vehicles
         [Tooltip("When no ground is found, places the tire bottom no farther than this fraction of Ground Check Distance below its anchor. A nearer hit moves it toward the surface. Ground sensing extends farther, from the body top to below the tire. Suspension Rest Length limits spring travel, not tire placement.")]
         public float TirePlacementThreshold = 0.5f;
         [Min(0f)]
-        [Tooltip("A tyre whose ground cast suddenly misses keeps its last hit for up to this long (seconds), so a stray miss doesn't drop it off the ground. Hits always count at once. 0 = misses count at once.")]
+        [Tooltip("A tyre whose ground cast suddenly misses keeps its last hit for up to this long (seconds), so a stray miss doesn't drop it off the ground. The first hit ends it at once (hits always count straight away). 0 = misses count at once.")]
         public float GroundHoldTime = 0.06f;
+        [Min(0f)]
+        [Tooltip("Landing after at least Ground Glue Min Air Time in the air, the car is held to the ground for this long (seconds), so it doesn't hop back off. 0 = off.")]
+        public float GroundGlueTime = 0.3f;
+        [Min(0f)]
+        [Tooltip("How long it must have been in the air for a landing to be glued (seconds).")]
+        public float GroundGlueMinAirTime = 0.15f;
+        [Range(0f, 1f)]
+        [Tooltip("How much of any speed carrying it away from the ground the glue takes off each step (1 = all of it).")]
+        public float GroundGlueStrength = 0.8f;
+        [Min(0f)]
+        [Tooltip("An extra press into the ground while glued (m/s²), fading out over Ground Glue Time.")]
+        public float GroundGluePress = 15f;
+        [Min(0f)]
+        [Tooltip("Position guard: a physics step that lands the car further than this (metres) from where its last position and velocity put it is a glitch, and it's put back where it was. Teleport on purpose with MarkTeleported. 0 = off.")]
+        public float PositionGuardDistance = 5f;
         [Tooltip("Spring stiffness: m/s² of push per metre compressed. ~10 / Stiffness is how far the car sags at rest (60 → 17 cm). Higher = stiffer, twitchier.")]
         public float SpringStiffness = 60f;
         [Tooltip("Spring damping: stops the car bouncing. ~2 × √Stiffness × 0.5 is a good start. Too low bounces, too high feels like bricks.")]
@@ -472,7 +487,7 @@ namespace Remedy.Vehicles
         [Tooltip("Bounces are found by a cast from each tyre along the car's velocity, reaching past the body's edge by this much (metres) beyond this step's travel: more catches walls a moment earlier.")]
         public float BounceLookAhead = 0.1f;
         [Min(0f)]
-        [Tooltip("How long a found wall is checked before the bounce (seconds): the tyres that found it cast again along the way the car came in each step, and any step that misses it drops the bounce. 0 = straight away.")]
+        [Tooltip("How long a found wall is checked before the bounce (seconds): the tyres that found it cast again along the way the car came in each step, and the first step that misses it drops the bounce at once. 0 = straight away.")]
         public float BounceConfirmTime = 0.06f;
         [Min(0f)]
         [Tooltip("Push away from what was hit, per m/s it was hit at (m/s). Half each against another car (it bounces too).")]
