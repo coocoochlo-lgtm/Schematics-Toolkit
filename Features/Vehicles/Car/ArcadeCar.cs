@@ -680,12 +680,25 @@ namespace Remedy.Vehicles
                 float tireTopHeight = Vector3.Dot(origin, up) - w.Extension + tireRadius;
                 float castDistance = Mathf.Max(0f, Vector3.Dot(probeOrigin, up)
                     - tireTopHeight + groundCheckDistanceForWheels);
+                float castStart = bodyTopOffset;
                 w.Grounded = SchematicPhysics.SphereCast(probeOrigin, tireRadius, -up, out w.GroundHit, out _,
                     castDistance, p.GroundLayers, body);
+                // A ceiling isn't ground: on its back the car's roof lies in the floor, so the probe (from the body's
+                // top) starts in it and "hits" it. A hit above the wheel, or a surface facing away from the car's up,
+                // is cast again from the wheel itself, under whatever is on the roof.
+                if (w.Grounded && !IsGround(w.GroundHit, origin, up))
+                {
+                    castStart = 0f;
+                    float fromWheel = castDistance - bodyTopOffset;
+                    w.Grounded = fromWheel > 0f
+                        && SchematicPhysics.SphereCast(origin, tireRadius, -up, out w.GroundHit, out _,
+                            fromWheel, p.GroundLayers, body)
+                        && IsGround(w.GroundHit, origin, up);
+                }
                 if (w.Grounded)
                 {
                     // Convert the raised cast's travel back to distance from the wheel anchor.
-                    w.GroundHit.distance += tireRadius - bodyTopOffset;
+                    w.GroundHit.distance += tireRadius - castStart;
                     grounded++;
                     // A tyre's sphere touching a kerb or wall with its side reports a sideways normal: kept within
                     // Contact Normal Max Angle of the car's up, so grip can't point up and launch the car.
@@ -1251,6 +1264,10 @@ namespace Remedy.Vehicles
 
         /// <summary>How far below the centre of mass (plus the suspension length) the ground must be for the car to count as flying.</summary>
         public const float AirborneClearance = 1.2f;
+
+        // Ground under a wheel: below its anchor, facing the car's up (not a ceiling, nor the floor a flipped roof lies in).
+        private static bool IsGround(in RaycastHit hit, Vector3 anchor, Vector3 up)
+            => Vector3.Dot(hit.point - anchor, up) <= 0.01f && Vector3.Dot(hit.normal, up) > 0.05f;
 
         // The rotation (axis × angle, radians) that takes `up` to `target`; upside down, it rolls over the nose axis.
         private static Vector3 UprightError(Vector3 up, Vector3 target, Vector3 fallbackAxis)
