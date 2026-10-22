@@ -75,6 +75,12 @@ namespace Remedy.Vehicles
         [Tooltip("A tyre whose ground cast suddenly misses keeps its last hit for up to this long (seconds), so a stray miss doesn't drop it off the ground. The first hit ends it at once (hits always count straight away). 0 = misses count at once.")]
         public float GroundHoldTime = 0.06f;
         [Min(0f)]
+        [Tooltip("The tallest step the tyres climb (metres above where they meet the ground): kerbs and ledges lower than this are driven up, not bounced off (the wall casts start this high). Raise it to climb more.")]
+        public float StepHeight = 0.5f;
+        [Min(0f)]
+        [Tooltip("Speed lost climbing a full Step Height, per tyre (a quarter each on a four-wheeled car: 0.25 = about 25% for the whole car up a full step). Smaller steps cost less.")]
+        public float ClimbSlowdown = 0.25f;
+        [Min(0f)]
         [Tooltip("Landing after at least Ground Glue Min Air Time in the air, the car is held to the ground for this long (seconds), so it doesn't hop back off. 0 = off.")]
         public float GroundGlueTime = 0.3f;
         [Min(0f)]

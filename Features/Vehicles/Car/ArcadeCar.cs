@@ -721,6 +721,8 @@ namespace Remedy.Vehicles
             }
             state.ForcedDriftActive = forcedDrift;
 
+            float climbLoss = 0f;
+
             // Wheels.
             //
             // READ THIS BEFORE CHANGING ANYTHING ABOUT THE GROUND CASTS OR THE SUSPENSION:
@@ -822,6 +824,14 @@ namespace Remedy.Vehicles
                 // the cast reaches, or turned edge-on, ends the hold.
                 if (w.Grounded)
                 {
+                    // Climbing: how far the ground stepped up off the surface it was on last step (a slope stays on
+                    // its own plane; a kerb doesn't). Costs speed (below), by how much of Step Height it climbed.
+                    if (w.HasLastGroundHit && w.WasGrounded)
+                    {
+                        float climb = Vector3.Dot(w.GroundHit.point - w.LastGroundHit.point, w.LastGroundHit.normal);
+                        if (climb > 0.02f && p.StepHeight > 0f)
+                            climbLoss += Mathf.Clamp01(climb / p.StepHeight) * Mathf.Max(0f, p.ClimbSlowdown) / Mathf.Max(1f, wheels.Length);
+                    }
                     w.LastGroundHit = w.GroundHit;
                     w.HasLastGroundHit = true;
                     w.MissTime = 0f;
@@ -865,6 +875,13 @@ namespace Remedy.Vehicles
                     normalSum += w.RawGroundNormal;
                     groundPointSum += w.GroundHit.point;
                 }
+            }
+
+            // Climbing a step costs speed (no bounce, no crash: those are for walls, above Step Height).
+            if (climbLoss > 0f && dt > 0f)
+            {
+                Vector3 moving = Vector3.ProjectOnPlane(velocity, up);
+                native.ApplyForceToCenter((float3)(-moving * (Mathf.Min(climbLoss, 0.9f) / dt * mass)), true);
             }
 
             // Actual contacts define a shared support plane; virtual wheel forces fade with real tire support.
@@ -1647,14 +1664,16 @@ namespace Remedy.Vehicles
             }
             var hits = _bounceHits ??= new RaycastHit[16];
             var objects = _bounceObjects ??= new GameObject[16];
-            // From the top of the tyre, half its size: the sphere's bottom stays above the tyre's centre, so kerbs,
-            // bumps and anything else under the tyres aren't walls.
-            int count = SchematicPhysics.SphereCastAll(centre + up * radius, radius * 0.5f, direction,
+            // Step Height above where the tyre meets the ground, the sphere half the tyre's size with its bottom there:
+            // anything lower is a step the tyres climb, not a wall.
+            float castRadius = radius * 0.5f;
+            Vector3 from = centre - up * radius + up * (Mathf.Max(0f, p.StepHeight) + castRadius);
+            int count = SchematicPhysics.SphereCastAll(from, castRadius, direction,
                 reach + beyond, p.GroundLayers, hits, objects, ignore, includeSensors: false);
             // For the gizmo.
-            wheelState.WallCastFrom = centre + up * radius;
+            wheelState.WallCastFrom = from;
             wheelState.WallCastTo = wheelState.WallCastFrom + direction * (reach + beyond);
-            wheelState.WallCastRadius = radius * 0.5f;
+            wheelState.WallCastRadius = castRadius;
             wheelState.WallCastTime = Time.time;
             float nearest = float.MaxValue;
             bool found = false;
