@@ -21,6 +21,8 @@ namespace Remedy.Audio
         public const string VolumePort = "Volume";
 
         public enum LengthMode { Auto, Fixed, Endless }
+        /// <summary>How the cue is rendered (see <see cref="SoundContext.Live"/>).</summary>
+        public enum RenderMode { Auto, Live, Ahead }
 
         [Input(AudioPort, Editable = false)]
         public float Audio;
@@ -35,6 +37,77 @@ namespace Remedy.Audio
         /// <summary>How far away AI can hear it in the open, in meters (0: never). See <see cref="SoundHearing"/>.</summary>
         [Editable, Tooltip("How far away AI can hear it in the open, in meters (0: AI never hear it). Walls, corners and doorways between change that as they would the sound.")]
         public float HeardByAI = 30f;
+        [Editable, Tooltip("Live: rendered as it's heard, so changes to its Parameters are heard at once (it works on the audio thread as it plays). Ahead: rendered about a second ahead in a streamed clip (cheapest for one-shots; changes come late). Auto: Live when the game sets its Parameters or it has a Trigger.")]
+        public RenderMode Rendering = RenderMode.Auto;
+
+        /// <summary>How the cue fades with distance (see <see cref="FalloffAt"/>).</summary>
+        public enum FalloffShape { Natural, Linear, Smooth, Custom, AudioSource }
+
+        [Editable, Tooltip("How it fades with distance, from Full Volume Within to silent at Audible Range (Volume still scales it on top). Natural: like real sound, quick at first then a long tail. Linear: evenly. Smooth: holds, then eases out. Custom: Falloff Curve. Audio Source: the player's AudioSource's own 3D settings.")]
+        public FalloffShape Falloff = FalloffShape.Natural;
+        [Editable, Tooltip("Within this distance (meters) it's at full volume.")]
+        public float FullVolumeWithin = 2f;
+        [Editable, Tooltip("How far away it can be heard at all (meters): silent from here on (and not rendered).")]
+        public float AudibleRange = 60f;
+        [Editable, Tooltip("Custom falloff: the volume (1 = full) across the range, from Full Volume Within (0) to Audible Range (1).")]
+        public AnimationCurve FalloffCurve = AnimationCurve.EaseInOut(0f, 1f, 1f, 0f);
+
+        /// <summary>Whether the cue sets its own falloff (rather than leaving it to the AudioSource).</summary>
+        public bool OwnsFalloff => Falloff != FalloffShape.AudioSource;
+
+        /// <summary>How loud the falloff leaves it at a distance (0 to 1; main thread, for Custom).</summary>
+        public float FalloffAt(float distance)
+        {
+            float near = Mathf.Max(0f, FullVolumeWithin), range = Mathf.Max(near + 0.01f, AudibleRange);
+            if (distance <= near)
+                return 1f;
+            if (distance >= range)
+                return 0f;
+            float t = (distance - near) / (range - near);
+            switch (Falloff)
+            {
+                case FalloffShape.Linear:
+                    return 1f - t;
+                case FalloffShape.Smooth:
+                    return 1f - t * t * (3f - 2f * t);
+                case FalloffShape.Custom:
+                    return FalloffCurve != null ? Mathf.Clamp01(FalloffCurve.Evaluate(t)) : 1f - t;
+                default:
+                    // Natural: the inverse-distance fade of real sound (from Full Volume Within), bent down to reach
+                    // silence at Audible Range.
+                    float reference = Mathf.Max(0.5f, near);
+                    float inverse = reference / Mathf.Max(reference, distance - near + reference);
+                    float end = reference / (range - near + reference);
+                    return Mathf.Clamp01((inverse - end) / (1f - end));
+            }
+        }
+
+        [NonSerialized] private AnimationCurve _rolloff;
+        [NonSerialized] private int _rolloffFor;
+
+        /// <summary>
+        /// The falloff as an AudioSource's custom rolloff curve (across 0 to its Max Distance, which is
+        /// <see cref="AudibleRange"/>). Made again only when the settings change.
+        /// </summary>
+        public AnimationCurve RolloffCurve()
+        {
+            int settings = HashCode.Combine(Falloff, FullVolumeWithin, AudibleRange, FalloffCurve?.GetHashCode() ?? 0);
+            if (_rolloff != null && _rolloffFor == settings && Falloff != FalloffShape.Custom)
+                return _rolloff;
+            const int points = 32;
+            var keys = new Keyframe[points];
+            float range = Mathf.Max(0.01f, AudibleRange);
+            for (int i = 0; i < points; i++)
+            {
+                float x = i / (float)(points - 1);
+                keys[i] = new Keyframe(x, FalloffAt(x * range));
+            }
+            _rolloff = new AnimationCurve(keys);
+            for (int i = 0; i < points; i++)
+                _rolloff.SmoothTangents(i, 0f);
+            _rolloffFor = settings;
+            return _rolloff;
+        }
 
         // The voice reads the Output's inputs itself.
         public override SoundProcessor CreateProcessor(SoundCueBuilder builder) => new StaticProcessor();
@@ -79,28 +152,71 @@ namespace Remedy.Audio
         }
     }
 
-    [SchematicDoc(@"{""name"": ""Parameter"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Controls"", ""description"": ""A value the game sets while the cue plays (the Set Graph Parameters node on its Player, or SoundCuePlayer.SetParameter), by Name: an engine's RPM, a character's speed, how hurt they are... It's Default until it's set."", ""outputs"": [{""name"": ""Value"", ""type"": ""float""}]}")]
+    [SchematicDoc(@"{""name"": ""Parameter"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Controls"", ""description"": ""A value the game sets while the cue plays (the Set Graph Parameters node on its Player, or SoundCuePlayer.SetParameter), by Name: an engine's RPM, a character's speed, how hurt they are... It's Default until it's set. A new value glides there over Glide seconds (no zipper steps from values set once a frame). A cue with Parameters is rendered as it's heard (see Output's Rendering), so a change is heard at once."", ""outputs"": [{""name"": ""Value"", ""type"": ""float""}]}")]
     [Serializable]
     [Node(Name = "Parameter", Path = "Controls"), Tags(SoundNode.Tag)]
     public class SoundParameterNode : SoundNode
     {
         [Editable] public string ParameterName = "Intensity";
         [Editable] public float Default;
+        [Editable, Tooltip("How long a new value takes to glide in (seconds; most of the way there by then), so values set once a frame (an engine's RPM) sweep smoothly instead of stepping. 0 = jumps straight there.")]
+        public float Glide = 0.05f;
         [Output("Value")] public float Value;
 
         public override SoundProcessor CreateProcessor(SoundCueBuilder builder)
-            => new Processor { Index = builder.ParameterIndex(ParameterName, Default) };
+        {
+            // What the game sets is heard as it changes: the cue is rendered as it's heard (Output's Rendering, Auto).
+            builder.Context.HasParameters = true;
+            return new Processor
+            {
+                Index = builder.ParameterIndex(ParameterName, Default),
+                Coefficient = Glide > 0f ? 1f - Mathf.Exp(-1f / (Glide * 0.5f * builder.SampleRate)) : 1f,
+            };
+        }
 
+        // Glides toward the value set, and once there does nothing: its block already holds the value, so it's left
+        // as it is until the value changes. After a gap (culled while unheard, a restart) it starts at the value.
         private sealed class Processor : SoundProcessor
         {
             public int Index;
+            public float Coefficient;
+            private float _current, _filledValue = float.NaN;
+            private int _filled;
+            private long _next = -1;
+
+            public override void Reset(SoundContext context)
+            {
+                _next = -1;
+                _filledValue = float.NaN;
+                _filled = 0;
+            }
 
             public override void Process(SoundContext context, int count)
             {
                 var output = Output("Value");
-                float value = Index < context.Parameters.Length ? context.Parameters[Index] : 0f;
+                float target = Index < context.Parameters.Length ? context.Parameters[Index] : 0f;
+                bool continues = context.SamplePosition == _next;
+                _next = context.SamplePosition + count;
+                if (continues && _current != target && Coefficient < 1f)
+                {
+                    float close = 1e-5f * Mathf.Max(1f, Mathf.Abs(target));
+                    for (int i = 0; i < count; i++)
+                    {
+                        _current += (target - _current) * Coefficient;
+                        if (Mathf.Abs(target - _current) <= close)
+                            _current = target;
+                        output[i] = _current;
+                    }
+                    _filledValue = float.NaN;
+                    return;
+                }
+                _current = target;
+                if (_filledValue == target && _filled >= count)
+                    return; // (already holds it)
                 for (int i = 0; i < count; i++)
-                    output[i] = value;
+                    output[i] = target;
+                _filled = _filledValue == target ? Mathf.Max(_filled, count) : count;
+                _filledValue = target;
             }
         }
     }

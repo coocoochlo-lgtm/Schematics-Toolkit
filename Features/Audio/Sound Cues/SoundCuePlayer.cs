@@ -84,7 +84,7 @@ namespace Remedy.Audio
             var source = Source;
             if (source == null)
                 return;
-            source.volume = falloff ? 1f / Mathf.Max(1f, distance) : 1f;
+            source.volume = falloff ? PreviewGain(distance) : 1f;
             // From the direction (right = +1); straight ahead or behind is centered.
             source.panStereo = distance > 0.001f ? Mathf.Clamp(position.x / distance, -1f, 1f) : 0f;
         }
@@ -157,12 +157,13 @@ namespace Remedy.Audio
             // which Spatial reverb needs to feed rooms and echoes in time with it. Known before the clip is touched:
             // Unity reads the start of a streamed clip as soon as it's set up, and sends from samples rendered before
             // this was known were dropped (a short hit could lose all of its echoes).
-            // A cue that reacts as it plays (a Trigger) is rendered as it's heard instead (see SoundCueLiveRender).
-            bool live = voice.Context.LowLatency;
+            // A cue that changes as it plays (a Trigger, Parameters) is rendered as it's heard instead (see SoundCueLiveRender).
+            bool live = voice.Context.Live;
             bool scheduled = !live && (Application.isPlaying || ScheduleInEditor) && Mathf.Approximately(Source.pitch, 1f);
             double at = AudioSettings.dspTime + 0.08;
             voice.Context.HeardStart = scheduled ? at - start / (double)rate : -1;
             _voice = voice;
+            ApplyFalloff();
             UpdateRoom(immediate: true);
             RunProbes(voice);
 
@@ -342,7 +343,7 @@ namespace Remedy.Audio
                 Host = gameObject,
                 Room = _room,
                 // The preview fades a sound by 1 / distance itself (its source is flat).
-                Hearing = DistanceOverride.HasValue ? PreviewHearing : _hearing ??= HearingAt,
+                Hearing = DistanceOverride.HasValue ? _previewHearing ??= PreviewGain : _hearing ??= HearingAt,
             };
             for (int i = 0; i < probes.Count; i++)
             {
@@ -360,15 +361,39 @@ namespace Remedy.Audio
             return (_listener != null ? HearingAt(distance) : source.volume) < CullBelow;
         }
 
-        private Func<float, float> _hearing;
-        private static readonly Func<float, float> PreviewHearing = distance => 1f / Mathf.Max(1f, distance);
+        private Func<float, float> _hearing, _previewHearing;
+
+        // The cue's Output, when it sets the falloff itself (Falloff isn't Audio Source).
+        private SoundCueOutput OwnFalloff => Cue != null && Cue.Output is SoundCueOutput output && output.OwnsFalloff ? output : null;
+
+        // The cue's own falloff onto the AudioSource (a custom rolloff out to its Audible Range), for 3D sources.
+        private void ApplyFalloff()
+        {
+            var output = OwnFalloff;
+            var source = Source;
+            if (output == null || source == null)
+                return;
+            source.rolloffMode = AudioRolloffMode.Custom;
+            source.maxDistance = Mathf.Max(0.01f, output.AudibleRange);
+            source.minDistance = Mathf.Clamp(output.FullVolumeWithin, 0.01f, source.maxDistance);
+            source.SetCustomCurve(AudioSourceCurveType.CustomRolloff, output.RolloffCurve());
+        }
+
+        // The preview's falloff (its source is flat, so it fades the sound itself): the cue's own, else 1 / distance.
+        private float PreviewGain(float distance)
+        {
+            var output = OwnFalloff;
+            return output != null ? output.FalloffAt(distance) : 1f / Mathf.Max(1f, distance);
+        }
 
         // How loud the source makes the sound at a distance: its volume, times its distance falloff when it's 3D.
         private float HearingAt(float distance)
         {
             var source = Source;
             float gain = source.volume;
-            if (source.spatialBlend >= 0.99f)
+            if (source.spatialBlend >= 0.99f && OwnFalloff is SoundCueOutput own)
+                gain *= own.FalloffAt(distance);
+            else if (source.spatialBlend >= 0.99f)
             {
                 float min = Mathf.Max(0.01f, source.minDistance), max = Mathf.Max(min, source.maxDistance);
                 switch (source.rolloffMode)

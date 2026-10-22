@@ -169,6 +169,14 @@ namespace Remedy.Audio
         /// heard, not ahead), so what fires it is heard at once.
         /// </summary>
         public bool LowLatency;
+        /// <summary>The cue has Parameters the game sets as it plays (a Parameter node feeds its sound).</summary>
+        public bool HasParameters;
+        /// <summary>
+        /// Rendered as it's heard (a block at a time, from the audio thread) rather than ahead in a streamed clip: for
+        /// cues that change as they play, so a change is heard at once, not a second or two later. Set when it's built
+        /// (Output's Rendering; Auto: with a Trigger or Parameters).
+        /// </summary>
+        public bool Live;
         /// <summary>How much later than when they're heard sends to the world's spaces go (low latency: past what they're playing).</summary>
         public int SendLead;
         /// <summary>
@@ -502,6 +510,12 @@ namespace Remedy.Audio
                     context.AfterTrigger = context.Duration + builder.Tail;
                     length = 0;
                 }
+                context.Live = context.LowLatency || output.Rendering switch
+                {
+                    SoundCueOutput.RenderMode.Live => true,
+                    SoundCueOutput.RenderMode.Ahead => false,
+                    _ => context.HasParameters,
+                };
             }
             var voice = new SoundCueVoice(cue, context, builder, audio, volume, length) { BuiltVersion = SoundCueVoicePool.Version(cue) };
             voice.Restart(seed);
