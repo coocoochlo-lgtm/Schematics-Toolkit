@@ -1458,68 +1458,65 @@ namespace Remedy.Vehicles
         // Bounces are found by casts, not by the physics contacts (whose surfaces gave odd results): every step each
         // tyre casts a sphere (a little smaller than it, lifted off the floor) along the car's velocity on the ground
         // plane, as far as the body reaches past that tyre in that direction plus this step's travel and Bounce Look
-        // Ahead. A wall-like surface (Bounce Min Wall Angle) the car is moving into at Bounce Min Speed or more is a
-        // bounce: the tyres that found one decide its direction (weighted by how hard each is coming in), its
-        // strength (the hardest) and where on the car it struck (their hit points).
+        // Ahead. A wall-like surface (Bounce Min Wall Angle) the car is moving into at Bounce Min Speed or more starts
+        // a candidate: the tyres that found one decide its direction (weighted by how hard each is coming in), its
+        // strength (the hardest) and where on the car it struck (their hit points). Then, for Bounce Confirm Time,
+        // those tyres cast again along that first approach direction (the car's velocity no longer points into the
+        // wall once it's touching), and it only bounces if the wall was still there for at least half the steps: a
+        // glance that came and went never was a proper collision.
         private static void DetectBounce(Body body, Box3DBody ignore, Wheel[] wheels, WheelState[] wheelStates,
             ArcadeCarProperties p, CarState state, Vector3 velocity, Vector3 up, Vector3 planeUp, float dt)
         {
-            if (p.BounceMinSpeed <= 0f || state.PendingBounce || Time.time < state.BounceReadyTime)
+            if (p.BounceMinSpeed <= 0f || state.PendingBounce)
+                return;
+            float wall = WallFlatness(p);
+            float lookAhead = Mathf.Max(0f, p.BounceLookAhead);
+
+            if (state.BounceCandidate)
+            {
+                state.BounceCandidateTime += dt;
+                state.BounceCandidateSteps++;
+                for (int i = 0; i < wheels.Length && i < 32; i++)
+                    if ((state.BounceStruckWheels & (1u << i)) != 0
+                        && CastWall(body, ignore, wheels[i], wheelStates[i], p, state.BounceApproach, Vector3.zero, up, planeUp,
+                            lookAhead + 0.1f, wall, out _, out _, out _, out _))
+                    {
+                        state.BounceFoundSteps++;
+                        break;
+                    }
+                if (state.BounceCandidateTime < p.BounceConfirmTime)
+                    return;
+                state.BounceCandidate = false;
+                if (state.BounceFoundSteps * 2 >= state.BounceCandidateSteps)
+                {
+                    state.PendingBounce = true;
+                    state.LastBounceTime = Time.time;
+                }
+                return;
+            }
+
+            if (Time.time < state.BounceReadyTime)
                 return;
             Vector3 planar = Vector3.ProjectOnPlane(velocity, planeUp);
             float speed = planar.magnitude;
             if (speed < p.BounceMinSpeed)
                 return;
             Vector3 direction = planar / speed;
-            float wall = WallFlatness(p);
-
-            B3Aabb bounds = body.ComputeAABB();
-            Vector3 lower = (Vector3)(float3)bounds.LowerBound, upper = (Vector3)(float3)bounds.UpperBound;
-            var hits = _bounceHits ??= new RaycastHit[16];
-            var objects = _bounceObjects ??= new GameObject[16];
             Vector3 directionSum = Vector3.zero, pointSum = Vector3.zero;
             float strongest = 0f;
             int struck = 0;
+            uint struckWheels = 0;
             bool offCar = false;
-            for (int i = 0; i < wheels.Length && i < wheelStates.Length; i++)
+            for (int i = 0; i < wheels.Length && i < wheelStates.Length && i < 32; i++)
             {
-                var wheel = wheels[i];
-                if (wheel?.Anchor == null)
+                if (!CastWall(body, ignore, wheels[i], wheelStates[i], p, direction, planar, up, planeUp,
+                        speed * dt + lookAhead, wall, out Vector3 away, out float into, out Vector3 point, out GameObject other))
                     continue;
-                float radius = Mathf.Max(0.05f, wheel.Radius);
-                Vector3 centre = wheel.Anchor.position - up * wheelStates[i].Extension;
-                // How far the body sticks out past this tyre the way the car is going (the bumper's overhang).
-                float reach = 0f;
-                for (int c = 0; c < 8; c++)
-                {
-                    var corner = new Vector3((c & 1) != 0 ? upper.x : lower.x, (c & 2) != 0 ? upper.y : lower.y, (c & 4) != 0 ? upper.z : lower.z);
-                    reach = Mathf.Max(reach, Vector3.Dot(corner - centre, direction));
-                }
-                float distance = reach + speed * dt + Mathf.Max(0f, p.BounceLookAhead);
-                int count = SchematicPhysics.SphereCastAll(centre + planeUp * (radius * 0.25f), radius * 0.8f, direction,
-                    distance, p.GroundLayers, hits, objects, ignore, includeSensors: false);
-                float nearest = float.MaxValue;
-                int best = -1;
-                Vector3 bestAway = Vector3.zero;
-                for (int h = 0; h < count; h++)
-                {
-                    Vector3 away = Vector3.ProjectOnPlane(hits[h].normal, planeUp);
-                    if (away.magnitude < wall || hits[h].distance >= nearest)
-                        continue;
-                    away.Normalize();
-                    if (-Vector3.Dot(planar, away) < p.BounceMinSpeed)
-                        continue;
-                    nearest = hits[h].distance;
-                    best = h;
-                    bestAway = away;
-                }
-                if (best < 0)
-                    continue;
-                float into = -Vector3.Dot(planar, bestAway);
-                directionSum += bestAway * into;
-                pointSum += hits[best].point;
+                directionSum += away * into;
+                pointSum += point;
                 strongest = Mathf.Max(strongest, into);
-                offCar |= IsCar(objects[best]);
+                offCar |= IsCar(other);
+                struckWheels |= 1u << i;
                 struck++;
             }
             if (struck == 0)
@@ -1527,13 +1524,73 @@ namespace Remedy.Vehicles
             Vector3 awayFromWall = Vector3.ProjectOnPlane(directionSum, planeUp);
             if (awayFromWall.sqrMagnitude < 1e-6f)
                 return;
-            state.PendingBounce = true;
             state.BounceAway = awayFromWall.normalized;
             state.BounceSpeed = strongest;
             state.BouncePoint = pointSum / struck;
             state.BounceOffCar = offCar;
             state.BounceBefore = velocity;
-            state.LastBounceTime = Time.time;
+            state.BounceApproach = direction;
+            state.BounceStruckWheels = struckWheels;
+            if (p.BounceConfirmTime <= 0f)
+            {
+                state.PendingBounce = true;
+                state.LastBounceTime = Time.time;
+                return;
+            }
+            state.BounceCandidate = true;
+            state.BounceCandidateTime = 0f;
+            state.BounceCandidateSteps = 0;
+            state.BounceFoundSteps = 0;
+        }
+
+        // One tyre's wall cast: a sphere a little smaller than the tyre, lifted off the floor, from its centre along
+        // `direction`, as far as the body reaches past the tyre that way plus `beyond`. The nearest wall-like surface
+        // facing it (and, with a `planar` velocity, one it's moving into at Bounce Min Speed or more): its direction
+        // away from the wall, how fast the car comes into it, where, and what it is.
+        private static bool CastWall(Body body, Box3DBody ignore, Wheel wheel, WheelState wheelState, ArcadeCarProperties p,
+            Vector3 direction, Vector3 planar, Vector3 up, Vector3 planeUp, float beyond, float wall,
+            out Vector3 away, out float into, out Vector3 point, out GameObject other)
+        {
+            away = Vector3.zero;
+            into = 0f;
+            point = Vector3.zero;
+            other = null;
+            if (wheel?.Anchor == null)
+                return false;
+            float radius = Mathf.Max(0.05f, wheel.Radius);
+            Vector3 centre = wheel.Anchor.position - up * wheelState.Extension;
+            // How far the body sticks out past this tyre the way it's looking (the bumper's overhang).
+            B3Aabb bounds = body.ComputeAABB();
+            Vector3 lower = (Vector3)(float3)bounds.LowerBound, upper = (Vector3)(float3)bounds.UpperBound;
+            float reach = 0f;
+            for (int c = 0; c < 8; c++)
+            {
+                var corner = new Vector3((c & 1) != 0 ? upper.x : lower.x, (c & 2) != 0 ? upper.y : lower.y, (c & 4) != 0 ? upper.z : lower.z);
+                reach = Mathf.Max(reach, Vector3.Dot(corner - centre, direction));
+            }
+            var hits = _bounceHits ??= new RaycastHit[16];
+            var objects = _bounceObjects ??= new GameObject[16];
+            int count = SchematicPhysics.SphereCastAll(centre + planeUp * (radius * 0.25f), radius * 0.8f, direction,
+                reach + beyond, p.GroundLayers, hits, objects, ignore, includeSensors: false);
+            float nearest = float.MaxValue;
+            bool found = false;
+            for (int h = 0; h < count; h++)
+            {
+                Vector3 flat = Vector3.ProjectOnPlane(hits[h].normal, planeUp);
+                if (flat.magnitude < wall || hits[h].distance >= nearest || Vector3.Dot(flat, direction) >= 0f)
+                    continue;
+                flat.Normalize();
+                float coming = planar.sqrMagnitude > 0f ? -Vector3.Dot(planar, flat) : 0f;
+                if (planar.sqrMagnitude > 0f && coming < p.BounceMinSpeed)
+                    continue;
+                nearest = hits[h].distance;
+                away = flat;
+                into = coming;
+                point = hits[h].point;
+                other = objects[h];
+                found = true;
+            }
+            return found;
         }
 
         private static RaycastHit[] _bounceHits;
@@ -2551,8 +2608,12 @@ namespace Remedy.Vehicles
         public float JumpBoostTotal, JumpBoostClock, HoverClock = -1f;
         public Vector3 TakeoffNormal = Vector3.up;
         public Vector3 BounceTargetVelocity;
-        public Vector3 BounceBefore;
+        public Vector3 BounceBefore, BounceApproach;
         public float LastBounceTime = -10f;
+        public bool BounceCandidate;
+        public float BounceCandidateTime;
+        public int BounceCandidateSteps, BounceFoundSteps;
+        public uint BounceStruckWheels;
         public float BounceGrip = 1f;
         public Quaternion BodyRestRotation;
         public Vector3 BodyRestScale = Vector3.one;

@@ -466,6 +466,9 @@ namespace Remedy.Vehicles
         [Tooltip("Bounces are found by a cast from each tyre along the car's velocity, reaching past the body's edge by this much (metres) beyond this step's travel: more catches walls a moment earlier.")]
         public float BounceLookAhead = 0.1f;
         [Min(0f)]
+        [Tooltip("How long a found wall is checked before the bounce (seconds): the tyres that found it cast again along the way the car came in, and it only bounces if the wall was still there for at least half of it. 0 = straight away.")]
+        public float BounceConfirmTime = 0.06f;
+        [Min(0f)]
         [Tooltip("Push away from what was hit, per m/s it was hit at (m/s). Half each against another car (it bounces too).")]
         public float BouncePush = 0.35f;
         [Min(0f)]
