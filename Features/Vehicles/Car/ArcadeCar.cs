@@ -1153,17 +1153,17 @@ namespace Remedy.Vehicles
                 ApplyBounce(instance, native, p, state, previousVelocity, velocity, groundNormal, isGrounded,
                     centerOfMass, forward);
             }
-            if (state.BounceAlignTime > 0f)
+            // (A Spin Kick wants it spinning: nothing steadies or turns it then.)
+            if (state.BounceAlignTime > 0f && p.BounceSpinKick <= 0f)
             {
                 state.BounceAlignTime -= dt;
+                float yawRate = Vector3.Dot(angularVelocity, groundNormal);
+                float error = 0f;
                 Vector3 nose = Vector3.ProjectOnPlane(forward, groundNormal);
                 Vector3 wanted = Vector3.ProjectOnPlane(state.BounceAlignDirection, groundNormal);
-                if (nose.sqrMagnitude > 0.001f && wanted.sqrMagnitude > 0.001f)
-                {
-                    float error = Vector3.SignedAngle(nose, wanted, groundNormal) * Mathf.Deg2Rad;
-                    float yawRate = Vector3.Dot(angularVelocity, groundNormal);
-                    angular += groundNormal * (error * 20f * p.BounceAlign - yawRate * 4f * p.BounceAlign);
-                }
+                if (state.BounceAlignHasDirection && nose.sqrMagnitude > 0.001f && wanted.sqrMagnitude > 0.001f)
+                    error = Vector3.SignedAngle(nose, wanted, groundNormal) * Mathf.Deg2Rad;
+                angular += groundNormal * (error * 20f * p.BounceAlign - yawRate * Mathf.Max(6f, 4f * p.BounceAlign));
             }
 
             // Flipped: report it, and turn back over after a while (or on Unflip).
@@ -1345,19 +1345,25 @@ namespace Remedy.Vehicles
             }
             body.SetLinearVelocity((float3)result);
 
-            // The nose eases along the wall (the way it was already going), so it lands pointing down the road.
-            if (p.BounceAlign > 0f && along.sqrMagnitude > 1f)
-            {
-                state.BounceAlignDirection = Vector3.Dot(along, forward) >= 0f ? along.normalized : -along.normalized;
-                state.BounceAlignTime = p.BounceAlignTime;
-            }
-            // Optional: an off-centre hit swings the tail.
+            // The hit's own spin goes: the physics gives an off-centre hit a twist, and with the car hopped off its
+            // tyres (and their grip eased) nothing stopped it, so a head-on hit could spin it round and round.
+            // Yaw is dropped and the hit's tumble halved; only the Spin Kick (if on) adds a deliberate swing.
+            Vector3 spin = (Vector3)(float3)body.GetAngularVelocity();
+            spin = Vector3.ProjectOnPlane(spin, planeUp) * 0.5f;
             if (p.BounceSpinKick > 0f)
             {
                 float side = Mathf.Sign(Vector3.Dot(Vector3.Cross(state.BouncePoint - centerOfMass, away), planeUp));
-                Vector3 spin = (Vector3)(float3)body.GetAngularVelocity();
-                body.SetAngularVelocity((float3)(spin + planeUp * (side * p.BounceSpinKick * state.BounceSpeed * share)));
+                spin += planeUp * (side * p.BounceSpinKick * state.BounceSpeed * share);
             }
+            body.SetAngularVelocity((float3)spin);
+
+            // For Bounce Align Time the car's yaw is held steady, and the nose eases along the wall (the way it was
+            // already going) when it slides along one, so it lands pointing down the road. (A head-on hit has no
+            // slide to turn to: just steadied.)
+            state.BounceAlignTime = Mathf.Max(0.1f, p.BounceAlignTime);
+            state.BounceAlignHasDirection = p.BounceAlign > 0f && along.sqrMagnitude > 1f;
+            if (state.BounceAlignHasDirection)
+                state.BounceAlignDirection = Vector3.Dot(along, forward) >= 0f ? along.normalized : -along.normalized;
             state.BounceGrip = 1f - Mathf.Clamp01(p.BounceGripEase);
             state.HasDriftHeading = false;
             state.BounceReadyTime = Time.time + Mathf.Max(0f, p.BounceCooldown);
@@ -2181,6 +2187,7 @@ namespace Remedy.Vehicles
         public bool PendingBounce, BounceOffCar;
         public Vector3 BounceAway, BouncePoint, BounceAlignDirection;
         public float BounceSpeed, BounceReadyTime, BounceAlignTime;
+        public bool BounceAlignHasDirection;
         public float BounceGrip = 1f;
         public Quaternion BodyRestRotation;
         public Vector3 BodyRestScale = Vector3.one;
