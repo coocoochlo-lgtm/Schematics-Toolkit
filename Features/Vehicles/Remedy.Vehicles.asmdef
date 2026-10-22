@@ -11,7 +11,8 @@
         "GUID:2c3472ea9a5b43d3ae42d904816ba305",
         "GUID:dff8ecec7c9808447ae4528f8a364918",
         "GUID:8a4abcc8263c46c4a9aaeaa2747ac62c",
-        "Unity.Mathematics"
+        "Unity.Mathematics",
+        "Remedy.Surfaces"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

@@ -4,6 +4,8 @@ using Box3D;
 using Box3D.Hybrid;
 using Remedy.Box3DPhysics;
 using Remedy.Schematics;
+using Remedy.Surfaces;
+using SurfaceMaterial = Remedy.Surfaces.SurfaceMaterial;
 using Unity.Mathematics;
 using UnityEngine;
 
@@ -790,7 +792,7 @@ namespace Remedy.Vehicles
                 float tyreDrop = w.Extension - tireRadius;
                 float beyond = Mathf.Max(0f, groundCheckDistanceForWheels);
                 w.Grounded = CastWheel(origin, bodyTopOffset, up, suspensionUp, tireRadius, tyreDrop, beyond,
-                    p.GroundLayers, body, out w.GroundHit, out bool ceiling);
+                    p.GroundLayers, body, out w.GroundHit, out bool ceiling, out GameObject groundObject);
                 // A ceiling isn't ground: on its back the car's roof lies in the floor, so the cast (from the top of
                 // the body) starts inside it and "hits" it at once. Something touching the cast where it starts, at
                 // the body's top, or a surface facing away from the car, is a ceiling: cast again from the wheel
@@ -800,7 +802,7 @@ namespace Remedy.Vehicles
                 {
                     w.CeilingPoint = w.GroundHit.point;
                     w.Grounded = CastWheel(origin, 0f, up, suspensionUp, tireRadius, tyreDrop, beyond,
-                        p.GroundLayers, body, out w.GroundHit, out _);
+                        p.GroundLayers, body, out w.GroundHit, out _, out groundObject);
                 }
                 // A tyre touching the ground with its sidewall isn't standing on it (a car on its side, a tyre
                 // against a kerb's face): ground further than Tyre Contact Max Angle from the car's up doesn't count,
@@ -823,6 +825,7 @@ namespace Remedy.Vehicles
                     w.LastGroundHit = w.GroundHit;
                     w.HasLastGroundHit = true;
                     w.MissTime = 0f;
+                    UpdateWheelSurface(ref w, groundObject, i, instance.GameObject);
                 }
                 else if (w.HasLastGroundHit && !w.Sidewall && !ceiling && w.MissTime + dt <= p.GroundHoldTime)
                 {
@@ -1043,19 +1046,27 @@ namespace Remedy.Vehicles
                 // Sideways grip: cancel sliding, up to what the tyre can hold.
                 float grip = w.IsFront ? p.FrontGrip : p.RearGrip;
                 if (drifting && !arcadeDrift)
-                    grip *= w.IsFront ? p.DriftFrontGrip : p.DriftRearGrip;
+                    grip *= (w.IsFront ? p.DriftFrontGrip : p.DriftRearGrip) * (1f - 0.5f * DriftEase(wheels, state, p));
                 grip *= (arcadeDrift ? 0f : state.DriftGripReturn) * state.BounceGrip;
                 if (wheel.HasHandbrake && handbrake)
                     grip *= p.HandbrakeGrip;
-                float limit = p.MaxTyreAcceleration * load;
+                // The ground it's on (Surface Materials): Friction is grip (cornering, traction, braking), relative
+                // to the default material's; Wetness takes some of it away; soft ground (Hardness under the
+                // default's) drags and eats drive.
+                SurfaceFactors(w.Surface, p, out float surfaceGrip, out float softness, out _);
+                grip *= surfaceGrip;
+                float limit = p.MaxTyreAcceleration * load * surfaceGrip;
                 float sideAcceleration = Mathf.Clamp(-sideSpeed * Mathf.Min(grip, 1f / dt), -limit, limit);
 
                 // Along the tyre: engine, brakes, handbrake, rolling resistance.
                 float rollAcceleration = 0f;
                 if (wheel.Drives && driveCount > 0)
-                    rollAcceleration += driveAcceleration * wheelCount / driveCount;
+                    rollAcceleration += driveAcceleration * wheelCount / driveCount
+                        * Mathf.Min(1f, surfaceGrip) * (1f - softness * Mathf.Clamp01(p.SurfaceSoftDriveLoss));
                 if (brakeDeceleration > 0f)
-                    rollAcceleration -= Mathf.Sign(rollSpeed) * Mathf.Min(brakeDeceleration, Mathf.Abs(rollSpeed) / dt);
+                    rollAcceleration -= Mathf.Sign(rollSpeed) * Mathf.Min(brakeDeceleration * Mathf.Min(1f, surfaceGrip), Mathf.Abs(rollSpeed) / dt);
+                if (actualGrounded && softness > 0f)
+                    rollAcceleration -= rollSpeed * softness * Mathf.Max(0f, p.SurfaceSoftDrag);
                 if (wheel.HasHandbrake && handbrake && handbrakeCount > 0)
                     rollAcceleration -= Mathf.Sign(rollSpeed) * Mathf.Min(p.HandbrakeDeceleration * wheelCount / handbrakeCount, Mathf.Abs(rollSpeed) / dt);
                 if (Mathf.Approximately(driveAcceleration, 0f) && brakeDeceleration <= 0f)
@@ -1328,7 +1339,7 @@ namespace Remedy.Vehicles
 
             state.DriftHeadingActive = arcadeDrift && isGrounded && !bounceHeld;
             if (state.DriftHeadingActive)
-                ApplyArcadeDrift(native, p, state, groundNormal, forward, velocity, angularVelocity,
+                ApplyArcadeDrift(native, p, state, DriftEase(wheels, state, p), groundNormal, forward, velocity, angularVelocity,
                     driveAcceleration, brakeDeceleration, topSpeed, mass, dt, ref angular);
 
             // Bounce: a wall (or another car) hit since last step picks the car up, carries it away and drops it
@@ -1462,7 +1473,7 @@ namespace Remedy.Vehicles
         // An arcade drift: its heading turns with the steering (plus Drift Auto Turn Rate into the drift), the car's
         // speed is swung onto it and the engine, brakes and drag push along it only; the nose is held at a slide
         // angle on top, wider steering into the drift and narrower steering out of it.
-        private static void ApplyArcadeDrift(Body body, ArcadeCarProperties p, CarState state, Vector3 planeUp,
+        private static void ApplyArcadeDrift(Body body, ArcadeCarProperties p, CarState state, float driftEase, Vector3 planeUp,
             Vector3 forward, Vector3 velocity, Vector3 angularVelocity, float driveAcceleration, float brakeDeceleration,
             float topSpeed, float mass, float dt, ref Vector3 angular)
         {
@@ -1496,10 +1507,11 @@ namespace Remedy.Vehicles
             angular += planeUp * (yawError * p.DriftAngleStrength + (turnRate * Mathf.Deg2Rad - yawRate) * p.DriftAngleDamping);
 
             // The travel: swung onto the heading, keeping its speed.
-            Vector3 push = (heading * speed - planar) * (Mathf.Min(1f, p.DriftHeadingGrip * dt) / dt);
+            // (Wet or slidy ground, the drift ease: the car follows its heading more loosely and loses less speed.)
+            Vector3 push = (heading * speed - planar) * (Mathf.Min(1f, p.DriftHeadingGrip * (1f - 0.5f * driftEase) * dt) / dt);
             float along = Vector3.Dot(planar, heading);
             float pushAlong = along < topSpeed ? driveAcceleration : 0f;
-            float slowing = brakeDeceleration + speed * p.DriftSpeedLoss * Mathf.Sin(slide * Mathf.Deg2Rad);
+            float slowing = brakeDeceleration + speed * p.DriftSpeedLoss * (1f - driftEase) * Mathf.Sin(slide * Mathf.Deg2Rad);
             if (Mathf.Approximately(driveAcceleration, 0f) && brakeDeceleration <= 0f)
                 slowing += along * p.RollingResistance;
             pushAlong -= Mathf.Sign(along) * Mathf.Min(Mathf.Abs(slowing), Mathf.Abs(along) / dt);
@@ -2126,17 +2138,78 @@ namespace Remedy.Vehicles
             return fronts > 0 && rears > 0 ? Mathf.Max(0.5f, Mathf.Abs(front / fronts - rear / rears)) : 2.5f;
         }
 
+        // The project's default ground (its Friction and Hardness are "normal": surfaces count relative to them).
+        private const float NormalFriction = 0.6f, NormalHardness = 0.5f;
+
+        // What a tyre is driving on: the object its ground cast hit (its Surface Material Tag, or the project's
+        // default), or a painted surface there, looked for every fourth step per tyre (staggered).
+        private static void UpdateWheelSurface(ref WheelState w, GameObject ground, int index, GameObject car)
+        {
+            if (ground != w.SurfaceObject)
+            {
+                w.SurfaceObject = ground;
+                w.TaggedSurface = SurfaceMaterialTag.Of(ground) ?? SurfaceLibrary.DefaultMaterial;
+                w.Surface = w.TaggedSurface;
+            }
+            if (((Time.frameCount + index) & 3) != 0)
+                return;
+            Vector3 normal = w.GroundHit.normal;
+            w.Surface = SurfacePaintLayer.Raycast(w.GroundHit.point + normal * 0.3f, -normal, 0.6f, out SurfaceHit painted)
+                && painted.Material != null
+                ? painted.Material
+                : w.TaggedSurface;
+        }
+
+        // A surface's effect on a tyre: its grip (Friction relative to normal, less on wet ground; Surface Grip
+        // Influence of the difference), how soft it is (0 normal or harder, 1 softest) and how much easier it makes
+        // drifting (its Wetness, or its own "Drift" property).
+        private static void SurfaceFactors(SurfaceMaterial surface, ArcadeCarProperties p, out float grip, out float softness,
+            out float driftEase)
+        {
+            if (surface == null)
+            {
+                grip = 1f;
+                softness = 0f;
+                driftEase = 0f;
+                return;
+            }
+            float friction = Mathf.Clamp(surface.Friction / NormalFriction, 0f, 2f);
+            grip = Mathf.Lerp(1f, friction, Mathf.Clamp01(p.SurfaceGripInfluence))
+                * (1f - Mathf.Clamp01(surface.Wetness) * Mathf.Clamp01(p.SurfaceWetGripLoss));
+            softness = Mathf.Clamp01((NormalHardness - surface.Hardness) / NormalHardness);
+            driftEase = Mathf.Clamp01((surface.TryGet("Drift", out float drift) ? drift : surface.Wetness)
+                * Mathf.Clamp01(p.SurfaceWetDriftBonus));
+        }
+
+        // The tyres on the ground's average drift ease.
+        private static float DriftEase(Wheel[] wheels, CarState state, ArcadeCarProperties p)
+        {
+            float sum = 0f;
+            int count = 0;
+            for (int i = 0; i < wheels.Length && i < state.Wheels.Length; i++)
+            {
+                if (!state.Wheels[i].Grounded)
+                    continue;
+                SurfaceFactors(state.Wheels[i].Surface, p, out _, out _, out float ease);
+                sum += ease;
+                count++;
+            }
+            return count > 0 ? sum / count : 0f;
+        }
+
         // The bent ground cast: from `startAbove` over the anchor straight down the car's `up` to the top of the tyre
         // (`tyreDrop` under the anchor; negative if it's above it), then `beyond` further along -`toward` (the ground
         // the tyres stood on). The hit's distance comes back as the distance down the suspension from the anchor to
         // the ground (to the bend, then along `toward`, plus the tyre's radius). `ceiling`: the first hit was a ceiling
         // (touching where the cast starts, or facing away from the car), and nothing came back.
         private static bool CastWheel(Vector3 anchor, float startAbove, Vector3 up, Vector3 toward, float radius,
-            float tyreDrop, float beyond, LayerMask mask, Box3DBody body, out RaycastHit hit, out bool ceiling)
+            float tyreDrop, float beyond, LayerMask mask, Box3DBody body, out RaycastHit hit, out bool ceiling,
+            out GameObject hitObject)
         {
             ceiling = false;
             float first = startAbove + tyreDrop;
-            if (first > 0f && SchematicPhysics.SphereCast(anchor + up * startAbove, radius, -up, out hit, out _,
+            hitObject = null;
+            if (first > 0f && SchematicPhysics.SphereCast(anchor + up * startAbove, radius, -up, out hit, out hitObject,
                     first, mask, body))
             {
                 if (IsCeiling(hit, up))
@@ -2148,7 +2221,7 @@ namespace Remedy.Vehicles
                 return true;
             }
             Vector3 bend = anchor - up * tyreDrop;
-            if (beyond > 0f && SchematicPhysics.SphereCast(bend, radius, -toward, out hit, out _, beyond, mask, body))
+            if (beyond > 0f && SchematicPhysics.SphereCast(bend, radius, -toward, out hit, out hitObject, beyond, mask, body))
             {
                 if (Vector3.Dot(hit.normal, toward) <= 0.05f)
                 {
@@ -2859,6 +2932,9 @@ namespace Remedy.Vehicles
         /// <summary>The last real ground hit, kept through a stray miss (Ground Hold Time).</summary>
         public RaycastHit LastGroundHit;
         public bool HasLastGroundHit;
+        /// <summary>What the tyre is driving on (Surface Materials), and the object it came from.</summary>
+        public SurfaceMaterial Surface, TaggedSurface;
+        public GameObject SurfaceObject;
         public float MissTime;
         /// <summary>This tyre's last wall cast, for the gizmo.</summary>
         public Vector3 WallCastFrom, WallCastTo;

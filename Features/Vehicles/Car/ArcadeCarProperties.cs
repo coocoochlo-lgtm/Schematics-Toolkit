@@ -175,6 +175,23 @@ namespace Remedy.Vehicles
         [Tooltip("Ground further than this from the car's up (degrees) is a tyre's sidewall touching, not the tyre standing on it: it doesn't count as grounded, so a car on its side can't drive on two tyres. 0 = no limit.")]
         public float TyreContactMaxAngle = 60f;
 
+        [Header("Surfaces")]
+        [Range(0f, 1f)]
+        [Tooltip("How much the ground's Surface Material Friction changes grip, traction and braking (relative to the default material's 0.6: ice grips far less, rubber more). 0 = surfaces don't change grip.")]
+        public float SurfaceGripInfluence = 1f;
+        [Range(0f, 1f)]
+        [Tooltip("Grip lost on fully wet ground (Wetness 1), as a fraction.")]
+        public float SurfaceWetGripLoss = 0.3f;
+        [Min(0f)]
+        [Tooltip("Drag on soft ground (Hardness under the default 0.5: mud, sand, snow), per second at the softest: it slows the car even with grip.")]
+        public float SurfaceSoftDrag = 1.5f;
+        [Range(0f, 1f)]
+        [Tooltip("Engine push lost on the softest ground (a fraction).")]
+        public float SurfaceSoftDriveLoss = 0.4f;
+        [Range(0f, 1f)]
+        [Tooltip("How much easier drifting gets on wet ground (or a material's own \"Drift\" property, 0..1): longer, looser drifts that lose less speed.")]
+        public float SurfaceWetDriftBonus = 0.6f;
+
         [Header("Handbrake")]
         [Tooltip("Grip of the handbrake wheels while it's pulled (a multiplier: 0.3 = 30% grip). Low = easy flicks into a slide.")]
         public float HandbrakeGrip = 0.3f;
