@@ -812,8 +812,12 @@ namespace Remedy.Vehicles
                     w.Grounded = false;
                 }
                 // Only hits count at once: a tyre that had ground and whose cast suddenly finds nothing keeps its last
-                // hit for up to Ground Hold Time, so one stray miss doesn't drop it. (Not a sidewall or a ceiling:
-                // those are real answers, and a car on its side or roof lets go straight away.)
+                // ground for up to Ground Hold Time, so one stray miss doesn't drop it. (Not a sidewall or a ceiling:
+                // those are real answers, and a car on its side or roof lets go straight away.) It keeps the ground's
+                // surface, not the old hit: each held step the distance is measured again from where the tyre is now
+                // to that surface, so the spring and the tyre's reach follow the car (a frozen distance kept pushing
+                // as if still pressed into the ground, and a long hold stopped the car settling). Ground further than
+                // the cast reaches, or turned edge-on, ends the hold.
                 if (w.Grounded)
                 {
                     w.LastGroundHit = w.GroundHit;
@@ -822,9 +826,21 @@ namespace Remedy.Vehicles
                 }
                 else if (w.HasLastGroundHit && !w.Sidewall && !ceiling && w.MissTime + dt <= p.GroundHoldTime)
                 {
-                    w.MissTime += dt;
-                    w.GroundHit = w.LastGroundHit;
-                    w.Grounded = true;
+                    Vector3 heldNormal = w.LastGroundHit.normal;
+                    float facing = Vector3.Dot(up, heldNormal);
+                    float heldDistance = facing > 0.1f
+                        ? Vector3.Dot(origin - w.LastGroundHit.point, heldNormal) / facing
+                        : float.MaxValue;
+                    if (heldDistance >= 0f && heldDistance <= tyreDrop + tireRadius + beyond)
+                    {
+                        w.MissTime += dt;
+                        w.GroundHit = w.LastGroundHit;
+                        w.GroundHit.distance = heldDistance;
+                        w.GroundHit.point = origin - up * heldDistance;
+                        w.Grounded = true;
+                    }
+                    else
+                        w.HasLastGroundHit = false;
                 }
                 else
                     w.HasLastGroundHit = false;
