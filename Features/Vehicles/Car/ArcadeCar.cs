@@ -1018,6 +1018,24 @@ namespace Remedy.Vehicles
             bool airLeveling = airborne && (p.AirLevelStrength > 0f || p.AirLevelDamping > 0f);
             Vector3 stabilizationCompensation = Vector3.zero;
             Vector3 targetUp = isGrounded ? groundNormal : worldUp;
+            // In the air: level to the ground it's going to land on (straight below, within 60° of world up), tilted
+            // a little by the player, steering to roll and throttle to pitch (Rocket League, but gentle: Air Tilt
+            // Angle at full input). A tilt of where it levels to, not a push, so holding the throttle off a ramp
+            // tips the nose a few degrees and holds it; it no longer spins the car forward.
+            if (airborne)
+            {
+                if (SchematicPhysics.Raycast(centerOfMass, -worldUp, out RaycastHit below, AirLandingProbe, p.GroundLayers, body))
+                    targetUp = Vector3.RotateTowards(worldUp, below.normal, 60f * Mathf.Deg2Rad, 0f).normalized;
+                Vector3 along = Vector3.ProjectOnPlane(forward, targetUp);
+                if (active && p.AirTiltAngle > 0f && along.sqrMagnitude > 0.001f)
+                {
+                    along.Normalize();
+                    Vector3 across = Vector3.Cross(targetUp, along);
+                    float airTilt = p.AirTiltAngle;
+                    targetUp = Quaternion.AngleAxis(-steerInput * airTilt, along)
+                        * Quaternion.AngleAxis(Mathf.Clamp(effectiveTargetSpeed, -1f, 1f) * airTilt, across) * targetUp;
+                }
+            }
             Vector3 planeForward = Vector3.ProjectOnPlane(forward, groundNormal).normalized;
 
             // The "whoah" lean: the turn's sideways pull throws the body outward, on a wobbly spring of its own, and
@@ -1125,7 +1143,9 @@ namespace Remedy.Vehicles
             if (airborne)
             {
                 // Really in the air (not just lying on its roof or side with the wheels off the ground).
-                if (active && p.AirControl > 0f)
+                // (The old push: rolls with steer and pitches with Target Speed for as long as it's held, so holding
+                // the throttle off a ramp spun the car forward. Only with Air Tilt Angle at 0.)
+                if (active && p.AirControl > 0f && p.AirTiltAngle <= 0f)
                     airControlTorque = ApplyAirWheelControl(native, wheels, state.Wheels, centerOfMass, up, right, forward,
                         steerInput, effectiveTargetSpeed, p.AirControl, rotation, state);
             }
@@ -1182,7 +1202,10 @@ namespace Remedy.Vehicles
 
             // Feet down: while some tyres stand on the ground and others are lifted, the lifted ones are pulled down
             // the car's own down, as a twist only (no shove), so the car settles back onto all its tyres.
-            if (p.FeetDownStrength > 0f && grounded > 0 && grounded < wheelCount && !righting && !airborne)
+            // (Only with the car actually tipped against the ground: off a ramp's edge the front tyres lift first
+            // because the ground dropped away, and pulling them down pitched the car forward as it launched.)
+            if (p.FeetDownStrength > 0f && grounded > 0 && grounded < wheelCount && !righting && !airborne
+                && Vector3.Angle(up, groundNormal) >= p.FeetDownMinTilt)
             {
                 Vector3 twist = Vector3.zero;
                 int lifted = 0;
@@ -1618,6 +1641,9 @@ namespace Remedy.Vehicles
 
         /// <summary>How far below the centre of mass (plus the suspension length) the ground must be for the car to count as flying.</summary>
         public const float AirborneClearance = 1.2f;
+
+        /// <summary>How far below the car (metres) the air leveling looks for the ground it'll land on.</summary>
+        public const float AirLandingProbe = 40f;
 
         // Steering kept within what the tyres can corner at this speed: a turn of wheel angle θ at speed v asks
         // for about v² tan θ / wheelbase of sideways grip, so the most lock shrinks with the square of speed.

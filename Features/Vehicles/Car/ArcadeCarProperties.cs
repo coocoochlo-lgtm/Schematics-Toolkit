@@ -295,7 +295,10 @@ namespace Remedy.Vehicles
         public float AirLevelStrength = 2f;
         [Tooltip("Damps roll and pitch spin in the air.")]
         public float AirLevelDamping = 1f;
-        [Tooltip("In the air, grounded tires are ignored; forces at ungrounded tire anchors roll the car with steer and pitch it with signed Target Speed, in rad/s². 0 = no air control.")]
+        [Range(0f, 45f)]
+        [Tooltip("In the air the car levels to the ground below it; steering tilts that to roll and throttle (Target Speed) tilts it to pitch, up to this many degrees at full input (Rocket League, gently): a little say over how it lands. 0 = the old Air Control push instead.")]
+        public float AirTiltAngle = 10f;
+        [Tooltip("Only with Air Tilt Angle at 0: forces at ungrounded tire anchors roll the car with steer and pitch it with signed Target Speed, in rad/s², for as long as they're held (holding the throttle spins it forward). 0 = no air control.")]
         public float AirControl = 4f;
         [Min(0f)]
         [Tooltip("Maximum angular acceleration from the car's own tire and rotation-assist forces, in rad/s². Those forces are blended through this guard; 0 disables the limit.")]
@@ -346,6 +349,9 @@ namespace Remedy.Vehicles
         [Min(0f)]
         [Tooltip("Damps that twist, so it settles instead of slapping down.")]
         public float FeetDownDamping = 3f;
+        [Range(0f, 45f)]
+        [Tooltip("Feet Down only acts with the car tilted at least this far from the ground it stands on (degrees), so it pulls a tipping car back down but leaves a car driving off a ramp's edge alone.")]
+        public float FeetDownMinTilt = 8f;
 
         [Header("Rollover")]
         [Range(0f, 1f)]
