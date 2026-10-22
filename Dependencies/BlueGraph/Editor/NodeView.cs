@@ -68,7 +68,18 @@ namespace BlueGraph.Editor
             Insert(0, errorContainer);
 
             SetPosition(new Rect(node.Position, Vector2.one));
-            title = node.Name;
+            title = node.DisplayName;
+
+            // Double-click the title to give the node a name of its own.
+            var titleLabel = titleContainer.Q<Label>("title-label");
+            titleLabel?.RegisterCallback<MouseDownEvent>(evt =>
+            {
+                if (evt.button == 0 && evt.clickCount == 2)
+                {
+                    BeginRename();
+                    evt.StopImmediatePropagation();
+                }
+            });
 
             // [NodeColor] colors the title bar by kind of node.
             var nodeColor = node.GetType().GetCustomAttribute<NodeColorAttribute>(true);
@@ -293,8 +304,85 @@ namespace BlueGraph.Editor
             Target.Position = newPos.position;
         }
 
+        private TextField renameField;
+        private bool renameCancelled;
+
+        /// <summary>
+        /// Edits the node's custom name in place on its title (Enter or clicking away keeps it, Escape doesn't; an
+        /// empty name goes back to the node's own).
+        /// </summary>
+        public void BeginRename()
+        {
+            var titleLabel = titleContainer.Q<Label>("title-label");
+            if (titleLabel == null)
+                return;
+            if (renameField == null)
+            {
+                renameField = new TextField { name = "rename-field" };
+                renameField.style.flexGrow = 1f;
+                renameField.style.minWidth = 80f;
+                renameField.RegisterCallback<KeyDownEvent>(evt =>
+                {
+                    if (evt.keyCode == KeyCode.Escape)
+                    {
+                        renameCancelled = true;
+                        renameField.Blur();
+                        evt.StopImmediatePropagation();
+                    }
+                    else if (evt.keyCode == KeyCode.Return || evt.keyCode == KeyCode.KeypadEnter)
+                    {
+                        renameField.Blur();
+                        evt.StopImmediatePropagation();
+                    }
+                }, TrickleDown.TrickleDown);
+                renameField.RegisterCallback<FocusOutEvent>(evt => EndRename());
+                titleContainer.Insert(titleContainer.IndexOf(titleLabel) + 1, renameField);
+            }
+            renameCancelled = false;
+            renameField.SetValueWithoutNotify(Target.CustomName ?? "");
+            renameField.style.display = DisplayStyle.Flex;
+            titleLabel.style.display = DisplayStyle.None;
+            renameField.schedule.Execute(() =>
+            {
+                var input = renameField.Q(TextField.textInputUssName);
+                input?.Focus();
+                renameField.SelectAll();
+            });
+        }
+
+        private void EndRename()
+        {
+            if (renameField == null || renameField.style.display == DisplayStyle.None)
+                return;
+            renameField.style.display = DisplayStyle.None;
+            var titleLabel = titleContainer.Q<Label>("title-label");
+            if (titleLabel != null)
+                titleLabel.style.display = DisplayStyle.Flex;
+            if (!renameCancelled)
+                SetCustomName(renameField.value);
+            renameCancelled = false;
+        }
+
+        /// <summary>Gives the node a custom name (empty for none), with undo.</summary>
+        public void SetCustomName(string customName)
+        {
+            customName = string.IsNullOrWhiteSpace(customName) ? "" : customName.Trim();
+            if ((Target.CustomName ?? "") == customName)
+                return;
+            if (Target.Graph != null)
+                Undo.RegisterCompleteObjectUndo(Target.Graph, "Rename Node");
+            Target.CustomName = customName;
+            title = Target.DisplayName;
+            if (Target.Graph != null)
+                EditorUtility.SetDirty(Target.Graph);
+        }
+
         public override void BuildContextualMenu(ContextualMenuPopulateEvent evt)
         {
+            evt.menu.AppendAction("Rename", (e) => BeginRename());
+            evt.menu.AppendAction("Clear Custom Name", (e) => SetCustomName(""),
+                string.IsNullOrEmpty(Target.CustomName) ? DropdownMenuAction.Status.Disabled : DropdownMenuAction.Status.Normal);
+
             //Add Edit Node Script and Edit Node View Script to context menu of the Node
             evt.menu.AppendSeparator("Edit");
             evt.menu.AppendAction("Edit/Node Script", (e) => EditNodeScript(), GetNodeScriptStatus);

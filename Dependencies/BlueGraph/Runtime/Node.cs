@@ -50,6 +50,21 @@ namespace BlueGraph
             set { name = value; }
         }
 
+        [SerializeField] private string customName;
+
+        /// <summary>
+        /// A name the user gave this node ("Intake"), shown before its own name in parentheses ("Intake (Filter)");
+        /// empty for none. Only a label: nothing looks the node up by it.
+        /// </summary>
+        public string CustomName
+        {
+            get { return customName; }
+            set { customName = value; }
+        }
+
+        /// <summary>The title shown on the node: <c>Custom Name (Name)</c>, or just <c>Name</c>.</summary>
+        public string DisplayName => string.IsNullOrWhiteSpace(customName) ? name : $"{customName} ({name})";
+
         [SerializeField] private Graph graph;
 
         public Graph Graph

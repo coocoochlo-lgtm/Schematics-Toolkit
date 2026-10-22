@@ -69,7 +69,7 @@ namespace Remedy.Audio
 
         private static SoundMapRangeNode Map(MacroBuilder b, float x, float y, string name, SoundNode from, float inMin, float inMax, float outMin, float outMax)
         {
-            var map = b.Add<SoundMapRangeNode>(x, y, n => { n.InMin = inMin; n.InMax = inMax; n.OutMin = outMin; n.OutMax = outMax; n.Name = name; });
+            var map = b.Add<SoundMapRangeNode>(x, y, n => { n.InMin = inMin; n.InMax = inMax; n.OutMin = outMin; n.OutMax = outMax; n.CustomName = name; });
             b.Link(from, from is SoundParameterNode ? "Value" : "Result", map, "Value");
             return map;
         }
@@ -82,7 +82,7 @@ namespace Remedy.Audio
             var rpm = Parameter(b, 0, 0, "RPM", 900f);
             var throttle = Parameter(b, 0, Row * 2, "Throttle", 0.2f);
 
-            var firing = b.Add<SoundMathNode>(Column, 0, n => { n.Operator = SoundMathNode.Operation.Multiply; n.B = 4f / 120f; n.Name = "Firing Rate (x cylinders / 120)"; });
+            var firing = b.Add<SoundMathNode>(Column, 0, n => { n.Operator = SoundMathNode.Operation.Multiply; n.B = 4f / 120f; n.CustomName = "Firing Rate (x cylinders / 120)"; });
             b.Link(rpm, "Value", firing, "A");
             var bodyCutoff = Map(b, Column, Row, "Exhaust Cutoff", rpm, 800f, 7000f, 250f, 1800f);
             var intakeCutoff = Map(b, Column, Row * 2, "Intake Cutoff", rpm, 800f, 7000f, 900f, 4500f);
@@ -91,40 +91,40 @@ namespace Remedy.Audio
             var brightness = Map(b, Column, Row * 5, "Brightness", throttle, 0f, 1f, 1800f, 9000f);
             var level = Map(b, Column, Row * 6, "Level", throttle, 0f, 1f, 0.3f, 0.5f);
 
-            var crank = b.Add<SoundVarispeedNode>(Column * 2, 0, n => n.Name = "Crank");
+            var crank = b.Add<SoundVarispeedNode>(Column * 2, 0, n => n.CustomName = "Crank");
             b.Link(firing, "Result", crank, "Speed");
-            var halfTime = b.Add<SoundMathNode>(Column * 2, Row, n => { n.Operator = SoundMathNode.Operation.Multiply; n.B = 0.5f; n.Name = "Half Rate"; });
+            var halfTime = b.Add<SoundMathNode>(Column * 2, Row, n => { n.Operator = SoundMathNode.Operation.Multiply; n.B = 0.5f; n.CustomName = "Half Rate"; });
             b.Link(crank, "Time", halfTime, "A");
 
-            var pulses = b.Add<SoundOscillatorNode>(Column * 3, 0, n => { n.Wave = SoundOscillatorNode.Shape.Saw; n.Frequency = 1f; n.Name = "Firing Pulses"; });
+            var pulses = b.Add<SoundOscillatorNode>(Column * 3, 0, n => { n.Wave = SoundOscillatorNode.Shape.Saw; n.Frequency = 1f; n.CustomName = "Firing Pulses"; });
             b.Link(crank, "Time", pulses, "Time");
-            var rumble = b.Add<SoundOscillatorNode>(Column * 3, Row, n => { n.Wave = SoundOscillatorNode.Shape.Sine; n.Frequency = 1f; n.Amplitude = 0.3f; n.Name = "Crank Rumble"; });
+            var rumble = b.Add<SoundOscillatorNode>(Column * 3, Row, n => { n.Wave = SoundOscillatorNode.Shape.Sine; n.Frequency = 1f; n.Amplitude = 0.3f; n.CustomName = "Crank Rumble"; });
             b.Link(halfTime, "Result", rumble, "Time");
-            var hiss = b.Add<SoundOscillatorNode>(Column * 3, Row * 2, n => { n.Wave = SoundOscillatorNode.Shape.Noise; n.Name = "Intake Hiss"; });
+            var hiss = b.Add<SoundOscillatorNode>(Column * 3, Row * 2, n => { n.Wave = SoundOscillatorNode.Shape.Noise; n.CustomName = "Intake Hiss"; });
 
-            var exhaust = b.Add<SoundFilterNode>(Column * 4, 0, n => { n.Type = SoundFilterNode.Kind.LowPass; n.Resonance = 2.5f; n.Name = "Exhaust"; });
+            var exhaust = b.Add<SoundFilterNode>(Column * 4, 0, n => { n.Type = SoundFilterNode.Kind.LowPass; n.Resonance = 2.5f; n.CustomName = "Exhaust"; });
             b.Link(pulses, "Value", exhaust, "Audio");
             b.Link(bodyCutoff, "Result", exhaust, "Cutoff");
-            var intake = b.Add<SoundFilterNode>(Column * 4, Row * 2, n => { n.Type = SoundFilterNode.Kind.BandPass; n.Resonance = 1.2f; n.Name = "Intake"; });
+            var intake = b.Add<SoundFilterNode>(Column * 4, Row * 2, n => { n.Type = SoundFilterNode.Kind.BandPass; n.Resonance = 1.2f; n.CustomName = "Intake"; });
             b.Link(hiss, "Value", intake, "Audio");
             b.Link(intakeCutoff, "Result", intake, "Cutoff");
 
-            var grit = b.Add<SoundDistortionNode>(Column * 5, 0, n => { n.Mix = 1f; n.Name = "Combustion Grit"; });
+            var grit = b.Add<SoundDistortionNode>(Column * 5, 0, n => { n.Mix = 1f; n.CustomName = "Combustion Grit"; });
             b.Link(exhaust, "Out", grit, "Audio");
             b.Link(drive, "Result", grit, "Drive");
-            var intakeVolume = b.Add<SoundVolumeNode>(Column * 5, Row * 2, n => n.Name = "Intake Volume");
+            var intakeVolume = b.Add<SoundVolumeNode>(Column * 5, Row * 2, n => n.CustomName = "Intake Volume");
             b.Link(intake, "Out", intakeVolume, "Audio");
             b.Link(intakeLevel, "Result", intakeVolume, "Volume");
 
-            var mixer = b.Add<SoundMixerNode>(Column * 6, Row, n => { for (int i = 0; i < 3; i++) n.AddInput(); n.Name = "Engine Mix"; });
+            var mixer = b.Add<SoundMixerNode>(Column * 6, Row, n => { for (int i = 0; i < 3; i++) n.AddInput(); n.CustomName = "Engine Mix"; });
             b.Link(grit, "Out", mixer, SoundMixerNode.InputName(0));
             b.Link(rumble, "Value", mixer, SoundMixerNode.InputName(1));
             b.Link(intakeVolume, "Out", mixer, SoundMixerNode.InputName(2));
 
-            var tone = b.Add<SoundFilterNode>(Column * 7, Row, n => { n.Type = SoundFilterNode.Kind.LowPass; n.Resonance = 0.707f; n.Name = "Off-Throttle Darkening"; });
+            var tone = b.Add<SoundFilterNode>(Column * 7, Row, n => { n.Type = SoundFilterNode.Kind.LowPass; n.Resonance = 0.707f; n.CustomName = "Off-Throttle Darkening"; });
             b.Link(mixer, "Out", tone, "Audio");
             b.Link(brightness, "Result", tone, "Cutoff");
-            var volume = b.Add<SoundVolumeNode>(Column * 8, Row, n => n.Name = "Engine");
+            var volume = b.Add<SoundVolumeNode>(Column * 8, Row, n => n.CustomName = "Engine");
             b.Link(tone, "Out", volume, "Audio");
             b.Link(level, "Result", volume, "Volume");
             ToOutput(b, volume, "Out", endless: true);
@@ -135,8 +135,8 @@ namespace Remedy.Audio
         {
             var speed = Parameter(b, 0, 0, "Speed", 2f);
             var strength = Map(b, Column, 0, "Step Strength", speed, 0f, 6f, 0.25f, 1f);
-            var surface = b.Add<SoundSurfaceNode>(Column, Row, n => n.Name = "Underfoot");
-            var impact = b.Add<SoundImpactNode>(Column * 2, 0, n => { n.Size = 0.35f; n.Ring = 0.12f; n.Name = "Step"; });
+            var surface = b.Add<SoundSurfaceNode>(Column, Row, n => n.CustomName = "Underfoot");
+            var impact = b.Add<SoundImpactNode>(Column * 2, 0, n => { n.Size = 0.35f; n.Ring = 0.12f; n.CustomName = "Step"; });
             b.Link(strength, "Result", impact, "Strength");
             b.Link(surface, "Hardness", impact, "Hardness");
             b.Link(surface, "Absorption", impact, "Absorption");
@@ -147,13 +147,13 @@ namespace Remedy.Audio
         // An Arpeggiator's Note Time replays a coin blip at each note of a major chord.
         private static void PickupArpeggio(MacroBuilder b)
         {
-            var arp = b.Add<SoundArpeggiatorNode>(0, 0, n => { n.Notes = "0 4 7 12"; n.Rate = 16f; n.Pattern = SoundArpeggiatorNode.ArpPattern.Up; n.Name = "Chord Steps"; });
-            var blip = b.Add<SoundGeneratorNode>(Column, 0, n => { n.Settings = SfxrSettings.FromPreset(SfxrSettings.Preset.PickupCoin, 7); n.Name = "Blip"; });
+            var arp = b.Add<SoundArpeggiatorNode>(0, 0, n => { n.Notes = "0 4 7 12"; n.Rate = 16f; n.Pattern = SoundArpeggiatorNode.ArpPattern.Up; n.CustomName = "Chord Steps"; });
+            var blip = b.Add<SoundGeneratorNode>(Column, 0, n => { n.Settings = SfxrSettings.FromPreset(SfxrSettings.Preset.PickupCoin, 7); n.CustomName = "Blip"; });
             b.Link(arp, "Note Time", blip, "Time");
-            var gate = b.Add<SoundVolumeNode>(Column * 2, 0, n => n.Name = "Gate");
+            var gate = b.Add<SoundVolumeNode>(Column * 2, 0, n => n.CustomName = "Gate");
             b.Link(blip, "Audio", gate, "Audio");
             b.Link(arp, "Gate", gate, "Volume");
-            var fade = b.Add<SoundVolumeNode>(Column * 3, 0, n => { n.Volume = 0.7f; n.Name = "Level"; });
+            var fade = b.Add<SoundVolumeNode>(Column * 3, 0, n => { n.Volume = 0.7f; n.CustomName = "Level"; });
             b.Link(gate, "Out", fade, "Audio");
             ToOutput(b, fade, "Out", endless: false);
         }
@@ -161,13 +161,13 @@ namespace Remedy.Audio
         // The mix (Listener Input) low passed and washed with reverb, faded in by Underwater.
         private static void Underwater(MacroBuilder b)
         {
-            var mix = b.Add<SoundListenerInputNode>(0, 0, n => n.Name = "Everything Heard");
+            var mix = b.Add<SoundListenerInputNode>(0, 0, n => n.CustomName = "Everything Heard");
             var amount = Parameter(b, 0, Row * 2, "Underwater", 0f);
-            var muffle = b.Add<SoundFilterNode>(Column, Row, n => { n.Type = SoundFilterNode.Kind.LowPass; n.Cutoff = 450f; n.Resonance = 1.1f; n.Name = "Muffle"; });
+            var muffle = b.Add<SoundFilterNode>(Column, Row, n => { n.Type = SoundFilterNode.Kind.LowPass; n.Cutoff = 450f; n.Resonance = 1.1f; n.CustomName = "Muffle"; });
             b.Link(mix, "Out", muffle, "Audio");
-            var wash = b.Add<SoundReverbNode>(Column * 2, Row, n => { n.RoomSize = 0.8f; n.Damping = 0.8f; n.Mix = 0.45f; n.Name = "Wash"; });
+            var wash = b.Add<SoundReverbNode>(Column * 2, Row, n => { n.RoomSize = 0.8f; n.Damping = 0.8f; n.Mix = 0.45f; n.CustomName = "Wash"; });
             b.Link(muffle, "Out", wash, "Audio");
-            var blend = b.Add<SoundCrossfadeNode>(Column * 3, 0, n => n.Name = "Dry to Underwater");
+            var blend = b.Add<SoundCrossfadeNode>(Column * 3, 0, n => n.CustomName = "Dry to Underwater");
             b.Link(mix, "Out", blend, "A");
             b.Link(wash, "Out", blend, "B");
             b.Link(amount, "Value", blend, "Blend");
@@ -177,16 +177,16 @@ namespace Remedy.Audio
         // The mix dulled by Ringing, with a high tone over it as loud as Ringing.
         private static void RingingEars(MacroBuilder b)
         {
-            var mix = b.Add<SoundListenerInputNode>(0, 0, n => n.Name = "Everything Heard");
+            var mix = b.Add<SoundListenerInputNode>(0, 0, n => n.CustomName = "Everything Heard");
             var ringing = Parameter(b, 0, Row * 2, "Ringing", 0f);
             var cutoff = Map(b, Column, Row, "Dulling", ringing, 0f, 1f, 20000f, 700f);
             var toneLevel = Map(b, Column, Row * 3, "Tone Level", ringing, 0f, 1f, 0f, 0.08f);
-            var dull = b.Add<SoundFilterNode>(Column * 2, 0, n => { n.Type = SoundFilterNode.Kind.LowPass; n.Name = "Dull"; });
+            var dull = b.Add<SoundFilterNode>(Column * 2, 0, n => { n.Type = SoundFilterNode.Kind.LowPass; n.CustomName = "Dull"; });
             b.Link(mix, "Out", dull, "Audio");
             b.Link(cutoff, "Result", dull, "Cutoff");
-            var tone = b.Add<SoundOscillatorNode>(Column * 2, Row * 2, n => { n.Wave = SoundOscillatorNode.Shape.Sine; n.Frequency = 3800f; n.Name = "Tinnitus"; });
+            var tone = b.Add<SoundOscillatorNode>(Column * 2, Row * 2, n => { n.Wave = SoundOscillatorNode.Shape.Sine; n.Frequency = 3800f; n.CustomName = "Tinnitus"; });
             b.Link(toneLevel, "Result", tone, "Amplitude");
-            var mixer = b.Add<SoundMixerNode>(Column * 3, Row, n => { n.AddInput(); n.AddInput(); n.Name = "Ears"; });
+            var mixer = b.Add<SoundMixerNode>(Column * 3, Row, n => { n.AddInput(); n.AddInput(); n.CustomName = "Ears"; });
             b.Link(dull, "Out", mixer, SoundMixerNode.InputName(0));
             b.Link(tone, "Value", mixer, SoundMixerNode.InputName(1));
             ToOutput(b, mixer, "Out", endless: true);
