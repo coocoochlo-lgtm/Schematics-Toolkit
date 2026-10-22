@@ -596,6 +596,8 @@ namespace Remedy.Vehicles
                 }
                 RecordForceHistory(state, p, velocity, angularVelocity, dt);
             }
+            if (p.GhostStopCheckTime > 0f && p.GhostStopDrop > 0f && state.HasGuardPosition)
+                CheckGhostStop(native, body, p, state, ref velocity, ref angularVelocity, up, dt);
 
             state.GuardPosition = bodyPosition;
             state.GuardRotation = native.GetRotation();
@@ -1987,6 +1989,106 @@ namespace Remedy.Vehicles
             body.ApplyForceToCenter((float3)(push * mass), true);
         }
 
+        // Ghost stops: the car losing Ghost Stop Drop or more of its speed in one step against a contact (Box3D can
+        // stop a box dead on a mesh's seam, where nothing really is). The contact pushing hardest against the way it
+        // was going is then checked over Ghost Stop Check Time: each step a small probe goes through that point,
+        // along the way the car was going, looking for a surface facing it. Any step without one and it was a ghost:
+        // the car gets back the speed and spin it had just before. Found every step, the stop was real and stands.
+        // (Not during its own moves: bounces, rolls, AllowForces.)
+        private static void CheckGhostStop(Body native, Box3DBody ignore, ArcadeCarProperties p, CarState state,
+            ref Vector3 velocity, ref Vector3 angularVelocity, Vector3 up, float dt)
+        {
+            if (state.GhostChecking)
+            {
+                state.GhostTime += dt;
+                if (!ProbeStop(ignore, state.GhostPoint, state.GhostDirection, up, p))
+                    RestoreFromGhost(native, state, ref velocity, ref angularVelocity);
+                else if (state.GhostTime >= p.GhostStopCheckTime)
+                {
+                    state.GhostChecking = false;
+                    state.GhostReal = true;
+                    state.GhostVerdictTime = Time.time;
+                }
+                return;
+            }
+            bool own = Time.time < state.AllowForcesUntil || state.AutoRolling || state.BounceAlignTime > 0f
+                || state.BounceCandidate || state.PendingBounce;
+            if (own)
+                return;
+            Vector3 before = Vector3.ProjectOnPlane(state.GuardVelocity, up);
+            float beforeSpeed = before.magnitude;
+            if (beforeSpeed < 2f)
+                return;
+            Vector3 direction = before / beforeSpeed;
+            float lost = beforeSpeed - Vector3.Dot(Vector3.ProjectOnPlane(velocity, up), direction);
+            if (lost < p.GhostStopDrop || !FindStopContact(native, direction, out Vector3 point))
+                return;
+            state.GhostChecking = true;
+            state.GhostTime = 0f;
+            state.GhostPoint = point;
+            state.GhostDirection = direction;
+            state.GhostBefore = state.GuardVelocity;
+            state.GhostBeforeSpin = state.GuardAngularVelocity;
+            if (!ProbeStop(ignore, point, direction, up, p))
+                RestoreFromGhost(native, state, ref velocity, ref angularVelocity);
+        }
+
+        private static void RestoreFromGhost(Body native, CarState state, ref Vector3 velocity, ref Vector3 angularVelocity)
+        {
+            native.SetLinearVelocity((float3)state.GhostBefore);
+            native.SetAngularVelocity((float3)state.GhostBeforeSpin);
+            velocity = state.GhostBefore;
+            angularVelocity = state.GhostBeforeSpin;
+            state.GhostChecking = false;
+            state.GhostReal = false;
+            state.GhostVerdictTime = Time.time;
+            state.AllowForcesUntil = Time.time + 0.2f; // (the force guard mustn't take the restored speed for a push)
+        }
+
+        // The contact (within 2 cm) pushing the car hardest against the way it was going, in the world.
+        private static bool FindStopContact(Body body, Vector3 direction, out Vector3 point)
+        {
+            point = Vector3.zero;
+            ulong self = body.Id.ToUInt64();
+            float strongest = -1f;
+            foreach (var contact in body.GetContacts())
+            {
+                bool selfIsA = contact.ShapeA.IsValid && contact.ShapeA.GetBody().Id.ToUInt64() == self;
+                if (!contact.ShapeA.IsValid)
+                    continue;
+                Vector3 centreA = (Vector3)contact.ShapeA.GetBody().GetWorldCenterOfMass();
+                foreach (var manifold in contact.Manifolds)
+                {
+                    Vector3 push = (Vector3)manifold.Normal * (selfIsA ? -1f : 1f);
+                    if (Vector3.Dot(push, direction) > -0.3f)
+                        continue;
+                    for (int k = 0; k < manifold.PointCount; k++)
+                    {
+                        var contactPoint = manifold[k];
+                        if (contactPoint.Separation > 0.02f || contactPoint.TotalNormalImpulse <= strongest)
+                            continue;
+                        strongest = contactPoint.TotalNormalImpulse;
+                        point = centreA + (Vector3)contactPoint.AnchorA;
+                    }
+                }
+            }
+            return strongest >= 0f;
+        }
+
+        // A small probe through where the car was stopped, along the way it was going: is a surface facing it there?
+        private static bool ProbeStop(Box3DBody ignore, Vector3 point, Vector3 direction, Vector3 up, ArcadeCarProperties p)
+        {
+            var hits = _bounceHits ??= new RaycastHit[16];
+            var objects = _bounceObjects ??= new GameObject[16];
+            Vector3 from = point - direction * 0.5f + up * 0.05f;
+            int count = SchematicPhysics.SphereCastAll(from, 0.08f, direction, 0.7f, p.GroundLayers, hits, objects, ignore,
+                includeSensors: false);
+            for (int h = 0; h < count; h++)
+                if (Vector3.Dot(hits[h].normal, direction) < -0.1f)
+                    return true;
+            return false;
+        }
+
         // Keeps the last Force Guard Window of speed and spin (a ring of steps).
         private static void RecordForceHistory(CarState state, ArcadeCarProperties p, Vector3 velocity, Vector3 angularVelocity, float dt)
         {
@@ -2072,7 +2174,11 @@ namespace Remedy.Vehicles
             }
 
             int gear = state.CurrentGear;
-            bool reversing = forwardSpeed < -0.5f || (driveAcceleration < 0f && forwardSpeed < 0.5f);
+            // Reverse is chosen by the player asking to go backwards (a negative Target Speed, once the car's no
+            // longer rolling forward), not by which way the car happens to be sliding: knocked back by a hit while
+            // the throttle is held, it stays in first (it used to flip into reverse and back, cutting the drive on
+            // every flip, and on a slope never got going until the player reversed).
+            bool reversing = state.TargetSpeed < -TargetSpeedDeadZone && forwardSpeed < ReverseBrakeSpeed;
             if (reversing)
                 gear = -1;
             else if (gear < 1)
@@ -2102,8 +2208,10 @@ namespace Remedy.Vehicles
             }
             if (gear != state.CurrentGear)
             {
+                // Only a shift between forward gears cuts the drive; into or out of reverse doesn't.
+                if (gear > 0 && state.CurrentGear > 0)
+                    state.ShiftTimer = Mathf.Max(0f, p.ShiftTime);
                 state.CurrentGear = gear;
-                state.ShiftTimer = Mathf.Max(0f, p.ShiftTime);
                 Gear.Value = gear;
                 OnGearChanged.Invoke(instance, gear);
             }
@@ -2989,6 +3097,15 @@ namespace Remedy.Vehicles
                 Gizmos.DrawLine(tip, tip - state.DriftArrow * 0.5f - side);
             }
 
+            // The ghost-stop check: yellow while a stop is being checked, then for half a second green if it was real
+            // (it stood) or red if it was a ghost (the car got its speed back).
+            if (state != null && (state.GhostChecking || Time.time - state.GhostVerdictTime < 0.5f))
+            {
+                Gizmos.color = state.GhostChecking ? Color.yellow : state.GhostReal ? Color.green : Color.red;
+                Gizmos.DrawWireSphere(state.GhostPoint, 0.15f);
+                Gizmos.DrawRay(state.GhostPoint - state.GhostDirection * 0.5f, state.GhostDirection * 0.7f);
+            }
+
             // Where the last bounce struck (from the tyre casts), for half a second.
             if (state != null && Time.time - state.LastBounceTime < 0.5f)
             {
@@ -3106,6 +3223,9 @@ namespace Remedy.Vehicles
         public quaternion GuardRotation;
         public bool HasGuardPosition;
         public float AllowForcesUntil;
+        public bool GhostChecking, GhostReal;
+        public float GhostTime, GhostVerdictTime = -10f;
+        public Vector3 GhostPoint, GhostDirection, GhostBefore, GhostBeforeSpin;
         public ForceSample[] ForceHistory = new ForceSample[1];
         public int ForceHistoryCount, ForceHistoryOldest;
         public Vector3 TakeoffNormal = Vector3.up;
