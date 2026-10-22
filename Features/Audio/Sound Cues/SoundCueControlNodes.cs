@@ -105,31 +105,80 @@ namespace Remedy.Audio
         }
     }
 
-    [SchematicDoc(@"{""name"": ""Random"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Controls"", ""description"": ""A random number between Min and Max, picked each time the cue plays (the same for the whole play): vary pitch (multiply Time by it), volume or a filter so repeated sounds don't sound identical."", ""outputs"": [{""name"": ""Value"", ""type"": ""float""}]}")]
+    [SchematicDoc(@"{""name"": ""Random"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Controls"", ""description"": ""A random number between Min and Max. Once Per Play (the default): picked when the cue starts and the same for the whole play, so every play sounds a tad different (multiply Time by it for pitch, or vary volume or a filter). While Playing: a new pick Changes Per Second times a second (0: every sample, white noise between Min and Max), gliding from one to the next with Glide on: wobble, flutter, crackle."", ""outputs"": [{""name"": ""Value"", ""type"": ""float""}], ""use_for"": [""footsteps or gunshots that never sound identical"", ""random wobble or flutter on pitch or a filter"", ""noise between two values""]}")]
     [Serializable]
     [Node(Name = "Random", Path = "Controls"), Tags(SoundNode.Tag)]
     public class SoundRandomNode : SoundNode
     {
+        public enum PickMode
+        {
+            /// <summary>One value for the whole play, picked when it starts.</summary>
+            OncePerPlay,
+            /// <summary>New values while it plays.</summary>
+            WhilePlaying,
+        }
+
         [Editable] public float Min = 0.9f;
         [Editable] public float Max = 1.1f;
+        [Editable, Tooltip("Once Per Play: one value for the whole play (each play a tad different). While Playing: new values as it plays.")]
+        public PickMode Mode = PickMode.OncePerPlay;
+        [Editable, Tooltip("While Playing: how many new values a second (0: a new one every sample).")]
+        public float ChangesPerSecond = 8f;
+        [Editable, Tooltip("While Playing: glide from one value to the next instead of jumping.")]
+        public bool Glide;
         [Output("Value")] public float Value;
 
-        public override SoundProcessor CreateProcessor(SoundCueBuilder builder) => new Processor { Min = Min, Max = Max };
+        public override SoundProcessor CreateProcessor(SoundCueBuilder builder)
+            => new Processor { Min = Min, Max = Max, Mode = Mode, ChangesPerSecond = Mathf.Max(0f, ChangesPerSecond), Glide = Glide };
 
         // Picked when the voice starts (and again each time a pooled voice is played again).
         private sealed class Processor : SoundProcessor
         {
-            public float Min, Max;
+            public float Min, Max, ChangesPerSecond;
+            public PickMode Mode;
+            public bool Glide;
+            private System.Random _random;
+            private float _from, _to;
+            private double _phase;
+
+            private float Pick() => Mathf.Lerp(Min, Max, (float)_random.NextDouble());
 
             public override void Reset(SoundContext context)
             {
+                _random = new System.Random(context.Random.Next());
+                _from = Pick();
+                _to = Pick();
+                _phase = 0.0;
                 var output = Output("Value");
-                float value = Mathf.Lerp(Min, Max, (float)context.Random.NextDouble());
                 for (int i = 0; i < output.Length; i++)
-                    output[i] = value;
+                    output[i] = _from;
             }
 
-            public override void Process(SoundContext context, int count) { }
+            public override void Process(SoundContext context, int count)
+            {
+                if (Mode == PickMode.OncePerPlay)
+                    return; // the value written at the start stays
+
+                var output = Output("Value");
+                if (ChangesPerSecond <= 0f)
+                {
+                    for (int i = 0; i < count; i++)
+                        output[i] = Pick();
+                    return;
+                }
+                double step = ChangesPerSecond / (double)context.SampleRate;
+                for (int i = 0; i < count; i++)
+                {
+                    output[i] = Glide ? Mathf.SmoothStep(_from, _to, (float)_phase) : _from;
+                    _phase += step;
+                    if (_phase >= 1.0)
+                    {
+                        _phase -= Math.Floor(_phase);
+                        _from = Glide ? _to : Pick();
+                        _to = Pick();
+                    }
+                }
+            }
         }
     }
 
