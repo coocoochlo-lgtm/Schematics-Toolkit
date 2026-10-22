@@ -34,7 +34,7 @@ namespace Remedy.Vehicles
     /// player (proxies
     /// also update Is Drifting, Drift Level, Is Boosting and Is Flipped from them).
     /// </remarks>
-    [SchematicDoc(@"{""name"": ""Arcade Car"", ""kind"": ""behavior"", ""menu"": ""Vehicles/Arcade Car"", ""description"": ""An arcade car on a real Box3D body: NFS Underground / Mario Kart handling (drifts, mini-turbos, a car that wants to stay on its wheels) while crashes and rollovers are still physics. Tire-sized sphere probes; everything tunable in its Properties asset."", ""variables"": [""Properties"", ""Wheels"", ""AlwaysActive"", ""ParkWhenEmpty"", ""DriverInputs"", ""PlayerDriverOnly"", ""Speed"", ""ForwardSpeed"", ""IsGrounded"", ""GroundedWheels"", ""IsDrifting"", ""DriftAngle"", ""DriftCharge"", ""DriftLevel"", ""IsBoosting"", ""IsFlipped"", ""AirTime"", ""RollSave"", ""LoadTransfer"", ""BodyVisual"", ""IsJumping""], ""signals"": [""Target Speed"", ""Brake"", ""Steer"", ""Drive"", ""Handbrake"", ""Boost"", ""Unflip"", ""OnDriftStarted"", ""OnDriftEnded"", ""OnDriftLevel"", ""OnBoost"", ""OnLanded"", ""OnFlipped"", ""OnRighted"", ""OnCrash"", ""OnBounce"", ""OnJump""], ""use_for"": [""drivable cars and karts"", ""racing games"", ""AI traffic""], ""notes"": ""Needs a Box3D Body and a shape (added for you). Add Vehicle Seats so it only drives with a driver. Multiplayer: the driver owns and simulates the car; its input Signals are networked from the owner, and drift/boost/flip/crash Signals reach every player for effects.""}")]
+    [SchematicDoc(@"{""name"": ""Arcade Car"", ""kind"": ""behavior"", ""menu"": ""Vehicles/Arcade Car"", ""description"": ""An arcade car on a real Box3D body: NFS Underground / Mario Kart handling (drifts, mini-turbos, a car that wants to stay on its wheels) while crashes and rollovers are still physics. Tire-sized sphere probes; everything tunable in its Properties asset."", ""variables"": [""Properties"", ""Wheels"", ""AlwaysActive"", ""ParkWhenEmpty"", ""DriverInputs"", ""PlayerDriverOnly"", ""Speed"", ""ForwardSpeed"", ""IsGrounded"", ""GroundedWheels"", ""IsDrifting"", ""DriftAngle"", ""DriftCharge"", ""DriftLevel"", ""IsBoosting"", ""IsFlipped"", ""AirTime"", ""RollSave"", ""LoadTransfer"", ""BodyVisual"", ""IsJumping""], ""signals"": [""Target Speed"", ""Brake"", ""Steer"", ""Drive"", ""Handbrake"", ""Boost"", ""Unflip"", ""OnDriftStarted"", ""OnDriftEnded"", ""OnDriftLevel"", ""OnBoost"", ""OnLanded"", ""OnFlipped"", ""OnRighted"", ""OnCrash"", ""OnCollision"", ""OnBounce"", ""OnJump""], ""use_for"": [""drivable cars and karts"", ""racing games"", ""AI traffic""], ""notes"": ""Needs a Box3D Body and a shape (added for you). Add Vehicle Seats so it only drives with a driver. Multiplayer: the driver owns and simulates the car; its input Signals are networked from the owner, and drift/boost/flip/crash Signals reach every player for effects.""}")]
     [SchematicBehaviorPath("Vehicles/Arcade Car")]
     [NetworkOwnerSimulated]
     [RequireComponent(typeof(Box3DBody), typeof(Box3DBoxShape), typeof(SchematicImpactRelay))]
@@ -227,6 +227,13 @@ namespace Remedy.Vehicles
         [OutputSignal, NetworkSync(SignalSender.Anyone)]
         [Parameter("Strength", typeof(float))]
         public readonly SignalHandle<float> OnBounce;
+
+        [SchematicDoc(@"{""name"": ""OnCollision"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""output"", ""params"": [{""name"": ""Position"", ""type"": ""Vector3""}, {""name"": ""Force"", ""type"": ""float""}], ""description"": ""Sent whenever the car's body hits something (any physics impact, not only bounces): where (a world position) and how hard (the car's mass times the speed it hit at, kg·m/s). For damage, sparks or dents where it hit, or other systems reacting to the crash."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock).""}")]
+        [Tooltip("Sent whenever the car's body hits something: where (world position) and how hard (mass x impact speed, kg·m/s).")]
+        [OutputSignal, NetworkSync(SignalSender.Anyone)]
+        [Parameter("Position", typeof(Vector3))]
+        [Parameter("Force", typeof(float))]
+        public readonly SignalHandle<Vector3, float> OnCollision;
 
         [SchematicDoc(@"{""name"": ""OnJump"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""output"", ""params"": [{""name"": ""Launch"", ""type"": ""float""}], ""description"": ""Sent when the car really jumps (off a ramp, a crest or a ledge; bumps don't count): how fast it left the ground, in m/s (0 off a ledge). For a whoosh, a camera move or a trick window. On Landed follows when it's down."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock).""}")]
         [Tooltip("Sent when the car really jumps (not a bump): how fast it left the ground (m/s).")]
@@ -1356,6 +1363,10 @@ namespace Remedy.Vehicles
             }
 
             state.DriftHeadingActive = arcadeDrift && isGrounded && !bounceHeld;
+            // For the drift gizmo.
+            state.DriftingNow = drifting;
+            state.DriftArrow = state.DriftHeadingActive ? state.DriftHeading
+                : planarSpeed > 0.5f ? planarVelocity / planarSpeed : Vector3.zero;
             if (state.DriftHeadingActive)
                 ApplyArcadeDrift(native, p, state, DriftEase(wheels, state, p), groundNormal, forward, velocity, angularVelocity,
                     driveAcceleration, brakeDeceleration, topSpeed, mass, dt, ref angular);
@@ -2479,6 +2490,13 @@ namespace Remedy.Vehicles
             // Whoever simulates the car reports crashes (OnCrash is networked), so proxies don't add their own.
             if (p != null && crashSpeed >= p.MinCrashSpeed && !IsProxy(Self))
                 OnCrash.Invoke(Self, crashSpeed);
+            // Every body collision: where, and how hard (mass x impact speed).
+            if (!IsProxy(Self))
+            {
+                var hitBody = Self.GetComponent<Box3DBody>();
+                float carMass = p != null && p.Mass > 0f ? p.Mass : hitBody != null && hitBody.IsLive() ? hitBody.Body.GetMass() : 1f;
+                OnCollision.Invoke(Self, impact.Point, impact.Speed * carMass);
+            }
         }
 
         private static void ApplyWheelTargetSpeedLoss(ref WheelState wheel, float impactSpeed, float wheelMass,
@@ -2758,6 +2776,18 @@ namespace Remedy.Vehicles
 
             if (state != null && state.HasGroundPlane)
                 DrawGroundPlane(state, car, com, up);
+            // The drift direction (orange arrow), while drifting: an arcade drift's heading, where all its push goes,
+            // or a physics drift's travel.
+            if (state != null && state.DriftingNow && state.DriftArrow.sqrMagnitude > 0.001f)
+            {
+                Gizmos.color = new Color(1f, 0.55f, 0f);
+                Vector3 tip = com + state.DriftArrow * 3f;
+                Gizmos.DrawLine(com, tip);
+                Vector3 side = Vector3.Cross(up, state.DriftArrow).normalized * 0.35f;
+                Gizmos.DrawLine(tip, tip - state.DriftArrow * 0.5f + side);
+                Gizmos.DrawLine(tip, tip - state.DriftArrow * 0.5f - side);
+            }
+
             // Where the last bounce struck (from the tyre casts), for half a second.
             if (state != null && Time.time - state.LastBounceTime < 0.5f)
             {
@@ -2793,13 +2823,7 @@ namespace Remedy.Vehicles
             Gizmos.DrawRay(com, state.GroundTargetUp * 1.5f);
             Gizmos.color = Color.yellow;
             Gizmos.DrawRay(com, up * 1.5f);
-            if (state.DriftHeadingActive)
-            {
-                // The drift's heading (orange): where all the push goes.
-                Gizmos.color = new Color(1f, 0.55f, 0f);
-                Gizmos.DrawRay(com, state.DriftHeading * 3f);
-                Gizmos.DrawWireSphere(com + state.DriftHeading * 3f, 0.08f);
-            }
+
             if (state.RollSave > 0f)
             {
                 Gizmos.color = Color.Lerp(new Color(1f, 0.6f, 0.1f), Color.red, state.RollSave);
@@ -2873,6 +2897,8 @@ namespace Remedy.Vehicles
         public float JumpBoostTotal, JumpBoostClock, HoverClock = -1f;
         public float JumpTimeScale = 1f;
         public float GlueTime;
+        public bool DriftingNow;
+        public Vector3 DriftArrow;
         public Vector3 GuardPosition, GuardVelocity, GuardAngularVelocity;
         public quaternion GuardRotation;
         public bool HasGuardPosition;
