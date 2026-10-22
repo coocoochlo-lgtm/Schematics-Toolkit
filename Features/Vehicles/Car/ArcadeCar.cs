@@ -471,6 +471,7 @@ namespace Remedy.Vehicles
             var state = _state[instance];
             if (state == null) return;
             state.BoostAcceleration = Mathf.Max(acceleration, state.BoostTime > 0f ? state.BoostAcceleration : 0f);
+            state.AllowForcesUntil = Mathf.Max(state.AllowForcesUntil, Time.time + 0.2f);
             state.BoostTime = Mathf.Max(state.BoostTime, duration);
         }
 
@@ -542,6 +543,32 @@ namespace Remedy.Vehicles
                     return;
                 }
             }
+            // Force guard: a big gain in speed or spin over Force Guard Window that didn't come from the car itself
+            // (its bounces, rolls, hops and boosts, or AllowForces) and that only still things could have caused (a
+            // bad contact, getting wedged) is undone: a soft reset to the speed and spin from the start of the
+            // window. A moving thing hitting it (another car) or nothing touching it at all (a launcher, an
+            // explosion) counts as real.
+            if (p.ForceGuardWindow > 0f && (p.ForceGuardSpeedGain > 0f || p.ForceGuardSpinGain > 0f))
+            {
+                bool own = Time.time < state.AllowForcesUntil || state.AutoRolling || state.BounceAlignTime > 0f;
+                var oldest = state.ForceHistory[state.ForceHistoryOldest];
+                bool full = state.ForceHistoryCount >= state.ForceHistory.Length;
+                float speedGain = velocity.magnitude - oldest.Velocity.magnitude;
+                float spinGain = angularVelocity.magnitude - oldest.AngularVelocity.magnitude;
+                if (!own && full
+                    && ((p.ForceGuardSpeedGain > 0f && speedGain > p.ForceGuardSpeedGain)
+                        || (p.ForceGuardSpinGain > 0f && spinGain > p.ForceGuardSpinGain))
+                    && !PushedByMovingThing(native))
+                {
+                    native.SetLinearVelocity((float3)oldest.Velocity);
+                    native.SetAngularVelocity((float3)oldest.AngularVelocity);
+                    velocity = oldest.Velocity;
+                    angularVelocity = oldest.AngularVelocity;
+                    state.ForceHistoryCount = 0;
+                }
+                RecordForceHistory(state, p, velocity, angularVelocity, dt);
+            }
+
             state.GuardPosition = bodyPosition;
             state.GuardRotation = native.GetRotation();
             state.GuardVelocity = velocity;
@@ -1735,6 +1762,7 @@ namespace Remedy.Vehicles
                 result += planeUp * Mathf.Max(0f, hop - rising);
             }
             body.SetLinearVelocity((float3)result);
+            state.AllowForcesUntil = Time.time + 0.2f;
             state.BounceTargetVelocity = along + away * push;
             state.TorqueGuardAcceleration = Vector3.zero; // nothing smoothed from before the hit carries over
 
@@ -1838,6 +1866,11 @@ namespace Remedy.Vehicles
 
             if (!state.Jumping && state.InAirFor >= p.JumpMinAirTime)
             {
+                // The launch, checked again now (with the gravity since takeoff put back): the lower of the two, so
+                // a one-step spike at takeoff can't make a big jump.
+                float launchNow = Vector3.Dot(velocity, state.TakeoffNormal)
+                    + gravity.magnitude * state.InAirFor * Mathf.Max(0f, Vector3.Dot(worldUp, state.TakeoffNormal));
+                state.TakeoffLaunch = Mathf.Max(0f, Mathf.Min(state.TakeoffLaunch, launchNow));
                 bool launched = p.JumpMinLaunchSpeed > 0f && state.TakeoffLaunch >= p.JumpMinLaunchSpeed;
                 bool ledge = p.LedgeJumps && clearance >= 0.5f;
                 if (launched || ledge)
@@ -1922,6 +1955,59 @@ namespace Remedy.Vehicles
             body.ApplyForceToCenter((float3)(push * mass), true);
         }
 
+        // Keeps the last Force Guard Window of speed and spin (a ring of steps).
+        private static void RecordForceHistory(CarState state, ArcadeCarProperties p, Vector3 velocity, Vector3 angularVelocity, float dt)
+        {
+            int steps = Mathf.Clamp(Mathf.RoundToInt(p.ForceGuardWindow / Mathf.Max(0.001f, dt)), 1, 64);
+            if (state.ForceHistory.Length != steps)
+            {
+                state.ForceHistory = new ForceSample[steps];
+                state.ForceHistoryCount = 0;
+                state.ForceHistoryOldest = 0;
+            }
+            int slot = (state.ForceHistoryOldest + state.ForceHistoryCount) % steps;
+            if (state.ForceHistoryCount >= steps)
+            {
+                slot = state.ForceHistoryOldest;
+                state.ForceHistoryOldest = (state.ForceHistoryOldest + 1) % steps;
+            }
+            else
+                state.ForceHistoryCount++;
+            state.ForceHistory[slot] = new ForceSample { Velocity = velocity, AngularVelocity = angularVelocity };
+        }
+
+        // Whether something moving is touching the car (another car, anything moving at over 1 m/s), or nothing
+        // is (a push from a script, a launcher, an explosion): then a big push is real.
+        private static bool PushedByMovingThing(Body body)
+        {
+            var contacts = body.GetContacts();
+            if (contacts.Length == 0)
+                return true;
+            ulong self = body.Id.ToUInt64();
+            foreach (var contact in contacts)
+            {
+                bool selfIsA = contact.ShapeA.IsValid && contact.ShapeA.GetBody().Id.ToUInt64() == self;
+                var otherShape = selfIsA ? contact.ShapeB : contact.ShapeA;
+                if (!otherShape.IsValid)
+                    continue;
+                var other = otherShape.GetBody();
+                if (other.GetBodyType() != BodyType.Static && ((Vector3)other.GetLinearVelocity()).sqrMagnitude > 1f)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Lets big pushes through the force guard for a while (seconds): call it from your own systems that throw
+        /// the car around (a launcher, a cannon), so the guard never takes them for a glitch.
+        /// </summary>
+        public void AllowForces(BehaviorInstance instance, float seconds = 0.5f)
+        {
+            var state = _state[instance];
+            if (state != null)
+                state.AllowForcesUntil = Mathf.Max(state.AllowForcesUntil, Time.time + seconds);
+        }
+
         /// <summary>
         /// Call before moving a car on purpose (a respawn, a teleporter), so the position guard doesn't take the jump
         /// for a glitch and put it back.
@@ -1965,6 +2051,7 @@ namespace Remedy.Vehicles
                 {
                     var body = instance.GetComponent<Box3DBody>().Body;
                     body.ApplyForceToCenter((float3)(up * (p.DriftHop * mass / dt)), true);
+                    state.AllowForcesUntil = Time.time + 0.2f;
                 }
                 OnDriftStarted.Invoke(instance);
                 return;
@@ -2902,6 +2989,9 @@ namespace Remedy.Vehicles
         public Vector3 GuardPosition, GuardVelocity, GuardAngularVelocity;
         public quaternion GuardRotation;
         public bool HasGuardPosition;
+        public float AllowForcesUntil;
+        public ForceSample[] ForceHistory = new ForceSample[1];
+        public int ForceHistoryCount, ForceHistoryOldest;
         public Vector3 TakeoffNormal = Vector3.up;
         public Vector3 BounceTargetVelocity;
         public Vector3 BounceBefore, BounceApproach;
@@ -2987,6 +3077,12 @@ namespace Remedy.Vehicles
                 case VehicleInputAction.Unflip: if (value == null || VehicleInput.ToBool(value)) UnflipQueued = true; break;
             }
         }
+    }
+
+    /// <summary>The car's speed and spin at one step (the force guard's history).</summary>
+    internal struct ForceSample
+    {
+        public Vector3 Velocity, AngularVelocity;
     }
 
     /// <summary>One wheel's state from the last physics step.</summary>

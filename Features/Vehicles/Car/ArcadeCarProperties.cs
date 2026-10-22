@@ -95,6 +95,15 @@ namespace Remedy.Vehicles
         [Min(0f)]
         [Tooltip("Position guard: a physics step that lands the car further than this (metres) from where its last position and velocity put it is a glitch, and it's put back where it was. Teleport on purpose with MarkTeleported. 0 = off.")]
         public float PositionGuardDistance = 5f;
+        [Min(0f)]
+        [Tooltip("Force guard: how far back it looks (seconds). A big gain in speed or spin within it, that only still things touching the car could have caused (a bad contact, getting wedged), is undone back to the start of it. Moving things (another car), nothing touching (a launcher), and the car's own moves count as real. 0 = off.")]
+        public float ForceGuardWindow = 0.1f;
+        [Min(0f)]
+        [Tooltip("Force guard: the most speed (m/s) the car may gain within the window from still things touching it.")]
+        public float ForceGuardSpeedGain = 8f;
+        [Min(0f)]
+        [Tooltip("Force guard: the most spin (rad/s) the car may gain within the window from still things touching it.")]
+        public float ForceGuardSpinGain = 6f;
         [Tooltip("Spring stiffness: m/s² of push per metre compressed. ~10 / Stiffness is how far the car sags at rest (60 → 17 cm). Higher = stiffer, twitchier.")]
         public float SpringStiffness = 60f;
         [Tooltip("Spring damping: stops the car bouncing. ~2 × √Stiffness × 0.5 is a good start. Too low bounces, too high feels like bricks.")]
