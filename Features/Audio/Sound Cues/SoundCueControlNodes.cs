@@ -152,6 +152,82 @@ namespace Remedy.Audio
         }
     }
 
+    [SchematicDoc(@"{""name"": ""Listener"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Controls"", ""description"": ""Where the sound is from the Audio Listener (the camera, usually), like Shader Graph's Camera node: Distance (meters), Angle (degrees off where the listener faces: 0 ahead, 180 behind), Pan (-1 left to 1 right), Front (1 ahead, 0 beside, -1 behind), Elevation (degrees above, negative below), Approach Speed (m/s it's closing in; negative going away) and Same Room (1 when both are in the same Sound Room, else 0). Updated each frame, gliding across each block; a cue that uses it is rendered as it's heard."", ""outputs"": [{""name"": ""Distance"", ""type"": ""float""}, {""name"": ""Angle"", ""type"": ""float""}, {""name"": ""Pan"", ""type"": ""float""}, {""name"": ""Front"", ""type"": ""float""}, {""name"": ""Elevation"", ""type"": ""float""}, {""name"": ""Approach Speed"", ""type"": ""float""}, {""name"": ""Same Room"", ""type"": ""float""}], ""use_for"": [""muffling sounds behind the listener (Front into a Filter's Cutoff)"", ""a siren that's brighter coming closer (Approach Speed)"", ""quieter or wetter through a wall (Same Room)""]}")]
+    [Serializable]
+    [Node(Name = "Listener", Path = "Controls"), Tags(SoundNode.Tag)]
+    public class SoundListenerNode : SoundNode
+    {
+        [Output("Distance")] public float Distance;
+        [Output("Angle")] public float Angle;
+        [Output("Pan")] public float Pan;
+        [Output("Front")] public float Front;
+        [Output("Elevation")] public float Elevation;
+        [Output("Approach Speed")] public float ApproachSpeed;
+        [Output("Same Room")] public float SameRoom;
+
+        private static readonly string[] Ports = { "Distance", "Angle", "Pan", "Front", "Elevation", "Approach Speed", "Same Room" };
+
+        public override SoundProcessor CreateProcessor(SoundCueBuilder builder)
+        {
+            builder.Context.FollowsListener = true;
+            return new Processor();
+        }
+
+        // Each output glides from its last value to the new one across the block (the player sets them once a frame),
+        // and is left alone while its value stays the same.
+        private sealed class Processor : SoundProcessor
+        {
+            private readonly float[] _last = new float[Ports.Length];
+            private readonly int[] _filled = new int[Ports.Length];
+
+            public override void Reset(SoundContext context)
+            {
+                for (int k = 0; k < Ports.Length; k++)
+                {
+                    _last[k] = float.NaN;
+                    _filled[k] = 0;
+                }
+            }
+
+            public override void Process(SoundContext context, int count)
+            {
+                for (int k = 0; k < Ports.Length; k++)
+                {
+                    if (!Outputs.ContainsKey(Ports[k]))
+                        continue; // (nothing reads it)
+                    float value = k switch
+                    {
+                        0 => context.Distance,
+                        1 => context.ListenerAngle,
+                        2 => context.ListenerPan,
+                        3 => context.ListenerFront,
+                        4 => context.ListenerElevation,
+                        5 => context.ApproachSpeed,
+                        _ => context.SameRoom,
+                    };
+                    var output = Output(Ports[k]);
+                    float last = _last[k];
+                    if (last == value && _filled[k] >= count)
+                        continue;
+                    if (float.IsNaN(last) || last == value)
+                    {
+                        for (int i = 0; i < count; i++)
+                            output[i] = value;
+                        _filled[k] = last == value ? Mathf.Max(_filled[k], count) : count;
+                    }
+                    else
+                    {
+                        float step = (value - last) / count;
+                        for (int i = 0; i < count; i++)
+                            output[i] = last + step * (i + 1);
+                        _filled[k] = 0;
+                    }
+                    _last[k] = value;
+                }
+            }
+        }
+    }
+
     [SchematicDoc(@"{""name"": ""Parameter"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Controls"", ""description"": ""A value the game sets while the cue plays (the Set Graph Parameters node on its Player, or SoundCuePlayer.SetParameter), by Name: an engine's RPM, a character's speed, how hurt they are... It's Default until it's set. A new value glides there over Glide seconds (no zipper steps from values set once a frame). A cue with Parameters is rendered as it's heard (see Output's Rendering), so a change is heard at once."", ""outputs"": [{""name"": ""Value"", ""type"": ""float""}]}")]
     [Serializable]
     [Node(Name = "Parameter", Path = "Controls"), Tags(SoundNode.Tag)]

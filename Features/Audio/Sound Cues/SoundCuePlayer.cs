@@ -76,6 +76,7 @@ namespace Remedy.Audio
         {
             float distance = position.magnitude;
             DistanceOverride = distance;
+            _previewPosition = position;
             if (_voice != null)
             {
                 _voice.Context.Distance = distance;
@@ -139,6 +140,7 @@ namespace Remedy.Audio
             foreach (var warning in voice.Warnings)
                 Debug.LogWarning($"Sound Cue \"{Cue.name}\": {warning}", Cue);
             voice.Context.Distance = CurrentDistance();
+            _lastListenerDistance = -1f;
             long start = (long)(Mathf.Max(0f, startTime) * (double)rate);
             if (voice.LengthSamples > 0)
                 start = Math.Min(start, voice.LengthSamples - 1);
@@ -305,6 +307,8 @@ namespace Remedy.Audio
         {
             float distance = CurrentDistance();
             voice.Context.Distance = distance;
+            if (voice.Context.FollowsListener)
+                UpdateListenerControls(voice.Context, distance);
             UpdateRoom(immediate: false);
             UpdateRoomFade();
             voice.Culled = !DistanceOverride.HasValue && _fade == RoomFade.None && Inaudible(distance);
@@ -312,6 +316,48 @@ namespace Remedy.Audio
                 Source.reverbZoneMix = voice.Context.ReverbSend;
             if (voice.Context.Probes.Count > 0 && !voice.Culled && Time.unscaledTime >= _nextProbe)
                 RunProbes(voice);
+        }
+
+        private Vector2 _previewPosition;
+        private float _lastListenerDistance = -1f, _nextListenerRoomCheck;
+
+        // What a Listener node reads: where the sound is from the listener (in the preview, from its imaginary one at
+        // the middle facing ahead), how fast they're closing in, and whether they share a Sound Room.
+        private void UpdateListenerControls(SoundContext context, float distance)
+        {
+            Vector3 direction;
+            if (DistanceOverride.HasValue)
+            {
+                float length = _previewPosition.magnitude;
+                direction = length > 0.0001f ? new Vector3(_previewPosition.x, 0f, _previewPosition.y) / length : Vector3.forward;
+            }
+            else if (_listener != null)
+            {
+                var listener = _listener.transform;
+                Vector3 to = listener.InverseTransformDirection(transform.position - listener.position);
+                float length = to.magnitude;
+                direction = length > 0.0001f ? to / length : Vector3.forward;
+            }
+            else
+                return;
+            context.ListenerAngle = Vector3.Angle(Vector3.forward, direction);
+            context.ListenerPan = direction.x;
+            context.ListenerFront = direction.z;
+            context.ListenerElevation = Mathf.Asin(Mathf.Clamp(direction.y, -1f, 1f)) * Mathf.Rad2Deg;
+
+            float dt = Time.unscaledDeltaTime;
+            if (_lastListenerDistance >= 0f && dt > 0f)
+            {
+                float closing = (_lastListenerDistance - distance) / dt;
+                context.ApproachSpeed = Mathf.Lerp(context.ApproachSpeed, closing, 1f - Mathf.Exp(-dt / 0.1f));
+            }
+            _lastListenerDistance = distance;
+
+            if (!DistanceOverride.HasValue && _listener != null && Application.isPlaying && Time.unscaledTime >= _nextListenerRoomCheck)
+            {
+                _nextListenerRoomCheck = Time.unscaledTime + ProbeInterval;
+                context.SameRoom = SoundRoom.Count == 0 || SoundRoom.At(transform.position) == SoundRoom.At(_listener.transform.position) ? 1f : 0f;
+            }
         }
 
         /// <summary>How often the world is probed for the cue's Occlusion and Surface controls, in seconds.</summary>

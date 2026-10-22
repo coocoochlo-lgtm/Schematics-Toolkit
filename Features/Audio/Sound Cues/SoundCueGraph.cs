@@ -133,6 +133,20 @@ namespace Remedy.Audio
         public float Duration;
         /// <summary>Distance from the voice to the Audio Listener, in meters (set by the player each frame).</summary>
         public volatile float Distance;
+        /// <summary>Listener node: degrees between where the listener faces and the sound (0 ahead, 180 behind).</summary>
+        public volatile float ListenerAngle;
+        /// <summary>Listener node: -1 left of the listener to 1 right.</summary>
+        public volatile float ListenerPan;
+        /// <summary>Listener node: 1 ahead of the listener, -1 behind.</summary>
+        public volatile float ListenerFront = 1f;
+        /// <summary>Listener node: degrees above the listener (negative below).</summary>
+        public volatile float ListenerElevation;
+        /// <summary>Listener node: how fast the sound and listener are closing in (m/s; negative parting).</summary>
+        public volatile float ApproachSpeed;
+        /// <summary>Listener node: 1 when the sound and listener are in the same Sound Room (or neither is in one), else 0.</summary>
+        public volatile float SameRoom = 1f;
+        /// <summary>A Listener node reads the above: the player works them out each frame (only then).</summary>
+        public bool FollowsListener;
         /// <summary>The cue's parameters' values, by index (see <see cref="SoundCueBuilder.ParameterIndex"/>).</summary>
         public float[] Parameters = Array.Empty<float>();
         /// <summary>Random numbers for this voice (seeded per play).</summary>
@@ -514,7 +528,7 @@ namespace Remedy.Audio
                 {
                     SoundCueOutput.RenderMode.Live => true,
                     SoundCueOutput.RenderMode.Ahead => false,
-                    _ => context.HasParameters,
+                    _ => context.HasParameters || context.FollowsListener,
                 };
             }
             var voice = new SoundCueVoice(cue, context, builder, audio, volume, length) { BuiltVersion = SoundCueVoicePool.Version(cue) };
@@ -530,6 +544,12 @@ namespace Remedy.Audio
         {
             Context.SamplePosition = 0;
             Context.Distance = 0f;
+            Context.ListenerAngle = 0f;
+            Context.ListenerPan = 0f;
+            Context.ListenerFront = 1f;
+            Context.ListenerElevation = 0f;
+            Context.ApproachSpeed = 0f;
+            Context.SameRoom = 1f;
             Context.ReverbSend = 0f;
             Context.HeardStart = -1;
             Context.EndAt = long.MaxValue;
