@@ -548,18 +548,21 @@ namespace Remedy.Vehicles
         [Min(0f)]
         [Tooltip("The least time between bounces (seconds), so one hit doesn't bounce twice.")]
         public float BounceCooldown = 0.25f;
-        [Tooltip("Body Visual's wobble on a bounce: degrees of tip per m/s hit at.")]
-        public float BodyWobble = 0.8f;
-        [Tooltip("The most it tips (degrees).")]
-        public float BodyWobbleMax = 12f;
-        [Tooltip("Squash per m/s hit at (a fraction of its height).")]
-        public float BodySquash = 0.012f;
+        [Range(0f, 2f)]
+        [Tooltip("Body Visual follows the suspension at each corner by this much (a share of each tyre's compression), on a spring, so it bobs and rebounds. Only the look. 0 = the mesh is left alone.")]
+        public float BodyFollow = 0.4f;
         [Min(0.1f)]
-        [Tooltip("How fast the body wobbles (per second).")]
-        public float BodyWobbleFrequency = 3f;
+        [Tooltip("How fast the body's corner springs bounce (per second).")]
+        public float BodySpringFrequency = 3.5f;
         [Range(0f, 1f)]
-        [Tooltip("How quickly the wobble settles (1 = no wobble, low = jiggles on).")]
-        public float BodyWobbleDamping = 0.3f;
+        [Tooltip("How quickly they settle (1 = no rebound, low = boingy).")]
+        public float BodySpringDamping = 0.25f;
+        [Min(0f)]
+        [Tooltip("A bounce's dip at the corners nearest the hit (m/s of corner movement per m/s hit at).")]
+        public float BodyBounceKick = 0.03f;
+        [Min(0f)]
+        [Tooltip("The most the body mesh tips from its springs (degrees).")]
+        public float BodyMaxTilt = 5f;
 
         [Header("Feedback")]
         [Tooltip("Direction-adjusted impacts slower than this (m/s) don't send On Crash. Impacts aligned with the nearest tire's ground normal count less than side-on impacts.")]

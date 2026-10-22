@@ -271,6 +271,7 @@ namespace Remedy.Vehicles
             if (bodyVisual != null && bodyVisual != car)
             {
                 state.BodyRestRotation = bodyVisual.localRotation;
+                state.BodyRestPosition = bodyVisual.localPosition;
                 state.BodyRestScale = bodyVisual.localScale;
                 state.HasBodyRest = true;
             }
@@ -1749,13 +1750,14 @@ namespace Remedy.Vehicles
             state.HasDriftHeading = false;
             state.BounceReadyTime = Time.time + Mathf.Max(0f, p.BounceCooldown);
 
-            // The body mesh's wobble: tipped away from the wall, and squashed, on its springs (see OnLateUpdate).
-            float wobble = 2f * Mathf.PI * Mathf.Max(0.1f, p.BodyWobbleFrequency);
-            float tilt = Mathf.Min(state.BounceSpeed * share * p.BodyWobble, p.BodyWobbleMax);
-            Vector3 tiltAxis = Vector3.Cross(planeUp, away);
-            if (tiltAxis.sqrMagnitude > 0.001f)
-                state.WobbleTiltSpeed += Quaternion.Inverse(instance.Transform.rotation) * tiltAxis.normalized * (tilt * wobble);
-            state.WobbleSquashSpeed += Mathf.Min(state.BounceSpeed * share * p.BodySquash, 0.3f) * wobble;
+            // The body mesh's boing: the corners nearest the hit get a dip on their springs (see UpdateBodyWobble).
+            float kick = state.BounceSpeed * share * Mathf.Max(0f, p.BodyBounceKick);
+            for (int i = 0; i < state.Wheels.Length; i++)
+            {
+                Vector3 corner = instance.Transform.TransformPoint(state.Wheels[i].CornerLocal);
+                float near = 1f - Mathf.Clamp01(Vector3.Distance(corner, state.BouncePoint) / 3f);
+                state.Wheels[i].CornerSpeed -= kick * near;
+            }
 
             OnBounce.Invoke(instance, state.BounceSpeed * share);
         }
@@ -2508,7 +2510,7 @@ namespace Remedy.Vehicles
             Quaternion rotation = car.rotation;
             Vector3 up = rotation * Vector3.up;
             float dt = Time.deltaTime;
-            UpdateBodyWobble(car, BodyVisual.Value, Properties.Value, state, dt);
+            UpdateBodyWobble(car, BodyVisual.Value, wheels, Properties.Value, state, dt);
 
             // The tyres where the suspension has them, in the car's Schematic Bounds: its bottom is where they meet
             // the road (a camera checking for ground under the car looks from there).
@@ -2558,45 +2560,87 @@ namespace Remedy.Vehicles
             return false;
         }
 
-        // The body mesh tips and squashes on two springs after a bounce, then settles back to its rest pose (and
-        // is left alone once settled, so it doesn't fight anything else animating it).
-        private static void UpdateBodyWobble(Transform car, Transform visual, ArcadeCarProperties p, CarState state, float dt)
+        // The body mesh follows the suspension at each corner, a little and on a spring of its own, so it bobs and
+        // rebounds ("boing") instead of being stiff. Each corner's spring aims at how compressed that tyre is against
+        // its own recent average (Body Follow of it), and a bounce kicks the corners nearest the hit. The corners'
+        // heights make the mesh's lift, pitch and roll (kept within Body Max Tilt). Only the look: the physics don't
+        // move. Body Follow 0 leaves the mesh alone.
+        private static void UpdateBodyWobble(Transform car, Transform visual, Wheel[] wheels, ArcadeCarProperties p,
+            CarState state, float dt)
         {
-            if (visual == null || p == null || !state.HasBodyRest || dt <= 0f)
+            if (visual == null || p == null || !state.HasBodyRest || dt <= 0f || wheels == null)
                 return;
-            bool moving = state.WobbleTilt.sqrMagnitude > 1e-4f || state.WobbleTiltSpeed.sqrMagnitude > 1e-4f
-                || Mathf.Abs(state.WobbleSquash) > 1e-4f || Mathf.Abs(state.WobbleSquashSpeed) > 1e-4f;
-            if (!moving)
+            if (p.BodyFollow <= 0f)
             {
                 if (state.WobbleShown)
                 {
+                    visual.localPosition = state.BodyRestPosition;
                     visual.localRotation = state.BodyRestRotation;
                     visual.localScale = state.BodyRestScale;
                     state.WobbleShown = false;
                 }
                 return;
             }
-            float w = 2f * Mathf.PI * Mathf.Max(0.1f, p.BodyWobbleFrequency);
-            float c = 2f * Mathf.Clamp01(p.BodyWobbleDamping) * w;
-            state.WobbleTiltSpeed += (-state.WobbleTilt * (w * w) - state.WobbleTiltSpeed * c) * dt;
-            state.WobbleTilt += state.WobbleTiltSpeed * dt;
-            state.WobbleSquashSpeed += (-state.WobbleSquash * (w * w) - state.WobbleSquashSpeed * c) * dt;
-            state.WobbleSquash += state.WobbleSquashSpeed * dt;
+            float w = 2f * Mathf.PI * Mathf.Max(0.1f, p.BodySpringFrequency);
+            float c = 2f * Mathf.Clamp01(p.BodySpringDamping) * w;
+            float settle = 1f - Mathf.Exp(-dt / 0.8f);
 
-            // The tilt is kept in the car's space; turned into the mesh's parent's space here.
-            float degrees = state.WobbleTilt.magnitude;
-            Quaternion tip = Quaternion.identity;
-            if (degrees > 1e-4f)
+            int count = 0;
+            float heightSum = 0f, zSum = 0f, xSum = 0f;
+            for (int i = 0; i < wheels.Length && i < state.Wheels.Length; i++)
             {
-                Vector3 axis = car.rotation * (state.WobbleTilt / degrees);
-                if (visual.parent != null)
-                    axis = visual.parent.InverseTransformDirection(axis);
-                tip = Quaternion.AngleAxis(degrees, axis);
+                ref var corner = ref state.Wheels[i];
+                if (wheels[i]?.Anchor == null)
+                    continue;
+                if (!corner.HasCornerBaseline)
+                {
+                    corner.CornerBaseline = corner.Extension;
+                    corner.HasCornerBaseline = true;
+                }
+                corner.CornerBaseline = Mathf.Lerp(corner.CornerBaseline, corner.Extension, settle);
+                // Compressed (shorter than usual): the body dips at that corner; stretched: it lifts.
+                float target = -(corner.CornerBaseline - corner.Extension) * p.BodyFollow;
+                corner.CornerSpeed += ((target - corner.CornerOffset) * (w * w) - corner.CornerSpeed * c) * dt;
+                corner.CornerOffset += corner.CornerSpeed * dt;
+                Vector3 local = car.InverseTransformPoint(wheels[i].Anchor.position);
+                corner.CornerLocal = local;
+                heightSum += corner.CornerOffset;
+                zSum += local.z;
+                xSum += local.x;
+                count++;
             }
-            visual.localRotation = tip * state.BodyRestRotation;
-            float squash = Mathf.Clamp(state.WobbleSquash, -0.5f, 0.5f);
-            Vector3 rest = state.BodyRestScale;
-            visual.localScale = new Vector3(rest.x * (1f + squash * 0.5f), rest.y * (1f - squash), rest.z * (1f + squash * 0.5f));
+            if (count == 0)
+                return;
+            float height = heightSum / count, zMean = zSum / count, xMean = xSum / count;
+            float pitchNumerator = 0f, pitchDenominator = 0f, rollNumerator = 0f, rollDenominator = 0f;
+            for (int i = 0; i < wheels.Length && i < state.Wheels.Length; i++)
+            {
+                if (wheels[i]?.Anchor == null)
+                    continue;
+                var corner = state.Wheels[i];
+                float dz = corner.CornerLocal.z - zMean, dx = corner.CornerLocal.x - xMean;
+                pitchNumerator += dz * (corner.CornerOffset - height);
+                pitchDenominator += dz * dz;
+                rollNumerator += dx * (corner.CornerOffset - height);
+                rollDenominator += dx * dx;
+            }
+            float most = Mathf.Max(0f, p.BodyMaxTilt);
+            // The front lower than the back tips the nose down (about the car's right); the right lower rolls it right.
+            float pitch = pitchDenominator > 1e-4f ? Mathf.Clamp(-Mathf.Atan(pitchNumerator / pitchDenominator) * Mathf.Rad2Deg, -most, most) : 0f;
+            float roll = rollDenominator > 1e-4f ? Mathf.Clamp(Mathf.Atan(rollNumerator / rollDenominator) * Mathf.Rad2Deg, -most, most) : 0f;
+
+            // Car-space directions turned into the mesh's parent's space.
+            Vector3 upAxis = car.up, rightAxis = car.right, forwardAxis = car.forward;
+            if (visual.parent != null)
+            {
+                upAxis = visual.parent.InverseTransformDirection(upAxis);
+                rightAxis = visual.parent.InverseTransformDirection(rightAxis);
+                forwardAxis = visual.parent.InverseTransformDirection(forwardAxis);
+            }
+            visual.localPosition = state.BodyRestPosition + upAxis * height;
+            visual.localRotation = Quaternion.AngleAxis(pitch, rightAxis) * Quaternion.AngleAxis(roll, forwardAxis)
+                * state.BodyRestRotation;
+            visual.localScale = state.BodyRestScale;
             state.WobbleShown = true;
         }
 
@@ -2842,10 +2886,9 @@ namespace Remedy.Vehicles
         public uint BounceStruckWheels;
         public float BounceGrip = 1f;
         public Quaternion BodyRestRotation;
+        public Vector3 BodyRestPosition;
         public Vector3 BodyRestScale = Vector3.one;
         public bool HasBodyRest, WobbleShown;
-        public Vector3 WobbleTilt, WobbleTiltSpeed;
-        public float WobbleSquash, WobbleSquashSpeed;
         public Vector3 DriftHeading;
         public bool HasDriftHeading, DriftHeadingActive;
         public float DriftGripReturn = 1f;
@@ -2958,6 +3001,10 @@ namespace Remedy.Vehicles
         /// <summary>This tyre's last wall cast, for the gizmo.</summary>
         public Vector3 WallCastFrom, WallCastTo;
         public float WallCastRadius, WallCastTime;
+        /// <summary>The body mesh's spring at this corner (UpdateBodyWobble).</summary>
+        public float CornerOffset, CornerSpeed, CornerBaseline;
+        public bool HasCornerBaseline;
+        public Vector3 CornerLocal;
         /// <summary>The suspension's direction last step, in the car's space (toward the ground it stood on).</summary>
         public Vector3 SuspensionUpLocal;
         /// <summary>The spring's push last step (m/s²), so a sudden rise can be limited.</summary>
