@@ -1079,6 +1079,10 @@ namespace Remedy.Vehicles
             float airInput = airControl
                 ? airGate * Mathf.Clamp01(Mathf.Max(Mathf.Abs(rollStick), Mathf.Abs(pitchStick)) * 3f)
                 : 0f;
+            // The air leveling is off while the player steers the car in the air, and fades back in from nothing
+            // over Air Level Return Time once they let go.
+            state.AirLevelReturn = airInput > 0.001f ? 0f
+                : Mathf.MoveTowards(state.AirLevelReturn, 1f, dt / Mathf.Max(0.01f, p.AirLevelReturnTime));
 
             // Rotation helpers, as angular accelerations (turned into torque with the body's own inertia below).
             Vector3 angular = Vector3.zero;
@@ -1097,11 +1101,11 @@ namespace Remedy.Vehicles
             bool airLeveling = airborne && (p.AirLevelStrength > 0f || p.AirLevelDamping > 0f);
             Vector3 stabilizationCompensation = Vector3.zero;
             Vector3 targetUp = isGrounded ? groundNormal : worldUp;
-            // In the air: level to the ground it's going to land on (straight below, within 60° of world up). The
-            // player's own rolling and pitching is the air control below, which this stands aside for.
-            if (airborne
-                && SchematicPhysics.Raycast(centerOfMass, -worldUp, out RaycastHit below, AirLandingProbe, p.GroundLayers, body))
-                targetUp = Vector3.RotateTowards(worldUp, below.normal, 60f * Mathf.Deg2Rad, 0f).normalized;
+            // In the air: level to the surface the player is aiming the car at (see AimedLanding), so "I'm landing
+            // there" gets helped onto it. The player's own rolling and pitching is the air control below, which this
+            // stands aside for (and fades back in after).
+            if (airborne)
+                targetUp = AimedLanding(centerOfMass, up, velocity, worldUp, p, body);
             Vector3 planeForward = Vector3.ProjectOnPlane(forward, groundNormal).normalized;
 
             // The "whoah" lean: the turn's sideways pull throws the body outward, on a wobbly spring of its own, and
@@ -1190,7 +1194,7 @@ namespace Remedy.Vehicles
             if (state.UprightBlend > 0f)
             {
                 angular += (UprightError(up, state.UprightNormal, forward) * uprightStrength
-                    - rollPitchVelocity * uprightDamping) * (uprightSupport * state.UprightBlend * (1f - airInput));
+                    - rollPitchVelocity * uprightDamping) * (uprightSupport * state.UprightBlend * Mathf.Lerp(1f, state.AirLevelReturn, state.UprightAirBlend));
                 // The wobble's own motion, so the body follows it instead of the leveling smoothing it away.
                 if (leaning)
                     angular += planeForward * ((whoahAcceleration + state.WhoahLeanSpeed * uprightDamping) * Mathf.Deg2Rad
@@ -1886,6 +1890,30 @@ namespace Remedy.Vehicles
             return false;
         }
 
+        // The surface the player is aiming the car at, to land on: looked for along where the car's wheels point
+        // carried on along its motion (between its down and its velocity), then straight along its down, then
+        // along its motion, then straight down. A surface counts if it faces the look and isn't steeper than Air Aim
+        // Max Slope from world up (not a wall); world up if none.
+        private static Vector3 AimedLanding(Vector3 centerOfMass, Vector3 up, Vector3 velocity, Vector3 worldUp,
+            ArcadeCarProperties p, Box3DBody body)
+        {
+            Vector3 down = -up;
+            Vector3 moving = velocity.sqrMagnitude > 1f ? velocity.normalized : -worldUp;
+            Vector3 aimed = down + moving;
+            float steepest = Mathf.Cos(Mathf.Clamp(p.AirAimMaxSlope, 0f, 89f) * Mathf.Deg2Rad);
+            for (int i = 0; i < 4; i++)
+            {
+                Vector3 look = i switch { 0 => aimed, 1 => down, 2 => moving, _ => -worldUp };
+                if (look.sqrMagnitude < 0.01f)
+                    continue;
+                look.Normalize();
+                if (SchematicPhysics.Raycast(centerOfMass, look, out RaycastHit hit, AirLandingProbe, p.GroundLayers, body)
+                    && Vector3.Dot(hit.normal, -look) > 0.1f && Vector3.Dot(hit.normal, worldUp) >= steepest)
+                    return hit.normal.normalized;
+            }
+            return worldUp;
+        }
+
         // A probe hit that isn't ground: touching where the probe starts (the floor a flipped roof lies in, or
         // something on the roof), or a surface facing away from the car's up.
         private static bool IsCeiling(in RaycastHit hit, Vector3 up)
@@ -2428,6 +2456,7 @@ namespace Remedy.Vehicles
         public float AirThrottleBase, AirThrottleGate;
         public bool AirThrottleOpen;
         public bool Jumping;
+        public float AirLevelReturn = 1f;
         public float InAirFor = -1f, TakeoffLaunch;
         public float JumpBoostTotal, JumpBoostClock, HoverClock = -1f;
         public Vector3 TakeoffNormal = Vector3.up;

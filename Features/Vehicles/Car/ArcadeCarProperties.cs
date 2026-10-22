@@ -298,6 +298,12 @@ namespace Remedy.Vehicles
         public float AirLevelStrength = 2f;
         [Tooltip("Damps roll and pitch spin in the air.")]
         public float AirLevelDamping = 1f;
+        [Range(0f, 89f)]
+        [Tooltip("In the air the car levels to the surface it's aimed at (where its wheels point, along its motion): the steepest that counts (degrees from flat), so it never lines up with a wall.")]
+        public float AirAimMaxSlope = 60f;
+        [Min(0f)]
+        [Tooltip("After the player lets go of air control, the air leveling fades back in from nothing over this long (seconds).")]
+        public float AirLevelReturnTime = 0.6f;
         [Min(0f)]
         [Tooltip("Air control: how fast steering rolls the car (degrees per second at full input, through the gates below). Rocket League, gently. 0 (with Air Pitch Rate 0) = the old Air Control push instead.")]
         public float AirRollRate = 60f;
