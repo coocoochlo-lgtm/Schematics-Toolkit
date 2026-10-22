@@ -789,6 +789,23 @@ namespace Remedy.Vehicles
                     w.Sidewall = true;
                     w.Grounded = false;
                 }
+                // Only hits count at once: a tyre that had ground and whose cast suddenly finds nothing keeps its last
+                // hit for up to Ground Hold Time, so one stray miss doesn't drop it. (Not a sidewall or a ceiling:
+                // those are real answers, and a car on its side or roof lets go straight away.)
+                if (w.Grounded)
+                {
+                    w.LastGroundHit = w.GroundHit;
+                    w.HasLastGroundHit = true;
+                    w.MissTime = 0f;
+                }
+                else if (w.HasLastGroundHit && !w.Sidewall && !ceiling && w.MissTime + dt <= p.GroundHoldTime)
+                {
+                    w.MissTime += dt;
+                    w.GroundHit = w.LastGroundHit;
+                    w.Grounded = true;
+                }
+                else
+                    w.HasLastGroundHit = false;
                 if (w.Grounded)
                 {
                     grounded++;
@@ -1463,8 +1480,8 @@ namespace Remedy.Vehicles
         // a candidate: the tyres that found one decide its direction (weighted by how hard each is coming in), its
         // strength (the hardest) and where on the car it struck (their hit points). Then, for Bounce Confirm Time,
         // those tyres cast again along that first approach direction (the car's velocity no longer points into the
-        // wall once it's touching), and it only bounces if the wall was still there for at least half the steps: a
-        // glance that came and went never was a proper collision.
+        // wall once it's touching), and it only bounces if every step still finds the wall: any miss and it's
+        // dropped (a glance that came and went never was a proper collision).
         private static void DetectBounce(Body body, Box3DBody ignore, Wheel[] wheels, WheelState[] wheelStates,
             ArcadeCarProperties p, CarState state, Vector3 velocity, Vector3 up, Vector3 planeUp, float dt)
         {
@@ -1477,18 +1494,26 @@ namespace Remedy.Vehicles
             {
                 state.BounceCandidateTime += dt;
                 state.BounceCandidateSteps++;
+                bool stillThere = false;
                 for (int i = 0; i < wheels.Length && i < 32; i++)
                     if ((state.BounceStruckWheels & (1u << i)) != 0
                         && CastWall(body, ignore, wheels[i], wheelStates[i], p, state.BounceApproach, Vector3.zero, up, planeUp,
                             lookAhead + 0.1f, wall, out _, out _, out _, out _))
                     {
-                        state.BounceFoundSteps++;
+                        stillThere = true;
                         break;
                     }
+                // Any miss means there's no wall: the candidate's dropped the moment a step doesn't find it.
+                if (!stillThere)
+                {
+                    state.BounceCandidate = false;
+                    return;
+                }
+                state.BounceFoundSteps++;
                 if (state.BounceCandidateTime < p.BounceConfirmTime)
                     return;
                 state.BounceCandidate = false;
-                if (state.BounceFoundSteps * 2 >= state.BounceCandidateSteps)
+                if (state.BounceFoundSteps >= state.BounceCandidateSteps)
                 {
                     state.PendingBounce = true;
                     state.LastBounceTime = Time.time;
@@ -2735,6 +2760,10 @@ namespace Remedy.Vehicles
         public float AirGate;
         /// <summary>Touching the ground with its sidewall this step (so not grounded).</summary>
         public bool Sidewall;
+        /// <summary>The last real ground hit, kept through a stray miss (Ground Hold Time).</summary>
+        public RaycastHit LastGroundHit;
+        public bool HasLastGroundHit;
+        public float MissTime;
         /// <summary>The suspension's direction last step, in the car's space (toward the ground it stood on).</summary>
         public Vector3 SuspensionUpLocal;
         /// <summary>The spring's push last step (m/s²), so a sudden rise can be limited.</summary>
