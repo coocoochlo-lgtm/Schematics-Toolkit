@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using Box3D;
 using Box3D.Hybrid;
@@ -31,7 +32,7 @@ namespace Remedy.Vehicles
     /// player (proxies
     /// also update Is Drifting, Drift Level, Is Boosting and Is Flipped from them).
     /// </remarks>
-    [SchematicDoc(@"{""name"": ""Arcade Car"", ""kind"": ""behavior"", ""menu"": ""Vehicles/Arcade Car"", ""description"": ""An arcade car on a real Box3D body: NFS Underground / Mario Kart handling (drifts, mini-turbos, a car that wants to stay on its wheels) while crashes and rollovers are still physics. Tire-sized sphere probes; everything tunable in its Properties asset."", ""variables"": [""Properties"", ""Wheels"", ""AlwaysActive"", ""ParkWhenEmpty"", ""DriverInputs"", ""PlayerDriverOnly"", ""Speed"", ""ForwardSpeed"", ""IsGrounded"", ""GroundedWheels"", ""IsDrifting"", ""DriftAngle"", ""DriftCharge"", ""DriftLevel"", ""IsBoosting"", ""IsFlipped"", ""AirTime"", ""RollSave"", ""LoadTransfer""], ""signals"": [""Target Speed"", ""Brake"", ""Steer"", ""Drive"", ""Handbrake"", ""Boost"", ""Unflip"", ""OnDriftStarted"", ""OnDriftEnded"", ""OnDriftLevel"", ""OnBoost"", ""OnLanded"", ""OnFlipped"", ""OnRighted"", ""OnCrash""], ""use_for"": [""drivable cars and karts"", ""racing games"", ""AI traffic""], ""notes"": ""Needs a Box3D Body and a shape (added for you). Add Vehicle Seats so it only drives with a driver. Multiplayer: the driver owns and simulates the car; its input Signals are networked from the owner, and drift/boost/flip/crash Signals reach every player for effects.""}")]
+    [SchematicDoc(@"{""name"": ""Arcade Car"", ""kind"": ""behavior"", ""menu"": ""Vehicles/Arcade Car"", ""description"": ""An arcade car on a real Box3D body: NFS Underground / Mario Kart handling (drifts, mini-turbos, a car that wants to stay on its wheels) while crashes and rollovers are still physics. Tire-sized sphere probes; everything tunable in its Properties asset."", ""variables"": [""Properties"", ""Wheels"", ""AlwaysActive"", ""ParkWhenEmpty"", ""DriverInputs"", ""PlayerDriverOnly"", ""Speed"", ""ForwardSpeed"", ""IsGrounded"", ""GroundedWheels"", ""IsDrifting"", ""DriftAngle"", ""DriftCharge"", ""DriftLevel"", ""IsBoosting"", ""IsFlipped"", ""AirTime"", ""RollSave"", ""LoadTransfer"", ""BodyVisual""], ""signals"": [""Target Speed"", ""Brake"", ""Steer"", ""Drive"", ""Handbrake"", ""Boost"", ""Unflip"", ""OnDriftStarted"", ""OnDriftEnded"", ""OnDriftLevel"", ""OnBoost"", ""OnLanded"", ""OnFlipped"", ""OnRighted"", ""OnCrash"", ""OnBounce""], ""use_for"": [""drivable cars and karts"", ""racing games"", ""AI traffic""], ""notes"": ""Needs a Box3D Body and a shape (added for you). Add Vehicle Seats so it only drives with a driver. Multiplayer: the driver owns and simulates the car; its input Signals are networked from the owner, and drift/boost/flip/crash Signals reach every player for effects.""}")]
     [SchematicBehaviorPath("Vehicles/Arcade Car")]
     [NetworkOwnerSimulated]
     [RequireComponent(typeof(Box3DBody), typeof(Box3DBoxShape), typeof(SchematicImpactRelay))]
@@ -47,6 +48,10 @@ namespace Remedy.Vehicles
         [SchematicDoc(@"{""name"": ""Wheels"", ""kind"": ""variable"", ""behavior"": ""Arcade Car"", ""type"": ""Wheel[]"", ""default"": ""null"", ""description"": ""The wheels: anchor (top of the suspension), optional visual, radius, and whether each steers, drives and has the handbrake. Four are created when the Behavior is added.""}")]
         [Tooltip("The wheels: anchor (top of the suspension), optional visual, radius, and whether each steers, drives and has the handbrake.")]
         public readonly VariableHandle<Wheel[]> Wheels = (Wheel[])null;
+
+        [SchematicDoc(@"{""name"": ""BodyVisual"", ""kind"": ""variable"", ""behavior"": ""Arcade Car"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""The car's body mesh (a child, not the car itself): it wobbles and squashes when the car bounces off something (Properties' Body Wobble). Only the look: the physics don't move. None: no wobble.""}")]
+        [Tooltip("The car's body mesh (a child): it wobbles and squashes on a bounce. Only the look. None: no wobble.")]
+        public readonly VariableHandle<Transform> BodyVisual = (Transform)null;
 
         [SchematicDoc(@"{""name"": ""AlwaysActive"", ""kind"": ""variable"", ""behavior"": ""Arcade Car"", ""type"": ""bool"", ""default"": ""false"", ""description"": ""Drive even with nobody in the driver seat (AI cars, testing). Without Vehicle Seats the car is always active.""}")]
         [Tooltip("Drive even with nobody in the driver seat (AI cars, testing). Without Vehicle Seats the car is always active.")]
@@ -211,6 +216,12 @@ namespace Remedy.Vehicles
         [Parameter("Speed", typeof(float))]
         public readonly SignalHandle<float> OnCrash;
 
+        [SchematicDoc(@"{""name"": ""OnBounce"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""output"", ""params"": [{""name"": ""Strength"", ""type"": ""float""}], ""description"": ""Sent when the car bounces off a wall or another car (Properties' Bounce): the speed it hit at, in m/s (half against another car, which bounces too). For a bonk sound, sparks and camera shake."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock).""}")]
+        [Tooltip("Sent when the car bounces off a wall or another car; the speed it hit at (m/s).")]
+        [OutputSignal, NetworkSync(SignalSender.Anyone)]
+        [Parameter("Strength", typeof(float))]
+        public readonly SignalHandle<float> OnBounce;
+
         #endregion
 
         #region Setup
@@ -242,6 +253,15 @@ namespace Remedy.Vehicles
             var properties = Properties.Value;
             var state = new CarState { Wheels = new WheelState[wheels != null ? wheels.Length : 0] };
             var car = instance.Transform;
+            _cars.RemoveWhere(c => c == null);
+            _cars.Add(instance.GameObject);
+            var bodyVisual = BodyVisual.Value;
+            if (bodyVisual != null && bodyVisual != car)
+            {
+                state.BodyRestRotation = bodyVisual.localRotation;
+                state.BodyRestScale = bodyVisual.localScale;
+                state.HasBodyRest = true;
+            }
             state.LastMovementPosition = car.position;
             state.HasMovementPosition = true;
             for (int i = 0; i < state.Wheels.Length; i++)
@@ -679,6 +699,8 @@ namespace Remedy.Vehicles
             float springDamping = Mathf.Min(Mathf.Max(p.SpringDamping, 2f * Mathf.Sqrt(stiffness) * Mathf.Clamp01(p.MinSpringDampingRatio)),
                 0.9f / dt);
             // After an arcade drift the tyres grip again gradually, so the car slides out of it instead of snapping.
+            // After a bounce the tyres grip again gradually too, so they don't snap the car round as it lands.
+            state.BounceGrip = Mathf.MoveTowards(state.BounceGrip, 1f, p.BounceGripTime > 0f ? dt / p.BounceGripTime : 1f);
             state.DriftGripReturn = arcadeDrift ? 0f
                 : Mathf.MoveTowards(state.DriftGripReturn, 1f, p.DriftExitTime > 0f ? dt / p.DriftExitTime : 1f);
             float contactMaxAngle = p.ContactNormalMaxAngle > 0f ? p.ContactNormalMaxAngle * Mathf.Deg2Rad : Mathf.PI;
@@ -918,7 +940,7 @@ namespace Remedy.Vehicles
                 float grip = w.IsFront ? p.FrontGrip : p.RearGrip;
                 if (drifting && !arcadeDrift)
                     grip *= w.IsFront ? p.DriftFrontGrip : p.DriftRearGrip;
-                grip *= arcadeDrift ? 0f : state.DriftGripReturn;
+                grip *= (arcadeDrift ? 0f : state.DriftGripReturn) * state.BounceGrip;
                 if (wheel.HasHandbrake && handbrake)
                     grip *= p.HandbrakeGrip;
                 float limit = p.MaxTyreAcceleration * load;
@@ -990,6 +1012,7 @@ namespace Remedy.Vehicles
 
             // The "whoah" lean: the turn's sideways pull throws the body outward, on a wobbly spring of its own, and
             // the Roll Save takes it back as it winds up.
+            Vector3 previousVelocity = state.HasLeanVelocity ? state.LeanPreviousVelocity : velocity;
             Vector3 acceleration = state.HasLeanVelocity ? (velocity - state.LeanPreviousVelocity) / dt : Vector3.zero;
             state.LeanPreviousVelocity = velocity;
             state.HasLeanVelocity = true;
@@ -1121,6 +1144,27 @@ namespace Remedy.Vehicles
             if (state.DriftHeadingActive)
                 ApplyArcadeDrift(native, p, state, groundNormal, forward, velocity, angularVelocity,
                     driveAcceleration, brakeDeceleration, topSpeed, mass, dt, ref angular);
+
+            // Bounce: a wall (or another car) hit since last step picks the car up, carries it away and drops it
+            // back, keeping its slide along the wall. Then the nose eases along the wall for a moment.
+            if (state.PendingBounce)
+            {
+                state.PendingBounce = false;
+                ApplyBounce(instance, native, p, state, previousVelocity, velocity, groundNormal, isGrounded,
+                    centerOfMass, forward);
+            }
+            if (state.BounceAlignTime > 0f)
+            {
+                state.BounceAlignTime -= dt;
+                Vector3 nose = Vector3.ProjectOnPlane(forward, groundNormal);
+                Vector3 wanted = Vector3.ProjectOnPlane(state.BounceAlignDirection, groundNormal);
+                if (nose.sqrMagnitude > 0.001f && wanted.sqrMagnitude > 0.001f)
+                {
+                    float error = Vector3.SignedAngle(nose, wanted, groundNormal) * Mathf.Deg2Rad;
+                    float yawRate = Vector3.Dot(angularVelocity, groundNormal);
+                    angular += groundNormal * (error * 20f * p.BounceAlign - yawRate * 4f * p.BounceAlign);
+                }
+            }
 
             // Flipped: report it, and turn back over after a while (or on Unflip).
             UpdateFlipped(instance, p, state, up, worldUp, velocity.magnitude, dt, out bool righting);
@@ -1274,6 +1318,59 @@ namespace Remedy.Vehicles
             pushAlong -= Mathf.Sign(along) * Mathf.Min(Mathf.Abs(slowing), Mathf.Abs(along) / dt);
             push += heading * pushAlong;
             body.ApplyForceToCenter((float3)(push * mass), true);
+        }
+
+        // The bounce: the velocity into the wall goes, the slide along it stays (less a little, more head-on), a push
+        // carries the car away from the wall, and a hard enough hit on the ground hops it so the tyres don't grind
+        // (none in the air). Against another car each bounces half as hard (it gets its own impact).
+        private void ApplyBounce(BehaviorInstance instance, Body body, ArcadeCarProperties p, CarState state,
+            Vector3 before, Vector3 now, Vector3 planeUp, bool grounded, Vector3 centerOfMass, Vector3 forward)
+        {
+            Vector3 away = state.BounceAway;
+            float share = state.BounceOffCar ? 0.5f : 1f;
+            Vector3 planar = Vector3.ProjectOnPlane(before, planeUp);
+            float speed = planar.magnitude;
+            float intoWall = -Vector3.Dot(planar, away);
+            Vector3 along = intoWall > 0f ? planar + away * intoWall : planar;
+            float headOn = speed > 0.1f ? Mathf.Clamp01(intoWall / speed) : 1f;
+            along *= 1f - Mathf.Clamp01(p.BounceSpeedLoss) * headOn;
+            float push = Mathf.Min(state.BounceSpeed * p.BouncePush, p.BounceMaxPush) * share;
+            float rising = Mathf.Max(0f, Vector3.Dot(now, planeUp));
+            Vector3 result = along + away * push + planeUp * rising;
+            if (grounded && p.BounceHop > 0f && state.BounceSpeed >= p.BounceHopSpeed)
+            {
+                float hop = p.BounceHop * Mathf.Lerp(0.5f, 1f,
+                    Mathf.InverseLerp(p.BounceHopSpeed, p.BounceHopSpeed * 3f, state.BounceSpeed));
+                result += planeUp * Mathf.Max(0f, hop - rising);
+            }
+            body.SetLinearVelocity((float3)result);
+
+            // The nose eases along the wall (the way it was already going), so it lands pointing down the road.
+            if (p.BounceAlign > 0f && along.sqrMagnitude > 1f)
+            {
+                state.BounceAlignDirection = Vector3.Dot(along, forward) >= 0f ? along.normalized : -along.normalized;
+                state.BounceAlignTime = p.BounceAlignTime;
+            }
+            // Optional: an off-centre hit swings the tail.
+            if (p.BounceSpinKick > 0f)
+            {
+                float side = Mathf.Sign(Vector3.Dot(Vector3.Cross(state.BouncePoint - centerOfMass, away), planeUp));
+                Vector3 spin = (Vector3)(float3)body.GetAngularVelocity();
+                body.SetAngularVelocity((float3)(spin + planeUp * (side * p.BounceSpinKick * state.BounceSpeed * share)));
+            }
+            state.BounceGrip = 1f - Mathf.Clamp01(p.BounceGripEase);
+            state.HasDriftHeading = false;
+            state.BounceReadyTime = Time.time + Mathf.Max(0f, p.BounceCooldown);
+
+            // The body mesh's wobble: tipped away from the wall, and squashed, on its springs (see OnLateUpdate).
+            float wobble = 2f * Mathf.PI * Mathf.Max(0.1f, p.BodyWobbleFrequency);
+            float tilt = Mathf.Min(state.BounceSpeed * share * p.BodyWobble, p.BodyWobbleMax);
+            Vector3 tiltAxis = Vector3.Cross(planeUp, away);
+            if (tiltAxis.sqrMagnitude > 0.001f)
+                state.WobbleTiltSpeed += Quaternion.Inverse(instance.Transform.rotation) * tiltAxis.normalized * (tilt * wobble);
+            state.WobbleSquashSpeed += Mathf.Min(state.BounceSpeed * share * p.BodySquash, 0.3f) * wobble;
+
+            OnBounce.Invoke(instance, state.BounceSpeed * share);
         }
 
         private void UpdateDrift(BehaviorInstance instance, ArcadeCarProperties p, CarState state, bool active, bool handbrake,
@@ -1745,6 +1842,24 @@ namespace Remedy.Vehicles
             // Whoever simulates the car reports crashes (OnCrash is networked), so proxies don't add their own.
             if (p != null && crashSpeed >= p.MinCrashSpeed && !IsProxy(Self))
                 OnCrash.Invoke(Self, crashSpeed);
+
+            // A wall or another car (not the floor): bounce off it next step (the strongest hit since, once the
+            // cooldown has passed).
+            if (p != null && state != null && !IsProxy(Self) && p.BounceMinSpeed > 0f && Time.time >= state.BounceReadyTime)
+            {
+                Vector3 planeUp = state.HasGroundPlane ? state.GroundPlaneNormal : Self.Transform.up;
+                Vector3 away = Vector3.ProjectOnPlane(impactDirection, planeUp);
+                float flat = away.magnitude;
+                float into = impact.Speed * flat;
+                if (flat > 0.5f && into >= p.BounceMinSpeed && (!state.PendingBounce || into > state.BounceSpeed))
+                {
+                    state.PendingBounce = true;
+                    state.BounceAway = away / flat;
+                    state.BounceSpeed = into;
+                    state.BouncePoint = impact.Point;
+                    state.BounceOffCar = IsCar(impact.Other);
+                }
+            }
         }
 
         private static void ApplyWheelTargetSpeedLoss(ref WheelState wheel, float impactSpeed, float wheelMass,
@@ -1776,6 +1891,7 @@ namespace Remedy.Vehicles
             Quaternion rotation = car.rotation;
             Vector3 up = rotation * Vector3.up;
             float dt = Time.deltaTime;
+            UpdateBodyWobble(car, BodyVisual.Value, Properties.Value, state, dt);
 
             // The tyres where the suspension has them, in the car's Schematic Bounds: its bottom is where they meet
             // the road (a camera checking for ground under the car looks from there).
@@ -1810,6 +1926,62 @@ namespace Remedy.Vehicles
         // come back with their wheels mid-spin).
         private sealed class RestPose { public Quaternion Rotation; }
         private static readonly ConditionalWeakTable<Transform, RestPose> _visualRest = new();
+
+        // Every spawned car, so a bounce knows when it hit another (both bounce, each half as hard).
+        private static readonly HashSet<GameObject> _cars = new();
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetCars() => _cars.Clear();
+
+        private static bool IsCar(GameObject other)
+        {
+            for (var t = other != null ? other.transform : null; t != null; t = t.parent)
+                if (_cars.Contains(t.gameObject))
+                    return true;
+            return false;
+        }
+
+        // The body mesh tips and squashes on two springs after a bounce, then settles back to its rest pose (and
+        // is left alone once settled, so it doesn't fight anything else animating it).
+        private static void UpdateBodyWobble(Transform car, Transform visual, ArcadeCarProperties p, CarState state, float dt)
+        {
+            if (visual == null || p == null || !state.HasBodyRest || dt <= 0f)
+                return;
+            bool moving = state.WobbleTilt.sqrMagnitude > 1e-4f || state.WobbleTiltSpeed.sqrMagnitude > 1e-4f
+                || Mathf.Abs(state.WobbleSquash) > 1e-4f || Mathf.Abs(state.WobbleSquashSpeed) > 1e-4f;
+            if (!moving)
+            {
+                if (state.WobbleShown)
+                {
+                    visual.localRotation = state.BodyRestRotation;
+                    visual.localScale = state.BodyRestScale;
+                    state.WobbleShown = false;
+                }
+                return;
+            }
+            float w = 2f * Mathf.PI * Mathf.Max(0.1f, p.BodyWobbleFrequency);
+            float c = 2f * Mathf.Clamp01(p.BodyWobbleDamping) * w;
+            state.WobbleTiltSpeed += (-state.WobbleTilt * (w * w) - state.WobbleTiltSpeed * c) * dt;
+            state.WobbleTilt += state.WobbleTiltSpeed * dt;
+            state.WobbleSquashSpeed += (-state.WobbleSquash * (w * w) - state.WobbleSquashSpeed * c) * dt;
+            state.WobbleSquash += state.WobbleSquashSpeed * dt;
+
+            // The tilt is kept in the car's space; turned into the mesh's parent's space here.
+            float degrees = state.WobbleTilt.magnitude;
+            Quaternion tip = Quaternion.identity;
+            if (degrees > 1e-4f)
+            {
+                Vector3 axis = car.rotation * (state.WobbleTilt / degrees);
+                if (visual.parent != null)
+                    axis = visual.parent.InverseTransformDirection(axis);
+                tip = Quaternion.AngleAxis(degrees, axis);
+            }
+            visual.localRotation = tip * state.BodyRestRotation;
+            float squash = Mathf.Clamp(state.WobbleSquash, -0.5f, 0.5f);
+            Vector3 rest = state.BodyRestScale;
+            visual.localScale = new Vector3(rest.x * (1f + squash * 0.5f), rest.y * (1f - squash), rest.z * (1f + squash * 0.5f));
+            state.WobbleShown = true;
+        }
 
         private static Quaternion VisualRestRotation(Transform car, Transform visual)
         {
@@ -2006,6 +2178,15 @@ namespace Remedy.Vehicles
         public Vector3 TorqueGuardAcceleration;
         public float RollSave = -1f;
         public float LoadTransfer;
+        public bool PendingBounce, BounceOffCar;
+        public Vector3 BounceAway, BouncePoint, BounceAlignDirection;
+        public float BounceSpeed, BounceReadyTime, BounceAlignTime;
+        public float BounceGrip = 1f;
+        public Quaternion BodyRestRotation;
+        public Vector3 BodyRestScale = Vector3.one;
+        public bool HasBodyRest, WobbleShown;
+        public Vector3 WobbleTilt, WobbleTiltSpeed;
+        public float WobbleSquash, WobbleSquashSpeed;
         public Vector3 DriftHeading;
         public bool HasDriftHeading, DriftHeadingActive;
         public float DriftGripReturn = 1f;

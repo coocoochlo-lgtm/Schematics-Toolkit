@@ -381,6 +381,56 @@ namespace Remedy.Vehicles
         [Tooltip("Damps the roll while saving, so it lands on its wheels instead of bouncing over the other way. Lower = bouncier.")]
         public float RollSaveDamping = 3f;
 
+        [Header("Bounce")]
+        [Min(0f)]
+        [Tooltip("Hitting a wall or another car at least this fast (m/s, into it) bounces the car off: it keeps its slide along the wall instead of grinding. 0 = off.")]
+        public float BounceMinSpeed = 2f;
+        [Min(0f)]
+        [Tooltip("Push away from what was hit, per m/s it was hit at (m/s). Half each against another car (it bounces too).")]
+        public float BouncePush = 0.35f;
+        [Min(0f)]
+        [Tooltip("The most push (m/s), so a huge hit doesn't fire the car across the map.")]
+        public float BounceMaxPush = 8f;
+        [Range(0f, 1f)]
+        [Tooltip("Speed lost along the wall on a head-on hit (a fraction; glancing hits lose less). 0 = keeps every bit.")]
+        public float BounceSpeedLoss = 0.3f;
+        [Min(0f)]
+        [Tooltip("Hits at least this hard (m/s) on the ground also hop the car, so the tyres leave the ground and nothing grinds: picked up, moved over, plopped down.")]
+        public float BounceHopSpeed = 6f;
+        [Min(0f)]
+        [Tooltip("The hop (m/s upward; half at Bounce Hop Speed, all of it at three times that). 0 = no hop.")]
+        public float BounceHop = 2.5f;
+        [Range(0f, 2f)]
+        [Tooltip("How firmly the nose turns along the wall after a bounce, so it lands pointing down the road. 0 = off.")]
+        public float BounceAlign = 1f;
+        [Min(0f)]
+        [Tooltip("How long it turns the nose (seconds).")]
+        public float BounceAlignTime = 0.35f;
+        [Range(0f, 1f)]
+        [Tooltip("How much grip the tyres lose right after a bounce (returning over Bounce Grip Time), so they don't snap the car round as it lands.")]
+        public float BounceGripEase = 0.6f;
+        [Min(0f)]
+        [Tooltip("How long the grip takes to come back (seconds).")]
+        public float BounceGripTime = 0.3f;
+        [Min(0f)]
+        [Tooltip("Optional: an off-centre hit swings the tail (rad/s per m/s hit at). 0 = off: forgiving.")]
+        public float BounceSpinKick = 0f;
+        [Min(0f)]
+        [Tooltip("The least time between bounces (seconds), so one hit doesn't bounce twice.")]
+        public float BounceCooldown = 0.25f;
+        [Tooltip("Body Visual's wobble on a bounce: degrees of tip per m/s hit at.")]
+        public float BodyWobble = 0.8f;
+        [Tooltip("The most it tips (degrees).")]
+        public float BodyWobbleMax = 12f;
+        [Tooltip("Squash per m/s hit at (a fraction of its height).")]
+        public float BodySquash = 0.012f;
+        [Min(0.1f)]
+        [Tooltip("How fast the body wobbles (per second).")]
+        public float BodyWobbleFrequency = 3f;
+        [Range(0f, 1f)]
+        [Tooltip("How quickly the wobble settles (1 = no wobble, low = jiggles on).")]
+        public float BodyWobbleDamping = 0.3f;
+
         [Header("Feedback")]
         [Tooltip("Direction-adjusted impacts slower than this (m/s) don't send On Crash. Impacts aligned with the nearest tire's ground normal count less than side-on impacts.")]
         public float MinCrashSpeed = 4f;
