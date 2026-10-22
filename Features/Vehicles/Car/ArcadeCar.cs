@@ -2005,6 +2005,7 @@ namespace Remedy.Vehicles
         public Vector3 UprightNormal;
         public Vector3 TorqueGuardAcceleration;
         public float RollSave = -1f;
+        public float LoadTransfer;
         public Vector3 DriftHeading;
         public bool HasDriftHeading, DriftHeadingActive;
         public float DriftGripReturn = 1f;
