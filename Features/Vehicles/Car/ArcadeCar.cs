@@ -701,7 +701,7 @@ namespace Remedy.Vehicles
             //
             // READ THIS BEFORE CHANGING ANYTHING ABOUT THE GROUND CASTS OR THE SUSPENSION:
             // The ground casts are DETECTION, not suspension. Each is bent: straight down the car's own up from the
-            // top of the body to the tyre, then on toward the ground the tyres stood on (the support plane), and it
+            // top of the body to the top of the tyre, then on toward the ground the tyres stood on (the support plane), and it
             // deliberately shoots far past the tyre, through where the ground will be (Ground Check Distance), so
             // ground is seen early and contact doesn't flicker: a longer cast makes the car stick better, and that
             // is on purpose.
@@ -762,10 +762,11 @@ namespace Remedy.Vehicles
                 float tireRadius = Mathf.Max(0.05f, wheel.Radius);
                 w.SuspensionUpLocal = Quaternion.Inverse(rotation) * suspensionUp;
                 // The bent cast (see "READ THIS" above): straight down the car's own up from the top of the body to
-                // the tyre, then on toward the ground the tyres stood on.
+                // the top of the tyre, then on toward the ground the tyres stood on (as far as before: its end is
+                // where it was when it bent at the tyre's centre).
                 float bodyTopOffset = BodyTopOffsetAlong(native, origin, up);
-                float tyreDrop = Mathf.Max(0f, w.Extension);
-                float beyond = Mathf.Max(0f, groundCheckDistanceForWheels - tireRadius);
+                float tyreDrop = w.Extension - tireRadius;
+                float beyond = Mathf.Max(0f, groundCheckDistanceForWheels);
                 w.Grounded = CastWheel(origin, bodyTopOffset, up, suspensionUp, tireRadius, tyreDrop, beyond,
                     p.GroundLayers, body, out w.GroundHit, out bool ceiling);
                 // A ceiling isn't ground: on its back the car's roof lies in the floor, so the cast (from the top of
@@ -2023,10 +2024,10 @@ namespace Remedy.Vehicles
             return fronts > 0 && rears > 0 ? Mathf.Max(0.5f, Mathf.Abs(front / fronts - rear / rears)) : 2.5f;
         }
 
-        // The bent ground cast: from `startAbove` over the anchor straight down the car's `up` to the tyre's centre
-        // (`tyreDrop` under the anchor), then `beyond` further along -`toward` (the ground the tyres stood on).
-        // The hit's distance comes back as the distance down the suspension from the anchor to the ground (to the
-        // centre at the bend, then along `toward`, plus the tyre's radius). `ceiling`: the first hit was a ceiling
+        // The bent ground cast: from `startAbove` over the anchor straight down the car's `up` to the top of the tyre
+        // (`tyreDrop` under the anchor; negative if it's above it), then `beyond` further along -`toward` (the ground
+        // the tyres stood on). The hit's distance comes back as the distance down the suspension from the anchor to
+        // the ground (to the bend, then along `toward`, plus the tyre's radius). `ceiling`: the first hit was a ceiling
         // (touching where the cast starts, or facing away from the car), and nothing came back.
         private static bool CastWheel(Vector3 anchor, float startAbove, Vector3 up, Vector3 toward, float radius,
             float tyreDrop, float beyond, LayerMask mask, Box3DBody body, out RaycastHit hit, out bool ceiling)
@@ -2447,9 +2448,9 @@ namespace Remedy.Vehicles
                     Gizmos.color = !live ? Color.cyan : w.Grounded ? Color.green : Color.red;
                     float checkDistance = Mathf.Max(0f, p != null ? p.GroundCheckDistance : 1.6f);
                     // Bent: down the car's up to the tyre, then toward the ground the tyres stood on.
-                    Vector3 bend = origin - up * (live ? w.Extension : rest);
+                    Vector3 bend = origin - up * ((live ? w.Extension : rest) - radius);
                     Vector3 toward = live && w.SuspensionUpLocal.sqrMagnitude > 0.5f ? car.rotation * w.SuspensionUpLocal : up;
-                    Vector3 castEnd = bend - toward * Mathf.Max(0f, checkDistance - radius);
+                    Vector3 castEnd = bend - toward * Mathf.Max(0f, checkDistance);
                     Gizmos.DrawLine(probeOrigin, bend);
                     Gizmos.DrawLine(bend, castEnd);
                     Gizmos.DrawWireSphere(castEnd, radius);
