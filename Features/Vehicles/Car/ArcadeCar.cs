@@ -34,7 +34,7 @@ namespace Remedy.Vehicles
     /// player (proxies
     /// also update Is Drifting, Drift Level, Is Boosting and Is Flipped from them).
     /// </remarks>
-    [SchematicDoc(@"{""name"": ""Arcade Car"", ""kind"": ""behavior"", ""menu"": ""Vehicles/Arcade Car"", ""description"": ""An arcade car on a real Box3D body: NFS Underground / Mario Kart handling (drifts, mini-turbos, a car that wants to stay on its wheels) while crashes and rollovers are still physics. Tire-sized sphere probes; everything tunable in its Properties asset."", ""variables"": [""Properties"", ""Wheels"", ""AlwaysActive"", ""ParkWhenEmpty"", ""DriverInputs"", ""PlayerDriverOnly"", ""Speed"", ""ForwardSpeed"", ""IsGrounded"", ""GroundedWheels"", ""IsDrifting"", ""DriftAngle"", ""DriftCharge"", ""DriftLevel"", ""IsBoosting"", ""IsFlipped"", ""AirTime"", ""RollSave"", ""LoadTransfer"", ""BodyVisual"", ""IsJumping""], ""signals"": [""Target Speed"", ""Brake"", ""Steer"", ""Drive"", ""Handbrake"", ""Boost"", ""Unflip"", ""OnDriftStarted"", ""OnDriftEnded"", ""OnDriftLevel"", ""OnBoost"", ""OnLanded"", ""OnFlipped"", ""OnRighted"", ""OnCrash"", ""OnCollision"", ""OnBounce"", ""OnJump""], ""use_for"": [""drivable cars and karts"", ""racing games"", ""AI traffic""], ""notes"": ""Needs a Box3D Body and a shape (added for you). Add Vehicle Seats so it only drives with a driver. Multiplayer: the driver owns and simulates the car; its input Signals are networked from the owner, and drift/boost/flip/crash Signals reach every player for effects.""}")]
+    [SchematicDoc(@"{""name"": ""Arcade Car"", ""kind"": ""behavior"", ""menu"": ""Vehicles/Arcade Car"", ""description"": ""An arcade car on a real Box3D body: NFS Underground / Mario Kart handling (drifts, mini-turbos, a car that wants to stay on its wheels) while crashes and rollovers are still physics. Tire-sized sphere probes; everything tunable in its Properties asset."", ""variables"": [""Properties"", ""Wheels"", ""AlwaysActive"", ""ParkWhenEmpty"", ""DriverInputs"", ""PlayerDriverOnly"", ""Speed"", ""ForwardSpeed"", ""IsGrounded"", ""GroundedWheels"", ""IsDrifting"", ""DriftAngle"", ""DriftCharge"", ""DriftLevel"", ""IsBoosting"", ""IsFlipped"", ""AirTime"", ""RollSave"", ""LoadTransfer"", ""BodyVisual"", ""IsJumping"", ""Gear"", ""RPM""], ""signals"": [""Target Speed"", ""Brake"", ""Steer"", ""Drive"", ""Handbrake"", ""Boost"", ""Unflip"", ""ShiftUp"", ""ShiftDown"", ""OnGearChanged"", ""OnDriftStarted"", ""OnDriftEnded"", ""OnDriftLevel"", ""OnBoost"", ""OnLanded"", ""OnFlipped"", ""OnRighted"", ""OnCrash"", ""OnCollision"", ""OnBounce"", ""OnJump""], ""use_for"": [""drivable cars and karts"", ""racing games"", ""AI traffic""], ""notes"": ""Needs a Box3D Body and a shape (added for you). Add Vehicle Seats so it only drives with a driver. Multiplayer: the driver owns and simulates the car; its input Signals are networked from the owner, and drift/boost/flip/crash Signals reach every player for effects.""}")]
     [SchematicBehaviorPath("Vehicles/Arcade Car")]
     [NetworkOwnerSimulated]
     [RequireComponent(typeof(Box3DBody), typeof(Box3DBoxShape), typeof(SchematicImpactRelay))]
@@ -102,6 +102,14 @@ namespace Remedy.Vehicles
         [SchematicDoc(@"{""name"": ""DriftLevel"", ""kind"": ""variable"", ""behavior"": ""Arcade Car"", ""type"": ""int"", ""default"": ""0"", ""description"": ""The mini-turbo level the current drift has reached (0 = none yet). Its colour is in the Properties' Turbo Levels. Read-only.""}")]
         [Tooltip("The mini-turbo level the current drift has reached (0 = none yet). Read-only.")]
         public readonly VariableHandle<int> DriftLevel = 0;
+
+        [SchematicDoc(@"{""name"": ""Gear"", ""kind"": ""variable"", ""behavior"": ""Arcade Car"", ""type"": ""int"", ""default"": ""1"", ""description"": ""The gear it's in: 1 and up forward, -1 reverse. For a gear readout. Read-only.""}")]
+        [Tooltip("The gear it's in: 1 and up forward, -1 reverse. Read-only.")]
+        public readonly VariableHandle<int> Gear = 1;
+
+        [SchematicDoc(@"{""name"": ""RPM"", ""kind"": ""variable"", ""behavior"": ""Arcade Car"", ""type"": ""float"", ""default"": ""0"", ""description"": ""Engine revs, between the Properties' Idle RPM and Redline RPM, climbing through each gear and dropping on a shift. For a rev counter, or an engine Sound Cue's RPM Parameter. Read-only.""}")]
+        [Tooltip("Engine revs, Idle RPM to Redline RPM. For a rev counter or an engine Sound Cue. Read-only.")]
+        public readonly VariableHandle<float> RPM = 0f;
 
         [SchematicDoc(@"{""name"": ""IsBoosting"", ""kind"": ""variable"", ""behavior"": ""Arcade Car"", ""type"": ""bool"", ""default"": ""false"", ""description"": ""True while a Boost or mini-turbo pushes the car. Read-only.""}")]
         [Tooltip("True while a Boost or mini-turbo pushes the car. Read-only.")]
@@ -176,6 +184,22 @@ namespace Remedy.Vehicles
         [Tooltip("Turns a flipped car back onto its wheels now, even if self-righting is off.")]
         [InputSignal, NetworkSync(SignalSender.OwnerToAuthority)]
         public readonly SignalHandle Unflip;
+
+        [SchematicDoc(@"{""name"": ""ShiftUp"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""input"", ""description"": ""Shifts up a gear (with Automatic Gearbox off in the Properties)."", ""how"": ""Send it with a Send a Signal node, or bind it in Driver Inputs.""}")]
+        [Tooltip("Shifts up a gear (manual gearbox).")]
+        [InputSignal, NetworkSync(SignalSender.OwnerToAuthority)]
+        public readonly SignalHandle ShiftUp;
+
+        [SchematicDoc(@"{""name"": ""ShiftDown"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""input"", ""description"": ""Shifts down a gear (with Automatic Gearbox off in the Properties)."", ""how"": ""Send it with a Send a Signal node, or bind it in Driver Inputs.""}")]
+        [Tooltip("Shifts down a gear (manual gearbox).")]
+        [InputSignal, NetworkSync(SignalSender.OwnerToAuthority)]
+        public readonly SignalHandle ShiftDown;
+
+        [SchematicDoc(@"{""name"": ""OnGearChanged"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""output"", ""params"": [{""name"": ""Gear"", ""type"": ""int""}], ""description"": ""Sent when the car changes gear (1 and up forward, -1 reverse). For a shift sound or a backfire."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock).""}")]
+        [Tooltip("Sent when the car changes gear.")]
+        [OutputSignal, NetworkSync(SignalSender.Anyone)]
+        [Parameter("Gear", typeof(int))]
+        public readonly SignalHandle<int> OnGearChanged;
 
         [SchematicDoc(@"{""name"": ""OnDriftStarted"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""output"", ""description"": ""Sent when a drift starts: tyre smoke, sparks, a screech."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock).""}")]
         [Tooltip("Sent when a drift starts.")]
@@ -308,6 +332,8 @@ namespace Remedy.Vehicles
             Handbrake.Subscribe(value => state.Handbrake = value);
             Boost.Subscribe(() => state.BoostQueued = true);
             Unflip.Subscribe(() => state.UnflipQueued = true);
+            ShiftUp.Subscribe(() => state.ShiftUpQueued = true);
+            ShiftDown.Subscribe(() => state.ShiftDownQueued = true);
 
             // Input Signals the car hears itself, only while the player drives it.
             var bindings = DriverInputs.Value;
@@ -384,6 +410,8 @@ namespace Remedy.Vehicles
             {
                 if (state.BoostQueued) { Boost.Invoke(instance); state.BoostQueued = false; }
                 if (state.UnflipQueued) { Unflip.Invoke(instance); state.UnflipQueued = false; }
+                if (state.ShiftUpQueued) { ShiftUp.Invoke(instance); state.ShiftUpQueued = false; }
+                if (state.ShiftDownQueued) { ShiftDown.Invoke(instance); state.ShiftDownQueued = false; }
             }
 
             float now = Time.unscaledTime;
@@ -729,6 +757,7 @@ namespace Remedy.Vehicles
 
             UpdateDrift(instance, p, state, active, handbrake, steerInput, driftThrottle, planarSpeed, forwardSpeed, driftAngle, mass, dt, up);
             bool drifting = IsDrifting.Value;
+            driveAcceleration = UpdateGearbox(instance, p, state, forwardSpeed, throttle, driveAcceleration, dt);
             // Cornering eats into the throttle: the engine doesn't just refill what a hard turn costs.
             if (!drifting && driveAcceleration > 0f && p.CorneringLimit > 0f && p.CorneringThrottleCut > 0f)
                 driveAcceleration *= 1f - Mathf.Clamp01(Mathf.Abs(state.LateralAcceleration) / p.CorneringLimit)
@@ -2019,6 +2048,88 @@ namespace Remedy.Vehicles
                 state.HasGuardPosition = false;
         }
 
+        // The gearbox: Gear Top Speeds split Max Speed into gears; in each, the revs climb from Idle RPM to Redline
+        // RPM as the car reaches that gear's top speed. Automatic: up at Shift Up RPM, down at Shift Down RPM;
+        // manual: Shift Up / Shift Down, and the engine stops pushing at the redline (the limiter). A shift cuts the
+        // drive for Shift Time, and the engine's push follows Torque By RPM. Reversing is gear -1. With no gears
+        // set it leaves the engine as it was. Returns the engine's push this step.
+        private float UpdateGearbox(BehaviorInstance instance, ArcadeCarProperties p, CarState state, float forwardSpeed,
+            float throttle, float driveAcceleration, float dt)
+        {
+            var tops = p.GearTopSpeeds;
+            int gears = tops != null ? tops.Length : 0;
+            float idle = Mathf.Max(0f, p.IdleRPM), redline = Mathf.Max(idle + 1f, p.RedlineRPM);
+            bool upQueued = state.ShiftUpQueued, downQueued = state.ShiftDownQueued;
+            state.ShiftUpQueued = state.ShiftDownQueued = false;
+            if (gears == 0)
+            {
+                state.EngineRPM = Mathf.Lerp(idle, redline, Mathf.Clamp01(Mathf.Abs(forwardSpeed) / Mathf.Max(0.1f, p.MaxSpeed)));
+                RPM.Value = state.EngineRPM;
+                return driveAcceleration;
+            }
+
+            int gear = state.CurrentGear;
+            bool reversing = forwardSpeed < -0.5f || (driveAcceleration < 0f && forwardSpeed < 0.5f);
+            if (reversing)
+                gear = -1;
+            else if (gear < 1)
+                gear = 1;
+            gear = Mathf.Min(gear, gears);
+
+            float GearTop(int g) => Mathf.Max(0.1f, (g < 1 ? p.MaxReverseSpeed : tops[g - 1] * p.MaxSpeed));
+            float RevsIn(int g) => Mathf.Max(idle, redline * Mathf.Abs(forwardSpeed) / GearTop(g));
+
+            if (!reversing)
+            {
+                float revs = RevsIn(gear);
+                if (p.AutomaticGearbox)
+                {
+                    if (revs >= p.ShiftUpRPM && gear < gears)
+                        gear++;
+                    else if (gear > 1 && revs <= p.ShiftDownRPM && RevsIn(gear - 1) < p.ShiftUpRPM)
+                        gear--;
+                }
+                else
+                {
+                    if (upQueued && gear < gears)
+                        gear++;
+                    else if (downQueued && gear > 1 && RevsIn(gear - 1) < redline)
+                        gear--;
+                }
+            }
+            if (gear != state.CurrentGear)
+            {
+                state.CurrentGear = gear;
+                state.ShiftTimer = Mathf.Max(0f, p.ShiftTime);
+                Gear.Value = gear;
+                OnGearChanged.Invoke(instance, gear);
+            }
+
+            // The revs: from the wheels in gear; free-revving with the throttle when the tyres aren't holding the car
+            // back (in the air, spinning up from a stop).
+            float wheelRevs = RevsIn(gear);
+            float freeRevs = Mathf.Lerp(idle, redline * 0.8f, Mathf.Clamp01(throttle));
+            float wanted = state.WasGrounded ? Mathf.Max(wheelRevs, Mathf.Abs(forwardSpeed) < 2f ? freeRevs : idle) : freeRevs;
+            state.EngineRPM = Mathf.MoveTowards(state.EngineRPM <= 0f ? idle : state.EngineRPM, Mathf.Min(wanted, redline),
+                redline * 4f * dt);
+            RPM.Value = state.EngineRPM;
+
+            if (state.ShiftTimer > 0f)
+            {
+                state.ShiftTimer -= dt;
+                return driveAcceleration > 0f ? 0f : driveAcceleration;
+            }
+            if (driveAcceleration > 0f)
+            {
+                float revFraction = Mathf.InverseLerp(idle, redline, wheelRevs);
+                driveAcceleration *= Mathf.Max(0f, p.TorqueByRPM.Evaluate(revFraction));
+                // Manual: the limiter at the redline.
+                if (!p.AutomaticGearbox && wheelRevs >= redline)
+                    driveAcceleration = 0f;
+            }
+            return driveAcceleration;
+        }
+
         private void UpdateDrift(BehaviorInstance instance, ArcadeCarProperties p, CarState state, bool active, bool handbrake,
             float steerInput, float throttle, float planarSpeed, float forwardSpeed, float driftAngle, float mass, float dt, Vector3 up)
         {
@@ -2950,7 +3061,9 @@ namespace Remedy.Vehicles
         public float Brake, SteerInput, Steer, TargetSpeed, SentTargetSpeed;
         public bool UseTargetSpeed, SentTargetSpeedEnabled, ForcedDriftActive;
         public Vector3 ForcedDriftHeading;
-        public bool Handbrake, BoostQueued, UnflipQueued;
+        public bool Handbrake, BoostQueued, UnflipQueued, ShiftUpQueued, ShiftDownQueued;
+        public int CurrentGear = 1;
+        public float EngineRPM, ShiftTimer;
         public bool WasActive;
 
         public float DriftDirection, DriftTime;
@@ -3075,6 +3188,8 @@ namespace Remedy.Vehicles
                 // Buttons: a parameterless Signal arrives with no value, which counts as a press.
                 case VehicleInputAction.Boost: if (value == null || VehicleInput.ToBool(value)) BoostQueued = true; break;
                 case VehicleInputAction.Unflip: if (value == null || VehicleInput.ToBool(value)) UnflipQueued = true; break;
+                case VehicleInputAction.ShiftUp: if (value == null || VehicleInput.ToBool(value)) ShiftUpQueued = true; break;
+                case VehicleInputAction.ShiftDown: if (value == null || VehicleInput.ToBool(value)) ShiftDownQueued = true; break;
             }
         }
     }

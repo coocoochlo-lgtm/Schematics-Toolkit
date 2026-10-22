@@ -146,6 +146,29 @@ namespace Remedy.Vehicles
         [Tooltip("How strongly normalized impact kinetic energy reduces the struck wheel's target speed (0..1).")]
         public float ImpactTargetSpeedLoss = 0.5f;
 
+        [Header("Gearbox")]
+        [Tooltip("Each forward gear's top speed, as a fraction of Max Speed, lowest gear first (the last should be 1). Empty = no gearbox (the engine pulls as before, and RPM just follows speed).")]
+        public float[] GearTopSpeeds = { 0.18f, 0.34f, 0.5f, 0.66f, 0.83f, 1f };
+        [Tooltip("On: shifts by itself at Shift Up / Shift Down RPM. Off: manual, with the Shift Up and Shift Down Signals (or Driver Inputs); the engine stops pushing at the redline.")]
+        public bool AutomaticGearbox = true;
+        [Min(0f)]
+        [Tooltip("Engine revs at rest.")]
+        public float IdleRPM = 900f;
+        [Min(1f)]
+        [Tooltip("The most the engine revs (a gear's top speed).")]
+        public float RedlineRPM = 7000f;
+        [Min(0f)]
+        [Tooltip("Automatic: shifts up at these revs.")]
+        public float ShiftUpRPM = 6500f;
+        [Min(0f)]
+        [Tooltip("Automatic: shifts down at these revs.")]
+        public float ShiftDownRPM = 3200f;
+        [Min(0f)]
+        [Tooltip("The engine's push is cut for this long on each shift (seconds).")]
+        public float ShiftTime = 0.15f;
+        [Tooltip("The engine's push by revs: x = Idle (0) to Redline (1) RPM, y = a multiplier. Weak low down, strong in the middle, tailing off at the top gives the shift-up feel.")]
+        public AnimationCurve TorqueByRPM = new AnimationCurve(new Keyframe(0f, 0.75f), new Keyframe(0.55f, 1.05f), new Keyframe(1f, 0.85f));
+
         [Header("Steering")]
         [Tooltip("Front wheel angle at full lock, in degrees.")]
         public float MaxSteerAngle = 32f;

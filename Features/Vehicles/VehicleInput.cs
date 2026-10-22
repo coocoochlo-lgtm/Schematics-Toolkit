@@ -24,6 +24,10 @@ namespace Remedy.Vehicles
         Boost,
         /// <summary>Turn a flipped vehicle back over (pressed).</summary>
         Unflip,
+        /// <summary>Shift up a gear (pressed; with a manual gearbox).</summary>
+        ShiftUp,
+        /// <summary>Shift down a gear (pressed; with a manual gearbox).</summary>
+        ShiftDown,
     }
 
     /// <summary>
