@@ -305,8 +305,12 @@ namespace Remedy.Vehicles
         [Tooltip("Air control: how fast Target Speed pitches the car (degrees per second at full input; forward tips the nose down).")]
         public float AirPitchRate = 60f;
         [Min(0f)]
-        [Tooltip("How quickly the car's spin follows what the air control asks for (per second).")]
-        public float AirControlResponse = 6f;
+        [Tooltip("Roll (steering, around the car's length): how strongly the car's spin follows what the air control asks for (per second). ~2 feels natural; higher is snappier.")]
+        public float AirRollResponse = 2f;
+        [Min(0f)]
+        [FormerlySerializedAs("AirControlResponse")]
+        [Tooltip("Pitch (Target Speed, around the car's width): how strongly the car's spin follows what the air control asks for (per second). ~2 feels natural; higher is snappier.")]
+        public float AirPitchResponse = 2f;
         [Min(0.01f)]
         [Tooltip("Spatial gate: air control opens as the ground gets further than the tyres can reach, fully this far beyond (metres), per tyre, averaged.")]
         public float AirGateDistance = 1f;

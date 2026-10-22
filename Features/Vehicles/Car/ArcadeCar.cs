@@ -1190,18 +1190,18 @@ namespace Remedy.Vehicles
             // and it's handed back to the leveling. A rate, so it turns as long as asked and stops when not.
             if (airControl && airInput > 0f && !state.SelfRighting && !state.AutoRolling)
             {
-                // The rate asked for is the input through the gates; the car is driven toward it at full response
-                // on each axis that has input (the gates aren't applied twice).
-                float response = Mathf.Max(0f, p.AirControlResponse);
+                // The rate asked for is the input through the gates; the car is driven toward it at that axis's own
+                // response on each axis that has input (the gates aren't applied twice). Steering left rolls it left;
+                // Target Speed forward tips the nose down.
                 if (Mathf.Abs(rollStick) > 0.05f)
                 {
-                    float wantedRoll = -rollStick * airGate * p.AirRollRate * Mathf.Deg2Rad;
-                    angular += forward * ((wantedRoll - Vector3.Dot(angularVelocity, forward)) * response);
+                    float wantedRoll = rollStick * airGate * p.AirRollRate * Mathf.Deg2Rad;
+                    angular += forward * ((wantedRoll - Vector3.Dot(angularVelocity, forward)) * Mathf.Max(0f, p.AirRollResponse));
                 }
                 if (Mathf.Abs(pitchStick) > 0.05f)
                 {
-                    float wantedPitch = pitchStick * airGate * p.AirPitchRate * Mathf.Deg2Rad;
-                    angular += right * ((wantedPitch - Vector3.Dot(angularVelocity, right)) * response);
+                    float wantedPitch = -pitchStick * airGate * p.AirPitchRate * Mathf.Deg2Rad;
+                    angular += right * ((wantedPitch - Vector3.Dot(angularVelocity, right)) * Mathf.Max(0f, p.AirPitchResponse));
                 }
             }
 
