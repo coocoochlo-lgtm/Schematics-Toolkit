@@ -17,6 +17,15 @@ namespace Remedy.Vehicles
         Off,
     }
 
+    /// <summary>How a drift handles once it's started.</summary>
+    public enum DriftHandling
+    {
+        /// <summary>The drift keeps its own heading, steered like a racing line; all the push goes along it and the nose is held at a big slide angle on top (Ridge Racer, Mario Kart).</summary>
+        Arcade,
+        /// <summary>The tyres just grip less and the slide is physics, helped along by the drift assists.</summary>
+        Physics,
+    }
+
     /// <summary>One mini-turbo stage: charge a drift past it, and letting go of the drift gives this boost.</summary>
     [Serializable]
     public class MiniTurboLevel
@@ -68,6 +77,9 @@ namespace Remedy.Vehicles
         public float SpringDamping = 7f;
         [Tooltip("The most a single spring can push (m/s²), a bump stop for big landings so the car doesn't get launched.")]
         public float MaxSuspensionAcceleration = 60f;
+        [Range(0f, 1f)]
+        [Tooltip("The least damping the springs get, as a fraction of what stops a bounce dead (from Spring Stiffness). Stops stiff springs bouncing the wheels off the road in turns. 0 = only Spring Damping.")]
+        public float MinSpringDampingRatio = 0.35f;
 
         [Header("Engine")]
         [Tooltip("Top speed under its own power, in m/s (×3.6 for km/h: 45 m/s ≈ 160 km/h).")]
@@ -113,8 +125,17 @@ namespace Remedy.Vehicles
         [Tooltip("Tyres grip more on the side the car leans onto (weight transfer). Off: every tyre grips the same.")]
         public bool GripScalesWithLoad = true;
         [Range(0f, 1f)]
-        [Tooltip("Where the tyres push the car: 0 = at the road (realistic: hard cornering leans the car and can roll it over), 1 = at the centre of mass height (cornering never rolls it). The main 'flips vs stays planted' dial; 0.5-0.7 feels arcade but still flips on kerbs and crashes.")]
+        [Tooltip("How much of that weight transfer reaches the grip (0 = none, 1 = all of it). All of it piles grip onto the outside tyres in a hard turn, which trips the car over.")]
+        public float LoadGripAmount = 0.5f;
+        [Range(0f, 1f)]
+        [Tooltip("Where the engine and brakes push the car: 0 = at the road (realistic: the nose dips braking and lifts accelerating), 1 = at the centre of mass height (no dive or squat).")]
         public float TyreForceHeight = 0.6f;
+        [Range(0f, 1f)]
+        [Tooltip("Where the sideways grip pushes the car: 0 = at the road (realistic: hard cornering rolls it over), 1 = at the centre of mass height (cornering never rolls it). The main 'flips vs stays planted' dial; the Whoah Lean gives the cartoon lean instead.")]
+        public float SideForceHeight = 0.9f;
+        [Range(0f, 90f)]
+        [Tooltip("The steepest a tyre's ground can be from the car's own up (degrees). A tyre touching a kerb or wall with its side reports it nearly sideways, and grip from it launches the car. 0 = no limit.")]
+        public float ContactNormalMaxAngle = 50f;
 
         [Header("Handbrake")]
         [Tooltip("Grip of the handbrake wheels while it's pulled (a multiplier: 0.3 = 30% grip). Low = easy flicks into a slide.")]
@@ -125,6 +146,8 @@ namespace Remedy.Vehicles
         [Header("Drift")]
         [Tooltip("How a drift starts.")]
         public DriftEntryMode DriftEntry = DriftEntryMode.HandbrakeOrSharpSteer;
+        [Tooltip("Arcade: the drift has its own heading, steered like a racing line, and the nose hangs out at a big angle (exaggerated, easy). Physics: the tyres grip less and it's a real slide (the Physics-style settings below).")]
+        public DriftHandling DriftStyle = DriftHandling.Arcade;
         [Tooltip("Slowest speed (m/s) a drift can start at; it ends below half of this.")]
         public float DriftMinSpeed = 12f;
         [Range(0f, 1f)]
@@ -134,27 +157,50 @@ namespace Remedy.Vehicles
         public bool HoldButtonToDrift = false;
         [Tooltip("A little hop (m/s upward) when a drift starts, like a kart. 0 for none.")]
         public float DriftHop = 0f;
-        [Tooltip("Rear grip while drifting (a multiplier). Lower = wider, longer slides.")]
+        [Tooltip("Physics style: Rear grip while drifting (a multiplier). Lower = wider, longer slides.")]
         public float DriftRearGrip = 0.35f;
-        [Tooltip("Front grip while drifting (a multiplier). Keep it near 1 so the front still steers the slide.")]
+        [Tooltip("Physics style: Front grip while drifting (a multiplier). Keep it near 1 so the front still steers the slide.")]
         public float DriftFrontGrip = 0.9f;
-        [Tooltip("How strongly the steering swings the car's tail while drifting (yaw, rad/s² at full lock). The 'I can steer my drift' feel.")]
+        [Tooltip("Physics style: How strongly the steering swings the car's tail while drifting (yaw, rad/s² at full lock). The 'I can steer my drift' feel.")]
         public float DriftSteerAssist = 3f;
-        [Tooltip("A constant turn into the drift's direction (rad/s²), whatever the steering: Mario Kart drifts always curve. 0 for NFS-style.")]
+        [Tooltip("Physics style: A constant turn into the drift's direction (rad/s²), whatever the steering: Mario Kart drifts always curve. 0 for NFS-style.")]
         public float DriftAutoTurn = 0f;
-        [Tooltip("The widest slide angle the assist allows, in degrees. Past it the car is pulled back (counter-steer), so it doesn't spin out.")]
+        [Tooltip("Physics style: The widest slide angle the assist allows, in degrees. Past it the car is pulled back (counter-steer), so it doesn't spin out.")]
         public float DriftMaxAngle = 45f;
-        [Tooltip("How hard the car is pulled back when the slide goes past Drift Max Angle (an automatic counter-steer). 0 lets it spin.")]
+        [Tooltip("Physics style: How hard the car is pulled back when the slide goes past Drift Max Angle (an automatic counter-steer). 0 lets it spin.")]
         public float DriftCounterSteer = 8f;
-        [Tooltip("How quickly the car's speed swings round to its drift heading while drifting (per second). Higher keeps your speed through drifts (arcade); 0 = pure physics, sliding scrubs speed.")]
+        [Tooltip("Physics style: How quickly the car's speed swings round to its drift heading while drifting (per second). Higher keeps your speed through drifts (arcade); 0 = pure physics, sliding scrubs speed.")]
         public float DriftMomentumKeep = 1.5f;
-        [Tooltip("During a handbrake drift, how quickly its movement heading realigns toward the car's forward direction (degrees per second).")]
+        [Tooltip("Physics style: During a handbrake drift, how quickly its movement heading realigns toward the car's forward direction (degrees per second).")]
         public float ForcedDriftRealignSpeed = 180f;
         [Range(0f, 1f)]
-        [Tooltip("Minimum fraction of Forced Drift Realign Speed when actual speed reaches its target. Lower values keep the drift heading longer.")]
+        [Tooltip("Physics style: Minimum fraction of Forced Drift Realign Speed when actual speed reaches its target. Lower values keep the drift heading longer.")]
         public float ForcedDriftMinRealignFraction = 0.1f;
-        [Tooltip("NFS-style drifts end once the slide angle drops under this (degrees).")]
+        [Tooltip("Physics style: NFS-style drifts end once the slide angle drops under this (degrees).")]
         public float DriftExitAngle = 8f;
+
+        [Tooltip("Arcade style: the slide angle (degrees, nose from heading) steering fully out of the drift...")]
+        [Range(0f, 85f)] public float DriftAngleMin = 20f;
+        [Tooltip("...and steering fully into it. Halfway between with the wheels straight.")]
+        [Range(0f, 85f)] public float DriftAngleMax = 55f;
+        [Tooltip("Arcade style: how fast the steering turns the drift's heading (degrees per second at full lock).")]
+        public float DriftTurnRate = 60f;
+        [Tooltip("Arcade style: a constant turn into the drift (degrees per second), whatever the steering: Mario Kart drifts always curve. 0 for NFS-style.")]
+        public float DriftAutoTurnRate = 0f;
+        [Tooltip("Arcade style: how quickly the car's travel swings onto the heading (per second). High = on rails, low = floaty.")]
+        public float DriftHeadingGrip = 6f;
+        [Tooltip("Arcade style: how hard the nose is swung to the slide angle (rad/s² per radian off).")]
+        public float DriftAngleStrength = 30f;
+        [Tooltip("Arcade style: damps the nose's swing (lower lets it wag past the angle).")]
+        public float DriftAngleDamping = 6f;
+        [Tooltip("Arcade style: speed lost per second at a sideways slide (a fraction: 0.15 = 15%); less at smaller angles. 0 = drifting keeps every bit of speed.")]
+        public float DriftSpeedLoss = 0.15f;
+        [Range(-1f, 1f)]
+        [Tooltip("Arcade style, without Hold Button To Drift: the drift ends once the steering into it drops under this (0.1 = letting go of the stick; -0.3 = only counter-steering).")]
+        public float DriftExitSteer = 0.1f;
+        [Min(0f)]
+        [Tooltip("Arcade style: how long the tyres take to grip fully again after a drift (seconds), so it slides out instead of snapping straight.")]
+        public float DriftExitTime = 0.35f;
 
         [Header("Mini-Turbo")]
         [Tooltip("Drifting charges a boost that fires when the drift ends (Mario Kart). Off: drifts are just drifts.")]
@@ -201,6 +247,9 @@ namespace Remedy.Vehicles
         [Range(0f, 20f)]
         [Tooltip("Maximum inward chassis lean toward the turn while grounded, in degrees. Wheel suspension movement and appearance are unaffected.")]
         public float GroundedTurnLeanAngle = 5f;
+        [Range(0f, 1f)]
+        [Tooltip("The least leveling the grounded car keeps however few tyres hold it up (a fraction). Without it the leveling let go right as the car tipped.")]
+        public float UprightSupportFloor = 0.35f;
         [Min(0f)]
         [Tooltip("When exactly one tire is grounded, maximum car speed for the stuck recovery timer (m/s).")]
         public float SingleTireRecoveryMaxSpeed = 1f;
@@ -250,6 +299,20 @@ namespace Remedy.Vehicles
         [Tooltip("A hop (m/s upward) as the car starts righting itself, so it has room to turn over.")]
         public float SelfRightLift = 3f;
 
+        [Header("Whoah Lean")]
+        [Range(0f, 45f)]
+        [Tooltip("How far a hard turn throws the body outward, cartoon style (degrees at full Whoah Lean At). The Roll Save brings it back as it winds up. 0 = off.")]
+        public float WhoahLeanAngle = 12f;
+        [Min(0.1f)]
+        [Tooltip("The turn's sideways pull (m/s², 10 ≈ 1 g) that gives the full lean.")]
+        public float WhoahLeanAt = 15f;
+        [Min(0.05f)]
+        [Tooltip("How fast the lean wobbles (per second).")]
+        public float WhoahWobble = 1.4f;
+        [Range(0f, 1f)]
+        [Tooltip("How quickly the wobble settles (1 = no wobble, low = wobbles on and on).")]
+        public float WhoahWobbleDamping = 0.25f;
+
         [Header("Roll Save")]
         [Tooltip("How fast the roll save winds up (per second) while the car is in a big turn. It goes from -1 to 1, so 1 = a full second of big turn before it starts pushing, two to full strength.")]
         public float RollSaveRate = 1f;
@@ -292,6 +355,10 @@ namespace Remedy.Vehicles
             HoldButtonToDrift = false; DriftHop = 0f;
             DriftRearGrip = 0.3f; DriftFrontGrip = 0.95f; DriftSteerAssist = 2.5f; DriftAutoTurn = 0f;
             DriftMaxAngle = 50f; DriftCounterSteer = 6f; DriftMomentumKeep = 1.2f; DriftExitAngle = 8f;
+            DriftStyle = DriftHandling.Arcade; DriftAngleMin = 25f; DriftAngleMax = 55f; DriftTurnRate = 65f;
+            DriftAutoTurnRate = 0f; DriftHeadingGrip = 6f; DriftSpeedLoss = 0.12f; DriftExitSteer = 0.1f; DriftExitTime = 0.4f;
+            SideForceHeight = 0.85f; LoadGripAmount = 0.5f; MinSpringDampingRatio = 0.35f; ContactNormalMaxAngle = 50f;
+            UprightSupportFloor = 0.35f; WhoahLeanAngle = 10f; RollSaveStrength = 25f;
             MiniTurbo = false;
             BoostAcceleration = 14f; BoostDuration = 2f; BoostMaxSpeedBonus = 15f;
             Mass = 1300f; CenterOfMassOffset = new Vector3(0f, -0.3f, 0.05f); InertiaScale = 1.4f;
@@ -313,6 +380,10 @@ namespace Remedy.Vehicles
             HoldButtonToDrift = true; DriftHop = 2.5f;
             DriftRearGrip = 0.45f; DriftFrontGrip = 1f; DriftSteerAssist = 2f; DriftAutoTurn = 2.5f;
             DriftMaxAngle = 35f; DriftCounterSteer = 12f; DriftMomentumKeep = 3f; DriftExitAngle = 5f;
+            DriftStyle = DriftHandling.Arcade; DriftAngleMin = 20f; DriftAngleMax = 45f; DriftTurnRate = 45f;
+            DriftAutoTurnRate = 40f; DriftHeadingGrip = 10f; DriftSpeedLoss = 0.05f; DriftExitTime = 0.25f;
+            SideForceHeight = 1f; LoadGripAmount = 0.3f; MinSpringDampingRatio = 0.4f; ContactNormalMaxAngle = 45f;
+            UprightSupportFloor = 0.5f; WhoahLeanAngle = 8f; RollSaveStrength = 30f;
             MiniTurbo = true; ChargeRate = 1f; TightTurnChargeBonus = 1f;
             BoostAcceleration = 12f; BoostDuration = 1.2f; BoostMaxSpeedBonus = 10f;
             Mass = 300f; CenterOfMassOffset = new Vector3(0f, -0.25f, 0f); InertiaScale = 1.2f;
@@ -328,7 +399,9 @@ namespace Remedy.Vehicles
             UnityEditor.Undo.RecordObject(this, "Physical Preset");
             FrontGrip = 12f; RearGrip = 12f; MaxTyreAcceleration = 12f; TyreForceHeight = 0.15f;
             DriftEntry = DriftEntryMode.Off; MiniTurbo = false;
-            DriftMomentumKeep = 0f; DriftCounterSteer = 0f;
+            DriftMomentumKeep = 0f; DriftCounterSteer = 0f; DriftStyle = DriftHandling.Physics;
+            SideForceHeight = 0.15f; LoadGripAmount = 1f; UprightSupportFloor = 0f;
+            WhoahLeanAngle = 0f; RollSaveStrength = 0f;
             CenterOfMassOffset = new Vector3(0f, -0.1f, 0f); InertiaScale = 1f;
             StabilizeStrength = 0f; StabilizeDamping = 0.5f; GroundPlaneTorqueCompensation = 0f;
             GroundedTurnLeanAngle = 0f; StickyForce = 0.05f;

@@ -619,7 +619,10 @@ namespace Remedy.Vehicles
 
             UpdateDrift(instance, p, state, active, handbrake, steerInput, driftThrottle, planarSpeed, forwardSpeed, driftAngle, mass, dt, up);
             bool drifting = IsDrifting.Value;
-            bool forcedDrift = drifting && handbrake;
+            // Arcade drifts: the drift keeps its own heading, all the push goes along it, and the nose is swung to a
+            // slide angle on top (the tyres stop gripping sideways). Physics drifts: the tyres just grip less.
+            bool arcadeDrift = drifting && p.DriftStyle == DriftHandling.Arcade;
+            bool forcedDrift = drifting && handbrake && !arcadeDrift;
             if (forcedDrift)
             {
                 Vector3 carHeading = Vector3.ProjectOnPlane(forward, up).normalized;
@@ -646,6 +649,16 @@ namespace Remedy.Vehicles
             float groundCheckDistanceForWheels = Mathf.Max(0f, p.GroundCheckDistance);
             float contactTransitionTime = Mathf.Max(0f, p.StabilizeTransitionTime);
             float contactBlendStep = contactTransitionTime > 0f ? dt / contactTransitionTime : 1f;
+            // Springs kept where one physics step can follow them: stiffness below what overshoots in a step, and at
+            // least Min Spring Damping Ratio of the damping that stops a bounce dead (stiff and underdamped springs
+            // bounced the wheels off the road in turns, swinging grip from side to side).
+            float stiffness = Mathf.Min(Mathf.Max(0f, p.SpringStiffness), 0.25f / (dt * dt));
+            float springDamping = Mathf.Min(Mathf.Max(p.SpringDamping, 2f * Mathf.Sqrt(stiffness) * Mathf.Clamp01(p.MinSpringDampingRatio)),
+                0.9f / dt);
+            // After an arcade drift the tyres grip again gradually, so the car slides out of it instead of snapping.
+            state.DriftGripReturn = arcadeDrift ? 0f
+                : Mathf.MoveTowards(state.DriftGripReturn, 1f, p.DriftExitTime > 0f ? dt / p.DriftExitTime : 1f);
+            float contactMaxAngle = p.ContactNormalMaxAngle > 0f ? p.ContactNormalMaxAngle * Mathf.Deg2Rad : Mathf.PI;
 
             for (int i = 0; i < wheels.Length; i++)
             {
@@ -674,7 +687,9 @@ namespace Remedy.Vehicles
                     // Convert the raised cast's travel back to distance from the wheel anchor.
                     w.GroundHit.distance += tireRadius - bodyTopOffset;
                     grounded++;
-                    Vector3 castNormal = w.GroundHit.normal;
+                    // A tyre's sphere touching a kerb or wall with its side reports a sideways normal: kept within
+                    // Contact Normal Max Angle of the car's up, so grip can't point up and launch the car.
+                    Vector3 castNormal = Vector3.RotateTowards(up, w.GroundHit.normal, contactMaxAngle, 0f).normalized;
                     w.GroundNormal = w.HasBlendedContact && contactTransitionTime > 0f
                         ? Vector3.RotateTowards(w.ContactNormal, castNormal, Mathf.PI * contactBlendStep, 0f).normalized
                         : castNormal;
@@ -772,13 +787,16 @@ namespace Remedy.Vehicles
                 w.Extension = extension;
                 Vector3 hubVelocity = native.GetWorldPointVelocity(origin);
                 float suspensionSpeed = Vector3.Dot(hubVelocity, up);
-                float springAcceleration = Mathf.Clamp(p.SpringStiffness * compression - p.SpringDamping * suspensionSpeed, 0f, p.MaxSuspensionAcceleration);
+                float springAcceleration = Mathf.Clamp(stiffness * compression - springDamping * suspensionSpeed, 0f, p.MaxSuspensionAcceleration);
                 Vector3 suspensionForce = up * (springAcceleration * massShare * forceWeight);
                 native.ApplyForce(suspensionForce, origin, true);
                 wheelForceTorque += Vector3.Cross(origin - centerOfMass, suspensionForce);
 
                 // How much weight the tyre carries (1 = its share of the car at rest): more weight, more grip.
-                float load = p.GripScalesWithLoad && g > 0.001f ? Mathf.Clamp(springAcceleration / g, 0f, 2f) : 1f;
+                // (Only Load Grip Amount of it, so a hard turn doesn't pile all the grip onto the outside tyres and trip the car.)
+                float load = p.GripScalesWithLoad && g > 0.001f
+                    ? Mathf.Lerp(1f, Mathf.Clamp(springAcceleration / g, 0f, 2f), Mathf.Clamp01(p.LoadGripAmount))
+                    : 1f;
 
                 // The tyre's directions on the ground.
                 Vector3 wheelForward = Quaternion.AngleAxis(w.SteerAngle, up) * forward;
@@ -787,7 +805,7 @@ namespace Remedy.Vehicles
                 Vector3 contactVelocity = native.GetWorldPointVelocity(contactPoint);
                 Vector3 stickyForce = Vector3.zero;
                 if (p.StickyForce > 0f && speedFraction >= Mathf.Clamp01(p.StickyThreshold))
-                    stickyForce = -up * (p.StickyForce * Mathf.Abs(forwardSpeed) * massShare * forceWeight);
+                    stickyForce = -normal * (p.StickyForce * Mathf.Abs(forwardSpeed) * massShare * forceWeight);
                 native.ApplyForce(stickyForce, contactPoint, true);
                 wheelForceTorque += Vector3.Cross(contactPoint - centerOfMass, stickyForce);
                 if (actualGrounded && !wasGrounded)
@@ -802,8 +820,9 @@ namespace Remedy.Vehicles
 
                 // Sideways grip: cancel sliding, up to what the tyre can hold.
                 float grip = w.IsFront ? p.FrontGrip : p.RearGrip;
-                if (drifting)
+                if (drifting && !arcadeDrift)
                     grip *= w.IsFront ? p.DriftFrontGrip : p.DriftRearGrip;
+                grip *= arcadeDrift ? 0f : state.DriftGripReturn;
                 if (wheel.HasHandbrake && handbrake)
                     grip *= p.HandbrakeGrip;
                 float limit = p.MaxTyreAcceleration * load;
@@ -819,13 +838,20 @@ namespace Remedy.Vehicles
                     rollAcceleration -= Mathf.Sign(rollSpeed) * Mathf.Min(p.HandbrakeDeceleration * wheelCount / handbrakeCount, Mathf.Abs(rollSpeed) / dt);
                 if (Mathf.Approximately(driveAcceleration, 0f) && brakeDeceleration <= 0f)
                     rollAcceleration -= rollSpeed * p.RollingResistance;
+                if (arcadeDrift)
+                    rollAcceleration = 0f; // pushed along the drift's heading instead (below)
 
                 // Pushed somewhere between the road (rolls the car) and the centre of mass height (doesn't).
+                // (Engine and brakes at Tyre Force Height; sideways grip at Side Force Height, the one that rolls the car.)
                 float heightToCenter = Vector3.Dot(centerOfMass - contactPoint, up);
                 Vector3 at = contactPoint + up * (heightToCenter * p.TyreForceHeight);
-                Vector3 tyreForce = (rollDirection * rollAcceleration + sideDirection * sideAcceleration) * (massShare * forceWeight);
-                native.ApplyForce(tyreForce, at, true);
-                wheelForceTorque += Vector3.Cross(at - centerOfMass, tyreForce);
+                Vector3 sideAt = contactPoint + up * (heightToCenter * p.SideForceHeight);
+                Vector3 rollForce = rollDirection * (rollAcceleration * massShare * forceWeight);
+                Vector3 sideForce = sideDirection * (sideAcceleration * massShare * forceWeight);
+                Vector3 tyreForce = rollForce + sideForce;
+                native.ApplyForce(rollForce, at, true);
+                native.ApplyForce(sideForce, sideAt, true);
+                wheelForceTorque += Vector3.Cross(at - centerOfMass, rollForce) + Vector3.Cross(sideAt - centerOfMass, sideForce);
 
                 float normalSupport = Mathf.Max(0f, Vector3.Dot(suspensionForce, normal))
                     + Mathf.Abs(Vector3.Dot(stickyForce + tyreForce, normal));
@@ -856,19 +882,39 @@ namespace Remedy.Vehicles
             Vector3 rollPitchVelocity = angularVelocity - up * Vector3.Dot(angularVelocity, up);
             float supportFraction = supportedWheelLoad / Mathf.Max(1f, wheelCount);
             float supportFactor = Mathf.InverseLerp(0.25f, 0.75f, supportFraction);
-            float stabilizationFactor = isGrounded ? supportFactor : 0f;
+            // (Never below Upright Support Floor on the ground: the leveling used to let go just as the car tipped.)
+            float stabilizationFactor = isGrounded ? Mathf.Max(supportFactor, Mathf.Clamp01(p.UprightSupportFloor)) : 0f;
             bool airborne = !isGrounded && IsAirborne(body, centerOfMass, worldUp, p);
             bool groundLeveling = (isGrounded && (p.StabilizeStrength > 0f || p.StabilizeDamping > 0f))
                 || singleTireRecovery;
             bool airLeveling = airborne && (p.AirLevelStrength > 0f || p.AirLevelDamping > 0f);
             Vector3 stabilizationCompensation = Vector3.zero;
             Vector3 targetUp = isGrounded ? groundNormal : worldUp;
-            if (isGrounded && !singleTireRecovery && p.GroundedTurnLeanAngle > 0f)
-            {
-                Vector3 planeForward = Vector3.ProjectOnPlane(forward, groundNormal).normalized;
-                if (planeForward.sqrMagnitude > 0.001f)
-                    targetUp = Quaternion.AngleAxis(-state.Steer * p.GroundedTurnLeanAngle, planeForward) * groundNormal;
-            }
+            Vector3 planeForward = Vector3.ProjectOnPlane(forward, groundNormal).normalized;
+
+            // The "whoah" lean: the turn's sideways pull throws the body outward, on a wobbly spring of its own, and
+            // the Roll Save takes it back as it winds up.
+            Vector3 acceleration = state.HasLeanVelocity ? (velocity - state.LeanPreviousVelocity) / dt : Vector3.zero;
+            state.LeanPreviousVelocity = velocity;
+            state.HasLeanVelocity = true;
+            float lateral = isGrounded && planeForward.sqrMagnitude > 0.001f
+                ? Vector3.Dot(acceleration, Vector3.Cross(groundNormal, planeForward))
+                : 0f;
+            state.LateralAcceleration = Mathf.Lerp(state.LateralAcceleration, lateral, 1f - Mathf.Exp(-dt / 0.1f));
+            float whoahTarget = 0f;
+            if (isGrounded && !singleTireRecovery && p.WhoahLeanAngle > 0f && p.WhoahLeanAt > 0f)
+                whoahTarget = p.WhoahLeanAngle * Mathf.Clamp(state.LateralAcceleration / p.WhoahLeanAt, -1f, 1f)
+                    * (1f - Mathf.Max(0f, state.RollSave));
+            float wobble = 2f * Mathf.PI * Mathf.Max(0.05f, p.WhoahWobble);
+            float whoahAcceleration = (whoahTarget - state.WhoahLean) * wobble * wobble
+                - state.WhoahLeanSpeed * 2f * Mathf.Clamp01(p.WhoahWobbleDamping) * wobble;
+            state.WhoahLeanSpeed += whoahAcceleration * dt;
+            state.WhoahLean += state.WhoahLeanSpeed * dt;
+
+            float leanAngle = (p.GroundedTurnLeanAngle > 0f ? -state.Steer * p.GroundedTurnLeanAngle : 0f) + state.WhoahLean;
+            bool leaning = isGrounded && !singleTireRecovery && planeForward.sqrMagnitude > 0.001f;
+            if (leaning && Mathf.Abs(leanAngle) > 0.001f)
+                targetUp = Quaternion.AngleAxis(leanAngle, planeForward) * groundNormal;
             if (targetUp.sqrMagnitude < 0.001f)
                 targetUp = up;
             float transitionTime = Mathf.Max(0f, p.StabilizeTransitionTime);
@@ -904,11 +950,16 @@ namespace Remedy.Vehicles
             {
                 angular += (UprightError(up, state.UprightNormal, forward) * uprightStrength
                     - rollPitchVelocity * uprightDamping) * (uprightSupport * state.UprightBlend);
+                // The wobble's own motion, so the body follows it instead of the leveling smoothing it away.
+                if (leaning)
+                    angular += planeForward * ((whoahAcceleration + state.WhoahLeanSpeed * uprightDamping) * Mathf.Deg2Rad
+                        * (uprightSupport * state.UprightBlend));
             }
             // Keep surface-following roll/pitch independent of suspension visuals and steering yaw.
             if (isGrounded && p.GroundPlaneTorqueCompensation > 0f)
             {
-                float supportBlend = Mathf.InverseLerp(1f, 2f, grounded);
+                // Half on one tyre, full from two: it used to let go entirely on one, right when the car tipped.
+                float supportBlend = Mathf.Clamp01(grounded * 0.5f);
                 stabilizationCompensation = -Vector3.ProjectOnPlane(wheelForceTorque, groundNormal)
                     * (Mathf.Clamp01(p.GroundPlaneTorqueCompensation) * supportBlend);
             }
@@ -923,7 +974,7 @@ namespace Remedy.Vehicles
             }
 
             // Drift: the steering swings the tail, the counter-steer stops a spin, and the speed follows the nose.
-            if (drifting && isGrounded)
+            if (drifting && isGrounded && !arcadeDrift)
             {
                 float yaw = state.Steer * p.DriftSteerAssist + state.DriftDirection * p.DriftAutoTurn;
                 float excess = Mathf.Abs(driftAngle) - p.DriftMaxAngle;
@@ -941,6 +992,11 @@ namespace Remedy.Vehicles
                     native.ApplyForceToCenter(change * (mass / dt), true);
                 }
             }
+
+            state.DriftHeadingActive = arcadeDrift && isGrounded;
+            if (state.DriftHeadingActive)
+                ApplyArcadeDrift(native, p, state, groundNormal, forward, velocity, angularVelocity,
+                    driveAcceleration, brakeDeceleration, topSpeed, mass, dt, ref angular);
 
             // Flipped: report it, and turn back over after a while (or on Unflip).
             UpdateFlipped(instance, p, state, up, worldUp, velocity.magnitude, dt, out bool righting);
@@ -994,7 +1050,8 @@ namespace Remedy.Vehicles
                 state.BoostTime -= dt;
                 if (forwardSpeed < topSpeed)
                 {
-                    Vector3 direction = isGrounded ? Vector3.ProjectOnPlane(forward, groundNormal).normalized : forward;
+                    Vector3 direction = state.DriftHeadingActive ? state.DriftHeading
+                        : isGrounded ? Vector3.ProjectOnPlane(forward, groundNormal).normalized : forward;
                     native.ApplyForceToCenter(direction * (state.BoostAcceleration * mass), true);
                 }
             }
@@ -1015,6 +1072,48 @@ namespace Remedy.Vehicles
             Speed.Value = velocity.magnitude * 3.6f;
             ForwardSpeed.Value = forwardSpeed;
             DriftAngle.Value = driftAngle;
+        }
+
+        // An arcade drift: its heading turns with the steering (plus Drift Auto Turn Rate into the drift), the car's
+        // speed is swung onto it and the engine, brakes and drag push along it only; the nose is held at a slide
+        // angle on top, wider steering into the drift and narrower steering out of it.
+        private static void ApplyArcadeDrift(Body body, ArcadeCarProperties p, CarState state, Vector3 planeUp,
+            Vector3 forward, Vector3 velocity, Vector3 angularVelocity, float driveAcceleration, float brakeDeceleration,
+            float topSpeed, float mass, float dt, ref Vector3 angular)
+        {
+            Vector3 planar = Vector3.ProjectOnPlane(velocity, planeUp);
+            float speed = planar.magnitude;
+            Vector3 nose = Vector3.ProjectOnPlane(forward, planeUp).normalized;
+            Vector3 heading = Vector3.ProjectOnPlane(state.DriftHeading, planeUp);
+            // Starts along the car's travel, and starts again from it when something (a wall) turns the car hard.
+            if (!state.HasDriftHeading || heading.sqrMagnitude < 0.001f
+                || (speed > 2f && Vector3.Dot(planar / speed, heading.normalized) < 0.5f))
+                heading = speed > 1f ? planar : nose;
+            heading = heading.normalized;
+            state.HasDriftHeading = true;
+
+            float into = Mathf.Clamp(state.Steer * state.DriftDirection, -1f, 1f);
+            float turnRate = state.Steer * p.DriftTurnRate + state.DriftDirection * p.DriftAutoTurnRate; // degrees/s
+            heading = (Quaternion.AngleAxis(turnRate * dt, planeUp) * heading).normalized;
+            state.DriftHeading = heading;
+
+            // The nose: swung to the slide angle, turning along with the heading.
+            float slide = Mathf.Lerp(p.DriftAngleMin, p.DriftAngleMax, (into + 1f) * 0.5f);
+            Vector3 wantedNose = Quaternion.AngleAxis(state.DriftDirection * slide, planeUp) * heading;
+            float yawError = Vector3.SignedAngle(nose, wantedNose, planeUp) * Mathf.Deg2Rad;
+            float yawRate = Vector3.Dot(angularVelocity, planeUp);
+            angular += planeUp * (yawError * p.DriftAngleStrength + (turnRate * Mathf.Deg2Rad - yawRate) * p.DriftAngleDamping);
+
+            // The travel: swung onto the heading, keeping its speed.
+            Vector3 push = (heading * speed - planar) * (Mathf.Min(1f, p.DriftHeadingGrip * dt) / dt);
+            float along = Vector3.Dot(planar, heading);
+            float pushAlong = along < topSpeed ? driveAcceleration : 0f;
+            float slowing = brakeDeceleration + speed * p.DriftSpeedLoss * Mathf.Sin(slide * Mathf.Deg2Rad);
+            if (Mathf.Approximately(driveAcceleration, 0f) && brakeDeceleration <= 0f)
+                slowing += along * p.RollingResistance;
+            pushAlong -= Mathf.Sign(along) * Mathf.Min(Mathf.Abs(slowing), Mathf.Abs(along) / dt);
+            push += heading * pushAlong;
+            body.ApplyForceToCenter((float3)(push * mass), true);
         }
 
         private void UpdateDrift(BehaviorInstance instance, ArcadeCarProperties p, CarState state, bool active, bool handbrake,
@@ -1040,6 +1139,7 @@ namespace Remedy.Vehicles
 
                 IsDrifting.Value = true;
                 state.DriftDirection = Mathf.Sign(steerInput);
+                state.HasDriftHeading = false;
                 state.DriftTime = 0f;
                 state.DriftLevel = 0;
                 DriftCharge.Value = 0f;
@@ -1054,9 +1154,12 @@ namespace Remedy.Vehicles
             }
 
             state.DriftTime += dt;
+            // (An arcade drift holds its own angle, so without the button it ends when the steering lets go of it.)
             bool held = p.HoldButtonToDrift
                 ? handbrake
-                : handbrake || Mathf.Abs(driftAngle) > p.DriftExitAngle || state.DriftTime < 0.3f;
+                : p.DriftStyle == DriftHandling.Arcade
+                    ? handbrake || state.Steer * state.DriftDirection >= p.DriftExitSteer || state.DriftTime < 0.3f
+                    : handbrake || Mathf.Abs(driftAngle) > p.DriftExitAngle || state.DriftTime < 0.3f;
             bool spunOut = Mathf.Abs(driftAngle) > 100f;
             bool tooSlow = planarSpeed < p.DriftMinSpeed * 0.5f || forwardSpeed < 0f;
             bool airborneTooLong = state.AirTime > 0.6f;
@@ -1511,6 +1614,13 @@ namespace Remedy.Vehicles
             Gizmos.DrawRay(com, state.GroundTargetUp * 1.5f);
             Gizmos.color = Color.yellow;
             Gizmos.DrawRay(com, up * 1.5f);
+            if (state.DriftHeadingActive)
+            {
+                // The drift's heading (orange): where all the push goes.
+                Gizmos.color = new Color(1f, 0.55f, 0f);
+                Gizmos.DrawRay(com, state.DriftHeading * 3f);
+                Gizmos.DrawWireSphere(com + state.DriftHeading * 3f, 0.08f);
+            }
             if (state.RollSave > 0f)
             {
                 Gizmos.color = Color.Lerp(new Color(1f, 0.6f, 0.1f), Color.red, state.RollSave);
@@ -1566,6 +1676,12 @@ namespace Remedy.Vehicles
         public Vector3 UprightNormal;
         public Vector3 TorqueGuardAcceleration;
         public float RollSave = -1f;
+        public Vector3 DriftHeading;
+        public bool HasDriftHeading, DriftHeadingActive;
+        public float DriftGripReturn = 1f;
+        public Vector3 LeanPreviousVelocity;
+        public bool HasLeanVelocity;
+        public float LateralAcceleration, WhoahLean, WhoahLeanSpeed;
         public bool HasGroundPlane;
         public Vector3 GroundPlaneNormal, GroundPlanePoint, GroundTargetUp;
         public Vector3 PreviousAngularVelocity;
