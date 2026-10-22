@@ -643,6 +643,17 @@ namespace Remedy.Vehicles
             state.ForcedDriftActive = forcedDrift;
 
             // Wheels.
+            //
+            // READ THIS BEFORE CHANGING ANYTHING ABOUT THE GROUND CASTS OR THE SUSPENSION:
+            // The ground casts are DETECTION, not suspension. They start at the top of the body and deliberately
+            // shoot far past the tyres, through where the ground will be (Ground Check Distance), so ground is seen
+            // early and contact doesn't flicker: a longer cast makes the car stick better, and that is on purpose.
+            // The car must still sit on its TYRES: a tyre only pushes (spring, damper, grip, sticky force) when the
+            // ground is within its reach, Tire Placement Threshold x Ground Check Distance below its anchor. A hit
+            // further along the cast is ground nearby (it counts for the support plane and for being grounded), but
+            // it holds nothing up. Never let a hit at the far end of a cast put force on the car: it rides on the
+            // ends of the casts and bounces there. (This has been broken and corrected many times; the gate is in the
+            // second loop below, "Only the ground a tyre reaches pushes".)
             int grounded = 0;
             Vector3 normalSum = Vector3.zero;
             Vector3 groundPointSum = Vector3.zero;
@@ -822,7 +833,9 @@ namespace Remedy.Vehicles
                 }
                 Vector3 normal = w.ContactNormal;
                 float contactDistance = w.ContactDistance;
-                float forceWeight = w.ContactForceWeight;
+                // Only the ground a tyre reaches pushes (see "READ THIS" above): a hit further down the cast is
+                // detection only, and puts no force on the car.
+                float forceWeight = contactDistance <= placementDistance ? w.ContactForceWeight : 0f;
                 Vector3 contactPoint = actualGrounded ? w.GroundHit.point : origin - suspensionUp * contactDistance;
                 w.Point = contactPoint;
                 w.Normal = normal;
@@ -835,7 +848,9 @@ namespace Remedy.Vehicles
                 float suspensionSpeed = Vector3.Dot(hubVelocity, suspensionUp);
                 // The step a tyre finds the ground again, its speed is the jump from no ground to ground: no damping
                 // that step (it fired a big extra kick), the spring alone.
-                float damping = actualGrounded && !wasGrounded ? 0f : springDamping * suspensionSpeed;
+                // (The damper works within the spring's travel only: with the spring at full stretch it doesn't
+                // push the car up from ground it isn't touching.)
+                float damping = (actualGrounded && !wasGrounded) || compression <= 0f ? 0f : springDamping * suspensionSpeed;
                 float springAcceleration = Mathf.Clamp(stiffness * compression - damping, 0f, p.MaxSuspensionAcceleration);
                 // Rises at most Spring Max Rise (a one-step jump from nothing to full push becomes a short ramp);
                 // falls at once, so a tyre leaving the ground lets go.

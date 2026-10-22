@@ -66,7 +66,7 @@ namespace Remedy.Vehicles
         [Tooltip("How far each wheel hangs below its anchor when nothing presses on it (metres). Longer = softer, more body roll, bigger jumps soaked up.")]
         public float SuspensionRestLength = 0.45f;
         [Min(0f)]
-        [Tooltip("How far below the top of the tire each ground probe continues (metres). Probes start at the top of the car body's bounds.")]
+        [Tooltip("How far below the top of the tire each ground probe continues (metres). Probes start at the top of the car body's bounds and shoot past the tyres on purpose: they only detect ground. The tyres push only on ground within Tire Placement Threshold of this, so a longer probe sticks better without lifting the car.")]
         public float GroundCheckDistance = 1.6f;
         [Range(0f, 1f)]
         [Tooltip("When no ground is found, places the tire bottom no farther than this fraction of Ground Check Distance below its anchor. A nearer hit moves it toward the surface. Ground sensing extends farther, from the body top to below the tire. Suspension Rest Length limits spring travel, not tire placement.")]
