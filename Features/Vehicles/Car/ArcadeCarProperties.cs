@@ -101,6 +101,9 @@ namespace Remedy.Vehicles
         public float BrakeDeceleration = 25f;
         [Tooltip("How quickly the car coasts to a stop off the throttle, per second (0.25 loses a quarter of its speed per second).")]
         public float RollingResistance = 0.25f;
+        [Min(0f)]
+        [Tooltip("Easing off (faster than the Target Speed still held): how quickly the engine settles the car down to it (per second of the speed over: 0.6 takes about 40% of the excess away in the first second). 0 = it just coasts down. Nothing held (0) always coasts.")]
+        public float EngineBraking = 0.6f;
         [Tooltip("How quickly a wheel's impact-induced target-speed loss recovers while grounded, per second. Wheels recover immediately while airborne.")]
         public float TargetSpeedGroundRecovery = 0.5f;
         [Range(0f, 1f)]
@@ -295,10 +298,25 @@ namespace Remedy.Vehicles
         public float AirLevelStrength = 2f;
         [Tooltip("Damps roll and pitch spin in the air.")]
         public float AirLevelDamping = 1f;
-        [Range(0f, 45f)]
-        [Tooltip("In the air the car levels to the ground below it; steering tilts that to roll and throttle (Target Speed) tilts it to pitch, up to this many degrees at full input (Rocket League, gently): a little say over how it lands. 0 = the old Air Control push instead.")]
-        public float AirTiltAngle = 10f;
-        [Tooltip("Only with Air Tilt Angle at 0: forces at ungrounded tire anchors roll the car with steer and pitch it with signed Target Speed, in rad/s², for as long as they're held (holding the throttle spins it forward). 0 = no air control.")]
+        [Min(0f)]
+        [Tooltip("Air control: how fast steering rolls the car (degrees per second at full input, through the gates below). Rocket League, gently. 0 (with Air Pitch Rate 0) = the old Air Control push instead.")]
+        public float AirRollRate = 60f;
+        [Min(0f)]
+        [Tooltip("Air control: how fast throttle (Target Speed) pitches the car (degrees per second at full input; forward tips the nose down). A throttle held from the ground doesn't count until it's moved in the air.")]
+        public float AirPitchRate = 60f;
+        [Min(0f)]
+        [Tooltip("How quickly the car's spin follows what the air control asks for (per second).")]
+        public float AirControlResponse = 6f;
+        [Min(0.01f)]
+        [Tooltip("Spatial gate: air control opens as the ground gets further than the tyres can reach, fully this far beyond (metres), per tyre, averaged.")]
+        public float AirGateDistance = 2.5f;
+        [Min(0.01f)]
+        [Tooltip("Temporal gate: air control opens over this long after a tyre leaves the ground (seconds), per tyre, averaged; it closes four times as fast when the tyre's back down.")]
+        public float AirGateTime = 0.4f;
+        [Min(0.01f)]
+        [Tooltip("The throttle's own gate: once the throttle moves in the air from where it was at takeoff, pitching opens over this long (seconds).")]
+        public float AirThrottleGateTime = 0.3f;
+        [Tooltip("Only with Air Roll Rate and Air Pitch Rate at 0: forces at ungrounded tire anchors roll the car with steer and pitch it with signed Target Speed, in rad/s², for as long as they're held (holding the throttle spins it forward). 0 = no air control.")]
         public float AirControl = 4f;
         [Min(0f)]
         [Tooltip("Maximum angular acceleration from the car's own tire and rotation-assist forces, in rad/s². Those forces are blended through this guard; 0 disables the limit.")]

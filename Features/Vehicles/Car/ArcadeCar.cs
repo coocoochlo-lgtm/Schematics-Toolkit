@@ -608,14 +608,27 @@ namespace Remedy.Vehicles
                 float forwardFraction = forwardSpeed / Mathf.Max(0.1f, topSpeed);
                 float reverseFraction = -forwardSpeed / Mathf.Max(0.1f, p.MaxReverseSpeed);
                 float targetDrive = 0f, targetBrake = 0f;
+                // Easing off (going faster than a target that's still held): Engine Braking settles the car to it,
+                // a gentle drag growing with how far over it is. Not with nothing held (0 just coasts).
+                float engineBraking = 0f;
                 if (targetSpeed > TargetSpeedDeadZone)
+                {
                     targetDrive = Mathf.Clamp01(targetSpeed - forwardFraction);
+                    float over = forwardSpeed - targetSpeed * topSpeed;
+                    if (over > 0f && p.EngineBraking > 0f)
+                        engineBraking = -Mathf.Min(over * p.EngineBraking, over / dt);
+                }
                 else if (targetSpeed < -TargetSpeedDeadZone)
                 {
                     if (forwardSpeed > ReverseBrakeSpeed)
                         targetBrake = Mathf.Clamp01(-targetSpeed);
                     else
+                    {
                         targetDrive = Mathf.Clamp01(-targetSpeed - reverseFraction);
+                        float over = -forwardSpeed + targetSpeed * p.MaxReverseSpeed;
+                        if (over > 0f && p.EngineBraking > 0f)
+                            engineBraking = Mathf.Min(over * p.EngineBraking, over / dt);
+                    }
                 }
                 if (brakeInput > 0.01f)
                 {
@@ -631,6 +644,8 @@ namespace Remedy.Vehicles
                         driveAcceleration = p.Acceleration * p.AccelerationCurve.Evaluate(speedFraction) * targetDrive;
                 }
                 brakeDeceleration = p.BrakeDeceleration * targetBrake;
+                if (targetDrive <= 0f && brakeDeceleration <= 0f)
+                    driveAcceleration = engineBraking;
                 driftThrottle = Mathf.Max(driftThrottle, Mathf.Max(effectiveTargetSpeed, 0f));
             }
             else
@@ -810,6 +825,8 @@ namespace Remedy.Vehicles
             float loadLeft = 0f, loadRight = 0f;
             // Tyres actually on the ground (in reach, not just seen by the long casts): none, and the car's in the air.
             int touching = 0;
+            float spatialGates = 0f, temporalGates = 0f;
+            int gatedWheels = 0;
             float virtualGroundWeight = grounded > 0 ? Mathf.Clamp01((float)grounded / Mathf.Max(1f, wheelCount)) : 0f;
 
             for (int i = 0; i < wheels.Length; i++)
@@ -888,8 +905,20 @@ namespace Remedy.Vehicles
                 // Only the ground a tyre reaches pushes (see "READ THIS" above): a hit further down the cast is
                 // detection only, and puts no force on the car.
                 float forceWeight = contactDistance <= placementDistance ? w.ContactForceWeight : 0f;
-                if (actualGrounded && w.GroundHit.distance <= placementDistance)
+                bool tyreDown = actualGrounded && w.GroundHit.distance <= placementDistance;
+                if (tyreDown)
                     touching++;
+                // Air control gates, per tyre: spatial, how far its ground is beyond its reach (all the way open
+                // Air Gate Distance beyond, or with no ground seen); temporal, how long it's been off the ground
+                // (opening over Air Gate Time, closing four times as fast once it's back down).
+                float clear = !actualGrounded ? 1f
+                    : Mathf.Clamp01((w.GroundHit.distance - placementDistance) / Mathf.Max(0.01f, p.AirGateDistance));
+                spatialGates += tyreDown ? 0f : Mathf.SmoothStep(0f, 1f, clear);
+                float gateTime = Mathf.Max(0.01f, p.AirGateTime);
+                w.AirGate = tyreDown ? Mathf.MoveTowards(w.AirGate, 0f, 4f * dt / gateTime)
+                    : Mathf.MoveTowards(w.AirGate, 1f, dt / gateTime);
+                temporalGates += Mathf.SmoothStep(0f, 1f, w.AirGate);
+                gatedWheels++;
                 Vector3 contactPoint = actualGrounded ? w.GroundHit.point : origin - suspensionUp * contactDistance;
                 w.Point = contactPoint;
                 w.Normal = normal;
@@ -1009,6 +1038,32 @@ namespace Remedy.Vehicles
             IsGrounded.Value = isGrounded;
             GroundedWheels.Value = grounded;
 
+            // Air control's gates, merged by kind (the tyres' average) and multiplied: none on the ground, opening
+            // as the car leaves it, more the higher and longer it's up.
+            float airGate = gatedWheels > 0 ? (spatialGates / gatedWheels) * (temporalGates / gatedWheels) : 0f;
+            // The throttle's own gate: shut while any tyre is down, it opens (over Air Throttle Gate Time) only once
+            // the throttle moves from where it was when the car left the ground, so a throttle held off a ramp
+            // doesn't pitch the car.
+            float throttleNow = Mathf.Clamp(effectiveTargetSpeed, -1f, 1f);
+            if (touching > 0)
+            {
+                state.AirThrottleBase = throttleNow;
+                state.AirThrottleOpen = false;
+                state.AirThrottleGate = 0f;
+            }
+            else
+            {
+                if (Mathf.Abs(throttleNow - state.AirThrottleBase) > 0.1f)
+                    state.AirThrottleOpen = true;
+                state.AirThrottleGate = Mathf.MoveTowards(state.AirThrottleGate, state.AirThrottleOpen ? 1f : 0f,
+                    dt / Mathf.Max(0.01f, p.AirThrottleGateTime));
+            }
+            float rollInput = active ? Mathf.Clamp(steerInput, -1f, 1f) * airGate : 0f;
+            float pitchInput = active ? throttleNow * airGate * Mathf.SmoothStep(0f, 1f, state.AirThrottleGate) : 0f;
+            bool airControl = p.AirRollRate > 0f || p.AirPitchRate > 0f;
+            // How much the player is steering the car in the air: the leveling stands aside that much.
+            float airInput = airControl ? Mathf.Clamp01(Mathf.Max(Mathf.Abs(rollInput), Mathf.Abs(pitchInput))) : 0f;
+
             // Rotation helpers, as angular accelerations (turned into torque with the body's own inertia below).
             Vector3 angular = Vector3.zero;
             Vector3 rollPitchVelocity = angularVelocity - up * Vector3.Dot(angularVelocity, up);
@@ -1026,24 +1081,11 @@ namespace Remedy.Vehicles
             bool airLeveling = airborne && (p.AirLevelStrength > 0f || p.AirLevelDamping > 0f);
             Vector3 stabilizationCompensation = Vector3.zero;
             Vector3 targetUp = isGrounded ? groundNormal : worldUp;
-            // In the air: level to the ground it's going to land on (straight below, within 60° of world up), tilted
-            // a little by the player, steering to roll and throttle to pitch (Rocket League, but gentle: Air Tilt
-            // Angle at full input). A tilt of where it levels to, not a push, so holding the throttle off a ramp
-            // tips the nose a few degrees and holds it; it no longer spins the car forward.
-            if (airborne)
-            {
-                if (SchematicPhysics.Raycast(centerOfMass, -worldUp, out RaycastHit below, AirLandingProbe, p.GroundLayers, body))
-                    targetUp = Vector3.RotateTowards(worldUp, below.normal, 60f * Mathf.Deg2Rad, 0f).normalized;
-                Vector3 along = Vector3.ProjectOnPlane(forward, targetUp);
-                if (active && p.AirTiltAngle > 0f && along.sqrMagnitude > 0.001f)
-                {
-                    along.Normalize();
-                    Vector3 across = Vector3.Cross(targetUp, along);
-                    float airTilt = p.AirTiltAngle;
-                    targetUp = Quaternion.AngleAxis(-steerInput * airTilt, along)
-                        * Quaternion.AngleAxis(Mathf.Clamp(effectiveTargetSpeed, -1f, 1f) * airTilt, across) * targetUp;
-                }
-            }
+            // In the air: level to the ground it's going to land on (straight below, within 60° of world up). The
+            // player's own rolling and pitching is the air control below, which this stands aside for.
+            if (airborne
+                && SchematicPhysics.Raycast(centerOfMass, -worldUp, out RaycastHit below, AirLandingProbe, p.GroundLayers, body))
+                targetUp = Vector3.RotateTowards(worldUp, below.normal, 60f * Mathf.Deg2Rad, 0f).normalized;
             Vector3 planeForward = Vector3.ProjectOnPlane(forward, groundNormal).normalized;
 
             // The "whoah" lean: the turn's sideways pull throws the body outward, on a wobbly spring of its own, and
@@ -1132,12 +1174,26 @@ namespace Remedy.Vehicles
             if (state.UprightBlend > 0f)
             {
                 angular += (UprightError(up, state.UprightNormal, forward) * uprightStrength
-                    - rollPitchVelocity * uprightDamping) * (uprightSupport * state.UprightBlend);
+                    - rollPitchVelocity * uprightDamping) * (uprightSupport * state.UprightBlend * (1f - airInput));
                 // The wobble's own motion, so the body follows it instead of the leveling smoothing it away.
                 if (leaning)
                     angular += planeForward * ((whoahAcceleration + state.WhoahLeanSpeed * uprightDamping) * Mathf.Deg2Rad
                         * (uprightSupport * state.UprightBlend));
             }
+            // Air control (Rocket League, gently): steering asks for a roll rate and throttle for a pitch rate, up to
+            // Air Roll / Pitch Rate at full input through the gates, and the car's spin is driven toward it. Let go
+            // and it's handed back to the leveling. A rate, so it turns as long as asked and stops when not.
+            if (airControl && airInput > 0f && !state.SelfRighting && !state.AutoRolling)
+            {
+                float wantedRoll = -rollInput * p.AirRollRate * Mathf.Deg2Rad;
+                float wantedPitch = pitchInput * p.AirPitchRate * Mathf.Deg2Rad;
+                float rollRate = Vector3.Dot(angularVelocity, forward);
+                float pitchRate = Vector3.Dot(angularVelocity, right);
+                float response = Mathf.Max(0f, p.AirControlResponse);
+                angular += forward * ((wantedRoll - rollRate) * response * Mathf.Abs(rollInput))
+                    + right * ((wantedPitch - pitchRate) * response * Mathf.Abs(pitchInput));
+            }
+
             // Keep surface-following roll/pitch independent of suspension visuals and steering yaw.
             if (isGrounded && p.GroundPlaneTorqueCompensation > 0f)
             {
@@ -1153,7 +1209,7 @@ namespace Remedy.Vehicles
                 // Really in the air (not just lying on its roof or side with the wheels off the ground).
                 // (The old push: rolls with steer and pitches with Target Speed for as long as it's held, so holding
                 // the throttle off a ramp spun the car forward. Only with Air Tilt Angle at 0.)
-                if (active && p.AirControl > 0f && p.AirTiltAngle <= 0f)
+                if (active && p.AirControl > 0f && !airControl)
                     airControlTorque = ApplyAirWheelControl(native, wheels, state.Wheels, centerOfMass, up, right, forward,
                         steerInput, effectiveTargetSpeed, p.AirControl, rotation, state);
             }
@@ -2255,6 +2311,8 @@ namespace Remedy.Vehicles
         public Vector3 BounceAway, BouncePoint, BounceAlignDirection;
         public float BounceSpeed, BounceReadyTime, BounceAlignTime;
         public bool BounceAlignHasDirection;
+        public float AirThrottleBase, AirThrottleGate;
+        public bool AirThrottleOpen;
         public Vector3 BounceTargetVelocity;
         public float BounceGrip = 1f;
         public Quaternion BodyRestRotation;
@@ -2360,6 +2418,8 @@ namespace Remedy.Vehicles
         /// <summary>The probe hit a ceiling (at the body's top) this step, and where.</summary>
         public bool HasCeiling;
         public Vector3 CeilingPoint;
+        /// <summary>The air control's temporal gate for this tyre (0 on the ground, 1 after Air Gate Time off it).</summary>
+        public float AirGate;
         /// <summary>Touching the ground with its sidewall this step (so not grounded).</summary>
         public bool Sidewall;
         /// <summary>The suspension's direction last step, in the car's space (toward the ground it stood on).</summary>
