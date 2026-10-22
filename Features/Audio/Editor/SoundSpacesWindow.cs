@@ -45,6 +45,10 @@ namespace Remedy.Audio
             Section("Testing");
             SoundSpaces.Exaggerate = EditorGUILayout.Slider(new GUIContent("Exaggerate", "Multiplies every spatial effect so you can clearly hear whether it works. 1 is as designed; resets when Play Mode ends."), SoundSpaces.Exaggerate, 0f, 6f);
 
+            SoundField.ShowEchoWalls = EditorGUILayout.Toggle(new GUIContent("Show Echo Walls", "Draw every baked echo wall in the Scene view, glowing with how much it's echoing (in Play Mode)."), SoundField.ShowEchoWalls);
+            if (GUI.changed)
+                SceneView.RepaintAll();
+
             Section("Sound Fields");
             if (SoundField.All.Count == 0)
                 Verdict("No Sound Field is loaded, so Spatial effects act as open air (nearly dry) everywhere.");
@@ -198,6 +202,28 @@ namespace Remedy.Audio
         {
             EditorGUILayout.EndScrollView();
             EditorGUIUtility.labelWidth = labelWidth;
+        }
+    }
+
+    /// <summary>
+    /// Keeps the Scene view redrawing about 15 times a second in Play Mode while echo walls are shown, so their glow
+    /// follows the sound (the Scene view otherwise only redraws when something in it is touched).
+    /// </summary>
+    [InitializeOnLoad]
+    internal static class EchoWallRepaint
+    {
+        private static double _next;
+
+        static EchoWallRepaint() => EditorApplication.update += Tick;
+
+        private static void Tick()
+        {
+            if (!EditorApplication.isPlaying || !SoundField.ShowEchoWalls || SoundField.All.Count == 0)
+                return;
+            if (EditorApplication.timeSinceStartup < _next)
+                return;
+            _next = EditorApplication.timeSinceStartup + 1.0 / 15.0;
+            SceneView.RepaintAll();
         }
     }
 }

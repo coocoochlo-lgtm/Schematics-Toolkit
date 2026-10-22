@@ -165,11 +165,64 @@ namespace Remedy.Audio
 
         #region Debug view
 
+#if UNITY_EDITOR
+        private static bool? _showEchoWalls;
+
+        /// <summary>
+        /// Draw every baked echo wall in the Scene view, selected or not (the Sound Spaces window's toggle; kept between
+        /// sessions): a patch facing the way it throws sound back, glowing with how much it's echoing in Play Mode.
+        /// </summary>
+        public static bool ShowEchoWalls
+        {
+            get => _showEchoWalls ??= UnityEditor.EditorPrefs.GetBool("Remedy.Audio.ShowEchoWalls", true);
+            set
+            {
+                _showEchoWalls = value;
+                UnityEditor.EditorPrefs.SetBool("Remedy.Audio.ShowEchoWalls", value);
+            }
+        }
+#endif
+
         private void OnDrawGizmos()
         {
             Gizmos.matrix = transform.localToWorldMatrix;
             Gizmos.color = new Color(0.4f, 0.9f, 1f, 0.5f);
             Gizmos.DrawWireCube(Center, Size);
+#if UNITY_EDITOR
+            if (ShowEchoWalls)
+                DrawEchoWalls();
+#endif
+        }
+
+        // Each baked echo wall as a patch about its size, facing out, like the preview's walls: dim while quiet, glowing
+        // orange (and its line out growing) with how loud the echo off it is right now. Read from the live echo walls,
+        // so it costs nothing extra in the game.
+        private void DrawEchoWalls()
+        {
+            var anchors = Data?.Anchors;
+            if (anchors == null || anchors.Count == 0)
+                return;
+            var spaces = Application.isPlaying ? SoundSpaces.Current : null;
+            var toWorld = transform.localToWorldMatrix;
+            for (int a = 0; a < anchors.Count; a++)
+            {
+                var anchor = anchors[a];
+                var bus = spaces != null ? spaces.EchoBus(this, a) : null;
+                float glow = bus != null ? Mathf.Clamp01(bus.Peak * 4f) : 0f;
+                float side = Mathf.Clamp(Mathf.Sqrt(Mathf.Max(0f, anchor.Area)), 0.5f, 12f);
+                var normal = anchor.Normal.sqrMagnitude > 0.0001f ? anchor.Normal.normalized : Vector3.forward;
+                Gizmos.matrix = toWorld * Matrix4x4.TRS(anchor.Position, Quaternion.LookRotation(normal), new Vector3(side, side, 0.02f));
+                var idle = bus != null ? new Color(1f, 0.8f, 0.35f, 0.18f) : new Color(0.75f, 0.75f, 0.75f, 0.1f);
+                var color = Color.Lerp(idle, new Color(1f, 0.45f, 0.15f, 0.75f), glow);
+                Gizmos.color = color;
+                Gizmos.DrawCube(Vector3.zero, Vector3.one);
+                color.a = Mathf.Min(1f, color.a + 0.35f);
+                Gizmos.color = color;
+                Gizmos.DrawWireCube(Vector3.zero, Vector3.one);
+                Gizmos.matrix = toWorld;
+                Gizmos.DrawLine(anchor.Position, anchor.Position + normal * (0.5f + glow * 4f));
+            }
+            Gizmos.matrix = toWorld;
         }
 
         private void OnDrawGizmosSelected()
