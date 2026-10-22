@@ -1191,10 +1191,19 @@ namespace Remedy.Vehicles
                 uprightDamping = Mathf.Max(uprightDamping, p.SingleTireRecoveryDamping);
                 uprightSupport = 1f;
             }
+            // In-air turning (the air leveling and air control) is applied straight to the body after the torque
+            // guard, not through it: the guard only ever passes a changing assist through backwards (it cancels a
+            // steady one), which flipped the car over in the air and inverted air control. On the ground everything
+            // still goes through the guard as before.
+            Vector3 airAngular = Vector3.zero;
             if (state.UprightBlend > 0f)
             {
-                angular += (UprightError(up, state.UprightNormal, forward) * uprightStrength
+                Vector3 leveling = (UprightError(up, state.UprightNormal, forward) * uprightStrength
                     - rollPitchVelocity * uprightDamping) * (uprightSupport * state.UprightBlend * Mathf.Lerp(1f, state.AirLevelReturn, state.UprightAirBlend));
+                if (airborne)
+                    airAngular += leveling;
+                else
+                    angular += leveling;
                 // The wobble's own motion, so the body follows it instead of the leveling smoothing it away.
                 if (leaning)
                     angular += planeForward * ((whoahAcceleration + state.WhoahLeanSpeed * uprightDamping) * Mathf.Deg2Rad
@@ -1210,13 +1219,13 @@ namespace Remedy.Vehicles
                 // Target Speed forward tips the nose down.
                 if (Mathf.Abs(rollStick) > 0.05f)
                 {
-                    float wantedRoll = rollStick * airGate * p.AirRollRate * Mathf.Deg2Rad;
-                    angular += forward * ((wantedRoll - Vector3.Dot(angularVelocity, forward)) * Mathf.Max(0f, p.AirRollResponse));
+                    float wantedRoll = -rollStick * airGate * p.AirRollRate * Mathf.Deg2Rad;
+                    airAngular += forward * ((wantedRoll - Vector3.Dot(angularVelocity, forward)) * Mathf.Max(0f, p.AirRollResponse));
                 }
                 if (Mathf.Abs(pitchStick) > 0.05f)
                 {
-                    float wantedPitch = -pitchStick * airGate * p.AirPitchRate * Mathf.Deg2Rad;
-                    angular += right * ((wantedPitch - Vector3.Dot(angularVelocity, right)) * Mathf.Max(0f, p.AirPitchResponse));
+                    float wantedPitch = pitchStick * airGate * p.AirPitchRate * Mathf.Deg2Rad;
+                    airAngular += right * ((wantedPitch - Vector3.Dot(angularVelocity, right)) * Mathf.Max(0f, p.AirPitchResponse));
                 }
             }
 
@@ -1353,6 +1362,8 @@ namespace Remedy.Vehicles
             // pushing (tyres, the wall, the guard's leftovers). Applied after the torque guard, so it isn't delayed.
             else if (bounceHeld)
                 HoldBounce(native, p, state, velocity, angularVelocity, groundNormal, forward, rotation, mass, dt);
+            else if (airAngular.sqrMagnitude > 0f)
+                native.ApplyTorque(Torque(airAngular, rotation, state), true);
             state.LastGuardedAngularAcceleration = guardedAngularAcceleration;
             state.LastTireAngularAcceleration = AngularAcceleration(wheelForceTorque, rotation, state);
             state.LastStabilizationAngularAcceleration = AngularAcceleration(stabilizationCompensation, rotation, state);
