@@ -105,7 +105,7 @@ namespace Remedy.Vehicles
         [Tooltip("Force guard: the most spin (rad/s) the car may gain within the window from still things touching it.")]
         public float ForceGuardSpinGain = 6f;
         [Min(0f)]
-        [Tooltip("Ghost stops: losing at least this much speed (m/s) in one physics step against a contact gets checked: a small probe looks through the contact point along the way the car was going, each step for Ghost Stop Check Time. Any step it finds nothing, it was a ghost (a mesh seam, nothing really there) and the car gets its speed back. 0 = off.")]
+        [Tooltip("Ghost stops: losing at least this much speed (m/s) in one physics step against a contact gets checked: a small probe looks Step Height above the contact point (along the car's up), along the way the car was going, each step for Ghost Stop Check Time. Any step it finds nothing, it was a ghost (a mesh seam, nothing really there, or only something low enough to climb) and the car gets its speed back. A contact that's floor (within Tyre Contact Max Angle of the car's up) counts as a ghost straight away. 0 = off.")]
         public float GhostStopDrop = 3f;
         [Min(0f)]
         [Tooltip("How long a sudden stop is checked (seconds); every step must find a surface there for the stop to stand. 0 = off.")]

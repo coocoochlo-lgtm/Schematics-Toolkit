@@ -1994,6 +1994,9 @@ namespace Remedy.Vehicles
         // was going is then checked over Ghost Stop Check Time: each step a small probe goes through that point,
         // along the way the car was going, looking for a surface facing it. Any step without one and it was a ghost:
         // the car gets back the speed and spin it had just before. Found every step, the stop was real and stands.
+        // The probe goes Step Height above the contact (along the car's up): what's only below that (a body corner
+        // catching a slope's start, a low ledge) is for the tyres to climb, not a wall. A contact that's floor (its
+        // push within Tyre Contact Max Angle of the car's up) is a ghost at once, unprobed.
         // (Not during its own moves: bounces, rolls, AllowForces.)
         private static void CheckGhostStop(Body native, Box3DBody ignore, ArcadeCarProperties p, CarState state,
             ref Vector3 velocity, ref Vector3 angularVelocity, Vector3 up, float dt)
@@ -2021,7 +2024,7 @@ namespace Remedy.Vehicles
                 return;
             Vector3 direction = before / beforeSpeed;
             float lost = beforeSpeed - Vector3.Dot(Vector3.ProjectOnPlane(velocity, up), direction);
-            if (lost < p.GhostStopDrop || !FindStopContact(native, direction, out Vector3 point))
+            if (lost < p.GhostStopDrop || !FindStopContact(native, direction, out Vector3 point, out Vector3 push))
                 return;
             state.GhostChecking = true;
             state.GhostTime = 0f;
@@ -2029,7 +2032,8 @@ namespace Remedy.Vehicles
             state.GhostDirection = direction;
             state.GhostBefore = state.GuardVelocity;
             state.GhostBeforeSpin = state.GuardAngularVelocity;
-            if (!ProbeStop(ignore, point, direction, up, p))
+            bool floor = p.TyreContactMaxAngle > 0f && Vector3.Dot(push, up) >= Mathf.Cos(p.TyreContactMaxAngle * Mathf.Deg2Rad);
+            if (floor || !ProbeStop(ignore, point, direction, up, p))
                 RestoreFromGhost(native, state, ref velocity, ref angularVelocity);
         }
 
@@ -2046,9 +2050,10 @@ namespace Remedy.Vehicles
         }
 
         // The contact (within 2 cm) pushing the car hardest against the way it was going, in the world.
-        private static bool FindStopContact(Body body, Vector3 direction, out Vector3 point)
+        private static bool FindStopContact(Body body, Vector3 direction, out Vector3 point, out Vector3 normal)
         {
             point = Vector3.zero;
+            normal = Vector3.zero;
             ulong self = body.Id.ToUInt64();
             float strongest = -1f;
             foreach (var contact in body.GetContacts())
@@ -2069,18 +2074,19 @@ namespace Remedy.Vehicles
                             continue;
                         strongest = contactPoint.TotalNormalImpulse;
                         point = centreA + (Vector3)contactPoint.AnchorA;
+                        normal = push;
                     }
                 }
             }
             return strongest >= 0f;
         }
 
-        // A small probe through where the car was stopped, along the way it was going: is a surface facing it there?
+        // A small probe Step Height above where the car was stopped, along the way it was going: is a surface facing it there?
         private static bool ProbeStop(Box3DBody ignore, Vector3 point, Vector3 direction, Vector3 up, ArcadeCarProperties p)
         {
             var hits = _bounceHits ??= new RaycastHit[16];
             var objects = _bounceObjects ??= new GameObject[16];
-            Vector3 from = point - direction * 0.5f + up * 0.05f;
+            Vector3 from = GhostProbeStart(point, direction, up, p);
             int count = SchematicPhysics.SphereCastAll(from, 0.08f, direction, 0.7f, p.GroundLayers, hits, objects, ignore,
                 includeSensors: false);
             for (int h = 0; h < count; h++)
@@ -2088,6 +2094,9 @@ namespace Remedy.Vehicles
                     return true;
             return false;
         }
+
+        private static Vector3 GhostProbeStart(Vector3 point, Vector3 direction, Vector3 up, ArcadeCarProperties p) =>
+            point - direction * 0.5f + up * (p.StepHeight > 0f ? p.StepHeight + 0.08f : 0.05f);
 
         // Keeps the last Force Guard Window of speed and spin (a ring of steps).
         private static void RecordForceHistory(CarState state, ArcadeCarProperties p, Vector3 velocity, Vector3 angularVelocity, float dt)
@@ -3103,7 +3112,10 @@ namespace Remedy.Vehicles
             {
                 Gizmos.color = state.GhostChecking ? Color.yellow : state.GhostReal ? Color.green : Color.red;
                 Gizmos.DrawWireSphere(state.GhostPoint, 0.15f);
-                Gizmos.DrawRay(state.GhostPoint - state.GhostDirection * 0.5f, state.GhostDirection * 0.7f);
+                Vector3 probe = p != null ? GhostProbeStart(state.GhostPoint, state.GhostDirection, up, p)
+                    : state.GhostPoint - state.GhostDirection * 0.5f;
+                Gizmos.DrawLine(state.GhostPoint, probe + state.GhostDirection * 0.5f);
+                Gizmos.DrawRay(probe, state.GhostDirection * 0.7f);
             }
 
             // Where the last bounce struck (from the tyre casts), for half a second.
