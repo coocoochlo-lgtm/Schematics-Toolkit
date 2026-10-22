@@ -1709,6 +1709,11 @@ namespace Remedy.Vehicles
                 // Takeoff: how fast it's leaving the ground it was on.
                 state.InAirFor = 0f;
                 state.TakeoffLaunch = Mathf.Max(0f, Vector3.Dot(velocity, state.TakeoffNormal));
+                // Faster takeoffs float longer: the hover and hang times are scaled by 1 + Jump Time Speed Factor x
+                // (speed / Max Speed), from the speed it left the ground at.
+                float takeoffSpeed = Vector3.ProjectOnPlane(velocity, state.TakeoffNormal).magnitude;
+                state.JumpTimeScale = 1f + Mathf.Max(0f, p.JumpTimeSpeedFactor)
+                    * Mathf.Clamp01(takeoffSpeed / Mathf.Max(0.1f, p.MaxSpeed));
             }
             state.InAirFor += dt;
 
@@ -1750,14 +1755,16 @@ namespace Remedy.Vehicles
                 state.JumpBoostClock = 1f;
             }
 
-            if (p.MaxHangTime <= 0f || state.InAirFor > p.MaxHangTime)
+            float maxHangTime = p.MaxHangTime * state.JumpTimeScale;
+            float hoverTime = p.HoverTime * state.JumpTimeScale;
+            if (maxHangTime <= 0f || state.InAirFor > maxHangTime)
                 return;
             float rising = Vector3.Dot(velocity, worldUp);
 
             // The hover: reaching the peak (after the lift), it hangs there for Hover Time at Hover Gravity.
-            if (!lifting && state.HoverClock < 0f && rising <= 0f && p.HoverTime > 0f)
+            if (!lifting && state.HoverClock < 0f && rising <= 0f && hoverTime > 0f)
                 state.HoverClock = 0f;
-            if (state.HoverClock >= 0f && state.HoverClock < p.HoverTime)
+            if (state.HoverClock >= 0f && state.HoverClock < hoverTime)
             {
                 state.HoverClock += dt;
                 body.ApplyForceToCenter((float3)(gravity * ((Mathf.Clamp01(p.HoverGravity) - 1f) * mass)), true);
@@ -1769,7 +1776,7 @@ namespace Remedy.Vehicles
             float scale = rising >= 0f
                 ? Mathf.Lerp(1f, p.HangGravity, nearPeak)
                 : Mathf.Lerp(p.FallGravity, p.HangGravity, nearPeak);
-            float fade = Mathf.Clamp01((p.MaxHangTime - state.InAirFor) / Mathf.Max(0.01f, p.MaxHangTime * 0.2f));
+            float fade = Mathf.Clamp01((maxHangTime - state.InAirFor) / Mathf.Max(0.01f, maxHangTime * 0.2f));
             scale = Mathf.Lerp(1f, scale, fade);
             // (Gravity itself still pulls; this adds the difference.)
             body.ApplyForceToCenter((float3)(gravity * ((scale - 1f) * mass)), true);
@@ -2606,6 +2613,7 @@ namespace Remedy.Vehicles
         public float AirLevelReturn = 1f;
         public float InAirFor = -1f, TakeoffLaunch;
         public float JumpBoostTotal, JumpBoostClock, HoverClock = -1f;
+        public float JumpTimeScale = 1f;
         public Vector3 TakeoffNormal = Vector3.up;
         public Vector3 BounceTargetVelocity;
         public Vector3 BounceBefore, BounceApproach;

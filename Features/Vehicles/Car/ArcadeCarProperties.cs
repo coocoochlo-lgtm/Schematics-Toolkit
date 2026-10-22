@@ -442,6 +442,9 @@ namespace Remedy.Vehicles
         [Range(0f, 1f)]
         [Tooltip("Gravity during the hover (a fraction of normal): 0 = it hangs still, higher = it starts sinking.")]
         public float HoverGravity = 0.05f;
+        [Min(0f)]
+        [Tooltip("Faster jumps float longer: Hover Time and Max Hang Time are multiplied by 1 + this x (takeoff speed / Max Speed). 1 = twice as long at top speed; 0 = the same at any speed.")]
+        public float JumpTimeSpeedFactor = 1f;
         [Range(0f, 1f)]
         [Tooltip("Gravity around the peak of a jump (a fraction of normal): low = a long float at the top.")]
         public float HangGravity = 0.4f;
