@@ -131,8 +131,8 @@ namespace Remedy.Vehicles
 
         #region Signals
 
-        [SchematicDoc(@"{""name"": ""Target Speed"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""input"", ""params"": [{""name"": ""Speed"", ""type"": ""float""}], ""description"": ""Desired signed speed as a fraction of the car's maximum in that direction: -1 is maximum reverse, 1 is maximum forward, and 0 targets a stop. The car accelerates or brakes to approach it; when changing direction it brakes until current speed is within 20% of its current direction's maximum, then accelerates the other way. Values are clamped to -1..1 and hold until changed."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock), e.g. from an input or an AI graph.""}")]
-        [Tooltip("Desired signed speed: -1 is maximum reverse, 1 is maximum forward, 0 targets a stop. The car accelerates or brakes to approach it; it brakes before reversing until within 20% of the current direction's maximum speed. Clamped to -1..1.")]
+        [SchematicDoc(@"{""name"": ""Target Speed"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""input"", ""params"": [{""name"": ""Speed"", ""type"": ""float""}], ""description"": ""Desired signed speed as a fraction of the car's maximum in that direction: 1 is full speed forward, -1 is braking and then full reverse, and 0 (nothing held) does nothing: no engine, no brakes, the car just rolls. It drives up to a positive target and never brakes down to one (past it the engine stops and the car coasts). A negative one brakes, harder the further it's pushed, while the car still rolls forward, then reverses once it's stopped. Values are clamped to -1..1 and hold until changed."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock), e.g. from an input or an AI graph.""}")]
+        [Tooltip("Desired signed speed: 1 is full speed forward, -1 brakes then reverses, 0 (nothing held) does nothing (the car rolls). It never brakes down to a positive target, it coasts. Clamped to -1..1.")]
         [InputSignal, NetworkSync(SignalSender.OwnerToAuthority)]
         [Parameter("Speed", typeof(float))]
         public readonly SignalHandle<float> TargetSpeed;
@@ -344,7 +344,10 @@ namespace Remedy.Vehicles
 
         /// <summary>How many times a second the owner sends its Driver Inputs (as the input Signals) to everyone else.</summary>
         public const float InputSendRate = 15f;
-        private const float DirectionChangeBrakeThreshold = 0.2f;
+        // A Target Speed this close to 0 is nothing held: no drive, no brake.
+        private const float TargetSpeedDeadZone = 0.01f;
+        // A negative Target Speed brakes while the car rolls forward faster than this (m/s), then reverses.
+        private const float ReverseBrakeSpeed = 0.5f;
 
         // The owner mirrors its inputs to everyone else, at most InputSendRate times a second and only when they change,
         // through the (networked) input Signals: proxies show the steering, and the authority has them if it takes over.
@@ -598,25 +601,22 @@ namespace Remedy.Vehicles
             float driftThrottle = throttle;
             if (active && state.UseTargetSpeed)
             {
+                // Target Speed is how fast to go, as a fraction of top speed. It drives up to a positive target and
+                // never brakes down to one: past it (or with nothing held, 0) the engine just stops and the car rolls
+                // on. Only a negative target brakes, while the car still rolls forward; stopped, it reverses up to it.
                 float targetSpeed = effectiveTargetSpeed;
-                float inverseForwardLimit = 1f / Mathf.Max(0.1f, topSpeed);
-                float inverseReverseLimit = 1f / Mathf.Max(0.1f, p.MaxReverseSpeed);
-                float normalizedSpeed = forwardSpeed >= 0f
-                    ? forwardSpeed * inverseForwardLimit
-                    : forwardSpeed * inverseReverseLimit;
-                float speedError;
-                bool changingDirection = targetSpeed != 0f && normalizedSpeed * targetSpeed < 0f;
-                if (changingDirection && Mathf.Abs(normalizedSpeed) > DirectionChangeBrakeThreshold)
+                float forwardFraction = forwardSpeed / Mathf.Max(0.1f, topSpeed);
+                float reverseFraction = -forwardSpeed / Mathf.Max(0.1f, p.MaxReverseSpeed);
+                float targetDrive = 0f, targetBrake = 0f;
+                if (targetSpeed > TargetSpeedDeadZone)
+                    targetDrive = Mathf.Clamp01(targetSpeed - forwardFraction);
+                else if (targetSpeed < -TargetSpeedDeadZone)
                 {
-                    speedError = -1f;
+                    if (forwardSpeed > ReverseBrakeSpeed)
+                        targetBrake = Mathf.Clamp01(-targetSpeed);
+                    else
+                        targetDrive = Mathf.Clamp01(-targetSpeed - reverseFraction);
                 }
-                else
-                {
-                    speedError = Mathf.Abs(targetSpeed) - Mathf.Abs(normalizedSpeed);
-                }
-
-                float targetDrive = Mathf.Clamp01(speedError);
-                float targetBrake = Mathf.Clamp01(-speedError);
                 if (brakeInput > 0.01f)
                 {
                     targetDrive = 0f;
