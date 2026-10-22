@@ -427,6 +427,15 @@ namespace Remedy.Vehicles
         [Min(0f)]
         [Tooltip("The most boost (m/s), so fast cars don't go to orbit.")]
         public float JumpBoostMax = 5f;
+        [Min(0f)]
+        [Tooltip("How long the boost takes to lift the car (seconds), easing in and out. 0 = all at once.")]
+        public float JumpBoostTime = 0.25f;
+        [Min(0f)]
+        [Tooltip("At the peak of a jump, how long it hovers there (seconds). 0 = no hover.")]
+        public float HoverTime = 0.35f;
+        [Range(0f, 1f)]
+        [Tooltip("Gravity during the hover (a fraction of normal): 0 = it hangs still, higher = it starts sinking.")]
+        public float HoverGravity = 0.05f;
         [Range(0f, 1f)]
         [Tooltip("Gravity around the peak of a jump (a fraction of normal): low = a long float at the top.")]
         public float HangGravity = 0.4f;

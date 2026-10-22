@@ -1524,8 +1524,9 @@ namespace Remedy.Vehicles
         // Jumps: leaving the ground is noted at takeoff (how fast it went away from the ground it was on); once it's
         // been up Jump Min Air Time, it's a jump if it launched at Jump Min Launch Speed or more (a ramp, a crest), or
         // the ground has dropped well away (a ledge); a bump is neither. A launch gets a boost (more on a slow car than
-        // its speed alone would give), and the whole jump hangs: gravity eases off around the peak (Hang Gravity),
-        // and on the way down it's Fall Gravity, for a float and then a snappy landing. Max Hang Time ends the float.
+        // its speed alone would give), lifted over Jump Boost Time; at the peak it hovers for Hover Time; around it
+        // gravity eases off (Hang Gravity), and on the way down it's Fall Gravity, for a float and then a snappy
+        // landing. Max Hang Time ends the float.
         private void UpdateJump(BehaviorInstance instance, Body body, ArcadeCarProperties p, CarState state,
             Vector3 velocity, Vector3 gravity, int touching, float clearance, float mass, float dt)
         {
@@ -1557,20 +1558,51 @@ namespace Remedy.Vehicles
                 {
                     state.Jumping = true;
                     IsJumping.Value = true;
-                    if (launched && (p.JumpBoost > 0f || p.JumpBoostScale > 0f))
-                    {
-                        float boost = Mathf.Min(p.JumpBoost + state.TakeoffLaunch * p.JumpBoostScale, p.JumpBoostMax);
-                        body.SetLinearVelocity((float3)(velocity + worldUp * boost));
-                        velocity += worldUp * boost;
-                    }
+                    // The boost is spread over Jump Boost Time (a lift, easing in and out), not added at once.
+                    state.JumpBoostTotal = launched
+                        ? Mathf.Min(p.JumpBoost + state.TakeoffLaunch * p.JumpBoostScale, p.JumpBoostMax)
+                        : 0f;
+                    state.JumpBoostClock = 0f;
+                    state.HoverClock = -1f;
                     OnJump.Invoke(instance, launched ? state.TakeoffLaunch : 0f);
                 }
             }
-            if (!state.Jumping || p.MaxHangTime <= 0f || state.InAirFor > p.MaxHangTime)
+            if (!state.Jumping)
                 return;
 
-            // The hang: how close it is to the peak (upward speed near 0), and how it eases back at the end.
+            // The boost's lift: a sine-shaped push over Jump Boost Time that adds up to the whole boost.
+            bool lifting = false;
+            if (state.JumpBoostTotal > 0f && state.JumpBoostClock < p.JumpBoostTime)
+            {
+                float time = Mathf.Max(0.01f, p.JumpBoostTime);
+                float lift = state.JumpBoostTotal * Mathf.PI / (2f * time) * Mathf.Sin(Mathf.PI * state.JumpBoostClock / time);
+                body.ApplyForceToCenter((float3)(worldUp * (lift * mass)), true);
+                state.JumpBoostClock += dt;
+                lifting = true;
+            }
+            else if (state.JumpBoostTotal > 0f && p.JumpBoostTime <= 0f && state.JumpBoostClock <= 0f)
+            {
+                // No lift time: all at once.
+                body.SetLinearVelocity((float3)(velocity + worldUp * state.JumpBoostTotal));
+                velocity += worldUp * state.JumpBoostTotal;
+                state.JumpBoostClock = 1f;
+            }
+
+            if (p.MaxHangTime <= 0f || state.InAirFor > p.MaxHangTime)
+                return;
             float rising = Vector3.Dot(velocity, worldUp);
+
+            // The hover: reaching the peak (after the lift), it hangs there for Hover Time at Hover Gravity.
+            if (!lifting && state.HoverClock < 0f && rising <= 0f && p.HoverTime > 0f)
+                state.HoverClock = 0f;
+            if (state.HoverClock >= 0f && state.HoverClock < p.HoverTime)
+            {
+                state.HoverClock += dt;
+                body.ApplyForceToCenter((float3)(gravity * ((Mathf.Clamp01(p.HoverGravity) - 1f) * mass)), true);
+                return;
+            }
+
+            // The hang: how close it is to the peak (upward speed near 0), and how it eases back at the end.
             float nearPeak = 1f - Mathf.Clamp01(Mathf.Abs(rising) / Mathf.Max(0.1f, p.PeakFloatWindow));
             float scale = rising >= 0f
                 ? Mathf.Lerp(1f, p.HangGravity, nearPeak)
@@ -2397,6 +2429,7 @@ namespace Remedy.Vehicles
         public bool AirThrottleOpen;
         public bool Jumping;
         public float InAirFor = -1f, TakeoffLaunch;
+        public float JumpBoostTotal, JumpBoostClock, HoverClock = -1f;
         public Vector3 TakeoffNormal = Vector3.up;
         public Vector3 BounceTargetVelocity;
         public float BounceGrip = 1f;
