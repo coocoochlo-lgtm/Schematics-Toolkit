@@ -808,6 +808,8 @@ namespace Remedy.Vehicles
             // but can't trip it.
             float sideForceHeight = Mathf.Lerp(p.SideForceHeight, 1f, rolloverRisk * Mathf.Clamp01(p.RolloverGripLift));
             float loadLeft = 0f, loadRight = 0f;
+            // Tyres actually on the ground (in reach, not just seen by the long casts): none, and the car's in the air.
+            int touching = 0;
             float virtualGroundWeight = grounded > 0 ? Mathf.Clamp01((float)grounded / Mathf.Max(1f, wheelCount)) : 0f;
 
             for (int i = 0; i < wheels.Length; i++)
@@ -886,6 +888,8 @@ namespace Remedy.Vehicles
                 // Only the ground a tyre reaches pushes (see "READ THIS" above): a hit further down the cast is
                 // detection only, and puts no force on the car.
                 float forceWeight = contactDistance <= placementDistance ? w.ContactForceWeight : 0f;
+                if (actualGrounded && w.GroundHit.distance <= placementDistance)
+                    touching++;
                 Vector3 contactPoint = actualGrounded ? w.GroundHit.point : origin - suspensionUp * contactDistance;
                 w.Point = contactPoint;
                 w.Normal = normal;
@@ -1012,7 +1016,11 @@ namespace Remedy.Vehicles
             float supportFactor = Mathf.InverseLerp(0.25f, 0.75f, supportFraction);
             // (Never below Upright Support Floor on the ground: the leveling used to let go just as the car tipped.)
             float stabilizationFactor = isGrounded ? Mathf.Max(supportFactor, Mathf.Clamp01(p.UprightSupportFloor)) : 0f;
-            bool airborne = !isGrounded && IsAirborne(body, centerOfMass, worldUp, p);
+            // In the air: no tyre on the ground. (Not "no cast sees ground": the casts reach far past the tyres on
+            // purpose, so they still saw it under a jumping car, which never counted as flying, and the air tilt
+            // never ran.) Tipped far over, it's only flying with open space under it, not lying on its roof or side.
+            bool airborne = touching == 0
+                && (Vector3.Angle(up, worldUp) < 60f || IsAirborne(body, centerOfMass, worldUp, p));
             bool groundLeveling = (isGrounded && (p.StabilizeStrength > 0f || p.StabilizeDamping > 0f))
                 || singleTireRecovery;
             bool airLeveling = airborne && (p.AirLevelStrength > 0f || p.AirLevelDamping > 0f);
