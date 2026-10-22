@@ -879,9 +879,10 @@ namespace Remedy.Vehicles
                     w.Sidewall = true;
                     w.Grounded = false;
                 }
-                // Only hits count at once: a tyre that had ground and whose cast suddenly finds nothing keeps its last
-                // ground for up to Ground Hold Time, so one stray miss doesn't drop it. (Not a sidewall or a ceiling:
-                // those are real answers, and a car on its side or roof lets go straight away.) It keeps the ground's
+                // Only hits count at once: a tyre that had ground and whose cast suddenly finds nothing, or reads it as a
+                // sidewall or a ceiling (a sphere catching a mesh's seam or edge reports a sideways normal for a step),
+                // keeps its last ground for up to Ground Hold Time, so a stray reading doesn't drop it. A car really on
+                // its side or roof isn't held: its held ground no longer faces it (below). It keeps the ground's
                 // surface, not the old hit: each held step the distance is measured again from where the tyre is now
                 // to that surface, so the spring and the tyre's reach follow the car (a frozen distance kept pushing
                 // as if still pressed into the ground, and a long hold stopped the car settling). Ground further than
@@ -901,11 +902,13 @@ namespace Remedy.Vehicles
                     w.MissTime = 0f;
                     UpdateWheelSurface(ref w, groundObject, i, instance.GameObject);
                 }
-                else if (w.HasLastGroundHit && !w.Sidewall && !ceiling && w.MissTime + dt <= p.GroundHoldTime)
+                else if (w.HasLastGroundHit && w.MissTime + dt <= p.GroundHoldTime)
                 {
-                    Vector3 heldNormal = w.LastGroundHit.normal;
+                    Vector3 heldNormal = w.LastGroundHit.normal.normalized;
                     float facing = Vector3.Dot(up, heldNormal);
-                    float heldDistance = facing > 0.1f
+                    // Held only while that ground still faces the car as a tyre's ground should (within Tyre Contact
+                    // Max Angle): tipped onto its side or roof, it lets go at once.
+                    float heldDistance = facing >= Mathf.Max(0.1f, tyreContactCos)
                         ? Vector3.Dot(origin - w.LastGroundHit.point, heldNormal) / facing
                         : float.MaxValue;
                     if (heldDistance >= 0f && heldDistance <= tyreDrop + tireRadius + beyond)
