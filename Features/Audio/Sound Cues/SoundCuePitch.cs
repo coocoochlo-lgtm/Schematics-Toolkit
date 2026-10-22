@@ -181,8 +181,8 @@ namespace Remedy.Audio
         }
 
         // Two read heads sweep through a short delay line at the new speed, each faded in and out (a Hann window) half
-        // a sweep apart, so one is always fading in as the other jumps back.
-        private sealed class Processor : SoundProcessor
+        // a sweep apart, so one is always fading in as the other jumps back. (Set Pitch uses it too.)
+        internal sealed class Processor : SoundProcessor
         {
             public float[] In, Pitch, Semitones, Mix, Line;
             public int Window;
@@ -310,6 +310,210 @@ namespace Remedy.Audio
                     o[i] = x * (1f - mix) + shifted * mix;
                 }
             }
+        }
+    }
+
+    [SchematicDoc(@"{""name"": ""Set Pitch"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Effects"", ""description"": ""Puts a sound at a pitch, rather than shifting it by an amount: tell it the pitch the sound is at (Root, in Hz, or Root Note like A3; Detect Root on the node works it out from the Sound Wave feeding it) and the pitch you want (Target, in Hz, or Target Note), and it shifts by the difference. Out: the Audio at the Target pitch, at the same speed (like Pitch Shift). Time: a playback Time running at the ratio, for a Sound Wave's or Generator's Time (faster and higher together, like a tape; often best for engines). Ratio: Target / Root. Only the outputs something reads do any work."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Target"", ""type"": ""float""}, {""name"": ""Mix"", ""type"": ""float""}], ""outputs"": [{""name"": ""Out"", ""type"": ""audio""}, {""name"": ""Time"", ""type"": ""float""}, {""name"": ""Ratio"", ""type"": ""float""}], ""use_for"": [""an engine at the pitch its RPM gives (RPM / 60 x cylinders / 2 Hz into Target)"", ""tuning a sample to a note"", ""melodies from one recorded note""]}")]
+    [Serializable]
+    [Node(Name = "Set Pitch", Path = "Effects"), Tags(SoundNode.Tag)]
+    public class SoundSetPitchNode : SoundNode
+    {
+        [Input("Audio", Editable = false)] public float AudioIn;
+        [Input("Target", Editable = true)] public float Target = 440f;
+        [Input("Mix", Editable = true)] public float Mix = 1f;
+        [Editable, Tooltip("The pitch the sound is at, in Hz (Detect Root on the node can work it out).")]
+        public float Root = 440f;
+        [Editable, Tooltip("The pitch the sound is at as a note (A3, C#4, Eb2...): used instead of Root when set.")]
+        public string RootNote = "";
+        [Editable, Tooltip("The pitch to put it at as a note: used instead of Target when nothing's wired into Target.")]
+        public string TargetNote = "";
+        [Editable, Tooltip("For Out: how long each slice is, in milliseconds (short: tighter for drums and hits; long: smoother for tones).")]
+        public float Window = 60f;
+        [Output("Out")] public float Out;
+        [Output("Time")] public float Time;
+        [Output("Ratio")] public float Ratio;
+
+        /// <summary>A note's pitch in Hz (A4 = 440), or NaN when it isn't one ("A3", "C#4", "Eb2", "G-1").</summary>
+        public static float NoteToHz(string note)
+        {
+            note = (note ?? "").Trim();
+            if (note.Length < 2)
+                return float.NaN;
+            int letter = "C D EF G A B".IndexOf(char.ToUpperInvariant(note[0]));
+            if (letter < 0 || note[0] == ' ')
+                return float.NaN;
+            int at = 1;
+            if (note[at] == '#') { letter++; at++; }
+            else if (note[at] == 'b') { letter--; at++; }
+            if (!int.TryParse(note.Substring(at), System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture, out int octave))
+                return float.NaN;
+            int midi = 12 * (octave + 1) + letter;
+            return 440f * Mathf.Pow(2f, (midi - 69) / 12f);
+        }
+
+        /// <summary>The nearest note to a pitch ("A4"), for showing a detected Root.</summary>
+        public static string HzToNote(float hz)
+        {
+            if (!(hz > 0f))
+                return "";
+            int midi = Mathf.RoundToInt(69f + 12f * Mathf.Log(hz / 440f, 2f));
+            string[] names = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+            return names[((midi % 12) + 12) % 12] + (Mathf.FloorToInt(midi / 12f) - 1);
+        }
+
+        public override SoundProcessor CreateProcessor(SoundCueBuilder builder)
+        {
+            float root = NoteToHz(RootNote);
+            if (float.IsNaN(root))
+                root = Root;
+            float target = NoteToHz(TargetNote);
+            bool targetWired = builder.IsConnected(this, "Target");
+            if (targetWired || float.IsNaN(target))
+                target = Target;
+            if (!(root > 0f))
+                builder.Warnings.Add($"\"{Name}\" needs a Root above 0 Hz (the pitch the sound is at).");
+            int window = Mathf.Max(32, (int)(Mathf.Clamp(Window, 5f, 250f) * 0.001f * builder.SampleRate));
+            var processor = new Processor
+            {
+                Target = builder.Input(this, "Target", target),
+                Root = Mathf.Max(0.001f, root),
+                Shift = new SoundPitchShiftNode.Processor
+                {
+                    In = builder.Input(this, "Audio", 0f),
+                    Semitones = builder.Constant(0f),
+                    Mix = builder.Input(this, "Mix", Mix),
+                    Window = window,
+                    Line = new float[window + 8],
+                },
+            };
+            processor.Shift.Pitch = processor.Output("Ratio");
+            return processor;
+        }
+
+        private sealed class Processor : SoundProcessor
+        {
+            public float[] Target;
+            public float Root;
+            public SoundPitchShiftNode.Processor Shift;
+            private double _time;
+            private bool _started;
+
+            public override void Reset(SoundContext context)
+            {
+                _started = false;
+                Shift.Reset(context);
+            }
+
+            public override void Process(SoundContext context, int count)
+            {
+                var ratio = Output("Ratio");
+                float inverse = 1f / Root;
+                for (int i = 0; i < count; i++)
+                    ratio[i] = Target[i] * inverse;
+                // Out: only when something reads it (the pitch shift is the costly part).
+                if (Outputs.TryGetValue("Out", out var shifted))
+                {
+                    Shift.Outputs["Out"] = shifted;
+                    Shift.Process(context, count);
+                }
+                // Time: built up a sample at a time at the ratio (a Varispeed), so a changing Target never jumps.
+                if (Outputs.TryGetValue("Time", out var time))
+                {
+                    double step = 1.0 / context.SampleRate;
+                    if (!_started)
+                    {
+                        _time = context.SamplePosition * step;
+                        _started = true;
+                    }
+                    for (int i = 0; i < count; i++)
+                    {
+                        time[i] = (float)_time;
+                        float r = ratio[i];
+                        if (!float.IsNaN(r) && !float.IsInfinity(r))
+                            _time += r * step;
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>Works out the pitch a sound is at (its fundamental), for Set Pitch's Detect Root.</summary>
+    public static class PitchDetector
+    {
+        /// <summary>
+        /// The fundamental of the loudest stretch of <paramref name="samples"/> (up to about a second of it), in Hz,
+        /// between 30 and 2000 Hz; 0 when there's no clear pitch (noise, silence). A difference function with the
+        /// cumulative-mean normalisation of YIN, and the first dip under a threshold.
+        /// </summary>
+        public static float Estimate(float[] samples, int sampleRate)
+        {
+            if (samples == null || samples.Length < 256 || sampleRate <= 0)
+                return 0f;
+            int window = Mathf.Min(samples.Length / 2, Mathf.Min(sampleRate / 2, 16384));
+            int maxLag = Mathf.Min(window - 1, sampleRate / 30), minLag = Mathf.Max(2, sampleRate / 2000);
+            if (maxLag <= minLag + 2)
+                return 0f;
+            // The loudest window (in steps of a quarter window).
+            int start = 0;
+            double loudest = -1.0;
+            for (int at = 0; at + window + maxLag < samples.Length; at += Mathf.Max(1, window / 4))
+            {
+                double energy = 0.0;
+                for (int i = at; i < at + window; i += 4)
+                    energy += samples[i] * samples[i];
+                if (energy > loudest)
+                {
+                    loudest = energy;
+                    start = at;
+                }
+            }
+            int length = Mathf.Min(window, samples.Length - start - maxLag - 1);
+            if (length < 128)
+                return 0f;
+            var d = new float[maxLag + 2];
+            for (int lag = 1; lag <= maxLag + 1; lag++)
+            {
+                double sum = 0.0;
+                for (int i = start; i < start + length; i++)
+                {
+                    double diff = samples[i] - samples[i + lag];
+                    sum += diff * diff;
+                }
+                d[lag] = (float)sum;
+            }
+            double running = 0.0;
+            var normalised = new float[maxLag + 2];
+            normalised[0] = 1f;
+            for (int lag = 1; lag <= maxLag + 1; lag++)
+            {
+                running += d[lag];
+                normalised[lag] = running > 0.0 ? (float)(d[lag] * lag / running) : 1f;
+            }
+            int best = -1;
+            for (int lag = minLag; lag <= maxLag; lag++)
+            {
+                if (normalised[lag] < 0.15f)
+                {
+                    while (lag + 1 <= maxLag && normalised[lag + 1] < normalised[lag])
+                        lag++;
+                    best = lag;
+                    break;
+                }
+            }
+            if (best < 0)
+            {
+                // No clear dip: the deepest one, if it's deep enough.
+                float lowest = 1f;
+                for (int lag = minLag; lag <= maxLag; lag++)
+                    if (normalised[lag] < lowest) { lowest = normalised[lag]; best = lag; }
+                if (lowest > 0.4f)
+                    return 0f;
+            }
+            // Between samples: a parabola through the dip and its neighbours.
+            float a = normalised[best - 1], b = normalised[best], c = normalised[best + 1];
+            float denominator = a - 2f * b + c;
+            float offset = Mathf.Abs(denominator) > 1e-9f ? Mathf.Clamp(0.5f * (a - c) / denominator, -1f, 1f) : 0f;
+            return sampleRate / (best + offset);
         }
     }
 }

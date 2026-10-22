@@ -1,6 +1,8 @@
 using BlueGraph;
 using BlueGraph.Editor;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using UnityEditor;
 using UnityEditor.UIElements;
@@ -155,6 +157,84 @@ namespace Remedy.Audio
                 EditorUtility.SetDirty(graph);
             var canvas = Canvas;
             canvas?.schedule.Execute(canvas.Reload);
+        }
+    }
+
+    /// <summary>
+    /// The Set Pitch node: Detect Root works out the pitch of the Sound Wave feeding it (into Audio, however far back,
+    /// or the one its Time drives) and sets Root to it.
+    /// </summary>
+    [CustomNodeView(typeof(SoundSetPitchNode))]
+    public class SoundSetPitchNodeView : NodeView
+    {
+        private Label _result;
+
+        private SoundSetPitchNode SetPitch => (SoundSetPitchNode)Target;
+
+        protected override void OnInitialize()
+        {
+            base.OnInitialize();
+            var row = new VisualElement { style = { flexDirection = FlexDirection.Row, paddingLeft = 4, paddingRight = 4, paddingTop = 2 } };
+            var detect = new Button(Detect) { text = "Detect Root", tooltip = "Work out the pitch of the Sound Wave feeding this (into Audio, or driven by Time) and set Root to it." };
+            row.Add(detect);
+            _result = new Label { style = { unityTextAlign = TextAnchor.MiddleLeft, marginLeft = 4 } };
+            row.Add(_result);
+            extensionContainer.Add(row);
+            RefreshExpandedState();
+        }
+
+        private void Detect()
+        {
+            var wave = FindWave();
+            if (wave == null || wave.Clip == null)
+            {
+                _result.text = "No Sound Wave with a clip feeds it.";
+                return;
+            }
+            var clip = SoundClipCache.Get(wave.Clip);
+            float hz = clip != null ? PitchDetector.Estimate(clip.Samples, clip.Frequency) : 0f;
+            if (!(hz > 0f))
+            {
+                _result.text = "No clear pitch in it.";
+                return;
+            }
+            var graph = SetPitch.Graph;
+            if (graph != null)
+                Undo.RegisterCompleteObjectUndo(graph, "Set Pitch: Detect Root");
+            SetPitch.Root = Mathf.Round(hz * 100f) / 100f;
+            SetPitch.RootNote = "";
+            if (graph != null)
+                EditorUtility.SetDirty(graph);
+            _result.text = $"{SetPitch.Root:0.##} Hz (about {SoundSetPitchNode.HzToNote(hz)})";
+            ReloadEditables();
+            OnPropertyChange();
+        }
+
+        // The Sound Wave upstream of Audio (nearest first), else one the Time output drives.
+        private SoundWaveNode FindWave()
+        {
+            var seen = new HashSet<Node> { SetPitch };
+            var waiting = new Queue<Node>();
+            foreach (var source in SetPitch.GetPort("Audio")?.ConnectedPorts ?? Enumerable.Empty<Port>())
+                if (source?.Node != null)
+                    waiting.Enqueue(source.Node);
+            while (waiting.Count > 0)
+            {
+                var node = waiting.Dequeue();
+                if (!seen.Add(node))
+                    continue;
+                if (node is SoundWaveNode found)
+                    return found;
+                foreach (var port in node.Ports.Values)
+                    if (port.Direction == PortDirection.Input)
+                        foreach (var source in port.ConnectedPorts)
+                            if (source?.Node != null)
+                                waiting.Enqueue(source.Node);
+            }
+            foreach (var reader in SetPitch.GetPort("Time")?.ConnectedPorts ?? Enumerable.Empty<Port>())
+                if (reader?.Node is SoundWaveNode driven)
+                    return driven;
+            return null;
         }
     }
 }
