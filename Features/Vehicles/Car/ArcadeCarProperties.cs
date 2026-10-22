@@ -409,6 +409,37 @@ namespace Remedy.Vehicles
         [Tooltip("Damps the roll while saving, so it lands on its wheels instead of bouncing over the other way. Lower = bouncier.")]
         public float RollSaveDamping = 3f;
 
+        [Header("Jumps")]
+        [Min(0f)]
+        [Tooltip("Leaving the ground at least this fast (m/s, away from the ground it was on) is a jump: a ramp or a crest. Slower is a bump. 0 = launches never count.")]
+        public float JumpMinLaunchSpeed = 2f;
+        [Tooltip("Driving off a ledge (the ground dropping well away under the tyres) is a jump too, with the hang but no boost.")]
+        public bool LedgeJumps = true;
+        [Min(0f)]
+        [Tooltip("How long it must be in the air before it counts (seconds), so bumps and skips don't.")]
+        public float JumpMinAirTime = 0.12f;
+        [Min(0f)]
+        [Tooltip("Extra upward speed a launched jump gets (m/s), whatever the speed: small ramps still pop on a slow car.")]
+        public float JumpBoost = 1.5f;
+        [Min(0f)]
+        [Tooltip("More boost per m/s it launched at.")]
+        public float JumpBoostScale = 0.4f;
+        [Min(0f)]
+        [Tooltip("The most boost (m/s), so fast cars don't go to orbit.")]
+        public float JumpBoostMax = 5f;
+        [Range(0f, 1f)]
+        [Tooltip("Gravity around the peak of a jump (a fraction of normal): low = a long float at the top.")]
+        public float HangGravity = 0.4f;
+        [Min(0.1f)]
+        [Tooltip("How close to the peak the float is (m/s of upward or downward speed): wider = floatier for longer.")]
+        public float PeakFloatWindow = 4f;
+        [Min(0f)]
+        [Tooltip("Gravity on the way down, after the float (1 = normal, above 1 = a snappier landing).")]
+        public float FallGravity = 1.2f;
+        [Min(0f)]
+        [Tooltip("The float ends after this long in the air (seconds), easing back to normal gravity. 0 = no float.")]
+        public float MaxHangTime = 2.5f;
+
         [Header("Bounce")]
         [Min(0f)]
         [Tooltip("Hitting a wall or another car at least this fast (m/s, into it) bounces the car off: it keeps its slide along the wall instead of grinding. 0 = off.")]

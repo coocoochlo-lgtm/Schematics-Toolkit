@@ -32,7 +32,7 @@ namespace Remedy.Vehicles
     /// player (proxies
     /// also update Is Drifting, Drift Level, Is Boosting and Is Flipped from them).
     /// </remarks>
-    [SchematicDoc(@"{""name"": ""Arcade Car"", ""kind"": ""behavior"", ""menu"": ""Vehicles/Arcade Car"", ""description"": ""An arcade car on a real Box3D body: NFS Underground / Mario Kart handling (drifts, mini-turbos, a car that wants to stay on its wheels) while crashes and rollovers are still physics. Tire-sized sphere probes; everything tunable in its Properties asset."", ""variables"": [""Properties"", ""Wheels"", ""AlwaysActive"", ""ParkWhenEmpty"", ""DriverInputs"", ""PlayerDriverOnly"", ""Speed"", ""ForwardSpeed"", ""IsGrounded"", ""GroundedWheels"", ""IsDrifting"", ""DriftAngle"", ""DriftCharge"", ""DriftLevel"", ""IsBoosting"", ""IsFlipped"", ""AirTime"", ""RollSave"", ""LoadTransfer"", ""BodyVisual""], ""signals"": [""Target Speed"", ""Brake"", ""Steer"", ""Drive"", ""Handbrake"", ""Boost"", ""Unflip"", ""OnDriftStarted"", ""OnDriftEnded"", ""OnDriftLevel"", ""OnBoost"", ""OnLanded"", ""OnFlipped"", ""OnRighted"", ""OnCrash"", ""OnBounce""], ""use_for"": [""drivable cars and karts"", ""racing games"", ""AI traffic""], ""notes"": ""Needs a Box3D Body and a shape (added for you). Add Vehicle Seats so it only drives with a driver. Multiplayer: the driver owns and simulates the car; its input Signals are networked from the owner, and drift/boost/flip/crash Signals reach every player for effects.""}")]
+    [SchematicDoc(@"{""name"": ""Arcade Car"", ""kind"": ""behavior"", ""menu"": ""Vehicles/Arcade Car"", ""description"": ""An arcade car on a real Box3D body: NFS Underground / Mario Kart handling (drifts, mini-turbos, a car that wants to stay on its wheels) while crashes and rollovers are still physics. Tire-sized sphere probes; everything tunable in its Properties asset."", ""variables"": [""Properties"", ""Wheels"", ""AlwaysActive"", ""ParkWhenEmpty"", ""DriverInputs"", ""PlayerDriverOnly"", ""Speed"", ""ForwardSpeed"", ""IsGrounded"", ""GroundedWheels"", ""IsDrifting"", ""DriftAngle"", ""DriftCharge"", ""DriftLevel"", ""IsBoosting"", ""IsFlipped"", ""AirTime"", ""RollSave"", ""LoadTransfer"", ""BodyVisual"", ""IsJumping""], ""signals"": [""Target Speed"", ""Brake"", ""Steer"", ""Drive"", ""Handbrake"", ""Boost"", ""Unflip"", ""OnDriftStarted"", ""OnDriftEnded"", ""OnDriftLevel"", ""OnBoost"", ""OnLanded"", ""OnFlipped"", ""OnRighted"", ""OnCrash"", ""OnBounce"", ""OnJump""], ""use_for"": [""drivable cars and karts"", ""racing games"", ""AI traffic""], ""notes"": ""Needs a Box3D Body and a shape (added for you). Add Vehicle Seats so it only drives with a driver. Multiplayer: the driver owns and simulates the car; its input Signals are networked from the owner, and drift/boost/flip/crash Signals reach every player for effects.""}")]
     [SchematicBehaviorPath("Vehicles/Arcade Car")]
     [NetworkOwnerSimulated]
     [RequireComponent(typeof(Box3DBody), typeof(Box3DBoxShape), typeof(SchematicImpactRelay))]
@@ -108,6 +108,10 @@ namespace Remedy.Vehicles
         [SchematicDoc(@"{""name"": ""IsFlipped"", ""kind"": ""variable"", ""behavior"": ""Arcade Car"", ""type"": ""bool"", ""default"": ""false"", ""description"": ""True while the car lies on its side or roof. Read-only.""}")]
         [Tooltip("True while the car lies on its side or roof. Read-only.")]
         public readonly VariableHandle<bool> IsFlipped = false;
+
+        [SchematicDoc(@"{""name"": ""IsJumping"", ""kind"": ""variable"", ""behavior"": ""Arcade Car"", ""type"": ""bool"", ""default"": ""false"", ""description"": ""True during a jump (off a ramp, a crest or a ledge: not a bump), from takeoff until the tyres are back down. Read-only.""}")]
+        [Tooltip("True during a jump (not a bump), until the tyres are back down. Read-only.")]
+        public readonly VariableHandle<bool> IsJumping = false;
 
         [SchematicDoc(@"{""name"": ""AirTime"", ""kind"": ""variable"", ""behavior"": ""Arcade Car"", ""type"": ""float"", ""default"": ""0"", ""description"": ""Seconds since all four wheels left the ground (0 on the ground). Read-only.""}")]
         [Tooltip("Seconds since all wheels left the ground (0 on the ground). Read-only.")]
@@ -221,6 +225,12 @@ namespace Remedy.Vehicles
         [OutputSignal, NetworkSync(SignalSender.Anyone)]
         [Parameter("Strength", typeof(float))]
         public readonly SignalHandle<float> OnBounce;
+
+        [SchematicDoc(@"{""name"": ""OnJump"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""output"", ""params"": [{""name"": ""Launch"", ""type"": ""float""}], ""description"": ""Sent when the car really jumps (off a ramp, a crest or a ledge; bumps don't count): how fast it left the ground, in m/s (0 off a ledge). For a whoosh, a camera move or a trick window. On Landed follows when it's down."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock).""}")]
+        [Tooltip("Sent when the car really jumps (not a bump): how fast it left the ground (m/s).")]
+        [OutputSignal, NetworkSync(SignalSender.Anyone)]
+        [Parameter("Launch", typeof(float))]
+        public readonly SignalHandle<float> OnJump;
 
         #endregion
 
@@ -1041,6 +1051,7 @@ namespace Remedy.Vehicles
             // Air control's gates, merged by kind (the tyres' average) and multiplied: none on the ground, opening
             // as the car leaves it, more the higher and longer it's up.
             float airGate = gatedWheels > 0 ? (spatialGates / gatedWheels) * (temporalGates / gatedWheels) : 0f;
+            UpdateJump(instance, native, p, state, velocity, gravity, touching, gatedWheels > 0 ? spatialGates / gatedWheels : 0f, mass, dt);
             // Pitch comes from Target Speed. Optionally (Air Throttle Gate Time above 0) it has its own gate: shut
             // while any tyre is down, opening only once Target Speed moves from where it was at takeoff, so one held
             // off a ramp doesn't pitch the car.
@@ -1508,6 +1519,66 @@ namespace Remedy.Vehicles
                 wantedSpin = planeUp * Vector3.Dot(angularVelocity, planeUp); // a Spin Kick keeps its swing
             Vector3 spinFix = Vector3.ClampMagnitude((wantedSpin - angularVelocity) / dt, most);
             body.ApplyTorque(Torque(spinFix, rotation, state), true);
+        }
+
+        // Jumps: leaving the ground is noted at takeoff (how fast it went away from the ground it was on); once it's
+        // been up Jump Min Air Time, it's a jump if it launched at Jump Min Launch Speed or more (a ramp, a crest), or
+        // the ground has dropped well away (a ledge); a bump is neither. A launch gets a boost (more on a slow car than
+        // its speed alone would give), and the whole jump hangs: gravity eases off around the peak (Hang Gravity),
+        // and on the way down it's Fall Gravity, for a float and then a snappy landing. Max Hang Time ends the float.
+        private void UpdateJump(BehaviorInstance instance, Body body, ArcadeCarProperties p, CarState state,
+            Vector3 velocity, Vector3 gravity, int touching, float clearance, float mass, float dt)
+        {
+            Vector3 worldUp = gravity.sqrMagnitude > 0.001f ? -gravity.normalized : Vector3.up;
+            if (touching > 0)
+            {
+                if (state.Jumping)
+                {
+                    state.Jumping = false;
+                    IsJumping.Value = false;
+                }
+                state.InAirFor = -1f;
+                state.TakeoffNormal = state.HasGroundPlane ? state.GroundPlaneNormal : worldUp;
+                return;
+            }
+            if (state.InAirFor < 0f)
+            {
+                // Takeoff: how fast it's leaving the ground it was on.
+                state.InAirFor = 0f;
+                state.TakeoffLaunch = Mathf.Max(0f, Vector3.Dot(velocity, state.TakeoffNormal));
+            }
+            state.InAirFor += dt;
+
+            if (!state.Jumping && state.InAirFor >= p.JumpMinAirTime)
+            {
+                bool launched = p.JumpMinLaunchSpeed > 0f && state.TakeoffLaunch >= p.JumpMinLaunchSpeed;
+                bool ledge = p.LedgeJumps && clearance >= 0.5f;
+                if (launched || ledge)
+                {
+                    state.Jumping = true;
+                    IsJumping.Value = true;
+                    if (launched && (p.JumpBoost > 0f || p.JumpBoostScale > 0f))
+                    {
+                        float boost = Mathf.Min(p.JumpBoost + state.TakeoffLaunch * p.JumpBoostScale, p.JumpBoostMax);
+                        body.SetLinearVelocity((float3)(velocity + worldUp * boost));
+                        velocity += worldUp * boost;
+                    }
+                    OnJump.Invoke(instance, launched ? state.TakeoffLaunch : 0f);
+                }
+            }
+            if (!state.Jumping || p.MaxHangTime <= 0f || state.InAirFor > p.MaxHangTime)
+                return;
+
+            // The hang: how close it is to the peak (upward speed near 0), and how it eases back at the end.
+            float rising = Vector3.Dot(velocity, worldUp);
+            float nearPeak = 1f - Mathf.Clamp01(Mathf.Abs(rising) / Mathf.Max(0.1f, p.PeakFloatWindow));
+            float scale = rising >= 0f
+                ? Mathf.Lerp(1f, p.HangGravity, nearPeak)
+                : Mathf.Lerp(p.FallGravity, p.HangGravity, nearPeak);
+            float fade = Mathf.Clamp01((p.MaxHangTime - state.InAirFor) / Mathf.Max(0.01f, p.MaxHangTime * 0.2f));
+            scale = Mathf.Lerp(1f, scale, fade);
+            // (Gravity itself still pulls; this adds the difference.)
+            body.ApplyForceToCenter((float3)(gravity * ((scale - 1f) * mass)), true);
         }
 
         private void UpdateDrift(BehaviorInstance instance, ArcadeCarProperties p, CarState state, bool active, bool handbrake,
@@ -2324,6 +2395,9 @@ namespace Remedy.Vehicles
         public bool BounceAlignHasDirection;
         public float AirThrottleBase, AirThrottleGate;
         public bool AirThrottleOpen;
+        public bool Jumping;
+        public float InAirFor = -1f, TakeoffLaunch;
+        public Vector3 TakeoffNormal = Vector3.up;
         public Vector3 BounceTargetVelocity;
         public float BounceGrip = 1f;
         public Quaternion BodyRestRotation;
