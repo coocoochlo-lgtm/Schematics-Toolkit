@@ -77,6 +77,11 @@ namespace Remedy.Vehicles
         public float SpringDamping = 7f;
         [Tooltip("The most a single spring can push (m/s²), a bump stop for big landings so the car doesn't get launched.")]
         public float MaxSuspensionAcceleration = 60f;
+        [Tooltip("The suspension (ground casts and springs) points at the ground the tyres stand on, not along the car's own up, so leaning and pitching don't swing the casts off the road. Off: along the car's up.")]
+        public bool CastTowardGround = true;
+        [Min(0f)]
+        [Tooltip("How fast a spring's push can rise (m/s² per second; 1500 = 30 per step at 50 Hz). A tyre slammed back onto the road ramps up over a few steps instead of kicking in one; letting go is always immediate. 0 = no limit.")]
+        public float SpringMaxRise = 1500f;
         [Range(0f, 1f)]
         [Tooltip("The least damping the springs get, as a fraction of what stops a bounce dead (from Spring Stiffness). Stops stiff springs bouncing the wheels off the road in turns. 0 = only Spring Damping.")]
         public float MinSpringDampingRatio = 0.35f;
@@ -298,6 +303,9 @@ namespace Remedy.Vehicles
         public float SelfRightMaxSpeed = 3f;
         [Tooltip("A hop (m/s upward) as the car starts righting itself, so it has room to turn over.")]
         public float SelfRightLift = 3f;
+        [Min(0f)]
+        [Tooltip("Stuck on its roof or side for Self Right Delay: how long the automatic roll back onto the wheels takes (seconds). It rolls over the nose the short way round, floaty, and lands level. 0 = the old spring (turns toward upright with Self Right Strength).")]
+        public float SelfRightRollTime = 0.6f;
 
         [Header("Whoah Lean")]
         [Range(0f, 45f)]

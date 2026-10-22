@@ -659,6 +659,15 @@ namespace Remedy.Vehicles
             state.DriftGripReturn = arcadeDrift ? 0f
                 : Mathf.MoveTowards(state.DriftGripReturn, 1f, p.DriftExitTime > 0f ? dt / p.DriftExitTime : 1f);
             float contactMaxAngle = p.ContactNormalMaxAngle > 0f ? p.ContactNormalMaxAngle * Mathf.Deg2Rad : Mathf.PI;
+            // The suspension (casts and springs) points at the ground the tyres stood on last step, not along the
+            // car's own up: a leaning or pitching body no longer swings its casts off the road (they used to let go
+            // early, then find it again already squashed and kick). Kept within Contact Normal Max Angle of the
+            // car's up, and only with two tyres on the ground (one bad hit can't steer the casts); the car's own up
+            // otherwise (in the air, flipped).
+            Vector3 suspensionUp = up;
+            if (p.CastTowardGround && state.HasGroundPlane && state.LastGroundedWheels >= 2)
+                suspensionUp = Vector3.RotateTowards(up, state.GroundPlaneNormal, contactMaxAngle, 0f).normalized;
+            float springMaxRise = p.SpringMaxRise > 0f ? p.SpringMaxRise * dt : float.MaxValue;
 
             for (int i = 0; i < wheels.Length; i++)
             {
@@ -675,29 +684,30 @@ namespace Remedy.Vehicles
                 w.SteerAngle = wheel.Steers ? steerAngle : 0f;
                 w.WasGrounded = w.Grounded;
                 float tireRadius = Mathf.Max(0.05f, wheel.Radius);
-                float bodyTopOffset = BodyTopOffsetAlong(native, origin, up);
-                Vector3 probeOrigin = origin + up * bodyTopOffset;
-                float tireTopHeight = Vector3.Dot(origin, up) - w.Extension + tireRadius;
-                float castDistance = Mathf.Max(0f, Vector3.Dot(probeOrigin, up)
+                w.SuspensionUpLocal = Quaternion.Inverse(rotation) * suspensionUp;
+                float bodyTopOffset = BodyTopOffsetAlong(native, origin, suspensionUp);
+                Vector3 probeOrigin = origin + suspensionUp * bodyTopOffset;
+                float tireTopHeight = Vector3.Dot(origin, suspensionUp) - w.Extension + tireRadius;
+                float castDistance = Mathf.Max(0f, Vector3.Dot(probeOrigin, suspensionUp)
                     - tireTopHeight + groundCheckDistanceForWheels);
                 float castStart = bodyTopOffset;
-                w.Grounded = SchematicPhysics.SphereCast(probeOrigin, tireRadius, -up, out w.GroundHit, out _,
+                w.Grounded = SchematicPhysics.SphereCast(probeOrigin, tireRadius, -suspensionUp, out w.GroundHit, out _,
                     castDistance, p.GroundLayers, body);
                 // A ceiling isn't ground: on its back the car's roof lies in the floor, so the probe (from the top of
                 // the body) starts inside it and "hits" it at once. Something touching the probe where it starts, at
                 // the body's top, or a surface facing away from the car's up, is a ceiling: cast again from the wheel
                 // itself, under whatever is on the roof.
                 w.HasCeiling = false;
-                if (w.Grounded && IsCeiling(w.GroundHit, up))
+                if (w.Grounded && IsCeiling(w.GroundHit, suspensionUp))
                 {
                     w.HasCeiling = true;
                     w.CeilingPoint = w.GroundHit.point;
                     castStart = 0f;
                     float fromWheel = castDistance - bodyTopOffset;
                     w.Grounded = fromWheel > 0f
-                        && SchematicPhysics.SphereCast(origin, tireRadius, -up, out w.GroundHit, out _,
+                        && SchematicPhysics.SphereCast(origin, tireRadius, -suspensionUp, out w.GroundHit, out _,
                             fromWheel, p.GroundLayers, body)
-                        && !IsCeiling(w.GroundHit, up);
+                        && !IsCeiling(w.GroundHit, suspensionUp);
                 }
                 if (w.Grounded)
                 {
@@ -749,7 +759,7 @@ namespace Remedy.Vehicles
                 {
                     w.TargetSpeedMultiplier = 1f;
                     w.RollSpeed *= 0.99f;
-                    float upNormal = Vector3.Dot(up, sharedGroundNormal);
+                    float upNormal = Vector3.Dot(suspensionUp, sharedGroundNormal);
                     targetContactDistance = upNormal > 0.1f
                         ? Vector3.Dot(origin - sharedGroundPoint, sharedGroundNormal) / upNormal
                         : float.MaxValue;
@@ -794,7 +804,7 @@ namespace Remedy.Vehicles
                 Vector3 normal = w.ContactNormal;
                 float contactDistance = w.ContactDistance;
                 float forceWeight = w.ContactForceWeight;
-                Vector3 contactPoint = actualGrounded ? w.GroundHit.point : origin - up * contactDistance;
+                Vector3 contactPoint = actualGrounded ? w.GroundHit.point : origin - suspensionUp * contactDistance;
                 w.Point = contactPoint;
                 w.Normal = normal;
 
@@ -803,9 +813,16 @@ namespace Remedy.Vehicles
                 float compression = rest - Mathf.Min(extension, rest);
                 w.Extension = extension;
                 Vector3 hubVelocity = native.GetWorldPointVelocity(origin);
-                float suspensionSpeed = Vector3.Dot(hubVelocity, up);
-                float springAcceleration = Mathf.Clamp(stiffness * compression - springDamping * suspensionSpeed, 0f, p.MaxSuspensionAcceleration);
-                Vector3 suspensionForce = up * (springAcceleration * massShare * forceWeight);
+                float suspensionSpeed = Vector3.Dot(hubVelocity, suspensionUp);
+                // The step a tyre finds the ground again, its speed is the jump from no ground to ground: no damping
+                // that step (it fired a big extra kick), the spring alone.
+                float damping = actualGrounded && !wasGrounded ? 0f : springDamping * suspensionSpeed;
+                float springAcceleration = Mathf.Clamp(stiffness * compression - damping, 0f, p.MaxSuspensionAcceleration);
+                // Rises at most Spring Max Rise (a one-step jump from nothing to full push becomes a short ramp);
+                // falls at once, so a tyre leaving the ground lets go.
+                springAcceleration = Mathf.Min(springAcceleration, w.SpringPush + springMaxRise);
+                w.SpringPush = springAcceleration;
+                Vector3 suspensionForce = suspensionUp * (springAcceleration * massShare * forceWeight);
                 native.ApplyForce(suspensionForce, origin, true);
                 wheelForceTorque += Vector3.Cross(origin - centerOfMass, suspensionForce);
 
@@ -1017,7 +1034,11 @@ namespace Remedy.Vehicles
 
             // Flipped: report it, and turn back over after a while (or on Unflip).
             UpdateFlipped(instance, p, state, up, worldUp, velocity.magnitude, dt, out bool righting);
-            if (righting)
+            Vector3 rollSpin = Vector3.zero;
+            bool autoRolling = false;
+            if (righting && p.SelfRightRollTime > 0f)
+                autoRolling = UpdateAutoRoll(native, p, state, rotation, up, forward, worldUp, g, mass, dt, out rollSpin);
+            else if (righting)
             {
                 float strength = Mathf.Max(p.SelfRightStrength, 8f);
                 angular += UprightError(up, worldUp, forward) * strength - rollPitchVelocity * 2f;
@@ -1054,6 +1075,9 @@ namespace Remedy.Vehicles
             Vector3 requestedTorque = wheelForceTorque + stabilizationCompensation
                 + (Vector3)Torque(angular, rotation, state) + airControlTorque;
             Vector3 guardedAngularAcceleration = ApplyTorqueGuard(native, requestedTorque, p, dt, rotation, state);
+            // The auto-roll is a move, not a push: it sets the spin that follows its path, so the floor can't stall it.
+            if (autoRolling)
+                native.SetAngularVelocity((float3)rollSpin);
             state.LastGuardedAngularAcceleration = guardedAngularAcceleration;
             state.LastTireAngularAcceleration = AngularAcceleration(wheelForceTorque, rotation, state);
             state.LastStabilizationAngularAcceleration = AngularAcceleration(stabilizationCompensation, rotation, state);
@@ -1243,8 +1267,9 @@ namespace Remedy.Vehicles
                 OnFlipped.Invoke(instance);
             }
 
-            // Back on its wheels (near enough): stop righting; a car that's merely leaning ignores Unflip.
-            if (tilt < 45f)
+            // Back on its wheels (near enough): stop righting; a car that's merely leaning ignores Unflip. (An
+            // auto-roll finishes its move first.)
+            if (tilt < 45f && !state.AutoRolling)
             {
                 state.SelfRighting = false;
                 state.UnflipQueued = false;
@@ -1258,7 +1283,62 @@ namespace Remedy.Vehicles
 
             righting = state.UnflipQueued
                        || (IsFlipped.Value && p.SelfRightStrength > 0f && state.FlippedTime >= p.SelfRightDelay)
-                       || state.SelfRighting;
+                       || state.SelfRighting || state.AutoRolling;
+        }
+
+        // The auto-roll: stuck on its roof or side for Self Right Delay, the car hops (Self Right Lift) and rolls
+        // over its nose back onto its wheels in Self Right Roll Time, the short way round, ending level and facing
+        // the way it was. Returns false once it's done (out: the spin to set this step).
+        private static bool UpdateAutoRoll(Body body, ArcadeCarProperties p, CarState state, Quaternion rotation,
+            Vector3 up, Vector3 forward, Vector3 worldUp, float g, float mass, float dt, out Vector3 spin)
+        {
+            spin = Vector3.zero;
+            if (!state.AutoRolling)
+            {
+                Vector3 axis = Vector3.ProjectOnPlane(forward, worldUp);
+                if (axis.sqrMagnitude < 0.01f)
+                    axis = Vector3.ProjectOnPlane(rotation * Vector3.down, worldUp); // nose straight up or down
+                if (axis.sqrMagnitude < 0.01f)
+                    axis = Vector3.forward;
+                axis.Normalize();
+                Vector3 upAcross = Vector3.ProjectOnPlane(up, axis);
+                float angle = upAcross.sqrMagnitude > 0.001f ? Vector3.SignedAngle(upAcross, worldUp, axis) : 180f;
+                if (Mathf.Abs(angle) > 179f)
+                    angle = 180f; // right on its roof: either way, pick one
+                state.AutoRolling = true;
+                state.SelfRighting = true;
+                state.AutoRollAxis = axis;
+                state.AutoRollAngle = angle;
+                state.AutoRollStart = rotation;
+                state.AutoRollEnd = Quaternion.LookRotation(axis, worldUp);
+                state.AutoRollTime = 0f;
+                body.ApplyForceToCenter((float3)(worldUp * (p.SelfRightLift * mass / dt)), true);
+            }
+
+            float duration = Mathf.Max(0.05f, p.SelfRightRollTime);
+            state.AutoRollTime += dt;
+            if (state.AutoRollTime >= duration)
+            {
+                state.AutoRolling = false;
+                state.FlippedTime = 0f;
+                spin = Vector3.zero;
+                return true; // this last step: stop the spin
+            }
+
+            // Floaty while it turns over (half of gravity held up), so it clears the floor.
+            body.ApplyForceToCenter((float3)(worldUp * (0.5f * g * mass)), true);
+
+            // Where it should be a step from now: rolled along the eased path, settling level at the end.
+            float s = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((state.AutoRollTime + dt) / duration));
+            Quaternion rolled = Quaternion.AngleAxis(state.AutoRollAngle * s, state.AutoRollAxis) * state.AutoRollStart;
+            Quaternion target = Quaternion.Slerp(rolled, state.AutoRollEnd, s * s);
+            (target * Quaternion.Inverse(rotation)).ToAngleAxis(out float degrees, out Vector3 turnAxis);
+            if (degrees > 180f)
+                degrees -= 360f;
+            if (float.IsNaN(turnAxis.x) || float.IsInfinity(turnAxis.x))
+                return true;
+            spin = turnAxis.normalized * (degrees * Mathf.Deg2Rad / dt);
+            return true;
         }
 
         // With no wheel touching, is there ground right under the car? (Lying on its roof or side isn't flying, and
@@ -1268,6 +1348,10 @@ namespace Remedy.Vehicles
 
         /// <summary>How far below the centre of mass (plus the suspension length) the ground must be for the car to count as flying.</summary>
         public const float AirborneClearance = 1.2f;
+
+        // Which way a wheel's suspension pointed last step (toward the ground), turned with the car.
+        private static Vector3 SuspensionUp(in WheelState w, Quaternion rotation)
+            => w.SuspensionUpLocal.sqrMagnitude > 0.5f ? rotation * w.SuspensionUpLocal : rotation * Vector3.up;
 
         // A probe hit that isn't ground: touching where the probe starts (the floor a flipped roof lies in, or
         // something on the roof), or a surface facing away from the car's up.
@@ -1506,7 +1590,8 @@ namespace Remedy.Vehicles
             if (bounds != null)
                 for (int i = 0; i < wheels.Length; i++)
                     if (wheels[i]?.Anchor != null)
-                        bounds.SetSphere(wheels[i], wheels[i].Anchor.position - up * state.Wheels[i].Extension, Mathf.Max(0.05f, wheels[i].Radius));
+                        bounds.SetSphere(wheels[i], wheels[i].Anchor.position - SuspensionUp(state.Wheels[i], rotation) * state.Wheels[i].Extension,
+                            Mathf.Max(0.05f, wheels[i].Radius));
 
             for (int i = 0; i < wheels.Length; i++)
             {
@@ -1517,7 +1602,7 @@ namespace Remedy.Vehicles
                 float radius = Mathf.Max(0.05f, wheel.Radius);
                 w.Spin = (w.Spin + w.RollSpeed / radius * Mathf.Rad2Deg * dt) % 360f;
 
-                Vector3 position = wheel.Anchor.position - up * w.Extension;
+                Vector3 position = wheel.Anchor.position - SuspensionUp(w, rotation) * w.Extension;
                 // Spin about the axle first, then steer about the car's up.
                 Quaternion turn = rotation * Quaternion.AngleAxis(w.SteerAngle, Vector3.up) * Quaternion.AngleAxis(w.Spin, Vector3.right);
                 wheel.Visual.SetPositionAndRotation(position, turn * w.VisualRest);
@@ -1706,6 +1791,10 @@ namespace Remedy.Vehicles
 
         public float FlippedTime;
         public bool SelfRighting;
+        public bool AutoRolling;
+        public Vector3 AutoRollAxis;
+        public float AutoRollAngle, AutoRollTime;
+        public Quaternion AutoRollStart, AutoRollEnd;
 
         public float AirTime;
         public bool WasGrounded = true;
@@ -1808,5 +1897,9 @@ namespace Remedy.Vehicles
         /// <summary>The probe hit a ceiling (at the body's top) this step, and where.</summary>
         public bool HasCeiling;
         public Vector3 CeilingPoint;
+        /// <summary>The suspension's direction last step, in the car's space (toward the ground it stood on).</summary>
+        public Vector3 SuspensionUpLocal;
+        /// <summary>The spring's push last step (m/s²), so a sudden rise can be limited.</summary>
+        public float SpringPush;
     }
 }
