@@ -41,6 +41,13 @@ public static class SchematicBehaviorsHeaderGUI
                 EditorGUILayout.LabelField($"on {root.name}", EditorStyles.miniLabel, GUILayout.ExpandWidth(false));
             if (Application.isPlaying && root.IsSpawned)
                 EditorGUILayout.LabelField($"UID {root.UID}", EditorStyles.miniLabel, GUILayout.Width(70));
+            if (Application.isPlaying)
+            {
+                // How often the live values redraw (lower it if the Inspector slows Play Mode down).
+                EditorGUILayout.LabelField(new GUIContent("Refresh", "How often these live values redraw by themselves (Preferences > Schematics > Inspector)."),
+                    EditorStyles.miniLabel, GUILayout.Width(44));
+                InspectorRefresh.DrawRatePopup(GUILayout.Width(110));
+            }
         }
 
         // A prefab asset (selected in the Project window) is never edited in place: changes to it go through Prefab
@@ -80,8 +87,8 @@ public static class SchematicBehaviorsHeaderGUI
         }
         else
         {
-            // Live values change every frame.
-            editor.Repaint();
+            // Live values change every frame: redrawn at the Inspector's Refresh Rate (not every editor frame).
+            InspectorRefresh.Request(editor);
         }
 
         EditorGUILayout.Space(2);
@@ -204,7 +211,37 @@ public static class SchematicBehaviorsHeaderGUI
             }
             if (showLabel) InspectorRows.End();
             else EditorGUILayout.EndHorizontal();
+
+            // A Properties asset opens in place under its field.
+            if (showLabel && current is ScriptableObject properties && IsProperties(attachment, definition.Name))
+                PropertiesInline.Draw(properties, PropertiesKey(root, gameObject, attachment, definition.Name), ObjectNames.NicifyVariableName(definition.Name));
         }
+    }
+
+    // Whether a Variable is one of the Behavior's Properties (a [SchematicProperties] ScriptableObject).
+    private static bool IsProperties(BehaviorAttachment attachment, string variable)
+    {
+        var type = attachment?.Metadata != null ? attachment.Metadata.BehaviorType.Type : null;
+        return type != null && BehaviorReflection.Get(type)?.IsPropertiesVariable(variable) == true;
+    }
+
+    private static string PropertiesKey(SchematicObject root, GameObject gameObject, BehaviorAttachment attachment, string variable)
+        => $"Inspector.{root.GetInstanceID()}.{PathOf(root, gameObject)}.{attachment?.Metadata?.BehaviorType.Type?.FullName}.{variable}";
+
+    // One SerializedObject per Schematic Object, kept between redraws: made fresh every redraw, the foldouts inside
+    // a list or class (theirs and Unity's) closed again as soon as they were opened.
+    private static readonly Dictionary<SchematicObject, SerializedObject> _serialized = new();
+
+    private static SerializedObject SerializedFor(SchematicObject root)
+    {
+        if (!_serialized.TryGetValue(root, out var serialized) || serialized == null || serialized.targetObject == null)
+        {
+            if (_serialized.Count > 32)
+                _serialized.Clear();
+            _serialized[root] = serialized = new SerializedObject(root);
+        }
+        serialized.Update();
+        return serialized;
     }
 
     private static string PathOf(SchematicObject root, GameObject gameObject)
@@ -250,7 +287,7 @@ public static class SchematicBehaviorsHeaderGUI
         }
         int overrideIndex = attachment.Overrides.IndexOf(entry);
 
-        var serializedObject = new SerializedObject(root);
+        var serializedObject = SerializedFor(root);
         var property = serializedObject.FindProperty(
             $"{nameof(SchematicObject.Behaviors)}.items.Array.data[{entryIndex}].value.{nameof(BehaviorAttachmentList.Items)}.Array.data[{attachmentIndex}]" +
             $".{nameof(BehaviorAttachment.Overrides)}.Array.data[{overrideIndex}].{nameof(VariableOverride.Value)}.{SchematicValue.BoxedValuePath}");
@@ -607,10 +644,13 @@ public static class SchematicBehaviorsHeaderGUI
                 }, ObjectNames.NicifyVariableName(variables[i].Name), InspectorRows.TypeName(variables[i].ValueType) + (definition != null && definition.Networked ? "  ⇅" : ""));
                 int indent = EditorGUI.indentLevel;
                 EditorGUI.indentLevel = 0;
-                if (SchematicValueField.Draw(GUIContent.none, variables[i].ValueType, runtime.GetVariableBoxed(instance, i), out var newValue))
+                var value = runtime.GetVariableBoxed(instance, i);
+                if (SchematicValueField.Draw(GUIContent.none, variables[i].ValueType, value, out var newValue))
                     runtime.SetVariableBoxed(instance, i, newValue);
                 EditorGUI.indentLevel = indent;
                 InspectorRows.End();
+                if (value is ScriptableObject properties && IsProperties(attachment, variables[i].Name))
+                    PropertiesInline.Draw(properties, PropertiesKey(root, gameObject, attachment, variables[i].Name), ObjectNames.NicifyVariableName(variables[i].Name));
             }
             EditorGUI.indentLevel--;
         }

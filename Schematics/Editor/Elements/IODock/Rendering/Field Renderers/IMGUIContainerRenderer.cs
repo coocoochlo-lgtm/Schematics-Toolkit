@@ -40,6 +40,7 @@ public class IMGUIContainerRenderer : FieldRenderer
             if (property == null) return;
             var seriializedObject = property.serializedObject;
 
+            EditorGUI.BeginChangeCheck();
             try
             {
                 EditorGUILayout.PropertyField(property);
@@ -54,17 +55,17 @@ public class IMGUIContainerRenderer : FieldRenderer
                 GUIUtility.ExitGUI();
             }
 
-            seriializedObject.ApplyModifiedProperties();
-
-            EditorApplication.QueuePlayerLoopUpdate();
-            imguiContainer.MarkDirtyRepaint();
+            bool changed = EditorGUI.EndChangeCheck();
+            if (seriializedObject.ApplyModifiedProperties() || changed)
+            {
+                // Only after an edit: it used to ask for a player loop update and a redraw on every redraw (so it
+                // never stopped redrawing), and every editor frame on top of that, for every field in the dock.
+                EditorApplication.QueuePlayerLoopUpdate();
+                imguiContainer.MarkDirtyRepaint();
+            }
+            // Values that change by themselves (in Play Mode) are redrawn at the Inspector's Refresh Rate.
+            InspectorRefresh.Request(imguiContainer);
         };
-
-        EditorApplication.update += () =>
-        {
-            if (imguiContainer == null) return;
-            imguiContainer.MarkDirtyRepaint();
-        }; 
 
         imguiContainer.focusable = true;
         imguiContainer.tabIndex = 0;

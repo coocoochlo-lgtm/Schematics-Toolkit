@@ -707,10 +707,12 @@ public class PrefabHierarchy : VisualElement
         var propertiesType = propertiesVariable.Type.Type;
         var variableName = propertiesVariable.Name;
 
+        // Its open state outlives the hierarchy being rebuilt (which it is whenever the prefab changes).
+        var openKey = $"PrefabHierarchy.Properties.{_assetPath}.{PathOf(tf)}.{type.FullName}.{variableName}";
         var propertiesFoldout = new Foldout()
         {
             text = variableName == "Properties" ? "Properties" : ObjectNames.NicifyVariableName(variableName),
-            value = false,
+            value = SessionState.GetBool(openKey, false),
             style =
             {
                 width = Length.Percent(100),
@@ -753,12 +755,37 @@ public class PrefabHierarchy : VisualElement
                 SetPropertiesOverride(type, tfPath, variableName, propertiesObject, propertiesType);
         }
 
-        var container = new IMGUIContainer(() =>
+        propertiesFoldout.RegisterValueChangedCallback(evt =>
         {
-            if (propertiesObject == null) return;
+            if (evt.target == propertiesFoldout)
+                SessionState.SetBool(openKey, evt.newValue);
+        });
 
-            var soEditor = Editor.CreateEditor(propertiesObject);
-            soEditor.OnInspectorGUI();
+        // The asset's Inspector, made once and kept (made again every redraw, it forgot its own foldouts at once and
+        // piled up editors), drawn only while the foldout is open; Open shows it in a window of its own.
+        Editor propertiesEditor = null;
+        IMGUIContainer container = null;
+        container = new IMGUIContainer(() =>
+        {
+            if (propertiesObject == null || !propertiesFoldout.value) return;
+
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                GUILayout.FlexibleSpace();
+                if (GUILayout.Button(new GUIContent("Open", "Show it in an Inspector window of its own."), EditorStyles.miniButton, GUILayout.Width(44)))
+                    EditorUtility.OpenPropertyEditor(propertiesObject);
+            }
+            if (propertiesEditor == null || propertiesEditor.target != propertiesObject)
+                Editor.CreateCachedEditor(propertiesObject, null, ref propertiesEditor);
+            propertiesEditor?.OnInspectorGUI();
+            if (Application.isPlaying)
+                InspectorRefresh.Request(container);
+        });
+        container.RegisterCallback<DetachFromPanelEvent>(_ =>
+        {
+            if (propertiesEditor != null)
+                UnityEngine.Object.DestroyImmediate(propertiesEditor);
+            propertiesEditor = null;
         });
 
         propertiesFoldout.Add(container);

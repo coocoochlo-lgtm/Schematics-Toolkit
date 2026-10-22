@@ -469,16 +469,13 @@ public class SignalRenderer : FieldRenderer
         {
             seriializedObject.Update();
             EditorGUILayout.PropertyField(property);
-            seriializedObject.ApplyModifiedProperties();
-
-            EditorApplication.QueuePlayerLoopUpdate();
-            imguiContainer.MarkDirtyRepaint();
-        };
-
-        EditorApplication.update += () =>
-        {
-            if (imguiContainer == null) return;
-            imguiContainer.MarkDirtyRepaint();
+            if (seriializedObject.ApplyModifiedProperties())
+            {
+                // Only after an edit (it used to redraw on every redraw, and every editor frame besides).
+                EditorApplication.QueuePlayerLoopUpdate();
+                imguiContainer.MarkDirtyRepaint();
+            }
+            InspectorRefresh.Request(imguiContainer);
         };
 
         imguiContainer.focusable = true;
