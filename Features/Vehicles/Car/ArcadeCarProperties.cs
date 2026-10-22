@@ -119,6 +119,15 @@ namespace Remedy.Vehicles
         public float SteerSpeed = 5f;
         [Tooltip("How fast the wheels straighten when the input lets go (full lock per second).")]
         public float SteerReturnSpeed = 8f;
+        [Min(0f)]
+        [Tooltip("The hardest the steering may ask the car to corner (m/s² sideways, 10 ≈ 1 g): the lock is capped so a turn never asks for more, so it shrinks with the square of speed (on top of Steer By Speed). 0 = no cap.")]
+        public float CorneringLimit = 25f;
+        [Min(0f)]
+        [Tooltip("Speed lost while cornering, per m/s² of sideways pull (0.15: a 20 m/s² turn slows by 3 m/s²). 0 = turning is free.")]
+        public float CorneringDrag = 0.15f;
+        [Range(0f, 1f)]
+        [Tooltip("How much of the throttle a turn at Cornering Limit takes away (less in gentler turns), so the engine doesn't just refill what cornering costs.")]
+        public float CorneringThrottleCut = 0.5f;
 
         [Header("Grip")]
         [Tooltip("How hard the front tyres resist sliding sideways (per second: the fraction of sideways speed removed each second, capped at one physics step). More front than rear = understeer; less = oversteer.")]
@@ -193,6 +202,9 @@ namespace Remedy.Vehicles
         [Range(0f, 85f)] public float DriftAngleMax = 55f;
         [Tooltip("Arcade style: how fast the steering turns the drift's heading (degrees per second at full lock).")]
         public float DriftTurnRate = 60f;
+        [Min(0f)]
+        [Tooltip("Arcade style: the hardest a drift may corner (m/s² sideways): its turn rate is capped to this at speed, so fast drifts sweep wide and slow ones whip round. 0 = no cap.")]
+        public float DriftCorneringLimit = 25f;
         [Tooltip("Arcade style: a constant turn into the drift (degrees per second), whatever the steering: Mario Kart drifts always curve. 0 for NFS-style.")]
         public float DriftAutoTurnRate = 0f;
         [Tooltip("Arcade style: how quickly the car's travel swings onto the heading (per second). High = on rails, low = floaty.")]

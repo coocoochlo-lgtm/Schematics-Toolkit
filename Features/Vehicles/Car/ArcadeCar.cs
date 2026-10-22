@@ -388,6 +388,7 @@ namespace Remedy.Vehicles
             state.Steer = Mathf.MoveTowards(state.Steer, IsActive(instance) ? state.SteerInput : 0f, (turningIn ? p.SteerSpeed : p.SteerReturnSpeed) * dt);
             float speedFraction = Mathf.Clamp01(Mathf.Abs(forwardSpeed) / Mathf.Max(0.1f, p.MaxSpeed));
             float steerAngle = state.Steer * p.MaxSteerAngle * p.SteerBySpeed.Evaluate(speedFraction);
+            steerAngle = LimitSteer(steerAngle, forwardSpeed, Wheelbase(wheels, car), p.CorneringLimit);
             for (int i = 0; i < wheels.Length && i < state.Wheels.Length; i++)
             {
                 ref var w = ref state.Wheels[i];
@@ -556,6 +557,7 @@ namespace Remedy.Vehicles
             bool turningIn = Mathf.Abs(steerInput) > Mathf.Abs(state.Steer) || Mathf.Sign(steerInput) != Mathf.Sign(state.Steer);
             state.Steer = Mathf.MoveTowards(state.Steer, steerInput, (turningIn ? p.SteerSpeed : p.SteerReturnSpeed) * dt);
             float steerAngle = state.Steer * p.MaxSteerAngle * p.SteerBySpeed.Evaluate(speedFraction);
+            steerAngle = LimitSteer(steerAngle, forwardSpeed, Wheelbase(wheels, car), p.CorneringLimit);
 
             // Boosts.
             if (state.BoostQueued)
@@ -619,6 +621,10 @@ namespace Remedy.Vehicles
 
             UpdateDrift(instance, p, state, active, handbrake, steerInput, driftThrottle, planarSpeed, forwardSpeed, driftAngle, mass, dt, up);
             bool drifting = IsDrifting.Value;
+            // Cornering eats into the throttle: the engine doesn't just refill what a hard turn costs.
+            if (!drifting && driveAcceleration > 0f && p.CorneringLimit > 0f && p.CorneringThrottleCut > 0f)
+                driveAcceleration *= 1f - Mathf.Clamp01(Mathf.Abs(state.LateralAcceleration) / p.CorneringLimit)
+                    * Mathf.Clamp01(p.CorneringThrottleCut);
             // Arcade drifts: the drift keeps its own heading, all the push goes along it, and the nose is swung to a
             // slide angle on top (the tyres stop gripping sideways). Physics drifts: the tyres just grip less.
             bool arcadeDrift = drifting && p.DriftStyle == DriftHandling.Arcade;
@@ -973,6 +979,14 @@ namespace Remedy.Vehicles
                 ? Vector3.Dot(acceleration, Vector3.Cross(groundNormal, planeForward))
                 : 0f;
             state.LateralAcceleration = Mathf.Lerp(state.LateralAcceleration, lateral, 1f - Mathf.Exp(-dt / 0.1f));
+
+            // Cornering drag: turning costs speed, in proportion to how hard (tyres scrubbing). Arcade drifts have
+            // their own (Drift Speed Loss).
+            if (isGrounded && !arcadeDrift && p.CorneringDrag > 0f && planarSpeed > 0.5f)
+            {
+                float scrub = Mathf.Min(Mathf.Abs(state.LateralAcceleration) * p.CorneringDrag, planarSpeed / dt);
+                native.ApplyForceToCenter(-planarVelocity / planarSpeed * (scrub * mass), true);
+            }
             float whoahTarget = 0f;
             if (isGrounded && !singleTireRecovery && p.WhoahLeanAngle > 0f && p.WhoahLeanAt > 0f)
                 whoahTarget = p.WhoahLeanAngle * Mathf.Clamp(state.LateralAcceleration / p.WhoahLeanAt, -1f, 1f)
@@ -1198,6 +1212,12 @@ namespace Remedy.Vehicles
 
             float into = Mathf.Clamp(state.Steer * state.DriftDirection, -1f, 1f);
             float turnRate = state.Steer * p.DriftTurnRate + state.DriftDirection * p.DriftAutoTurnRate; // degrees/s
+            // No sharper than Drift Cornering Limit allows at this speed: fast drifts sweep wide, slow ones whip round.
+            if (p.DriftCorneringLimit > 0f && speed > 1f)
+            {
+                float maxRate = p.DriftCorneringLimit / speed * Mathf.Rad2Deg;
+                turnRate = Mathf.Clamp(turnRate, -maxRate, maxRate);
+            }
             heading = (Quaternion.AngleAxis(turnRate * dt, planeUp) * heading).normalized;
             state.DriftHeading = heading;
 
@@ -1426,6 +1446,33 @@ namespace Remedy.Vehicles
 
         /// <summary>How far below the centre of mass (plus the suspension length) the ground must be for the car to count as flying.</summary>
         public const float AirborneClearance = 1.2f;
+
+        // Steering kept within what the tyres can corner at this speed: a turn of wheel angle θ at speed v asks
+        // for about v² tan θ / wheelbase of sideways grip, so the most lock shrinks with the square of speed.
+        private static float LimitSteer(float steerAngle, float forwardSpeed, float wheelbase, float corneringLimit)
+        {
+            float speed = Mathf.Abs(forwardSpeed);
+            if (corneringLimit <= 0f || speed < 1f)
+                return steerAngle;
+            float most = Mathf.Atan(wheelbase * corneringLimit / (speed * speed)) * Mathf.Rad2Deg;
+            return Mathf.Clamp(steerAngle, -most, most);
+        }
+
+        // Front axle to rear axle (steering wheels to the others, along the car), in metres.
+        private static float Wheelbase(Wheel[] wheels, Transform car)
+        {
+            float front = 0f, rear = 0f;
+            int fronts = 0, rears = 0;
+            foreach (var wheel in wheels)
+            {
+                if (wheel?.Anchor == null)
+                    continue;
+                float z = car.InverseTransformPoint(wheel.Anchor.position).z;
+                if (wheel.Steers) { front += z; fronts++; }
+                else { rear += z; rears++; }
+            }
+            return fronts > 0 && rears > 0 ? Mathf.Max(0.5f, Mathf.Abs(front / fronts - rear / rears)) : 2.5f;
+        }
 
         // The bent ground cast: from `startAbove` over the anchor straight down the car's `up` to the tyre's centre
         // (`tyreDrop` under the anchor), then `beyond` further along -`toward` (the ground the tyres stood on).
