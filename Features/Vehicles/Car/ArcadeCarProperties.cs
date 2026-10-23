@@ -254,7 +254,7 @@ namespace Remedy.Vehicles
         public float DriftSteerThreshold = 0.8f;
         [Tooltip("On: the drift lasts while the handbrake / drift button is held (Mario Kart). Off: it lasts while the car is still sliding (NFS).")]
         public bool HoldButtonToDrift = false;
-        [Tooltip("A little hop (m/s upward), like a kart: with Hold Button To Drift, the moment the drift button is pressed (on the ground); otherwise the moment a drift starts. Once per press. 0 for none.")]
+        [Tooltip("A little hop (m/s upward) when a drift starts, like a kart. 0 for none.")]
         public float DriftHop = 0f;
         [Tooltip("Physics style: Rear grip while drifting (a multiplier). Lower = wider, longer slides.")]
         public float DriftRearGrip = 0.35f;
