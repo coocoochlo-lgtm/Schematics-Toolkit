@@ -18,7 +18,8 @@ namespace Remedy.Schematics
         /// <summary>The flow output that runs when the condition fails.</summary>
         public const string ElsePort = "Else";
 
-        [Input("Condition")]
+        // Editable: unconnected, the checkbox on the node is the condition (it had no checkbox, so it was always false).
+        [Input("Condition", Editable = true)]
         public bool Condition;
         [Editable]
         public bool Not;
@@ -28,6 +29,14 @@ namespace Remedy.Schematics
         // Trigger Once is per object running the graph (the graph asset is shared by all of them).
         [NonSerialized] private HashSet<GameObject> _triggered;
         [NonSerialized] private bool _triggeredWithoutObject;
+        [NonSerialized] private int _triggeredSession = -1;
+
+        // Bumped each play session: with domain reload off the graph asset (and what it remembers) outlives the session,
+        // so a Trigger Once already used in the last one (on the same scene object) wouldn't pass again.
+        private static int _session;
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void NewSession() => _session++;
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
         {
@@ -43,6 +52,12 @@ namespace Remedy.Schematics
             // Trigger Once: only the first time the condition passes.
             if (TriggerOnce && pass)
             {
+                if (_triggeredSession != _session)
+                {
+                    _triggeredSession = _session;
+                    _triggered?.Clear();
+                    _triggeredWithoutObject = false;
+                }
                 if (instance == null)
                 {
                     pass = !_triggeredWithoutObject;
