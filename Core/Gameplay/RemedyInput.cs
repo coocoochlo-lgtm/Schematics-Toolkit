@@ -168,7 +168,7 @@ public class RemedyInput : SingletonData<RemedyInput>
         foreach (var map in InputMaps)
             if (map?.Inputs != null)
                 foreach (var input in map.Inputs)
-                    if (input?.Input != null && input.Input.enabled)
+                    if (InputActionEvent.IsEnabled(input?.Input))
                         return true;
         return false;
     }
@@ -186,7 +186,7 @@ public class RemedyInput : SingletonData<RemedyInput>
                     var action = input?.Input;
                     if (action == null)
                         continue;
-                    if (action.enabled)
+                    if (InputActionEvent.IsEnabled(action))
                         action.Disable();
                     InputActionEvent.ForgetRuntimeState(action);
                 }
@@ -492,15 +492,29 @@ public class RemedyInput : SingletonData<RemedyInput>
         /// it was enabled, and its state), so it's made again from the saved bindings the next time it's needed: after
         /// Play Mode, as a recompile would.
         /// </summary>
+        /// <summary>
+        /// Whether an action is on, safely: a standalone action without its hidden action map (never used, or dropped by
+        /// <see cref="ForgetRuntimeState"/>) is off, and asking InputAction.enabled then would throw.
+        /// </summary>
+        internal static bool IsEnabled(InputAction action)
+        {
+            if (action == null)
+                return false;
+            if (_hiddenMap != null && _hiddenMap.GetValue(action) == null)
+                return false;
+            try { return action.enabled; }
+            catch (NullReferenceException) { return false; }
+        }
+
         internal static void ForgetRuntimeState(InputAction action)
         {
-            if (action != null && !action.enabled && _hiddenMap != null)
+            if (action != null && _hiddenMap != null && !IsEnabled(action))
                 _hiddenMap.SetValue(action, null);
         }
 
         internal static void ForgetStaleBindings(InputAction action)
         {
-            if (action == null || action.enabled || _hiddenMap == null || _hiddenMap.GetValue(action) == null)
+            if (action == null || _hiddenMap == null || _hiddenMap.GetValue(action) == null || action.enabled)
                 return;
             var saved = SavedBindingsOf(action);
             var current = action.bindings;
