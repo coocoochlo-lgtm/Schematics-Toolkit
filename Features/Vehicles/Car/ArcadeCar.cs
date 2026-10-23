@@ -2403,10 +2403,35 @@ namespace Remedy.Vehicles
             return driveAcceleration;
         }
 
+        // One drift hop (Drift Hop, m/s up), unless this press of the button has had one.
+        private static void DriftHop(BehaviorInstance instance, ArcadeCarProperties p, CarState state, float mass, float dt, Vector3 up)
+        {
+            if (p.DriftHop <= 0f || state.DriftHopUsed)
+                return;
+            var body = instance.GetComponent<Box3DBody>();
+            if (body == null || !body.IsLive())
+                return;
+            body.Body.ApplyForceToCenter((float3)(up * (p.DriftHop * mass / dt)), true);
+            state.AllowForcesUntil = Time.time + 0.2f;
+            state.DriftHopUsed = state.HandbrakeWasHeld; // (a drift started by steering alone can't start again mid-drift)
+        }
+
         private void UpdateDrift(BehaviorInstance instance, ArcadeCarProperties p, CarState state, bool active, bool handbrake,
             float steerInput, float throttle, float planarSpeed, float forwardSpeed, float driftAngle, float mass, float dt, Vector3 up)
         {
             bool grounded = state.WasGrounded;
+            // The drift hop (Drift Hop), at one moment you choose, never again until the button's let go. Hold Button
+            // To Drift (Mario Kart): the moment the button goes down, on the ground, whether a drift follows or not.
+            // Otherwise: the moment a drift starts. (It used to hop whenever a drift happened to start: while the button
+            // was held that was whenever the steering crossed the threshold, and a drift that ended and started again
+            // under the held button hopped again, so a big hop seemed to fling the car up out of nowhere.)
+            bool pressed = handbrake && !state.HandbrakeWasHeld;
+            state.HandbrakeWasHeld = handbrake;
+            if (!handbrake)
+                state.DriftHopUsed = false;
+            if (p.HoldButtonToDrift && pressed && active && grounded)
+                DriftHop(instance, p, state, mass, dt, up);
+
             if (!IsDrifting.Value)
             {
                 if (!active || !grounded || p.DriftEntry == DriftEntryMode.Off || planarSpeed < p.DriftMinSpeed || forwardSpeed <= 0f)
@@ -2431,12 +2456,8 @@ namespace Remedy.Vehicles
                 state.DriftLevel = 0;
                 DriftCharge.Value = 0f;
                 DriftLevel.Value = 0;
-                if (p.DriftHop > 0f)
-                {
-                    var body = instance.GetComponent<Box3DBody>().Body;
-                    body.ApplyForceToCenter((float3)(up * (p.DriftHop * mass / dt)), true);
-                    state.AllowForcesUntil = Time.time + 0.2f;
-                }
+                if (!p.HoldButtonToDrift)
+                    DriftHop(instance, p, state, mass, dt, up);
                 OnDriftStarted.Invoke(instance);
                 return;
             }
@@ -3411,6 +3432,8 @@ namespace Remedy.Vehicles
         public bool AirThrottleOpen;
         public bool Jumping;
         public float AirLevelReturn = 1f;
+        /// <summary>The handbrake / drift button last step, and whether this press of it has had its drift hop.</summary>
+        public bool HandbrakeWasHeld, DriftHopUsed;
         /// <summary>Air Stabilization Time: the roll and the pitch being brought to a stop after their input lets go.</summary>
         internal ArcadeCar.AirAxisStop AirRollStop, AirPitchStop;
         public float InAirFor = -1f, TakeoffLaunch;
