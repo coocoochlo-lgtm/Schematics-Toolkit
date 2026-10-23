@@ -626,30 +626,53 @@ namespace Remedy.Vehicles
         public float MinAirTimeForLanding = 0.3f;
 
 #if UNITY_EDITOR
-        // Starting points for the two feels the vehicle kit is built around. Tweak from there.
+        // Starting points for the feels the vehicle kit is built around. Tweak from there.
+        //
+        // Since the torque guard fix the rotation assists (leveling, drift nose, roll save...) act at the strength set
+        // here and on time, so each strength / damping pair is set near critically damped (damping about 1.6 x the
+        // square root of the strength): firm, without the rocking an under-damped pair gives.
 
-        [ContextMenu("Preset/Street Racer (NFS Underground)")]
+        [ContextMenu("Preset/Street Racer (NFS Underground, Rocket League air)")]
         private void PresetStreet()
         {
             UnityEditor.Undo.RecordObject(this, "Street Racer Preset");
-            MaxSpeed = 55f; Acceleration = 13f; BrakeDeceleration = 28f;
-            MaxSteerAngle = 30f; SteerSpeed = 4f; SteerReturnSpeed = 7f;
-            FrontGrip = 16f; RearGrip = 13f; MaxTyreAcceleration = 28f; TyreForceHeight = 0.55f;
+            // Ground: an arcade street racer.
+            MaxSpeed = 55f; Acceleration = 13f; BrakeDeceleration = 28f; MaxReverseSpeed = 14f;
+            RollingResistance = 0.2f; EngineBraking = 0.5f;
+            AutomaticGearbox = true; ShiftTime = 0.12f;
+            MaxSteerAngle = 30f; SteerSpeed = 4.5f; SteerReturnSpeed = 7f;
+            CorneringLimit = 26f; CorneringDrag = 0.12f; CorneringThrottleCut = 0.4f;
+            FrontGrip = 16f; RearGrip = 13f; MaxTyreAcceleration = 28f; TyreForceHeight = 0.55f; SideForceHeight = 0.85f;
+            LoadGripAmount = 0.4f; ContactNormalMaxAngle = 50f;
             HandbrakeGrip = 0.25f; HandbrakeDeceleration = 5f;
-            DriftEntry = DriftEntryMode.HandbrakeOrSharpSteer; DriftMinSpeed = 14f; DriftSteerThreshold = 0.8f;
-            HoldButtonToDrift = false; DriftHop = 0f;
-            DriftRearGrip = 0.3f; DriftFrontGrip = 0.95f; DriftSteerAssist = 2.5f; DriftAutoTurn = 0f;
-            DriftMaxAngle = 50f; DriftCounterSteer = 6f; DriftMomentumKeep = 1.2f; DriftExitAngle = 8f;
-            DriftStyle = DriftHandling.Arcade; DriftAngleMin = 25f; DriftAngleMax = 55f; DriftTurnRate = 65f;
-            DriftAutoTurnRate = 0f; DriftHeadingGrip = 6f; DriftSpeedLoss = 0.12f; DriftExitSteer = 0.1f; DriftExitTime = 0.4f;
-            SideForceHeight = 0.85f; LoadGripAmount = 0.5f; MinSpringDampingRatio = 0.35f; ContactNormalMaxAngle = 50f;
-            UprightSupportFloor = 0.35f; WhoahLeanAngle = 10f; RollSaveStrength = 25f;
+            SpringStiffness = 55f; SpringDamping = 8f; MinSpringDampingRatio = 0.5f;
+            StepHeight = 0.35f; ClimbSlowdown = 0.2f;
+            // Drift: arcade, started with the handbrake (a hard turn alone doesn't throw it into one).
+            DriftEntry = DriftEntryMode.Handbrake; DriftStyle = DriftHandling.Arcade;
+            DriftMinSpeed = 14f; DriftSteerThreshold = 0.5f; HoldButtonToDrift = false; DriftHop = 0f;
+            DriftAngleMin = 20f; DriftAngleMax = 45f; DriftTurnRate = 65f; DriftCorneringLimit = 24f;
+            DriftAutoTurnRate = 0f; DriftHeadingGrip = 6f; DriftAngleStrength = 24f; DriftAngleDamping = 8f;
+            DriftSpeedLoss = 0.1f; DriftExitSteer = 0.05f; DriftExitTime = 0.2f;
             MiniTurbo = false;
             BoostAcceleration = 14f; BoostDuration = 2f; BoostMaxSpeedBonus = 15f;
-            Mass = 1300f; CenterOfMassOffset = new Vector3(0f, -0.3f, 0.05f); InertiaScale = 1.4f;
-            StabilizeStrength = 6f; StabilizeDamping = 2f; GroundPlaneTorqueCompensation = 1f;
-            GroundedTurnLeanAngle = 4f; StickyForce = 0.2f;
-            AirLevelStrength = 1.5f; AirControl = 2f; SelfRightStrength = 12f; SelfRightDelay = 2f;
+            Mass = 1300f; CenterOfMassOffset = new Vector3(0f, -0.35f, 0.05f); InertiaScale = 1.4f;
+            // Staying upright: planted, without rocking.
+            StabilizeStrength = 8f; StabilizeDamping = 4.5f; GroundPlaneTorqueCompensation = 0.8f;
+            UprightSupportFloor = 0.35f; GroundedTurnLeanAngle = 4f; StickyForce = 0.2f;
+            WhoahLeanAngle = 8f; RollSaveStrength = 16f; RollSaveDamping = 6.5f; FeetDownStrength = 10f; FeetDownDamping = 5f;
+            RolloverDamping = 4f;
+            // Air: Rocket League. Fast, snappy rolls and pitches that stop when you let go, open almost as soon as the
+            // tyres leave the ground; only a gentle leveling, coming back slowly after you let go.
+            AirRollRate = 280f; AirPitchRate = 280f; AirRollResponse = 8f; AirPitchResponse = 8f;
+            AirGateDistance = 0.4f; AirGateTime = 0.12f; AirThrottleGateTime = 0f;
+            AirStabilizationTime = 0.15f; AirLevelStrength = 1f; AirLevelDamping = 1.6f; AirLevelReturnTime = 1.2f;
+            AirAimMaxSlope = 60f; AirControl = 0f;
+            SelfRightStrength = 12f; SelfRightDelay = 1.5f;
+            // Jumps: a little lift off ramps, no big floaty hang.
+            JumpBoost = 1f; JumpBoostScale = 0.3f; JumpBoostMax = 4f; HoverTime = 0.1f; HangGravity = 0.7f; FallGravity = 1.3f;
+            // Walls: a quick, clean bounce that keeps you going.
+            BouncePush = 0.3f; BounceMaxPush = 7f; BounceSpeedLoss = 0.25f; BounceHop = 1.5f;
+            BounceBoostTime = 0.08f; BounceHangTime = 0.2f; BounceAlign = 1f;
             UnityEditor.EditorUtility.SetDirty(this);
         }
 
@@ -657,24 +680,36 @@ namespace Remedy.Vehicles
         private void PresetKart()
         {
             UnityEditor.Undo.RecordObject(this, "Kart Preset");
-            MaxSpeed = 32f; Acceleration = 18f; BrakeDeceleration = 30f;
+            MaxSpeed = 32f; Acceleration = 18f; BrakeDeceleration = 30f; MaxReverseSpeed = 10f;
+            RollingResistance = 0.3f; EngineBraking = 0.8f;
+            AutomaticGearbox = true; ShiftTime = 0f;
             MaxSteerAngle = 35f; SteerSpeed = 7f; SteerReturnSpeed = 10f;
-            FrontGrip = 20f; RearGrip = 20f; MaxTyreAcceleration = 35f; TyreForceHeight = 0.85f;
+            CorneringLimit = 30f; CorneringDrag = 0.08f; CorneringThrottleCut = 0.2f;
+            FrontGrip = 20f; RearGrip = 20f; MaxTyreAcceleration = 35f; TyreForceHeight = 0.85f; SideForceHeight = 1f;
+            LoadGripAmount = 0.3f; ContactNormalMaxAngle = 45f;
             HandbrakeGrip = 0.6f; HandbrakeDeceleration = 1f;
-            DriftEntry = DriftEntryMode.Handbrake; DriftMinSpeed = 8f; DriftSteerThreshold = 0.3f;
-            HoldButtonToDrift = true; DriftHop = 2.5f;
-            DriftRearGrip = 0.45f; DriftFrontGrip = 1f; DriftSteerAssist = 2f; DriftAutoTurn = 2.5f;
-            DriftMaxAngle = 35f; DriftCounterSteer = 12f; DriftMomentumKeep = 3f; DriftExitAngle = 5f;
-            DriftStyle = DriftHandling.Arcade; DriftAngleMin = 20f; DriftAngleMax = 45f; DriftTurnRate = 45f;
-            DriftAutoTurnRate = 40f; DriftHeadingGrip = 10f; DriftSpeedLoss = 0.05f; DriftExitTime = 0.25f;
-            SideForceHeight = 1f; LoadGripAmount = 0.3f; MinSpringDampingRatio = 0.4f; ContactNormalMaxAngle = 45f;
-            UprightSupportFloor = 0.5f; WhoahLeanAngle = 8f; RollSaveStrength = 30f;
+            SpringStiffness = 70f; SpringDamping = 9f; MinSpringDampingRatio = 0.5f;
+            StepHeight = 0.25f; ClimbSlowdown = 0.15f;
+            // Drift: held on the button, a hop as it's pressed, always curving, mini-turbos.
+            DriftEntry = DriftEntryMode.Handbrake; DriftStyle = DriftHandling.Arcade;
+            DriftMinSpeed = 8f; DriftSteerThreshold = 0.3f; HoldButtonToDrift = true; DriftHop = 2f;
+            DriftAngleMin = 20f; DriftAngleMax = 45f; DriftTurnRate = 45f; DriftCorneringLimit = 30f;
+            DriftAutoTurnRate = 40f; DriftHeadingGrip = 10f; DriftAngleStrength = 30f; DriftAngleDamping = 9f;
+            DriftSpeedLoss = 0.05f; DriftExitTime = 0.2f;
             MiniTurbo = true; ChargeRate = 1f; TightTurnChargeBonus = 1f;
             BoostAcceleration = 12f; BoostDuration = 1.2f; BoostMaxSpeedBonus = 10f;
             Mass = 300f; CenterOfMassOffset = new Vector3(0f, -0.25f, 0f); InertiaScale = 1.2f;
-            StabilizeStrength = 14f; StabilizeDamping = 3f; GroundPlaneTorqueCompensation = 1f;
-            GroundedTurnLeanAngle = 7f; StickyForce = 0.25f;
-            AirLevelStrength = 4f; AirControl = 3f; SelfRightStrength = 20f; SelfRightDelay = 0.75f;
+            StabilizeStrength = 14f; StabilizeDamping = 6f; GroundPlaneTorqueCompensation = 1f;
+            UprightSupportFloor = 0.5f; GroundedTurnLeanAngle = 6f; StickyForce = 0.25f;
+            WhoahLeanAngle = 8f; RollSaveStrength = 20f; RollSaveDamping = 7f; FeetDownStrength = 14f; FeetDownDamping = 6f;
+            RolloverDamping = 5f;
+            // Air: a kart levels itself and barely steers in the air.
+            AirRollRate = 0f; AirPitchRate = 45f; AirPitchResponse = 2f; AirGateTime = 0.3f; AirStabilizationTime = 0.25f;
+            AirLevelStrength = 4f; AirLevelDamping = 3.2f; AirLevelReturnTime = 0.4f; AirControl = 0f;
+            SelfRightStrength = 20f; SelfRightDelay = 0.75f;
+            JumpBoost = 1.5f; JumpBoostScale = 0.4f; JumpBoostMax = 5f; HoverTime = 0.35f; HangGravity = 0.4f; FallGravity = 1.2f;
+            BouncePush = 0.4f; BounceMaxPush = 8f; BounceSpeedLoss = 0.2f; BounceHop = 2f;
+            BounceBoostTime = 0.1f; BounceHangTime = 0.25f; BounceAlign = 1.2f;
             UnityEditor.EditorUtility.SetDirty(this);
         }
 
@@ -682,15 +717,19 @@ namespace Remedy.Vehicles
         private void PresetPhysical()
         {
             UnityEditor.Undo.RecordObject(this, "Physical Preset");
-            FrontGrip = 12f; RearGrip = 12f; MaxTyreAcceleration = 12f; TyreForceHeight = 0.15f;
-            DriftEntry = DriftEntryMode.Off; MiniTurbo = false;
-            DriftMomentumKeep = 0f; DriftCounterSteer = 0f; DriftStyle = DriftHandling.Physics;
-            SideForceHeight = 0.15f; LoadGripAmount = 1f; UprightSupportFloor = 0f;
-            WhoahLeanAngle = 0f; RollSaveStrength = 0f;
+            FrontGrip = 12f; RearGrip = 12f; MaxTyreAcceleration = 12f; TyreForceHeight = 0.15f; SideForceHeight = 0.15f;
+            LoadGripAmount = 1f; CorneringDrag = 0f; CorneringThrottleCut = 0f;
+            DriftEntry = DriftEntryMode.Off; DriftStyle = DriftHandling.Physics; MiniTurbo = false;
+            DriftMomentumKeep = 0f; DriftCounterSteer = 0f; DriftHop = 0f;
             CenterOfMassOffset = new Vector3(0f, -0.1f, 0f); InertiaScale = 1f;
-            StabilizeStrength = 0f; StabilizeDamping = 0.5f; GroundPlaneTorqueCompensation = 0f;
+            // Every assist off: only the tyres and the physics.
+            StabilizeStrength = 0f; StabilizeDamping = 0f; GroundPlaneTorqueCompensation = 0f; UprightSupportFloor = 0f;
             GroundedTurnLeanAngle = 0f; StickyForce = 0.05f;
-            AirLevelStrength = 0f; AirControl = 0f; SelfRightStrength = 0f;
+            WhoahLeanAngle = 0f; RollSaveStrength = 0f; FeetDownStrength = 0f; RolloverDamping = 0f;
+            AirRollRate = 0f; AirPitchRate = 0f; AirLevelStrength = 0f; AirLevelDamping = 0f; AirStabilizationTime = 0f;
+            AirControl = 0f; SelfRightStrength = 0f;
+            JumpBoost = 0f; JumpBoostScale = 0f; HoverTime = 0f; HangGravity = 1f; FallGravity = 1f;
+            BounceMinSpeed = 0f; // (no bounces: walls are just physics)
             UnityEditor.EditorUtility.SetDirty(this);
         }
 #endif
