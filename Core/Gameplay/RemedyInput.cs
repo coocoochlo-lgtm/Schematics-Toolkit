@@ -185,6 +185,21 @@ public class RemedyInput : SingletonData<RemedyInput>
     {
         var action = input.Input;
         var output = input.Output;
+        // A bool Signal on an analog input (a stick, a trigger, a 2D Vector): it sends "pressed" (true), which anything
+        // reading it as a number or vector gets as 1, or (1, 0): a stick pushed a little reads as fully pushed right.
+        var analogType = InputActionEvent.ValueTypeOf(action);
+        bool boolSignal = output != null && output.Parameters.Contents.Count > 0 && output.Parameters[0].Type == Union.ValueType.Bool;
+        bool analogBindings = false;
+        foreach (var binding in action.bindings)
+        {
+            string path = (binding.path ?? "").ToLowerInvariant();
+            if (binding.isComposite ? path.StartsWith("2dvector") || path.StartsWith("1daxis") || path.StartsWith("3dvector")
+                    : path.Contains("stick") || path.Contains("trigger") || path.Contains("delta"))
+                analogBindings = true;
+        }
+        if (boolSignal && (analogBindings || (analogType != null && analogType != typeof(bool))))
+            Debug.LogWarning($"Remedy Input: \"{input.Name}\" (map \"{map.Name}\") reads an analog control but its Signal carries a bool, so it only sends pressed or not: read as a number or vector that's 1, or (1, 0). Set its Action Type to Value and its Control Type to Vector2 (or Axis) so the Signal carries the real value.");
+
         bool analogSignal = output != null && output.Parameters.Contents.Count > 0
             && output.Parameters[0].Type is Union.ValueType.Float or Union.ValueType.Vector2 or Union.ValueType.Vector3;
         if (!analogSignal)
