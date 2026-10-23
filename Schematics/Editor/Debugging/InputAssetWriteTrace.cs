@@ -45,9 +45,29 @@ public static class InputAssetWriteTrace
         EditorApplication.playModeStateChanged += change =>
         {
             if (Enabled)
-                Debug.Log($"[InputTrace] Play Mode: {change}");
+                Debug.Log($"[InputTrace] Play Mode: {change}. Loaded {WatchedType} objects: {Describe(LoadedAssets())}");
             _snapshots.Clear();
         };
+    }
+
+    private static IEnumerable<ScriptableObject> LoadedAssets()
+        => Resources.FindObjectsOfTypeAll<ScriptableObject>().Where(Watched);
+
+    /// <summary>Which object this is: its hash, whether it's the asset file's (and which) or a copy only in memory.</summary>
+    public static string Describe(UnityEngine.Object target)
+    {
+        if (ReferenceEquals(target, null))
+            return "null";
+        if (target == null)
+            return "a destroyed object";
+        string path = AssetDatabase.GetAssetPath(target);
+        return $"{target.name} #{target.GetHashCode()} ({(string.IsNullOrEmpty(path) ? "NOT an asset: a copy in memory" : path)})";
+    }
+
+    private static string Describe(IEnumerable<ScriptableObject> targets)
+    {
+        var list = targets.Select(t => Describe(t)).ToList();
+        return list.Count == 0 ? "none" : string.Join(", ", list);
     }
 
     private static bool Watched(UnityEngine.Object target) => target != null && target.GetType().Name == WatchedType;

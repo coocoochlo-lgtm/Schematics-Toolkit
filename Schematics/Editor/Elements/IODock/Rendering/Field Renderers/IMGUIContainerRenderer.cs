@@ -16,6 +16,43 @@ public class IMGUIContainerRenderer : FieldRenderer
 
     // The property wasn't in the data yet last time it drew.
     private bool _waiting;
+    private double _waitingSince;
+    private bool _reportedMissing;
+
+    // TEMPORARY diagnostics: the longest start of the path the object's SerializedObject has, and what's under it.
+    private string DescribeMissing()
+    {
+        var serializedObject = DockSerializedObjects.Get(_object);
+        if (serializedObject == null)
+            return "It has no SerializedObject (the object is gone).";
+        string found = "", next = null;
+        var parts = FieldPath.Split('.');
+        for (int i = 0; i < parts.Length; i++)
+        {
+            string attempt = string.Join(".", parts, 0, i + 1);
+            // ("Array" and "data[n]" only exist together.)
+            if (parts[i] == "Array")
+                continue;
+            if (serializedObject.FindProperty(attempt) == null)
+            {
+                next = attempt;
+                break;
+            }
+            found = attempt;
+        }
+        var children = new List<string>();
+        var parent = string.IsNullOrEmpty(found) ? null : serializedObject.FindProperty(found);
+        var iterator = parent != null ? parent.Copy() : serializedObject.GetIterator();
+        var end = parent?.GetEndProperty();
+        if (iterator.NextVisible(true))
+            do
+            {
+                if (end != null && SerializedProperty.EqualContents(iterator, end))
+                    break;
+                children.Add(iterator.propertyPath + (iterator.isArray ? $"[{iterator.arraySize}]" : ""));
+            } while (children.Count < 30 && iterator.NextVisible(false));
+        return $"It has \"{found}\" but not \"{next}\". Under it: {string.Join(", ", children)}";
+    }
 
     protected override void Redraw()
     {
@@ -44,7 +81,15 @@ public class IMGUIContainerRenderer : FieldRenderer
             {
                 // Not there yet (an input just added to the list, not yet in the data): look again next frame. It used
                 // to give up here and, never redrawn, stayed blank.
+                if (!_waiting)
+                    _waitingSince = EditorApplication.timeSinceStartup;
                 _waiting = true;
+                // TEMPORARY (Trace Input Asset Writes): still missing after a second, say what's missing.
+                if (!_reportedMissing && InputAssetWriteTrace.Enabled && EditorApplication.timeSinceStartup - _waitingSince > 1.0)
+                {
+                    _reportedMissing = true;
+                    Debug.Log($"[InputTrace] A dock field can't find its data: \"{FieldPath}\" on {InputAssetWriteTrace.Describe(_object)}. {DescribeMissing()}");
+                }
                 return;
             }
             _waiting = false;
@@ -66,7 +111,12 @@ public class IMGUIContainerRenderer : FieldRenderer
             }
 
             bool changed = EditorGUI.EndChangeCheck();
-            if (seriializedObject.ApplyModifiedProperties() || changed)
+            bool applied = seriializedObject.ApplyModifiedProperties();
+            // TEMPORARY (Trace Input Asset Writes): an edit made here that didn't get saved, and where it should have gone.
+            if (changed && InputAssetWriteTrace.Enabled)
+                Debug.Log($"[InputTrace] Dock field edited: \"{FieldPath}\" applied: {applied}; SerializedObject on "
+                    + $"{InputAssetWriteTrace.Describe(seriializedObject.targetObject)}, dock object {InputAssetWriteTrace.Describe(_object)}");
+            if (applied || changed)
             {
                 // Only after an edit: it used to ask for a player loop update and a redraw on every redraw (so it
                 // never stopped redrawing), and every editor frame on top of that, for every field in the dock.
