@@ -1348,9 +1348,10 @@ namespace Remedy.Vehicles
                 uprightSupport = 1f;
             }
             // In-air turning (the air leveling and air control) is applied straight to the body after the torque
-            // guard, not through it: the guard only ever passes a changing assist through backwards (it cancels a
-            // steady one), which flipped the car over in the air and inverted air control. On the ground everything
-            // still goes through the guard as before.
+            // guard, not through it: the guard used to pass a changing assist through backwards (and cancel a steady
+            // one), which flipped the car over in the air and inverted air control. (The guard's fixed now, see
+            // ApplyTorqueGuard; in the air it stays out of the way so air control isn't smoothed.) On the ground
+            // everything goes through the guard.
             Vector3 airAngular = Vector3.zero;
             if (state.UprightBlend > 0f)
             {
@@ -1523,7 +1524,7 @@ namespace Remedy.Vehicles
                 angular = Vector3.zero;
             Vector3 requestedTorque = wheelForceTorque + stabilizationCompensation
                 + (Vector3)Torque(angular, rotation, state) + airControlTorque;
-            Vector3 guardedAngularAcceleration = ApplyTorqueGuard(native, requestedTorque, p, dt, rotation, state);
+            Vector3 guardedAngularAcceleration = ApplyTorqueGuard(native, requestedTorque, wheelForceTorque, p, dt, rotation, state);
             // The auto-roll is a move, not a push: it sets the spin that follows its path, so the floor can't stall it.
             if (autoRolling)
                 native.SetAngularVelocity((float3)rollSpin);
@@ -2830,7 +2831,12 @@ namespace Remedy.Vehicles
             return Mathf.Max(0f, topHeight - Vector3.Dot(reference, up));
         }
 
-        private static Vector3 ApplyTorqueGuard(Body body, Vector3 requestedTorque, ArcadeCarProperties properties,
+        // The torque guard: everything the car asks to turn it by (the tyres' torque plus the rotation assists) is
+        // capped and blended, and the car gets that, by the difference from what's already on it: only the tyres'
+        // torque, pushed at the tyres. (It used to take away everything asked for, the assists too though they were
+        // never applied: an assist held steady came to nothing, and one that changed pushed the other way, so an
+        // analog stick's every little move turned an arcade drift's nose backwards into a spin.)
+        private static Vector3 ApplyTorqueGuard(Body body, Vector3 requestedTorque, Vector3 appliedTorque, ArcadeCarProperties properties,
             float dt, Quaternion rotation, CarState state)
         {
             float maximum = Mathf.Max(0f, properties.TorqueGuardMaxAngularAcceleration);
@@ -2845,7 +2851,7 @@ namespace Remedy.Vehicles
             state.TorqueGuardAcceleration = Vector3.Lerp(state.TorqueGuardAcceleration, requestedAcceleration, blend);
             Vector3 guardedAcceleration = state.TorqueGuardAcceleration;
             Vector3 guardedTorque = (Vector3)Torque(guardedAcceleration, rotation, state);
-            Vector3 correction = guardedTorque - requestedTorque;
+            Vector3 correction = guardedTorque - appliedTorque;
             if (correction.sqrMagnitude > 0f)
                 body.ApplyTorque(correction, true);
             return guardedAcceleration;
