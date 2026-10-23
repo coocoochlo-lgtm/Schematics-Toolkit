@@ -105,10 +105,10 @@ namespace Remedy.Vehicles
         [Tooltip("Force guard: the most spin (rad/s) the car may gain within the window from still things touching it.")]
         public float ForceGuardSpinGain = 6f;
         [Min(0f)]
-        [Tooltip("Ghost stops: losing at least this much speed (m/s) in one physics step against a contact gets checked: a small probe looks Step Height above the contact point (along the car's up), along the way the car was going, each step for Ghost Stop Check Frames. Any step it finds nothing, it was a ghost (a mesh seam, nothing really there, or only something low enough to climb) and the car gets its speed back. A contact that's floor (within Tyre Contact Max Angle of the car's up) counts as a ghost straight away. 0 = off.")]
+        [Tooltip("Ghost stops: losing at least this much speed (m/s) in one physics step against a contact in the way the car was going (head-on only) gets checked by the wall fans (Bounce): the leading tyres cast them the way it was going, then and for Ghost Stop Check Frames more steps. Any step no fan agrees on a wall there, it was a ghost (a mesh seam, nothing really there, or only something low enough to climb) and the car carries on as it was. 0 = off.")]
         public float GhostStopDrop = 3f;
         [Min(0f)]
-        [Tooltip("How many probes (physics steps) a sudden stop is checked for after it happens; every one must find a surface there for the stop to stand. 0 = off.")]
+        [Tooltip("How many more steps (after the stop's own) the wall fans check a sudden stop for; every one must find the wall for the stop to stand. 0 = judged on the stop's step alone.")]
         public int GhostStopCheckFrames = 3;
         [Tooltip("Spring stiffness: m/s² of push per metre compressed. ~10 / Stiffness is how far the car sags at rest (60 → 17 cm). Higher = stiffer, twitchier.")]
         public float SpringStiffness = 60f;
@@ -553,6 +553,9 @@ namespace Remedy.Vehicles
         [Range(1, 4)]
         [Tooltip("How many of a tyre's four fan casts must find the wall in the same step for it to count (and again each Bounce Confirm step): one stray cast alone doesn't. 1 = any. Lower it if thin things (poles) don't bounce.")]
         public int WallFanHits = 2;
+        [Range(0.05f, 1f)]
+        [Tooltip("How big each wall cast's sphere is, as a share of the tyre's radius: bigger catches more of a wall (and is harder to slip past through a gap).")]
+        public float WallCastSize = 0.6f;
         [Min(0f)]
         [Tooltip("How many casts (physics steps) a found wall is checked for before the bounce: the tyres that found it cast again along the way the car came in each step, and the first one that misses drops the bounce at once. 0 = straight away.")]
         public int BounceConfirmFrames = 3;
