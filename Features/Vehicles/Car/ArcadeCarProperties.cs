@@ -72,8 +72,8 @@ namespace Remedy.Vehicles
         [Tooltip("When no ground is found, places the tire bottom no farther than this fraction of Ground Check Distance below its anchor. A nearer hit moves it toward the surface. Ground sensing extends farther, from the body top to below the tire. Suspension Rest Length limits spring travel, not tire placement.")]
         public float TirePlacementThreshold = 0.5f;
         [Min(0f)]
-        [Tooltip("A tyre whose ground cast suddenly misses keeps its last hit for up to this long (seconds), so a stray miss doesn't drop it off the ground. The first hit ends it at once (hits always count straight away). 0 = misses count at once.")]
-        public float GroundHoldTime = 0.06f;
+        [Tooltip("A tyre whose ground cast suddenly misses keeps its last hit for up to this many casts (physics steps), so a stray miss doesn't drop it off the ground. The first hit ends it at once (hits always count straight away). Counted in casts, not seconds, so a hitch can't use it up before the casts are made. 0 = misses count at once.")]
+        public int GroundHoldFrames = 3;
         [Min(0f)]
         [Tooltip("The tallest step the tyres climb (metres above where they meet the ground): kerbs and ledges lower than this are driven up, not bounced off (the wall casts start this high). Raise it to climb more.")]
         public float StepHeight = 0.5f;
@@ -105,11 +105,11 @@ namespace Remedy.Vehicles
         [Tooltip("Force guard: the most spin (rad/s) the car may gain within the window from still things touching it.")]
         public float ForceGuardSpinGain = 6f;
         [Min(0f)]
-        [Tooltip("Ghost stops: losing at least this much speed (m/s) in one physics step against a contact gets checked: a small probe looks Step Height above the contact point (along the car's up), along the way the car was going, each step for Ghost Stop Check Time. Any step it finds nothing, it was a ghost (a mesh seam, nothing really there, or only something low enough to climb) and the car gets its speed back. A contact that's floor (within Tyre Contact Max Angle of the car's up) counts as a ghost straight away. 0 = off.")]
+        [Tooltip("Ghost stops: losing at least this much speed (m/s) in one physics step against a contact gets checked: a small probe looks Step Height above the contact point (along the car's up), along the way the car was going, each step for Ghost Stop Check Frames. Any step it finds nothing, it was a ghost (a mesh seam, nothing really there, or only something low enough to climb) and the car gets its speed back. A contact that's floor (within Tyre Contact Max Angle of the car's up) counts as a ghost straight away. 0 = off.")]
         public float GhostStopDrop = 3f;
         [Min(0f)]
-        [Tooltip("How long a sudden stop is checked (seconds); every step must find a surface there for the stop to stand. 0 = off.")]
-        public float GhostStopCheckTime = 0.06f;
+        [Tooltip("How many probes (physics steps) a sudden stop is checked for after it happens; every one must find a surface there for the stop to stand. 0 = off.")]
+        public int GhostStopCheckFrames = 3;
         [Tooltip("Spring stiffness: m/s² of push per metre compressed. ~10 / Stiffness is how far the car sags at rest (60 → 17 cm). Higher = stiffer, twitchier.")]
         public float SpringStiffness = 60f;
         [Tooltip("Spring damping: stops the car bouncing. ~2 × √Stiffness × 0.5 is a good start. Too low bounces, too high feels like bricks.")]
@@ -548,8 +548,8 @@ namespace Remedy.Vehicles
         [Tooltip("Bounces are found by a cast from each tyre along the car's velocity, reaching past the body's edge by this much (metres) beyond this step's travel: more catches walls a moment earlier.")]
         public float BounceLookAhead = 0.1f;
         [Min(0f)]
-        [Tooltip("How long a found wall is checked before the bounce (seconds): the tyres that found it cast again along the way the car came in each step, and the first step that misses it drops the bounce at once. 0 = straight away.")]
-        public float BounceConfirmTime = 0.06f;
+        [Tooltip("How many casts (physics steps) a found wall is checked for before the bounce: the tyres that found it cast again along the way the car came in each step, and the first one that misses drops the bounce at once. 0 = straight away.")]
+        public int BounceConfirmFrames = 3;
         [Min(0f)]
         [Tooltip("Push away from what was hit, per m/s it was hit at (m/s). Half each against another car (it bounces too).")]
         public float BouncePush = 0.35f;

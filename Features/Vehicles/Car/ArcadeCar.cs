@@ -596,7 +596,7 @@ namespace Remedy.Vehicles
                 }
                 RecordForceHistory(state, p, velocity, angularVelocity, dt);
             }
-            if (p.GhostStopCheckTime > 0f && p.GhostStopDrop > 0f && state.HasGuardPosition)
+            if (p.GhostStopCheckFrames > 0 && p.GhostStopDrop > 0f && state.HasGuardPosition)
                 CheckGhostStop(native, body, p, state, ref velocity, ref angularVelocity, up, dt);
 
             state.GuardPosition = bodyPosition;
@@ -883,7 +883,7 @@ namespace Remedy.Vehicles
                 }
                 // Only hits count at once: a tyre that had ground and whose cast suddenly finds nothing, or reads it as a
                 // sidewall or a ceiling (a sphere catching a mesh's seam or edge reports a sideways normal for a step),
-                // keeps its last ground for up to Ground Hold Time, so a stray reading doesn't drop it. A car really on
+                // keeps its last ground for up to Ground Hold Frames casts, so a stray reading doesn't drop it. A car really on
                 // its side or roof isn't held: its held ground no longer faces it (below). It keeps the ground's
                 // surface, not the old hit: each held step the distance is measured again from where the tyre is now
                 // to that surface, so the spring and the tyre's reach follow the car (a frozen distance kept pushing
@@ -901,10 +901,10 @@ namespace Remedy.Vehicles
                     }
                     w.LastGroundHit = w.GroundHit;
                     w.HasLastGroundHit = true;
-                    w.MissTime = 0f;
+                    w.MissSteps = 0;
                     UpdateWheelSurface(ref w, groundObject, i, instance.GameObject);
                 }
-                else if (w.HasLastGroundHit && w.MissTime + dt <= p.GroundHoldTime)
+                else if (w.HasLastGroundHit && w.MissSteps < p.GroundHoldFrames)
                 {
                     Vector3 heldNormal = w.LastGroundHit.normal.normalized;
                     float facing = Vector3.Dot(up, heldNormal);
@@ -915,7 +915,7 @@ namespace Remedy.Vehicles
                         : float.MaxValue;
                     if (heldDistance >= 0f && heldDistance <= tyreDrop + tireRadius + beyond)
                     {
-                        w.MissTime += dt;
+                        w.MissSteps++;
                         w.GroundHit = w.LastGroundHit;
                         w.GroundHit.distance = heldDistance;
                         w.GroundHit.point = origin - up * heldDistance;
@@ -1619,7 +1619,7 @@ namespace Remedy.Vehicles
         // plane, as far as the body reaches past that tyre in that direction plus this step's travel and Bounce Look
         // Ahead. A wall-like surface (Bounce Min Wall Angle) the car is moving into at Bounce Min Speed or more starts
         // a candidate: the tyres that found one decide its direction (weighted by how hard each is coming in), its
-        // strength (the hardest) and where on the car it struck (their hit points). Then, for Bounce Confirm Time,
+        // strength (the hardest) and where on the car it struck (their hit points). Then, for Bounce Confirm Frames casts,
         // those tyres cast again along that first approach direction (the car's velocity no longer points into the
         // wall once it's touching), and it only bounces if every step still finds the wall: any miss and it's
         // dropped (a glance that came and went never was a proper collision).
@@ -1633,7 +1633,6 @@ namespace Remedy.Vehicles
 
             if (state.BounceCandidate)
             {
-                state.BounceCandidateTime += dt;
                 state.BounceCandidateSteps++;
                 bool stillThere = false;
                 for (int i = 0; i < wheels.Length && i < 32; i++)
@@ -1651,7 +1650,7 @@ namespace Remedy.Vehicles
                     return;
                 }
                 state.BounceFoundSteps++;
-                if (state.BounceCandidateTime < p.BounceConfirmTime)
+                if (state.BounceCandidateSteps < p.BounceConfirmFrames)
                     return;
                 state.BounceCandidate = false;
                 if (state.BounceFoundSteps >= state.BounceCandidateSteps)
@@ -1698,14 +1697,13 @@ namespace Remedy.Vehicles
             state.BounceBefore = velocity;
             state.BounceApproach = direction;
             state.BounceStruckWheels = struckWheels;
-            if (p.BounceConfirmTime <= 0f)
+            if (p.BounceConfirmFrames <= 0)
             {
                 state.PendingBounce = true;
                 state.LastBounceTime = Time.time;
                 return;
             }
             state.BounceCandidate = true;
-            state.BounceCandidateTime = 0f;
             state.BounceCandidateSteps = 0;
             state.BounceFoundSteps = 0;
         }
@@ -2024,7 +2022,7 @@ namespace Remedy.Vehicles
 
         // Ghost stops: the car losing Ghost Stop Drop or more of its speed in one step against a contact (Box3D can
         // stop a box dead on a mesh's seam, where nothing really is). The contact pushing hardest against the way it
-        // was going is then checked over Ghost Stop Check Time: each step a small probe goes through that point,
+        // was going is then checked for Ghost Stop Check Frames steps: each step a small probe goes through that point,
         // along the way the car was going, looking for a surface facing it. Any step without one and it was a ghost:
         // the car gets back the speed and spin it had just before. Found every step, the stop was real and stands.
         // The probe goes Step Height above the contact (along the car's up): what's only below that (a body corner
@@ -2036,10 +2034,10 @@ namespace Remedy.Vehicles
         {
             if (state.GhostChecking)
             {
-                state.GhostTime += dt;
+                state.GhostSteps++;
                 if (!ProbeStop(ignore, state.GhostPoint, state.GhostDirection, up, p))
                     RestoreFromGhost(native, state, ref velocity, ref angularVelocity);
-                else if (state.GhostTime >= p.GhostStopCheckTime)
+                else if (state.GhostSteps >= p.GhostStopCheckFrames)
                 {
                     state.GhostChecking = false;
                     state.GhostReal = true;
@@ -2060,7 +2058,7 @@ namespace Remedy.Vehicles
             if (lost < p.GhostStopDrop || !FindStopContact(native, direction, out Vector3 point, out Vector3 push))
                 return;
             state.GhostChecking = true;
-            state.GhostTime = 0f;
+            state.GhostSteps = 0;
             state.GhostPoint = point;
             state.GhostDirection = direction;
             state.GhostBefore = state.GuardVelocity;
@@ -2934,6 +2932,8 @@ namespace Remedy.Vehicles
         // its own recent average (Body Follow of it), and a bounce kicks the corners nearest the hit. The corners'
         // heights make the mesh's lift, pitch and roll (kept within Body Max Tilt). Only the look: the physics don't
         // move. Body Follow 0 leaves the mesh alone.
+        private const float WobbleStep = 1f / 240f, WobbleMaxFrame = 0.1f;
+
         private static void UpdateBodyWobble(Transform car, Transform visual, Wheel[] wheels, ArcadeCarProperties p,
             CarState state, float dt)
         {
@@ -2952,6 +2952,13 @@ namespace Remedy.Vehicles
             }
             float w = 2f * Mathf.PI * Mathf.Max(0.1f, p.BodySpringFrequency);
             float c = 2f * Mathf.Clamp01(p.BodySpringDamping) * w;
+            // The springs run in small steps of their own (WobbleStep), however long the frame was, so they move the
+            // same at any frame rate: one big step on a slow frame overshot and threw the body about. A frame longer
+            // than WobbleMaxFrame (a hitch) only counts as that long, so a hitch can't fling it either.
+            dt = Mathf.Min(dt, WobbleMaxFrame);
+            state.WobbleTime += dt;
+            int steps = Mathf.Min(Mathf.FloorToInt(state.WobbleTime / WobbleStep), Mathf.CeilToInt(WobbleMaxFrame / WobbleStep));
+            state.WobbleTime -= steps * WobbleStep;
             float settle = 1f - Mathf.Exp(-dt / 0.8f);
 
             int count = 0;
@@ -2969,8 +2976,11 @@ namespace Remedy.Vehicles
                 corner.CornerBaseline = Mathf.Lerp(corner.CornerBaseline, corner.Extension, settle);
                 // Compressed (shorter than usual): the body dips at that corner; stretched: it lifts.
                 float target = -(corner.CornerBaseline - corner.Extension) * p.BodyFollow;
-                corner.CornerSpeed += ((target - corner.CornerOffset) * (w * w) - corner.CornerSpeed * c) * dt;
-                corner.CornerOffset += corner.CornerSpeed * dt;
+                for (int step = 0; step < steps; step++)
+                {
+                    corner.CornerSpeed += ((target - corner.CornerOffset) * (w * w) - corner.CornerSpeed * c) * WobbleStep;
+                    corner.CornerOffset += corner.CornerSpeed * WobbleStep;
+                }
                 Vector3 local = car.InverseTransformPoint(wheels[i].Anchor.position);
                 corner.CornerLocal = local;
                 heightSum += corner.CornerOffset;
@@ -3272,7 +3282,10 @@ namespace Remedy.Vehicles
         public bool HasGuardPosition;
         public float AllowForcesUntil;
         public bool GhostChecking, GhostReal;
-        public float GhostTime, GhostVerdictTime = -10f;
+        public float GhostVerdictTime = -10f;
+        public int GhostSteps;
+        // The body wobble's springs: time not yet stepped (see UpdateBodyWobble).
+        public float WobbleTime;
         public Vector3 GhostPoint, GhostDirection, GhostBefore, GhostBeforeSpin;
         public ForceSample[] ForceHistory = new ForceSample[1];
         public int ForceHistoryCount, ForceHistoryOldest;
@@ -3281,7 +3294,6 @@ namespace Remedy.Vehicles
         public Vector3 BounceBefore, BounceApproach;
         public float LastBounceTime = -10f;
         public bool BounceCandidate;
-        public float BounceCandidateTime;
         public int BounceCandidateSteps, BounceFoundSteps;
         public uint BounceStruckWheels;
         public float BounceGrip = 1f;
@@ -3399,13 +3411,13 @@ namespace Remedy.Vehicles
         public float AirGate;
         /// <summary>Touching the ground with its sidewall this step (so not grounded).</summary>
         public bool Sidewall;
-        /// <summary>The last real ground hit, kept through a stray miss (Ground Hold Time).</summary>
+        /// <summary>The last real ground hit, kept through a stray miss (Ground Hold Frames).</summary>
         public RaycastHit LastGroundHit;
         public bool HasLastGroundHit;
         /// <summary>What the tyre is driving on (Surface Materials), and the object it came from.</summary>
         public SurfaceMaterial Surface, TaggedSurface;
         public GameObject SurfaceObject;
-        public float MissTime;
+        public int MissSteps;
         /// <summary>This tyre's last wall cast, for the gizmo.</summary>
         public Vector3 WallCastFrom, WallCastTo;
         public float WallCastRadius, WallCastTime;
