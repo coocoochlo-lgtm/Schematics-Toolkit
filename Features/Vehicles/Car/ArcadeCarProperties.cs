@@ -384,6 +384,9 @@ namespace Remedy.Vehicles
         [Tooltip("After the player lets go of air control, the air leveling fades back in from nothing over this long (seconds).")]
         public float AirLevelReturnTime = 0.6f;
         [Min(0f)]
+        [Tooltip("Letting go of the air roll or pitch brings that spin to a complete stop over this long (seconds), evenly, each on its own; the air leveling fades back in after (Air Level Return Time). 0 = off: it keeps spinning until the leveling takes it.")]
+        public float AirStabilizationTime = 0.25f;
+        [Min(0f)]
         [Tooltip("Air control: how fast steering rolls the car (degrees per second at full input, through the gates below). Rocket League, gently. 0 (with Air Pitch Rate 0) = the old Air Control push instead.")]
         public float AirRollRate = 60f;
         [Min(0f)]

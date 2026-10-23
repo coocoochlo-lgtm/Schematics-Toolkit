@@ -1236,7 +1236,8 @@ namespace Remedy.Vehicles
                 : 0f;
             // The air leveling is off while the player steers the car in the air, and fades back in from nothing
             // over Air Level Return Time once they let go.
-            state.AirLevelReturn = airInput > 0.001f ? 0f
+            // (Nor while Air Stabilization Time is still bringing a roll or pitch to a stop: it comes back after.)
+            state.AirLevelReturn = airInput > 0.001f || state.AirRollStop.Active || state.AirPitchStop.Active ? 0f
                 : Mathf.MoveTowards(state.AirLevelReturn, 1f, dt / Mathf.Max(0.01f, p.AirLevelReturnTime));
 
             // Rotation helpers, as angular accelerations (turned into torque with the body's own inertia below).
@@ -1383,6 +1384,15 @@ namespace Remedy.Vehicles
                     airAngular += right * ((wantedPitch - Vector3.Dot(angularVelocity, right)) * Mathf.Max(0f, p.AirPitchResponse));
                 }
             }
+            // Air Stabilization Time: letting go of the roll or the pitch brings that spin to a full stop over this
+            // long (evenly, from however fast it was turning), each axis on its own; the air leveling then fades back
+            // in (Air Level Return Time). Landing, righting or rolling ends it.
+            bool steering = airControl && airInput > 0f && !state.SelfRighting && !state.AutoRolling;
+            bool canStop = airborne && p.AirStabilizationTime > 0f && !state.SelfRighting && !state.AutoRolling;
+            airAngular += forward * AirStop(ref state.AirRollStop, steering && Mathf.Abs(rollStick) > 0.05f, canStop,
+                Vector3.Dot(angularVelocity, forward), p.AirStabilizationTime, dt);
+            airAngular += right * AirStop(ref state.AirPitchStop, steering && Mathf.Abs(pitchStick) > 0.05f, canStop,
+                Vector3.Dot(angularVelocity, right), p.AirStabilizationTime, dt);
 
             // Keep surface-following roll/pitch independent of suspension visuals and steering yaw.
             if (isGrounded && p.GroundPlaneTorqueCompensation > 0f)
@@ -1959,6 +1969,39 @@ namespace Remedy.Vehicles
             Vector3 push = state.BounceAway * (state.BounceBoostAway * share);
             state.BounceTargetVelocity += push;
             return push + state.BounceUp * (state.BounceBoostUp * share);
+        }
+
+        /// <summary>One air control axis being brought to a stop (Air Stabilization Time).</summary>
+        internal struct AirAxisStop
+        {
+            public bool Held, Active;
+            public float From, Elapsed;
+        }
+
+        // One axis of Air Stabilization Time: when its input lets go, the spin it had then winds down evenly to nothing
+        // over `time`; this step's angular acceleration (about that axis) to follow it exactly.
+        private static float AirStop(ref AirAxisStop stop, bool held, bool canStop, float rate, float time, float dt)
+        {
+            bool released = stop.Held && !held;
+            stop.Held = held;
+            if (held || !canStop)
+            {
+                stop.Active = false;
+                return 0f;
+            }
+            if (released)
+            {
+                stop.Active = true;
+                stop.From = rate;
+                stop.Elapsed = 0f;
+            }
+            if (!stop.Active)
+                return 0f;
+            stop.Elapsed += dt;
+            float wanted = stop.From * Mathf.Clamp01(1f - stop.Elapsed / time);
+            if (stop.Elapsed >= time)
+                stop.Active = false; // (this last step takes it to a stop)
+            return (wanted - rate) / Mathf.Max(0.0001f, dt);
         }
 
         // Jumps: leaving the ground is noted at takeoff (how fast it went away from the ground it was on); once it's
@@ -3368,6 +3411,8 @@ namespace Remedy.Vehicles
         public bool AirThrottleOpen;
         public bool Jumping;
         public float AirLevelReturn = 1f;
+        /// <summary>Air Stabilization Time: the roll and the pitch being brought to a stop after their input lets go.</summary>
+        internal ArcadeCar.AirAxisStop AirRollStop, AirPitchStop;
         public float InAirFor = -1f, TakeoffLaunch;
         public float JumpBoostTotal, JumpBoostClock, HoverClock = -1f;
         public float JumpTimeScale = 1f;
