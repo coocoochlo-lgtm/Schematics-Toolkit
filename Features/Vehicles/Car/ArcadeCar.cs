@@ -2411,8 +2411,8 @@ namespace Remedy.Vehicles
             var body = instance.GetComponent<Box3DBody>();
             if (body == null || !body.IsLive())
                 return;
+            // (The force guard isn't paused for it: a hop bigger than Force Guard Speed Gain may be undone as a bad push.)
             body.Body.ApplyForceToCenter((float3)(up * (p.DriftHop * mass / dt)), true);
-            state.AllowForcesUntil = Time.time + 0.2f;
             state.DriftHopUsed = state.HandbrakeWasHeld; // (a drift started by steering alone can't start again mid-drift)
         }
 
