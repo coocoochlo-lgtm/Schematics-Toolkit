@@ -226,7 +226,7 @@ public static class SchematicBehaviorsHeaderGUI
     }
 
     private static string PropertiesKey(SchematicObject root, GameObject gameObject, BehaviorAttachment attachment, string variable)
-        => $"Inspector.{root.GetInstanceID()}.{PathOf(root, gameObject)}.{attachment?.Metadata?.BehaviorType.Type?.FullName}.{variable}";
+        => $"Inspector.{root.GetHashCode()}.{PathOf(root, gameObject)}.{attachment?.Metadata?.BehaviorType.Type?.FullName}.{variable}";
 
     // One SerializedObject per Schematic Object, kept between redraws: made fresh every redraw, the foldouts inside
     // a list or class (theirs and Unity's) closed again as soon as they were opened.
