@@ -20,7 +20,7 @@ public static class InputAssetWriteTrace
 
     public static bool Enabled
     {
-        get => EditorPrefs.GetBool(PrefKey, true);
+        get => EditorPrefs.GetBool(PrefKey, false); // (off: the revert was _currentActionMap, see RemedyInput)
         set => EditorPrefs.SetBool(PrefKey, value);
     }
 

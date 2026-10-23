@@ -40,8 +40,11 @@ public class RemedyInput : SingletonData<RemedyInput>
 
     [IdentityListRenderer(identifierType: ListIdentifierType.Name, identifierField: "Name", depth: 0, foldoutTitle: "Input Maps", itemLabel: "Map", renamable: true)]
     public InputActionMap[] InputMaps = new InputActionMap[0];
-    [SerializeField]
-    //[Dropdown("GetInputMaps")]
+    // The map in use while the game runs: one of InputMaps itself, so never saved. Saved, it was a second copy of that
+    // map's data in the asset pointing at the same object, and applying any edit wrote the map from both: the second
+    // (unedited) one last, putting every change to its Inputs straight back (only after Play Mode had set it; a
+    // recompile split them into separate copies, which is why that fixed it).
+    [NonSerialized]
     private InputActionMap _currentActionMap;
     private Dictionary<InputAction, List<InputActionEvent>> _actionsToUpdate = new();
 
