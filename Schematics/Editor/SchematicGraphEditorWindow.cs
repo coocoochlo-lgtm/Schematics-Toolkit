@@ -157,6 +157,30 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
 
     internal static ProcessProfiler Profiler = new ProcessProfiler();
 
+    // Play Mode in or out: the global assets the Global tab shows (their Instance), its cached dock and the dock's
+    // SerializedObjects are found and made again, and every open window's dock redrawn. They were kept in statics
+    // that only a recompile cleared, so after Play Mode the Global tab (the Input Map) still drew and edited the
+    // objects of the session just ended: blank new inputs, existing ones that wouldn't change.
+    [InitializeOnLoadMethod]
+    private static void RefreshDocksOnPlayMode()
+    {
+        EditorApplication.playModeStateChanged += change =>
+        {
+            if (change != PlayModeStateChange.EnteredEditMode && change != PlayModeStateChange.EnteredPlayMode)
+                return;
+            _gs = null;
+            _dg = null;
+            DockSerializedObjects.Clear();
+            foreach (var window in WindowsToSave.ToList())
+            {
+                if (window == null || window.SchematicGraph == null)
+                    continue;
+                try { window.RedrawIODock(refreshGlobals: true); }
+                catch (Exception exception) { Debug.LogException(exception, window); }
+            }
+        };
+    }
+
     private static List<(string name, ScriptableObject data, Type type)> _gs;
     private static List<(string name, ScriptableObject data, Type type)> _globals
     {

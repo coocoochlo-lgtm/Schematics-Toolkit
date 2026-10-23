@@ -81,6 +81,13 @@ public static class DockSerializedObjects
 
     private static readonly HashSet<(UnityEngine.Object, string)> _unserialized = new();
 
+    /// <summary>Forgets every SerializedObject (Play Mode in or out: the objects they were made for may be gone or replaced).</summary>
+    public static void Clear()
+    {
+        _objects.Clear();
+        _unserialized.Clear();
+    }
+
     /// <summary>Whether an edit made through the object's shared SerializedObject is waiting to be saved (by a redraw).</summary>
     public static bool HasPendingChanges(UnityEngine.Object target)
         => target != null && _objects.TryGetValue(target, out var serializedObject) && IsAlive(serializedObject)
