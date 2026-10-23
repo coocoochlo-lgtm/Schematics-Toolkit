@@ -510,9 +510,27 @@ public class RemedyInput : SingletonData<RemedyInput>
 
         internal static void ForgetRuntimeState(InputAction action)
         {
-            if (action != null && _hiddenMap != null && !IsEnabled(action))
-                _hiddenMap.SetValue(action, null);
+            if (action == null || _hiddenMap == null || IsEnabled(action))
+                return;
+            _hiddenMap.SetValue(action, null);
+            // Its place in the old map's state too, back to "none", as a freshly loaded action has: left pointing into
+            // a state that's gone, the next Enable (the next Play Mode) asserted "Action map must have state".
+            foreach (var (field, fresh) in _runtimeFields)
+                field?.SetValue(action, fresh);
         }
+
+        // InputAction's [NonSerialized] runtime fields and the values a freshly loaded action has.
+        private static readonly (System.Reflection.FieldInfo field, object fresh)[] _runtimeFields =
+        {
+            (RuntimeField("m_ActionIndexInState"), -1), // (InputActionState.kInvalidIndex)
+            (RuntimeField("m_BindingsStartIndex"), 0),
+            (RuntimeField("m_BindingsCount"), 0),
+            (RuntimeField("m_ControlStartIndex"), 0),
+            (RuntimeField("m_ControlCount"), 0),
+        };
+
+        private static System.Reflection.FieldInfo RuntimeField(string name)
+            => typeof(InputAction).GetField(name, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
 
         internal static void ForgetStaleBindings(InputAction action)
         {
@@ -525,7 +543,7 @@ public class RemedyInput : SingletonData<RemedyInput>
                 same = current[i].path == saved[i].path && current[i].isComposite == saved[i].isComposite
                     && current[i].isPartOfComposite == saved[i].isPartOfComposite;
             if (!same)
-                _hiddenMap.SetValue(action, null);
+                ForgetRuntimeState(action);
         }
 
         private static Type ValueTypeOfControl(string controlType)
