@@ -547,6 +547,12 @@ namespace Remedy.Vehicles
         [Min(0f)]
         [Tooltip("Bounces are found by a cast from each tyre along the car's velocity, reaching past the body's edge by this much (metres) beyond this step's travel: more catches walls a moment earlier.")]
         public float BounceLookAhead = 0.1f;
+        [Range(0f, 120f)]
+        [Tooltip("Each leading tyre casts a fan of four for walls, spread across this angle (degrees, in all) around the way the car's going: catches walls met at an angle. 0 = one straight cast.")]
+        public float WallFanAngle = 40f;
+        [Range(1, 4)]
+        [Tooltip("How many of a tyre's four fan casts must find the wall in the same step for it to count (and again each Bounce Confirm step): one stray cast alone doesn't. 1 = any. Lower it if thin things (poles) don't bounce.")]
+        public int WallFanHits = 2;
         [Min(0f)]
         [Tooltip("How many casts (physics steps) a found wall is checked for before the bounce: the tyres that found it cast again along the way the car came in each step, and the first one that misses drops the bounce at once. 0 = straight away.")]
         public int BounceConfirmFrames = 3;

@@ -1615,8 +1615,8 @@ namespace Remedy.Vehicles
             => Mathf.Sin(Mathf.Clamp(p.BounceMinWallAngle, 0f, 90f) * Mathf.Deg2Rad);
 
         // Bounces are found by casts, not by the physics contacts (whose surfaces gave odd results): every step each
-        // tyre casts a sphere (half its size, from the top of the tyre) along the car's velocity on the ground
-        // plane, as far as the body reaches past that tyre in that direction plus this step's travel and Bounce Look
+        // tyre on the leading side casts a fan of spheres (half its size, from the top of the tyre; see CastWall,
+        // Wall Fan Hits of them must agree) along the car's velocity on the ground plane, as far as the body reaches past that tyre in that direction plus this step's travel and Bounce Look
         // Ahead. A wall-like surface (Bounce Min Wall Angle) the car is moving into at Bounce Min Speed or more starts
         // a candidate: the tyres that found one decide its direction (weighted by how hard each is coming in), its
         // strength (the hardest) and where on the car it struck (their hit points). Then, for Bounce Confirm Frames casts,
@@ -1673,8 +1673,13 @@ namespace Remedy.Vehicles
             int struck = 0;
             uint struckWheels = 0;
             bool offCar = false;
+            // Only the tyres on the side the car's going toward fan out (the front pair going forward, the back pair
+            // in reverse, the outside pair sliding): the others are behind the body that way.
+            Vector3 bodyCentre = (Vector3)(float3)body.GetPosition();
             for (int i = 0; i < wheels.Length && i < wheelStates.Length && i < 32; i++)
             {
+                if (wheels[i]?.Anchor == null || Vector3.Dot(wheels[i].Anchor.position - bodyCentre, direction) < -0.05f)
+                    continue;
                 if (!CastWall(body, ignore, wheels[i], ref wheelStates[i], p, direction, planar, up, planeUp,
                         speed * dt + lookAhead, wall, out Vector3 away, out float into, out Vector3 point, out GameObject other))
                     continue;
@@ -1708,10 +1713,12 @@ namespace Remedy.Vehicles
             state.BounceFoundSteps = 0;
         }
 
-        // One tyre's wall cast: a sphere half the tyre's size, from the top of the tyre along
-        // `direction`, as far as the body reaches past the tyre that way plus `beyond`. The nearest wall-like surface
-        // facing it (and, with a `planar` velocity, one it's moving into at Bounce Min Speed or more): its direction
-        // away from the wall, how fast the car comes into it, where, and what it is.
+        // One tyre's wall casts: a fan of four spheres (half the tyre's size, from the top of the tyre) spread across
+        // Wall Fan Angle around `direction`, each as far as the body reaches past the tyre its way plus `beyond`.
+        // The tyre has found a wall when Wall Fan Hits of them each find a wall-like surface facing it (and, with a
+        // `planar` velocity, one it's moving into at Bounce Min Speed or more): one stray cast alone never counts.
+        // Then: the way away from the wall (the casts that found it, weighted by how hard each comes in), how fast
+        // the car comes into it (the hardest), where (their average) and what it is.
         private static bool CastWall(Body body, Box3DBody ignore, Wheel wheel, ref WheelState wheelState, ArcadeCarProperties p,
             Vector3 direction, Vector3 planar, Vector3 up, Vector3 planeUp, float beyond, float wall,
             out Vector3 away, out float into, out Vector3 point, out GameObject other)
@@ -1724,30 +1731,93 @@ namespace Remedy.Vehicles
                 return false;
             float radius = Mathf.Max(0.05f, wheel.Radius);
             Vector3 centre = wheel.Anchor.position - up * wheelState.Extension;
-            // How far the body sticks out past this tyre the way it's looking (the bumper's overhang).
             B3Aabb bounds = body.ComputeAABB();
             Vector3 lower = (Vector3)(float3)bounds.LowerBound, upper = (Vector3)(float3)bounds.UpperBound;
-            float reach = 0f;
-            for (int c = 0; c < 8; c++)
-            {
-                var corner = new Vector3((c & 1) != 0 ? upper.x : lower.x, (c & 2) != 0 ? upper.y : lower.y, (c & 4) != 0 ? upper.z : lower.z);
-                reach = Mathf.Max(reach, Vector3.Dot(corner - centre, direction));
-            }
-            var hits = _bounceHits ??= new RaycastHit[16];
-            var objects = _bounceObjects ??= new GameObject[16];
             // Step Height above where the tyre meets the ground, the sphere half the tyre's size with its bottom there:
             // anything lower is a step the tyres climb, not a wall.
             float castRadius = radius * 0.5f;
             Vector3 from = centre - up * radius + up * (Mathf.Max(0f, p.StepHeight) + castRadius);
-            int count = SchematicPhysics.SphereCastAll(from, castRadius, direction,
-                reach + beyond, p.GroundLayers, hits, objects, ignore, includeSensors: false);
-            // For the gizmo.
-            wheelState.WallCastFrom = from;
-            wheelState.WallCastTo = wheelState.WallCastFrom + direction * (reach + beyond);
-            wheelState.WallCastRadius = castRadius;
+
+            float spread = Mathf.Clamp(p.WallFanAngle, 0f, 120f);
+            int rays = spread > 0.5f ? WallFanRays : 1;
+            int needed = Mathf.Clamp(p.WallFanHits, 1, rays);
+            var gizmo = wheelState.WallRays ??= new WallRay[WallFanRays];
+            wheelState.WallRayCount = rays;
             wheelState.WallCastTime = Time.time;
+
+            Vector3 awaySum = Vector3.zero, pointSum = Vector3.zero;
+            int found = 0;
+            for (int r = 0; r < rays; r++)
+            {
+                // Evenly across the fan: -1/2, -1/6, +1/6, +1/2 of its angle.
+                float angle = rays > 1 ? spread * (r / (float)(rays - 1) - 0.5f) : 0f;
+                Vector3 ray = Quaternion.AngleAxis(angle, planeUp) * direction;
+                // How far the body sticks out past this tyre the way this cast looks (the bumper's overhang).
+                float reach = 0f;
+                for (int c = 0; c < 8; c++)
+                {
+                    var corner = new Vector3((c & 1) != 0 ? upper.x : lower.x, (c & 2) != 0 ? upper.y : lower.y, (c & 4) != 0 ? upper.z : lower.z);
+                    reach = Mathf.Max(reach, Vector3.Dot(corner - centre, ray));
+                }
+                var result = CastWallRay(ignore, p, from, castRadius, ray, reach + beyond, planar, planeUp, wall,
+                    out Vector3 rayAway, out float rayInto, out Vector3 rayPoint, out GameObject rayOther);
+                ref var shown = ref gizmo[r];
+                shown.From = from;
+                shown.To = from + ray * (reach + beyond);
+                shown.Radius = castRadius;
+                shown.Result = result;
+                if (result != WallRayResult.Wall)
+                    continue;
+                awaySum += rayAway * Mathf.Max(0.1f, rayInto);
+                pointSum += rayPoint;
+                into = Mathf.Max(into, rayInto);
+                other ??= rayOther;
+                found++;
+            }
+            if (found < needed)
+                return false;
+            Vector3 flat = Vector3.ProjectOnPlane(awaySum, planeUp);
+            if (flat.sqrMagnitude < 1e-6f)
+                return false;
+            away = flat.normalized;
+            point = pointSum / found;
+            // The fan agreed: its wall casts show green, fading to their own colour over a moment (WallRay.Agreed).
+            for (int r = 0; r < rays; r++)
+                if (gizmo[r].Result == WallRayResult.Wall)
+                    gizmo[r].Agreed = Time.time;
+            return true;
+        }
+
+        private const int WallFanRays = 4;
+
+        /// <summary>What one wall cast found: nothing, a surface that isn't a wall it's driving into, or one.</summary>
+        internal enum WallRayResult : byte { Miss, NotWall, Wall }
+
+        /// <summary>One wall cast, for the gizmo.</summary>
+        internal struct WallRay
+        {
+            public Vector3 From, To;
+            public float Radius;
+            public WallRayResult Result;
+            /// <summary>When it was last part of a fan that agreed on a wall (Time.time).</summary>
+            public float Agreed;
+        }
+
+        // One sphere cast of a fan: the nearest wall-like surface facing it that the car is moving into.
+        private static WallRayResult CastWallRay(Box3DBody ignore, ArcadeCarProperties p, Vector3 from, float castRadius,
+            Vector3 direction, float distance, Vector3 planar, Vector3 planeUp, float wall,
+            out Vector3 away, out float into, out Vector3 point, out GameObject other)
+        {
+            away = Vector3.zero;
+            into = 0f;
+            point = Vector3.zero;
+            other = null;
+            var hits = _bounceHits ??= new RaycastHit[16];
+            var objects = _bounceObjects ??= new GameObject[16];
+            int count = SchematicPhysics.SphereCastAll(from, castRadius, direction, distance, p.GroundLayers, hits, objects, ignore,
+                includeSensors: false);
             float nearest = float.MaxValue;
-            bool found = false;
+            var result = count > 0 ? WallRayResult.NotWall : WallRayResult.Miss;
             for (int h = 0; h < count; h++)
             {
                 Vector3 flat = Vector3.ProjectOnPlane(hits[h].normal, planeUp);
@@ -1762,9 +1832,9 @@ namespace Remedy.Vehicles
                 into = coming;
                 point = hits[h].point;
                 other = objects[h];
-                found = true;
+                result = WallRayResult.Wall;
             }
-            return found;
+            return result;
         }
 
         private static RaycastHit[] _bounceHits;
@@ -2932,6 +3002,9 @@ namespace Remedy.Vehicles
         // its own recent average (Body Follow of it), and a bounce kicks the corners nearest the hit. The corners'
         // heights make the mesh's lift, pitch and roll (kept within Body Max Tilt). Only the look: the physics don't
         // move. Body Follow 0 leaves the mesh alone.
+        // How long a wall cast that agreed on a wall stays (fading) green in the gizmo, in seconds.
+        private const float WallGreenFade = 0.75f;
+
         private const float WobbleStep = 1f / 240f, WobbleMaxFrame = 0.1f;
 
         private static void UpdateBodyWobble(Transform car, Transform visual, Wheel[] wheels, ArcadeCarProperties p,
@@ -3112,19 +3185,25 @@ namespace Remedy.Vehicles
 #endif
                 }
 
-            // The wall casts (bounces): green while the check over time is positive for that tyre (a wall it found
-            // that every step since has found again, or the bounce it confirmed), red otherwise.
+            // The wall casts (bounces), each tyre's fan: red where a cast found nothing, yellow where it found a surface
+            // that isn't a wall it's driving into, green where it was one of the casts that agreed on a wall (Wall Fan
+            // Hits of them), fading back to its own colour over WallGreenFade so even a split-second find shows.
             if (state != null && wheels != null)
                 for (int i = 0; i < wheels.Length && i < state.Wheels.Length; i++)
                 {
                     var w = state.Wheels[i];
-                    if (Time.time - w.WallCastTime > 0.1f)
+                    if (w.WallRays == null || Time.time - w.WallCastTime > WallGreenFade)
                         continue;
-                    bool struck = i < 32 && (state.BounceStruckWheels & (1u << i)) != 0;
-                    bool positive = struck && (state.BounceCandidate || Time.time - state.LastBounceTime < 0.5f);
-                    Gizmos.color = positive ? Color.green : Color.red;
-                    Gizmos.DrawLine(w.WallCastFrom, w.WallCastTo);
-                    Gizmos.DrawWireSphere(w.WallCastTo, w.WallCastRadius);
+                    for (int r = 0; r < w.WallRayCount && r < w.WallRays.Length; r++)
+                    {
+                        var ray = w.WallRays[r];
+                        var own = ray.Result == WallRayResult.Miss ? Color.red
+                            : ray.Result == WallRayResult.NotWall ? Color.yellow : new Color(1f, 0.6f, 0.1f);
+                        float since = Time.time - ray.Agreed;
+                        Gizmos.color = since >= 0f && since < WallGreenFade ? Color.Lerp(Color.green, own, since / WallGreenFade) : own;
+                        Gizmos.DrawLine(ray.From, ray.To);
+                        Gizmos.DrawWireSphere(ray.To, ray.Radius);
+                    }
                 }
 
             // Centre of mass: the real one while playing, an estimate (origin + offset) in Edit Mode.
@@ -3418,9 +3497,10 @@ namespace Remedy.Vehicles
         public SurfaceMaterial Surface, TaggedSurface;
         public GameObject SurfaceObject;
         public int MissSteps;
-        /// <summary>This tyre's last wall cast, for the gizmo.</summary>
-        public Vector3 WallCastFrom, WallCastTo;
-        public float WallCastRadius, WallCastTime;
+        /// <summary>This tyre's last wall casts (its fan), for the gizmo, and when they were made.</summary>
+        internal ArcadeCar.WallRay[] WallRays;
+        public int WallRayCount;
+        public float WallCastTime;
         /// <summary>The body mesh's spring at this corner (UpdateBodyWobble).</summary>
         public float CornerOffset, CornerSpeed, CornerBaseline;
         public bool HasCornerBaseline;
