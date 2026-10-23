@@ -138,6 +138,39 @@ public class RemedyInput : SingletonData<RemedyInput>
             foreach (var input in Resources.FindObjectsOfTypeAll<RemedyInput>())
                 input.ReleaseAllActions();
         };
+        // And in Edit Mode, an action something turned on again is turned off (and said so, once): while it's on it
+        // can't be edited.
+        double next = 0;
+        UnityEditor.EditorApplication.update += () =>
+        {
+            if (UnityEditor.EditorApplication.isPlayingOrWillChangePlaymode || UnityEditor.EditorApplication.timeSinceStartup < next)
+                return;
+            next = UnityEditor.EditorApplication.timeSinceStartup + 0.5;
+            foreach (var input in Resources.FindObjectsOfTypeAll<RemedyInput>())
+                if (input.AnyActionEnabled())
+                {
+                    if (!_warnedEnabledInEditMode)
+                    {
+                        _warnedEnabledInEditMode = true;
+                        Debug.LogWarning("Remedy Input: an Input Action was on in Edit Mode (something enabled it outside Play Mode), so it couldn't be edited. It's been turned off.");
+                    }
+                    input.ReleaseAllActions();
+                }
+        };
+    }
+
+    private static bool _warnedEnabledInEditMode;
+
+    private bool AnyActionEnabled()
+    {
+        if (InputMaps == null)
+            return false;
+        foreach (var map in InputMaps)
+            if (map?.Inputs != null)
+                foreach (var input in map.Inputs)
+                    if (input?.Input != null && input.Input.enabled)
+                        return true;
+        return false;
     }
 
     private void ReleaseAllActions()
@@ -155,7 +188,7 @@ public class RemedyInput : SingletonData<RemedyInput>
                         continue;
                     if (action.enabled)
                         action.Disable();
-                    InputActionEvent.ForgetStaleBindings(action);
+                    InputActionEvent.ForgetRuntimeState(action);
                 }
     }
 #endif
@@ -454,6 +487,17 @@ public class RemedyInput : SingletonData<RemedyInput>
         /// before they were edited, e.g. in an earlier Play session with domain reload off), so the action is rebuilt
         /// from what's saved when it's enabled. Only for disabled actions.
         /// </summary>
+        /// <summary>
+        /// Drops a disabled standalone action's hidden action map whatever it holds (the copy of its bindings made when
+        /// it was enabled, and its state), so it's made again from the saved bindings the next time it's needed: after
+        /// Play Mode, as a recompile would.
+        /// </summary>
+        internal static void ForgetRuntimeState(InputAction action)
+        {
+            if (action != null && !action.enabled && _hiddenMap != null)
+                _hiddenMap.SetValue(action, null);
+        }
+
         internal static void ForgetStaleBindings(InputAction action)
         {
             if (action == null || action.enabled || _hiddenMap == null || _hiddenMap.GetValue(action) == null)

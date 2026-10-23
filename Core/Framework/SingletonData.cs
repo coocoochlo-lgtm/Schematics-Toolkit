@@ -4,7 +4,23 @@ using UnityEditor;
 namespace Remedy.Framework
 {
     public class SingletonDataBase : ScriptableObject
-    { }
+    {
+#if UNITY_EDITOR
+        /// <summary>Each Singleton Data type's Instance, forgotten (found again when next asked for).</summary>
+        protected static event System.Action ForgetInstances;
+
+        // Play Mode in or out: every Instance is looked up again, as after a recompile, rather than kept from before.
+        [InitializeOnLoadMethod]
+        private static void ForgetInstancesOnPlayMode()
+        {
+            EditorApplication.playModeStateChanged += change =>
+            {
+                if (change == PlayModeStateChange.EnteredEditMode || change == PlayModeStateChange.EnteredPlayMode)
+                    ForgetInstances?.Invoke();
+            };
+        }
+#endif
+    }
 
     /// <summary>
     /// A simple Singleton MonoBehaviour which can be accessed statically via the Instance property.
@@ -13,6 +29,9 @@ namespace Remedy.Framework
     public class SingletonData<TSingletonData> : SingletonDataBase where TSingletonData : SingletonData<TSingletonData>
     {
         private static TSingletonData _instance;
+#if UNITY_EDITOR
+        private static bool _forgettable;
+#endif
 
         /// <summary>
         /// A static property that returns the singleton instance.
@@ -32,6 +51,13 @@ namespace Remedy.Framework
                     if (foundInstances.Length > 0)
                     {
                         _instance = foundInstances[0];
+#if UNITY_EDITOR
+                        if (!_forgettable)
+                        {
+                            _forgettable = true;
+                            ForgetInstances += () => _instance = null;
+                        }
+#endif
                     }
                     else
                     {
