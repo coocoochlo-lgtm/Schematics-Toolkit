@@ -3004,6 +3004,8 @@ namespace Remedy.Vehicles
         // move. Body Follow 0 leaves the mesh alone.
         // How long a wall cast that agreed on a wall stays (fading) green in the gizmo, in seconds.
         private const float WallGreenFade = 0.75f;
+        // How long the last wall casts stay drawn (fading) once the casting stops, in seconds.
+        private const float WallGizmoLinger = 2.5f;
 
         private const float WobbleStep = 1f / 240f, WobbleMaxFrame = 0.1f;
 
@@ -3187,20 +3189,30 @@ namespace Remedy.Vehicles
 
             // The wall casts (bounces), each tyre's fan: red where a cast found nothing, yellow where it found a surface
             // that isn't a wall it's driving into, green where it was one of the casts that agreed on a wall (Wall Fan
-            // Hits of them), fading back to its own colour over WallGreenFade so even a split-second find shows.
+            // Hits of them), fading back to its own colour over WallGreenFade so even a split-second find shows. The
+            // casts stop below Bounce Min Speed (a hit that stops the car stops them too), so the last ones linger for
+            // WallGizmoLinger, fading, to show what they found as it stopped.
             if (state != null && wheels != null)
                 for (int i = 0; i < wheels.Length && i < state.Wheels.Length; i++)
                 {
                     var w = state.Wheels[i];
-                    if (w.WallRays == null || Time.time - w.WallCastTime > WallGreenFade)
+                    float age = Time.time - w.WallCastTime;
+                    if (w.WallRays == null || age > WallGizmoLinger)
                         continue;
+                    // Fresh (cast this step or so): solid; lingering: fading out.
+                    float alpha = age <= 0.1f ? 1f : Mathf.Lerp(0.85f, 0.15f, (age - 0.1f) / (WallGizmoLinger - 0.1f));
                     for (int r = 0; r < w.WallRayCount && r < w.WallRays.Length; r++)
                     {
                         var ray = w.WallRays[r];
                         var own = ray.Result == WallRayResult.Miss ? Color.red
                             : ray.Result == WallRayResult.NotWall ? Color.yellow : new Color(1f, 0.6f, 0.1f);
                         float since = Time.time - ray.Agreed;
-                        Gizmos.color = since >= 0f && since < WallGreenFade ? Color.Lerp(Color.green, own, since / WallGreenFade) : own;
+                        var color = since >= 0f && since < WallGreenFade ? Color.Lerp(Color.green, own, since / WallGreenFade) : own;
+                        // Lingering: the last casts keep the colour they ended on (green if that last fan agreed).
+                        if (age > 0.1f && ray.Agreed >= w.WallCastTime)
+                            color = Color.green;
+                        color.a = alpha;
+                        Gizmos.color = color;
                         Gizmos.DrawLine(ray.From, ray.To);
                         Gizmos.DrawWireSphere(ray.To, ray.Radius);
                     }
