@@ -171,6 +171,7 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
             _gs = null;
             _dg = null;
             DockSerializedObjects.Clear();
+            _modeVersion++;
             foreach (var window in WindowsToSave.ToList())
             {
                 if (window == null || window.SchematicGraph == null)
@@ -179,6 +180,29 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
                 catch (Exception exception) { Debug.LogException(exception, window); }
             }
         };
+    }
+
+    // Bumped on every Play/Edit Mode switch; a window redraws its dock completely the first time it's opened or focused
+    // after one (as well as when it happens), in case something it shows was only made ready after that.
+    private static int _modeVersion;
+    private int _dockModeVersion = -1;
+
+    protected override void OnFocus()
+    {
+        base.OnFocus();
+        RedrawDockIfModeChanged();
+    }
+    private void OnBecameVisible() => RedrawDockIfModeChanged();
+
+    private void RedrawDockIfModeChanged()
+    {
+        if (_dockModeVersion == _modeVersion || SchematicGraph == null || Canvas == null)
+            return;
+        _dockModeVersion = _modeVersion;
+        _dg = null;
+        DockSerializedObjects.Clear();
+        try { RedrawIODock(refreshGlobals: true); }
+        catch (Exception exception) { Debug.LogException(exception, this); }
     }
 
     private static List<(string name, ScriptableObject data, Type type)> _gs;

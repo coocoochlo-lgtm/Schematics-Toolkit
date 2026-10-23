@@ -85,6 +85,8 @@ public class RemedyInput : SingletonData<RemedyInput>
             if (action.bindings.Count == 0)
                 Debug.LogWarning($"Remedy Input: the input \"{inputEventCollection.Name}\" of map \"{map.Name}\" has no bindings, so it can't be pressed. Add one in the Schematic window's Global tab (Input System).");
 
+            WarnIfDigital(inputEventCollection, map);
+
             if (inputEventCollection.Output == null)
                 Debug.LogWarning($"Remedy Input: the input \"{inputEventCollection.Name}\" of map \"{map.Name}\" has no Signal, so nothing hears it. Open it in the Schematic window's Global tab (Input System) to create one.");
 
@@ -121,6 +123,43 @@ public class RemedyInput : SingletonData<RemedyInput>
     /// Detaches the current map's inputs: removes their handlers, disables them, and releases any that are held
     /// (their Signals get defaults), so nothing stays "pressed" after switching maps.
     /// </summary>
+#if UNITY_EDITOR
+    // Leaving Play Mode: every Input Action is turned off again and its handlers taken off. They're on the asset, so
+    // they stayed enabled after Play Mode, and Unity's Input Action editor can't change an enabled action: new inputs
+    // drew blank and existing ones wouldn't change, until a recompile reset them.
+    [UnityEditor.InitializeOnLoadMethod]
+    private static void ReleaseActionsAfterPlayMode()
+    {
+        UnityEditor.EditorApplication.playModeStateChanged += change =>
+        {
+            if (change != UnityEditor.PlayModeStateChange.ExitingPlayMode && change != UnityEditor.PlayModeStateChange.EnteredEditMode)
+                return;
+            // (Only the ones loaded: Instance would make the asset if there were none.)
+            foreach (var input in Resources.FindObjectsOfTypeAll<RemedyInput>())
+                input.ReleaseAllActions();
+        };
+    }
+
+    private void ReleaseAllActions()
+    {
+        UnbindCurrentMap();
+        _currentInput.Clear();
+        if (InputMaps == null)
+            return;
+        foreach (var map in InputMaps)
+            if (map?.Inputs != null)
+                foreach (var input in map.Inputs)
+                {
+                    var action = input?.Input;
+                    if (action == null)
+                        continue;
+                    if (action.enabled)
+                        action.Disable();
+                    InputActionEvent.ForgetStaleBindings(action);
+                }
+    }
+#endif
+
     private void UnbindCurrentMap()
     {
         foreach (var entry in _boundHandlers)
@@ -137,6 +176,32 @@ public class RemedyInput : SingletonData<RemedyInput>
             foreach (var inputEvent in held)
                 Release(inputEvent);
         _actionsToUpdate.Clear();
+    }
+
+    // Analog input that arrives as all-or-nothing (a stick at 0.2 read as 1) is always the Input Action's own setup,
+    // so it's pointed out when the map is bound: a 2D Vector composite in a digital mode (its default) turns each of
+    // its parts into a button, and a Button action only sends when it's pressed and released, not in between.
+    private static void WarnIfDigital(InputActionEvent input, InputActionMap map)
+    {
+        var action = input.Input;
+        var output = input.Output;
+        bool analogSignal = output != null && output.Parameters.Contents.Count > 0
+            && output.Parameters[0].Type is Union.ValueType.Float or Union.ValueType.Vector2 or Union.ValueType.Vector3;
+        if (!analogSignal)
+            return;
+        if (action.type == InputActionType.Button)
+            Debug.LogWarning($"Remedy Input: \"{input.Name}\" (map \"{map.Name}\") is a Button action, so it only sends when it's pressed and released, all or nothing. For an axis or stick, set its Action Type to Value.");
+        foreach (var binding in action.bindings)
+        {
+            if (!binding.isComposite)
+                continue;
+            string path = (binding.path ?? "").ToLowerInvariant().Replace(" ", "");
+            if (path.StartsWith("2dvector") && !path.Contains("mode=2"))
+            {
+                Debug.LogWarning($"Remedy Input: \"{input.Name}\" (map \"{map.Name}\") uses a 2D Vector composite in a digital mode (the default), which reads each direction as a button: a stick pushed a little comes out as 1. For analog parts (a stick's directions), set the composite's Mode to Analog, or bind the whole stick (<Gamepad>/leftStick) instead.");
+                break;
+            }
+        }
     }
 
     private static void Release(InputActionEvent inputEvent)
