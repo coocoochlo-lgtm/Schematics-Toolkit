@@ -201,7 +201,7 @@ public class RemedyInput : SingletonData<RemedyInput>
             action.started -= entry.Value.started;
             action.performed -= entry.Value.performed;
             action.canceled -= entry.Value.canceled;
-            action.Disable();
+            if (InputActionEvent.IsEnabled(action)) action.Disable(); // (Disable asks enabled, which throws on a map with no state)
         }
         _boundHandlers.Clear();
 
@@ -500,10 +500,12 @@ public class RemedyInput : SingletonData<RemedyInput>
         {
             if (action == null)
                 return false;
-            if (_hiddenMap != null && _hiddenMap.GetValue(action) == null)
-                return false;
-            try { return action.enabled; }
-            catch (NullReferenceException) { return false; }
+            // Asked of its (hidden) action map, whose enabled is a plain count: InputAction.enabled asserts and throws
+            // when the map has no state yet ("Action map must have state at this point"), as one made just to read
+            // its bindings doesn't.
+            if (_hiddenMap != null)
+                return _hiddenMap.GetValue(action) is UnityEngine.InputSystem.InputActionMap map && map.enabled;
+            return action.actionMap != null && action.actionMap.enabled;
         }
 
         internal static void ForgetRuntimeState(InputAction action)
@@ -514,7 +516,7 @@ public class RemedyInput : SingletonData<RemedyInput>
 
         internal static void ForgetStaleBindings(InputAction action)
         {
-            if (action == null || _hiddenMap == null || _hiddenMap.GetValue(action) == null || action.enabled)
+            if (action == null || _hiddenMap == null || _hiddenMap.GetValue(action) == null || IsEnabled(action))
                 return;
             var saved = SavedBindingsOf(action);
             var current = action.bindings;
