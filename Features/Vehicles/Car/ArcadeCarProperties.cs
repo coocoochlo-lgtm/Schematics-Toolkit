@@ -387,17 +387,17 @@ namespace Remedy.Vehicles
         [Tooltip("Letting go of the air roll or pitch brings that spin to a complete stop over this long (seconds), evenly, each on its own; the air leveling fades back in after (Air Level Return Time). 0 = off: it keeps spinning until the leveling takes it.")]
         public float AirStabilizationTime = 0.25f;
         [Min(0f)]
-        [Tooltip("Air control: how fast steering rolls the car (degrees per second at full input, through the gates below). Rocket League, gently. 0 (with Air Pitch Rate 0) = the old Air Control push instead.")]
+        [Tooltip("Air control: how fast the Air Control Signal's x rolls the car (degrees per second at full input, through the gates below). 0 (with Air Pitch Rate 0) = the old Air Control push instead.")]
         public float AirRollRate = 60f;
         [Min(0f)]
-        [Tooltip("Air control: how fast Target Speed pitches the car (degrees per second at full input; forward tips the nose down).")]
+        [Tooltip("Air control: how fast the Air Control Signal's y pitches the car (degrees per second at full input; up tips the nose down).")]
         public float AirPitchRate = 60f;
         [Min(0f)]
-        [Tooltip("Roll (steering, around the car's length): how strongly the car's spin follows what the air control asks for (per second). ~2 feels natural; higher is snappier.")]
+        [Tooltip("Roll (Air Control x, around the car's length): how strongly the car's spin follows what the air control asks for (per second). ~2 feels natural; higher is snappier.")]
         public float AirRollResponse = 2f;
         [Min(0f)]
         [FormerlySerializedAs("AirControlResponse")]
-        [Tooltip("Pitch (Target Speed, around the car's width): how strongly the car's spin follows what the air control asks for (per second). ~2 feels natural; higher is snappier.")]
+        [Tooltip("Pitch (Air Control y, around the car's width): how strongly the car's spin follows what the air control asks for (per second). ~2 feels natural; higher is snappier.")]
         public float AirPitchResponse = 2f;
         [Min(0.01f)]
         [Tooltip("Spatial gate: air control opens as the ground gets further than the tyres can reach, fully this far beyond (metres), per tyre, averaged.")]
@@ -406,9 +406,9 @@ namespace Remedy.Vehicles
         [Tooltip("Temporal gate: air control opens over this long after a tyre leaves the ground (seconds), per tyre, averaged; it closes four times as fast when the tyre's back down.")]
         public float AirGateTime = 0.4f;
         [Min(0f)]
-        [Tooltip("Optional gate for pitching: above 0, a Target Speed held from the ground doesn't pitch the car until it's moved in the air, then pitching opens over this long (seconds). 0 = Target Speed pitches straight away (through the gates).")]
+        [Tooltip("Optional gate for air control: above 0, an Air Control stick held from the ground doesn't turn the car until it's moved in the air, then it opens over this long (seconds). 0 = it turns the car straight away (through the gates).")]
         public float AirThrottleGateTime = 0f;
-        [Tooltip("Only with Air Roll Rate and Air Pitch Rate at 0: forces at ungrounded tire anchors roll the car with steer and pitch it with signed Target Speed, in rad/s², for as long as they're held (holding the throttle spins it forward). 0 = no air control.")]
+        [Tooltip("Only with Air Roll Rate and Air Pitch Rate at 0: forces at ungrounded tire anchors roll and pitch the car with the Air Control Signal, in rad/s², for as long as it's held. 0 = no air control.")]
         public float AirControl = 4f;
         [Min(0f)]
         [Tooltip("Maximum angular acceleration from the car's own tire and rotation-assist forces, in rad/s². Those forces are blended through this guard; 0 disables the limit.")]

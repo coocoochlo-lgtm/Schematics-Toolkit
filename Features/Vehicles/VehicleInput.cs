@@ -28,6 +28,8 @@ namespace Remedy.Vehicles
         ShiftUp,
         /// <summary>Shift down a gear (pressed; with a manual gearbox).</summary>
         ShiftDown,
+        /// <summary>A Vector2 stick that rolls (x) and pitches (y) the vehicle in the air.</summary>
+        AirControl,
     }
 
     /// <summary>
@@ -44,6 +46,8 @@ namespace Remedy.Vehicles
         public SignalData Signal;
         [Tooltip("Flip the value (e.g. an axis that's backwards).")]
         public bool Invert;
+        [Tooltip("Air Control only: the stick's direction is as seen from the camera, not the vehicle.")]
+        public bool CameraRelative;
     }
 
     /// <summary>

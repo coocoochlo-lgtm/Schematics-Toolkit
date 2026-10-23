@@ -169,6 +169,13 @@ namespace Remedy.Vehicles
         [Parameter("Stick", typeof(Vector2))]
         public readonly SignalHandle<Vector2> Drive;
 
+        [SchematicDoc(@"{""name"": ""Air Control"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""input"", ""params"": [{""name"": ""Direction"", ""type"": ""Vector2""}, {""name"": ""Camera Relative"", ""type"": ""bool""}], ""description"": ""Rolls and pitches the car in the air (only there), apart from the driving controls: x rolls (right rolls it right), y pitches (up tips the nose down), up to Air Roll / Pitch Rate at full tilt. Camera Relative: the direction is as seen from the camera instead (up turns the car away from the camera, right turns it clockwise as you see it), whichever way the car faces. Holds until changed: send (0, 0) to let go."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock), e.g. from a right stick input; or bind an input to it in the car's Driver Inputs (Air Control).""}")]
+        [Tooltip("Rolls (x) and pitches (y) the car in the air, apart from the driving controls. Camera Relative: the direction as seen from the camera. (0, 0) lets go.")]
+        [InputSignal, NetworkSync(SignalSender.OwnerToAuthority)]
+        [Parameter("Direction", typeof(Vector2))]
+        [Parameter("Camera Relative", typeof(bool))]
+        public readonly SignalHandle<Vector2, bool> AirControl;
+
         [SchematicDoc(@"{""name"": ""Handbrake"", ""kind"": ""signal"", ""behavior"": ""Arcade Car"", ""direction"": ""input"", ""params"": [{""name"": ""Held"", ""type"": ""bool""}], ""description"": ""Handbrake / drift button, held. With steering at speed it starts a drift."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock): true when pressed, false when released.""}")]
         [Tooltip("Handbrake / drift button, held. With steering at speed it starts a drift.")]
         [InputSignal, NetworkSync(SignalSender.OwnerToAuthority)]
@@ -330,6 +337,7 @@ namespace Remedy.Vehicles
             Steer.Subscribe(value => state.SteerInput = Mathf.Clamp(value, -1f, 1f));
             Drive.Subscribe(value => state.SetStick(value));
             Handbrake.Subscribe(value => state.Handbrake = value);
+            AirControl.Subscribe((direction, cameraRelative) => state.SetAirStick(direction, cameraRelative));
             Boost.Subscribe(() => state.BoostQueued = true);
             Unflip.Subscribe(() => state.UnflipQueued = true);
             ShiftUp.Subscribe(() => state.ShiftUpQueued = true);
@@ -440,6 +448,14 @@ namespace Remedy.Vehicles
                 changed = true;
             }
             if (state.Handbrake != state.SentHandbrake) { state.SentHandbrake = state.Handbrake; Handbrake.Invoke(instance, state.Handbrake); changed = true; }
+            if ((state.AirStick - state.SentAirStick).sqrMagnitude > 0.0001f || (state.AirStick == Vector2.zero && state.SentAirStick != Vector2.zero)
+                || state.AirCameraRelative != state.SentAirCameraRelative)
+            {
+                state.SentAirStick = state.AirStick;
+                state.SentAirCameraRelative = state.AirCameraRelative;
+                AirControl.Invoke(instance, state.AirStick, state.AirCameraRelative);
+                changed = true;
+            }
             if (changed)
                 state.NextInputSend = now + 1f / InputSendRate;
         }
@@ -1207,27 +1223,44 @@ namespace Remedy.Vehicles
             float airGate = gatedWheels > 0 ? (spatialGates / gatedWheels) * (temporalGates / gatedWheels) : 0f;
             UpdateJump(instance, native, p, state, velocity, gravity, touching, gatedWheels > 0 ? spatialGates / gatedWheels : 0f, mass, dt);
             ApplyGroundGlue(native, p, state, velocity, groundNormal, touching, mass, dt);
-            // Pitch comes from Target Speed. Optionally (Air Throttle Gate Time above 0) it has its own gate: shut
-            // while any tyre is down, opening only once Target Speed moves from where it was at takeoff, so one held
-            // off a ramp doesn't pitch the car.
-            float throttleNow = Mathf.Clamp(state.TargetSpeed, -1f, 1f);
+            // Roll and pitch come from the Air Control Signal alone (not the steering or Target Speed): x rolls, y
+            // pitches, as the car sees it or, Camera Relative, as the camera does. Optionally (Air Throttle Gate Time
+            // above 0) it has its own gate: shut while any tyre is down, opening only once the stick moves from
+            // where it was at takeoff, so one held off a ramp doesn't turn the car.
+            Vector2 airStick = active ? state.AirStick : Vector2.zero;
             if (p.AirThrottleGateTime <= 0f)
                 state.AirThrottleGate = 1f;
             else if (touching > 0)
             {
-                state.AirThrottleBase = throttleNow;
+                state.AirStickBase = airStick;
                 state.AirThrottleOpen = false;
                 state.AirThrottleGate = 0f;
             }
             else
             {
-                if (Mathf.Abs(throttleNow - state.AirThrottleBase) > 0.1f)
+                if ((airStick - state.AirStickBase).magnitude > 0.1f)
                     state.AirThrottleOpen = true;
                 state.AirThrottleGate = Mathf.MoveTowards(state.AirThrottleGate, state.AirThrottleOpen ? 1f : 0f,
                     dt / Mathf.Max(0.01f, p.AirThrottleGateTime));
             }
-            float rollStick = active ? Mathf.Clamp(steerInput, -1f, 1f) : 0f;
-            float pitchStick = active ? throttleNow * Mathf.SmoothStep(0f, 1f, state.AirThrottleGate) : 0f;
+            airStick *= Mathf.SmoothStep(0f, 1f, state.AirThrottleGate);
+            var airCamera = state.AirCameraRelative ? Camera.main : null;
+            float rollStick, pitchStick;
+            if (airCamera != null)
+            {
+                // As seen from the camera: up turns the car away from it (about the camera's right), right turns it
+                // clockwise as seen (about the way the camera looks); then how much of that is the car's own roll and
+                // pitch (its yaw is left to the ground and the air leveling).
+                var view = airCamera.transform;
+                Vector3 turn = view.right * airStick.y - view.forward * airStick.x;
+                pitchStick = Mathf.Clamp(Vector3.Dot(turn, right), -1f, 1f);
+                rollStick = Mathf.Clamp(-Vector3.Dot(turn, forward), -1f, 1f);
+            }
+            else
+            {
+                rollStick = Mathf.Clamp(airStick.x, -1f, 1f);
+                pitchStick = Mathf.Clamp(airStick.y, -1f, 1f);
+            }
             bool airControl = (p.AirRollRate > 0f || p.AirPitchRate > 0f) && airGate > 0.001f;
             // How much the player is steering the car in the air (any real input counts in full, through the gates):
             // the leveling stands aside that much.
@@ -1366,14 +1399,14 @@ namespace Remedy.Vehicles
                     angular += planeForward * ((whoahAcceleration + state.WhoahLeanSpeed * uprightDamping) * Mathf.Deg2Rad
                         * (uprightSupport * state.UprightBlend));
             }
-            // Air control (Rocket League, gently): steering asks for a roll rate and throttle for a pitch rate, up to
+            // Air control (Rocket League, gently): the Air Control stick asks for a roll rate (x) and a pitch rate (y), up to
             // Air Roll / Pitch Rate at full input through the gates, and the car's spin is driven toward it. Let go
             // and it's handed back to the leveling. A rate, so it turns as long as asked and stops when not.
             if (airControl && airInput > 0f && !state.SelfRighting && !state.AutoRolling)
             {
                 // The rate asked for is the input through the gates; the car is driven toward it at that axis's own
-                // response on each axis that has input (the gates aren't applied twice). Steering left rolls it left;
-                // Target Speed forward tips the nose down.
+                // response on each axis that has input (the gates aren't applied twice). Stick left rolls it left;
+                // stick up tips the nose down.
                 if (Mathf.Abs(rollStick) > 0.05f)
                 {
                     float wantedRoll = -rollStick * airGate * p.AirRollRate * Mathf.Deg2Rad;
@@ -1412,7 +1445,7 @@ namespace Remedy.Vehicles
                 // the throttle off a ramp spun the car forward. Only with Air Tilt Angle at 0.)
                 if (active && p.AirControl > 0f && !airControl)
                     airControlTorque = ApplyAirWheelControl(native, wheels, state.Wheels, centerOfMass, up, right, forward,
-                        steerInput, effectiveTargetSpeed, p.AirControl, rotation, state);
+                        rollStick, pitchStick, p.AirControl, rotation, state);
             }
 
             // Drift: the steering swings the tail, the counter-steer stops a spin, and the speed follows the nose.
@@ -3443,7 +3476,8 @@ namespace Remedy.Vehicles
         public Vector3 BounceUp = Vector3.up;
         public bool TakeoffFromBounce;
         public bool BounceAlignHasDirection;
-        public float AirThrottleBase, AirThrottleGate;
+        public float AirThrottleGate;
+        public Vector2 AirStickBase;
         public bool AirThrottleOpen;
         public bool Jumping;
         public float AirLevelReturn = 1f;
@@ -3509,6 +3543,9 @@ namespace Remedy.Vehicles
         // Networking: what the owner last sent, and a proxy's motion.
         public float SentBrake, SentSteer, NextInputSend;
         public bool SentHandbrake;
+        /// <summary>The Air Control Signal's last values (and what the owner last sent).</summary>
+        public Vector2 AirStick, SentAirStick;
+        public bool AirCameraRelative, SentAirCameraRelative;
         public Vector3 ProxyPosition, ProxyVelocity;
         public bool HasProxyPosition;
 
@@ -3529,6 +3566,15 @@ namespace Remedy.Vehicles
             Brake = SteerInput = TargetSpeed = 0f;
             UseTargetSpeed = false;
             Handbrake = false;
+            AirStick = Vector2.zero;
+        }
+
+        /// <summary>The Air Control Signal: roll (x) and pitch (y), as the car sees it or as the camera does.</summary>
+        public void SetAirStick(Vector2 direction, bool cameraRelative)
+        {
+            AirStick = Vector2.ClampMagnitude(direction, 1.4143f);
+            AirStick = new Vector2(Mathf.Clamp(AirStick.x, -1f, 1f), Mathf.Clamp(AirStick.y, -1f, 1f));
+            AirCameraRelative = cameraRelative;
         }
 
         /// <summary>Applies one Driver Input binding's value.</summary>
@@ -3553,6 +3599,7 @@ namespace Remedy.Vehicles
                 case VehicleInputAction.Unflip: if (value == null || VehicleInput.ToBool(value)) UnflipQueued = true; break;
                 case VehicleInputAction.ShiftUp: if (value == null || VehicleInput.ToBool(value)) ShiftUpQueued = true; break;
                 case VehicleInputAction.ShiftDown: if (value == null || VehicleInput.ToBool(value)) ShiftDownQueued = true; break;
+                case VehicleInputAction.AirControl: SetAirStick(VehicleInput.ToVector2(value) * sign, binding.CameraRelative); break;
             }
         }
     }
