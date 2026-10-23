@@ -168,17 +168,13 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
         {
             if (change != PlayModeStateChange.EnteredEditMode && change != PlayModeStateChange.EnteredPlayMode)
                 return;
-            _gs = null;
-            _dg = null;
-            DockSerializedObjects.Clear();
             _modeVersion++;
-            foreach (var window in WindowsToSave.ToList())
+            // The whole window, as a recompile would: a frame later, once Unity has finished switching.
+            EditorApplication.delayCall += () =>
             {
-                if (window == null || window.SchematicGraph == null)
-                    continue;
-                try { window.RedrawIODock(refreshGlobals: true); }
-                catch (Exception exception) { Debug.LogException(exception, window); }
-            }
+                foreach (var window in Resources.FindObjectsOfTypeAll<SchematicGraphEditorWindow>())
+                    window.RedrawDockIfModeChanged();
+            };
         };
     }
 
@@ -196,13 +192,53 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
 
     private void RedrawDockIfModeChanged()
     {
-        if (_dockModeVersion == _modeVersion || SchematicGraph == null || Canvas == null)
+        if (_dockModeVersion == _modeVersion || Graph == null || Canvas == null)
             return;
         _dockModeVersion = _modeVersion;
+        try { ReloadCompletely(); }
+        catch (Exception exception) { Debug.LogException(exception, this); }
+    }
+
+    /// <summary>
+    /// Rebuilds the whole window from scratch, as a recompile does: everything in it is thrown away (the canvas, the IO
+    /// Dock, every field and the Inspector-style drawers inside them, with their cached SerializedObjects and Unity's
+    /// own cached property drawers) and the graph is loaded again.
+    /// </summary>
+    public void ReloadCompletely()
+    {
+        var graph = Graph;
+        if (graph == null)
+            return;
+        OnDisable(); // (what Load hooks up, taken off again so it isn't hooked up twice)
+        _gs = null;
         _dg = null;
         DockSerializedObjects.Clear();
-        try { RedrawIODock(refreshGlobals: true); }
-        catch (Exception exception) { Debug.LogException(exception, this); }
+        ClearUnityDrawerCaches();
+        // Sprocket stays (he's made once, wherever he is), and the keys handler is hooked up again by Load.
+        var assistant = Remedy.Schematics.Assistant.AssistantOverlay.Instance;
+        bool assistantHere = assistant != null && assistant.parent != null && rootVisualElement.Contains(assistant);
+        rootVisualElement.UnregisterCallback<KeyDownEvent>(OnDebugKey, TrickleDown.TrickleDown);
+        rootVisualElement.Clear();
+        _dock = null;
+        Load(graph);
+        if (assistantHere && assistant.parent == null)
+            rootVisualElement.Add(assistant);
+        _dockModeVersion = _modeVersion;
+    }
+
+    // Unity keeps the property drawers it made (the Input Action editor's, with its tree of bindings) in a cache only a
+    // recompile empties; one left over from Play Mode can hold on to what it drew then. Internal, so by reflection.
+    private static void ClearUnityDrawerCaches()
+    {
+        try
+        {
+            var utility = typeof(Editor).Assembly.GetType("UnityEditor.ScriptAttributeUtility");
+            utility?.GetMethod("ClearGlobalCache", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public)?.Invoke(null, null);
+        }
+        catch (Exception exception)
+        {
+            Debug.LogWarning($"Schematics: couldn't clear Unity's property drawer cache ({exception.Message}).");
+        }
     }
 
     private static List<(string name, ScriptableObject data, Type type)> _gs;
