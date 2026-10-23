@@ -14,6 +14,9 @@ public class IMGUIContainerRenderer : FieldRenderer
 
     public string FieldPath { get; private set; }
 
+    // The property wasn't in the data yet last time it drew.
+    private bool _waiting;
+
     protected override void Redraw()
     {
         // The object's one long-lived SerializedObject (see DockSerializedObjects), not a new one per redraw: Unity's own
@@ -37,7 +40,14 @@ public class IMGUIContainerRenderer : FieldRenderer
             // Found again every frame, so it's never one left over from before the list or object changed. (A list item
             // just added, like a new input, is picked up even if the dock's SerializedObject hadn't seen it yet.)
             var property = DockSerializedObjects.FindProperty(_object, FieldPath);
-            if (property == null) return;
+            if (property == null)
+            {
+                // Not there yet (an input just added to the list, not yet in the data): look again next frame. It used
+                // to give up here and, never redrawn, stayed blank.
+                _waiting = true;
+                return;
+            }
+            _waiting = false;
             var seriializedObject = property.serializedObject;
 
             EditorGUI.BeginChangeCheck();
@@ -66,6 +76,24 @@ public class IMGUIContainerRenderer : FieldRenderer
             // Values that change by themselves (in Play Mode) are redrawn at the Inspector's Refresh Rate.
             InspectorRefresh.Request(imguiContainer);
         };
+
+        // Redrawn every editor frame while it needs it: while it's waiting for its data, while the mouse is over it or it
+        // has focus (Unity's Input Action editor, a tree with popups, needs every frame to respond), and when an edit
+        // made from one of its popups is waiting to be saved (only a redraw saves it). Otherwise at the Refresh Rate.
+        bool hovered = false;
+        imguiContainer.RegisterCallback<PointerEnterEvent>(_ => hovered = true);
+        imguiContainer.RegisterCallback<PointerLeaveEvent>(_ => hovered = false);
+        void Watch()
+        {
+            if (imguiContainer.panel == null)
+                return;
+            bool focused = imguiContainer.focusController?.focusedElement == imguiContainer;
+            bool pending = DockSerializedObjects.HasPendingChanges(_object);
+            if (_waiting || hovered || focused || pending)
+                imguiContainer.MarkDirtyRepaint();
+        }
+        imguiContainer.RegisterCallback<AttachToPanelEvent>(_ => { EditorApplication.update -= Watch; EditorApplication.update += Watch; });
+        imguiContainer.RegisterCallback<DetachFromPanelEvent>(_ => EditorApplication.update -= Watch);
 
         imguiContainer.focusable = true;
         imguiContainer.tabIndex = 0;

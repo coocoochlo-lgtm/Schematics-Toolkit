@@ -81,6 +81,11 @@ public static class DockSerializedObjects
 
     private static readonly HashSet<(UnityEngine.Object, string)> _unserialized = new();
 
+    /// <summary>Whether an edit made through the object's shared SerializedObject is waiting to be saved (by a redraw).</summary>
+    public static bool HasPendingChanges(UnityEngine.Object target)
+        => target != null && _objects.TryGetValue(target, out var serializedObject) && IsAlive(serializedObject)
+           && serializedObject.hasModifiedProperties;
+
     /// <summary>
     /// Brings a shared SerializedObject up to date with its object, keeping changes made through it that aren't saved
     /// yet. Every drawer in the dock shares it, and Unity's own (the Input Action's binding tree) change it from menu
