@@ -144,6 +144,9 @@ public class RemedyInput : SingletonData<RemedyInput>
         var output = inputEvent.Output;
         if (output == null) return;
         _currentInput.Remove(output);
+        // A Signal with no value has nothing to say about a release (sent, it's just another press: a second Boost).
+        if (output.Parameters.Contents.Count == 0)
+            return;
         // Released: every listener gets its parameter's default (false, 0, Vector2.zero...).
         output.BroadcastDefault();
     }

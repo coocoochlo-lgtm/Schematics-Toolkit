@@ -137,8 +137,21 @@ public partial class SignalData
         int count = Math.Max(1, Parameters.Contents.Count);
         var args = new Union[count];
         for (int i = 0; i < count; i++)
-            args[i] = Union.Null;
+            args[i] = i < Parameters.Contents.Count ? DefaultOf(Parameters[i].Type) : Union.Null;
         InvokeFromGraph(0, args);
+    }
+
+    // A parameter type's default as a value of that type (0, false, Vector2.zero, Quaternion.identity...), not
+    // nothing: a released stick used to send null, which listeners taking "any value" got as null instead of (0, 0).
+    // Only references (an object, a string...) are sent as null.
+    private static Union DefaultOf(Union.ValueType type)
+    {
+        if (type == Union.ValueType.Quaternion)
+            return SignalArgs.ToUnion(UnityEngine.Quaternion.identity);
+        if (Union.TypeLookup.TryGetValue(type, out var valueType) && valueType != null && valueType.IsValueType
+            && valueType != typeof(Union) && valueType != typeof(UnityEngine.SceneManagement.Scene))
+            return SignalArgs.ToUnion(Activator.CreateInstance(valueType));
+        return Union.Null;
     }
 
     #endregion
