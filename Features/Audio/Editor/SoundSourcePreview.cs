@@ -108,7 +108,8 @@ namespace Remedy.Audio
 
         private static void Update()
         {
-            if (EditorApplication.isPlayingOrWillChangePlaymode)
+            // (isPlaying too: leaving Play Mode, it's still true for a moment after "will change" has cleared.)
+            if (EditorApplication.isPlaying || EditorApplication.isPlayingOrWillChangePlaymode)
             {
                 if (_loops.Count > 0) StopAll();
                 return;

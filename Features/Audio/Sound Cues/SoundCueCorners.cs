@@ -82,6 +82,20 @@ namespace Remedy.Audio
                     pool = route == SoundRoute.Around ? SoundSpaces.Get()?.Corners : null;
                 }
 
+                // Blocked for a moment only (a check that grazes something as the sound or listener moves): still
+                // heard straight until it's stayed blocked for HoldClear, so a sound doesn't drop out and back.
+                float now = Time.realtimeSinceStartup;
+                if (route == SoundRoute.Clear || _clearAt < 0f)
+                    _clearAt = now;
+                else if (now - _clearAt < HoldClear)
+                {
+                    _route = SoundRoute.Clear;
+                    _held = true;
+                    _behind = 0f;
+                    Set(null, 0f);
+                    return;
+                }
+                _held = false;
                 _route = route;
                 _behind = 0f;
                 if (route == SoundRoute.Sealed)
@@ -139,7 +153,10 @@ namespace Remedy.Audio
             }
 
             private SoundRoute _route;
-            private float _behind;
+            private float _behind, _clearAt = -1f;
+            private bool _held;
+            /// <summary>Seconds the way must stay blocked before the sound stops being heard straight.</summary>
+            public const float HoldClear = 0.3f;
 
             public override string DirectReport
             {
@@ -150,6 +167,7 @@ namespace Remedy.Audio
                         : blocked > 0.01f ? $"straight sound {Mathf.Round((1f - blocked) * 10f) * 10f:0}% (the rest through walls)" : "straight sound in full";
                     return _route == SoundRoute.Sealed ? $"Around Corners: SEALED (no way through the Sound Field between them): {straight}"
                         : _route == SoundRoute.Around ? $"Around Corners: round a corner ({Mathf.Round(_behind * 10f) * 10f:0}% behind it): {straight}"
+                        : _held ? $"Around Corners: clear (held: blocked under {HoldClear} s): {straight}"
                         : $"Around Corners: clear: {straight}";
                 }
             }

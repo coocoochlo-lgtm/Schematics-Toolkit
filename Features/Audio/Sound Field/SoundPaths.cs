@@ -107,6 +107,11 @@ namespace Remedy.Audio
             var doorways = DoorwaysOf(data);
             if (Visible(data, from, to, doorways, out way.DoorwayA, out way.DoorwayB))
                 return way;
+            // Sound bends over anything about a cell high (a kerb, a crate, the floor seen at a grazing angle): still
+            // straight if the cell just above A sees B.
+            int over = Neighbour(data, from, 1, 1);
+            if (over >= 0 && data.Linked(from, 1) && Visible(data, over, to, doorways, out way.DoorwayA, out way.DoorwayB))
+                return way;
 
             var flood = FloodFrom(field, data, to);
             if (flood.Stamp[from] != flood.Generation)
@@ -349,16 +354,29 @@ namespace Remedy.Audio
             int cell = from;
             for (int guard = Mathf.Abs(dx) + Mathf.Abs(dy) + Mathf.Abs(dz); guard > 0; guard--)
             {
-                int axis, sign;
-                if (nextX <= nextY && nextX <= nextZ) { axis = 0; sign = sx; nextX += stepX; }
-                else if (nextY <= nextZ) { axis = 1; sign = sy; nextY += stepY; }
-                else { axis = 2; sign = sz; nextZ += stepZ; }
-                int next = Passes(data, cell, axis, sign);
+                // The axis the line crosses into a new cell on next. Where it crosses two (or three) at once, through a
+                // corner of the grid, any of them will do: taking only the first meant a line grazing the floor counted
+                // as blocked whenever that first step dipped into it, though the other way round was open (a sound just
+                // ahead and below, like a car seen from a chase camera, went "round a corner" and quiet as it moved).
+                float least = Mathf.Min(nextX, Mathf.Min(nextY, nextZ));
+                const float Tie = 1e-4f;
+                int axis = -1, next = -1;
+                for (int candidate = 0; candidate < 3 && next < 0; candidate++)
+                {
+                    float at = candidate == 0 ? nextX : candidate == 1 ? nextY : nextZ;
+                    if (at > least + Tie)
+                        continue;
+                    next = Passes(data, cell, candidate, candidate == 0 ? sx : candidate == 1 ? sy : sz);
+                    axis = candidate;
+                }
                 if (next < 0)
                 {
                     firstDoorway = lastDoorway = -1;
                     return false;
                 }
+                if (axis == 0) nextX += stepX;
+                else if (axis == 1) nextY += stepY;
+                else nextZ += stepZ;
                 if (doorways != null && doorways.TryGetValue(Mathf.Min(cell, next) * 3 + axis, out int doorway))
                 {
                     if (firstDoorway < 0) firstDoorway = doorway;
