@@ -310,22 +310,36 @@ namespace Remedy.Audio
             }
         }
 
-        /// <summary>Sends <paramref name="sound"/>'s block (Mix times each send's own amount).</summary>
-        public void Send(SpatialProbe probe, SoundContext context, float[] sound, int count, float mix)
+        /// <summary>
+        /// Sends <paramref name="sound"/>'s block (Mix times each send's own amount). <paramref name="duck"/>: the gain
+        /// (1 none) the room, echo walls and tail spot it reaches are turned down by while this block is heard (see
+        /// <see cref="SourceDucker"/>).
+        /// </summary>
+        public void Send(SpatialProbe probe, SoundContext context, float[] sound, int count, float mix, float duck = 1f)
         {
             if (probe == null)
                 return;
             Volatile.Write(ref probe.SendMix, mix);
             Volatile.Write(ref probe.Sending, context.HeardStart >= 0 ? 1 : 0);
-            Send(Volatile.Read(ref probe.Sends), context, sound, count, mix);
+            Send(Volatile.Read(ref probe.Sends), context, sound, count, mix, duck);
         }
 
-        /// <summary>Sends <paramref name="sound"/>'s block to <paramref name="sends"/> (Mix times each send's own amount).</summary>
-        public void Send(SpaceSends sends, SoundContext context, float[] sound, int count, float mix)
+        /// <summary>Sends <paramref name="sound"/>'s block to <paramref name="sends"/> (Mix times each send's own amount; <paramref name="duck"/> as above).</summary>
+        public void Send(SpaceSends sends, SoundContext context, float[] sound, int count, float mix, float duck = 1f)
         {
             if (context.HeardStart < 0 || count <= 0)
                 return;
             long at = context.HeardSample(context.SamplePosition) + context.SendLead + (Travel != null ? Volatile.Read(ref Travel.Samples) : 0);
+            if (sends != null && duck < 0.999f)
+            {
+                // Under the sound as it's heard (not its echoes' delays: they're what's ducked). Not a corner: that's
+                // the sound itself, coming round.
+                float amount = 1f - duck;
+                sends.Room?.Duck(at, count, amount);
+                sends.Tail?.Duck(at, count, amount);
+                for (int e = 0; e < sends.EchoCount; e++)
+                    sends.Echoes[e]?.Duck(at, count, amount);
+            }
             SendTo(ref _room, ref _roomGain, ref _roomDelay, sends?.Room, (sends?.RoomGain ?? 0f) * mix, 0, sound, at, count);
             SendTo(ref _tail, ref _tailGain, ref _tailDelay, sends?.Tail, (sends?.TailGain ?? 0f) * mix, 0, sound, at, count);
             int echoes = sends?.EchoCount ?? 0;
@@ -357,6 +371,66 @@ namespace Remedy.Audio
             delay = Math.Abs(difference) > _rate / 20 ? targetDelay : delay + Mathf.Clamp(difference, -16, 16);
             current.Add(at + delay, sound, count, gain, targetGain);
             gain = targetGain;
+        }
+    }
+
+    /// <summary>
+    /// Sidechain ducking for a Spatial effect: follows the sound's own level, and says how far the effect (its own
+    /// reverb or echo, and what it sends to rooms, echo walls and tail spots) is turned down under it while it plays,
+    /// like a compressor keyed by the sound. Blend 1: never; 0: as far as the sound is loud (up to 30 dB), so the
+    /// effect swells back in the gaps and the tail. Audio thread, one per effect per voice.
+    /// </summary>
+    internal sealed class SourceDucker
+    {
+        // Follows the sound in 5 ms, lets go over a quarter second. From -40 dB, each dB louder ducks 0.8 dB more.
+        private const float Threshold = -40f, Slope = 0.8f, MostDb = 30f;
+        private readonly float _attack, _release;
+        private float _level, _gain = 1f, _target = 1f;
+        private int _untilTarget;
+
+        /// <summary>The lowest gain since <see cref="Begin"/> (what the buses it sends to duck by).</summary>
+        public float Lowest { get; private set; } = 1f;
+
+        public SourceDucker(int sampleRate)
+        {
+            float rate = Mathf.Max(8000, sampleRate);
+            _attack = 1f - Mathf.Exp(-1f / (0.005f * rate));
+            _release = 1f - Mathf.Exp(-1f / (0.25f * rate));
+        }
+
+        public void Reset()
+        {
+            _level = 0f;
+            _gain = _target = Lowest = 1f;
+            _untilTarget = 0;
+        }
+
+        /// <summary>A new block.</summary>
+        public void Begin() => Lowest = 1f;
+
+        /// <summary>The effect's gain for this sample of the sound (<paramref name="blend"/> as above).</summary>
+        public float Next(float sound, float blend)
+        {
+            float level = Math.Abs(sound);
+            if (float.IsNaN(level) || float.IsInfinity(level)) level = 0f;
+            _level += (level - _level) * (level > _level ? _attack : _release);
+            if (--_untilTarget <= 0)
+            {
+                _untilTarget = 32;
+                _target = GainFor(_level, 1f - Mathf.Clamp01(blend));
+            }
+            // (Between the every-32-samples targets: a short glide, so the steps don't click.)
+            _gain += (_target - _gain) * 0.1f;
+            if (_gain < Lowest) Lowest = _gain;
+            return _gain;
+        }
+
+        private static float GainFor(float level, float depth)
+        {
+            if (depth <= 0f || level <= 1e-6f)
+                return 1f;
+            float over = 20f * Mathf.Log10(level) - Threshold;
+            return over <= 0f ? 1f : Mathf.Pow(10f, -Mathf.Min(over * Slope, MostDb) * depth / 20f);
         }
     }
 

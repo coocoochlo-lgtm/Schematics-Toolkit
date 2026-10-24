@@ -87,6 +87,11 @@ namespace Remedy.Audio
         private const int RingMask = RingSize - 1;
 
         private readonly float[] _ring = new float[RingSize];
+        // Sidechain ducking (see Duck): how far under the sounds feeding it it's turned down, per stretch of 64 samples
+        // (0 not at all, 1 silent), on the same clock as the ring; and the gain it's gliding at.
+        private const int DuckShift = 6, DuckSize = RingSize >> DuckShift, DuckMask = DuckSize - 1;
+        private readonly float[] _duck = new float[DuckSize];
+        private float _duckGain = 1f;
         private readonly object _lock = new();
         private long _readHead = -1;
         private long _lastWrite = long.MinValue;
@@ -285,6 +290,8 @@ namespace Remedy.Audio
             {
                 // (The clock keeps running: only what it held is cleared.)
                 Array.Clear(_ring, 0, _ring.Length);
+                Array.Clear(_duck, 0, _duck.Length);
+                _duckGain = 1f;
                 _reverb.Clear();
                 _lowpass = 0f;
                 Array.Clear(_allpassA, 0, _allpassA.Length);
@@ -314,6 +321,8 @@ namespace Remedy.Audio
             lock (_lock)
             {
                 Array.Clear(_ring, 0, _ring.Length);
+                Array.Clear(_duck, 0, _duck.Length);
+                _duckGain = 1f;
                 _reverb.Clear();
                 _partner = null;
                 _forward = null;
@@ -571,6 +580,13 @@ namespace Remedy.Audio
             => Interlocked.Exchange(ref _ringLimit, (long)(Mathf.Clamp(seconds, 0.2f, MaxRingTime) * Mathf.Max(1, _rate)));
 
         // Silent and empty (under the lock).
+        // The ducking for stretches wholly played (a stretch only partly played is read again next time).
+        private void ClearDucks(long head, int frames)
+        {
+            for (long c = head >> DuckShift; c < (head + frames) >> DuckShift; c++)
+                _duck[c & DuckMask] = 0f;
+        }
+
         private void ClearEffect()
         {
             _reverb.Clear();
@@ -625,12 +641,16 @@ namespace Remedy.Audio
                 {
                     for (int f = 0; f < frames; f++)
                         _ring[(head + f) & RingMask] = 0f;
+                    ClearDucks(head, frames);
                     _readHead = head + frames;
                     Array.Clear(data, 0, data.Length);
                     Volatile.Write(ref _peak, 0f);
                     return;
                 }
                 float fade = over ? 1f / (RingFade * Mathf.Max(1, _rate)) : 0f;
+                // Ducking glides down in 5 ms and back up in 80 (the sound's own level was already followed).
+                float duckDown = 1f - Mathf.Exp(-1f / (0.005f * Mathf.Max(8000, _rate)));
+                float duckUp = 1f - Mathf.Exp(-1f / (0.08f * Mathf.Max(8000, _rate)));
                 for (int f = 0; f < frames; f++)
                 {
                     int slot = (int)((head + f) & RingMask);
@@ -671,9 +691,12 @@ namespace Remedy.Audio
                         output = clean = 0f;
                     }
                     _envelope = Mathf.Max(0f, _envelope - fade);
-                    _scratch[f] = output * _envelope;
-                    _clean[f] = clean * _envelope;
+                    float duckTo = 1f - _duck[(int)(((head + f) >> DuckShift) & DuckMask)];
+                    _duckGain += (duckTo - _duckGain) * (duckTo < _duckGain ? duckDown : duckUp);
+                    _scratch[f] = output * _envelope * _duckGain;
+                    _clean[f] = clean * _envelope * _duckGain;
                 }
+                ClearDucks(head, frames);
                 if (over && _envelope <= 0f)
                 {
                     ClearEffect();
@@ -723,7 +746,35 @@ namespace Remedy.Audio
             long gap = Math.Min(now - _readHead, RingSize);
             for (long i = 0; i < gap; i++)
                 _ring[(_readHead + i) & RingMask] = 0f;
+            for (long c = 0; c <= gap >> DuckShift; c++)
+                _duck[((_readHead >> DuckShift) + c) & DuckMask] = 0f;
             _readHead = now;
+        }
+
+        /// <summary>
+        /// Sidechain: a sound heard from <paramref name="at"/> (on the same clock as <see cref="Add(long, float[], int, float, float)"/>,
+        /// without any echo's delay) for <paramref name="count"/> samples turns this bus down by <paramref name="amount"/>
+        /// (0 not at all, 1 silent) meanwhile, so its reverb or echoes don't drown that sound out. Where several sounds
+        /// duck it at once, the deepest counts. It glides down quickly and back up over a moment.
+        /// </summary>
+        internal void Duck(long at, int count, float amount)
+        {
+            if (count <= 0 || !(amount > 0.001f))
+                return;
+            amount = Mathf.Min(amount, 1f);
+            lock (_lock)
+            {
+                long now = (long)Math.Round(AudioSettings.dspTime * _rate);
+                long head = _readHead >= 0 ? _readHead : now;
+                long end = at + count;
+                if (end <= head || end >= head + RingSize - 4096)
+                    return;
+                for (long c = Math.Max(at, head) >> DuckShift; c <= (end - 1) >> DuckShift; c++)
+                {
+                    int slot = (int)(c & DuckMask);
+                    if (amount > _duck[slot]) _duck[slot] = amount;
+                }
+            }
         }
 
         private static float Allpass(float x, float[] line, ref int index)
