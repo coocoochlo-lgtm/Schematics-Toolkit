@@ -48,6 +48,7 @@ namespace Remedy.Audio
             SoundField.ShowEchoWalls = EditorGUILayout.Toggle(new GUIContent("Show Echo Walls", "Draw every baked echo wall in the Scene view, glowing with how much it's echoing (in Play Mode)."), SoundField.ShowEchoWalls);
             if (GUI.changed)
                 SceneView.RepaintAll();
+            SoundSpaces.JoinEchoes = EditorGUILayout.Toggle(new GUIContent("Join Echo Walls", $"Walls heard from about the same way (within {SoundSpaces.JoinAngle:0}°) and sounding alike share one echo voice, heard from between them; each still echoes as late as it should. Off: every wall gets its own (more voices)."), SoundSpaces.JoinEchoes);
             SpaceBus.LogBuses = EditorGUILayout.Toggle(new GUIContent("Log Buses", "Log every room, echo wall, spot and corner starting and stopping, with how many voices they hold, and every effect left out for want of a voice."), SpaceBus.LogBuses);
 
             Section("Sound Fields");
@@ -105,7 +106,8 @@ namespace Remedy.Audio
                 {
                     if (bus.Owner == null) continue;
                     shown++;
-                    Bus("Wall", $"{Vector3.Distance(listener, bus.transform.position):0} m away", bus);
+                    int joined = spaces.JoinedTo(bus);
+                    Bus(joined > 0 ? $"Wall (+{joined} joined)" : "Wall", $"{Vector3.Distance(listener, bus.transform.position):0} m away", bus);
                 }
             if (shown == 0)
                 Dim("None: no sound has been heard off an echo surface yet (or none is in reach).");

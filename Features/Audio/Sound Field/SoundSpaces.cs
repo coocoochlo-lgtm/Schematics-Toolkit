@@ -422,9 +422,13 @@ namespace Remedy.Audio
             _damp = Mathf.Clamp01(damping) * 0.4f;
         }
 
+        /// <summary>An echo wall's hardness (0 soft, 1 hard), as set when it started.</summary>
+        public float Hardness { get; private set; }
+
         // An echo wall: darker than what it hears (more so for softer walls).
         internal void SetEcho(float hardness)
         {
+            Hardness = Mathf.Clamp01(hardness);
             float cutoff = Mathf.Lerp(1200f, 6000f, Mathf.Clamp01(hardness));
             _lowpassAmount = 1f - Mathf.Exp(-2f * Mathf.PI * cutoff / Mathf.Max(8000, _rate));
             // Its smear and a canyon's flutter have died away by then.
@@ -1283,9 +1287,85 @@ namespace Remedy.Audio
 
         #region Echo walls
 
-        /// <summary>The echo wall ringing for a field's anchor, if it's one of the live ones (else null).</summary>
+        /// <summary>The echo wall ringing for a field's anchor (its own, or the one it's joined to), if it's live (else null).</summary>
         public SpaceBus EchoBus(SoundField field, int anchor)
-            => _liveAnchors.TryGetValue((field, anchor), out var bus) && bus != null && Equals(bus.Owner, (field, anchor)) ? bus : null;
+        {
+            var key = (field, anchor);
+            if (_liveAnchors.TryGetValue(key, out var bus) && bus != null && Equals(bus.Owner, key))
+                return bus;
+            return _joined.TryGetValue(key, out bus) && bus != null && bus.Owner != null ? bus : null;
+        }
+
+        /// <summary>
+        /// Walls within this many degrees of each other, seen from the listener, share one echo wall's bus: each sound
+        /// still sends to it with its own wall's delay (so its echoes come as late as they should), and the bus is
+        /// heard from between them (nearer the louder). Two echoes from about the same way, close together, are heard
+        /// as coming from one place anyway; walls on different sides of the listener keep their own.
+        /// </summary>
+        public const float JoinAngle = 35f;
+        // Only walls that sound alike join: hardness this close (the bus has one darkness), distance from the listener
+        // within this factor (it has one falloff). A joined wall that's come this far round (the listener moved) leaves.
+        private const float JoinHardness = 0.35f, JoinDistance = 1.6f, LeaveAngle = JoinAngle * 1.5f;
+
+        /// <summary>Whether walls join (see <see cref="JoinAngle"/>): on as designed; off to hear each wall on its own (Sound Spaces window).</summary>
+        public static bool JoinEchoes = true;
+
+        // Walls echoing through another wall's bus: which.
+        private readonly Dictionary<(SoundField, int), SpaceBus> _joined = new();
+
+        /// <summary>How many other walls echo through this wall's bus.</summary>
+        public int JoinedTo(SpaceBus bus)
+        {
+            int count = 0;
+            foreach (var pair in _joined)
+                if (pair.Value == bus) count++;
+            return count;
+        }
+
+        // A live echo wall heard from about the same way as a point on a wall, sounding alike: the wall joins it.
+        private SpaceBus TryJoin((SoundField, int) key, Vector3 at, float hardness)
+        {
+            if (!JoinEchoes)
+                return null;
+            var listener = ListenerPosition;
+            var toWall = at - listener;
+            float distance = toWall.magnitude;
+            if (distance < 0.5f)
+                return null;
+            SpaceBus best = null;
+            float bestAngle = JoinAngle;
+            foreach (var bus in _echoes)
+            {
+                if (!(bus.Owner is ValueTuple<SoundField, int>) || Mathf.Abs(bus.Hardness - Mathf.Clamp01(hardness)) > JoinHardness)
+                    continue;
+                var toBus = bus.transform.position - listener;
+                float busDistance = toBus.magnitude;
+                if (busDistance < 0.5f || Mathf.Max(distance, busDistance) / Mathf.Min(distance, busDistance) > JoinDistance)
+                    continue;
+                float angle = Vector3.Angle(toWall, toBus);
+                if (angle < bestAngle) { bestAngle = angle; best = bus; }
+            }
+            if (best == null)
+                return null;
+            _joined[key] = best;
+            if (SpaceBus.LogBuses)
+                Debug.Log($"[Sound Spaces] {SpaceBus.Describe(key)} joins the echo bus of {SpaceBus.Describe(best.Owner)} ({bestAngle:0}° apart): {JoinedTo(best)} joined to it", best);
+            return best;
+        }
+
+        // Lets an echo wall's bus go, and every wall joined to it.
+        private void EndEcho(SpaceBus bus)
+        {
+            if (bus.Owner is ValueTuple<SoundField, int> key)
+                _liveAnchors.Remove(key);
+            _leaving.Clear();
+            foreach (var pair in _joined)
+                if (pair.Value == bus) _leaving.Add(pair.Key);
+            foreach (var member in _leaving)
+                _joined.Remove(member);
+            bus.End();
+        }
+        private readonly List<(SoundField, int)> _leaving = new();
 
         // Anchors sounds have asked for lately (when), which are kept over ones merely near the listener.
         private readonly Dictionary<(SoundField, int), float> _asked = new();
@@ -1314,6 +1394,9 @@ namespace Remedy.Audio
             var position = at;
             if (Vector3.Distance(ListenerPosition, position) > EchoRange)
                 return null;
+            var joined = TryJoin(key, position, data.Hardness);
+            if (joined != null)
+                return joined;
             int live = 0;
             foreach (var candidate in _echoes)
                 if (candidate.Owner != null) live++;
@@ -1333,18 +1416,29 @@ namespace Remedy.Audio
                 return null;
             bus.BeginEcho(key, position, Mathf.Sqrt(data.Area), data.Hardness);
             _liveAnchors[key] = bus;
+            _joined.Remove(key);
             return bus;
         }
 
         private float _nextEchoUpdate;
+        private readonly Dictionary<SpaceBus, (Vector3 sum, float weight)> _targets = new();
 
         private void Update()
         {
-            // Each live echo wall glides to where it's heard from (sudden jumps would throw its sound across the room).
+            // Each live echo wall glides to where it's heard from (sudden jumps would throw its sound across the room):
+            // the bounce points of the walls it carries (its own and those joined to it), weighted by how loud each is.
             float glide = 1f - Mathf.Exp(-Time.unscaledDeltaTime / 0.08f);
-            foreach (var bus in _echoes)
-                if (bus != null && bus.Owner is ValueTuple<SoundField, int> wall && _heardAt.TryGetValue(wall, out var heard))
-                    bus.transform.position = Vector3.Lerp(bus.transform.position, heard.at, glide);
+            _targets.Clear();
+            foreach (var pair in _heardAt)
+            {
+                var bus = EchoBus(pair.Key.Item1, pair.Key.Item2);
+                if (bus == null) continue;
+                float weight = pair.Value.weight + 1e-4f;
+                _targets.TryGetValue(bus, out var target);
+                _targets[bus] = (target.sum + pair.Value.at * weight, target.weight + weight);
+            }
+            foreach (var pair in _targets)
+                pair.Key.transform.position = Vector3.Lerp(pair.Key.transform.position, pair.Value.sum / pair.Value.weight, glide);
             if (Time.unscaledTime < _nextEchoUpdate)
                 return;
             _nextEchoUpdate = Time.unscaledTime + 0.25f;
@@ -1386,18 +1480,39 @@ namespace Remedy.Audio
 
             var keep = new HashSet<(SoundField, int)>();
             foreach (var w in wanted) keep.Add((w.field, w.anchor));
-            // Let go of walls no longer wanted (once they've rung out).
-            foreach (var bus in _echoes)
-                if (bus.Owner is ValueTuple<SoundField, int> key && !keep.Contains(key) && IsQuiet(bus, 1.5f))
-                {
-                    _liveAnchors.Remove(key);
-                    bus.End();
-                }
-            // Start the new ones. Walls no sound has asked for yet (started early, ready for the next sound) leave a
-            // quarter of the voices spatial effects may use for rooms, spots, corners and the walls sounds ask for.
+            // Joined walls no longer wanted, or come too far round from their bus (the listener moved), leave it (and
+            // join another, or get their own, when next asked for).
+            _leaving.Clear();
+            foreach (var pair in _joined)
+            {
+                var bus = pair.Value;
+                bool gone = bus == null || bus.Owner == null || !keep.Contains(pair.Key);
+                if (!gone && _heardAt.TryGetValue(pair.Key, out var heard))
+                    gone = Vector3.Angle(heard.at - listener, bus.transform.position - listener) > LeaveAngle;
+                if (gone) _leaving.Add(pair.Key);
+            }
+            foreach (var key in _leaving)
+                _joined.Remove(key);
+            // Let go of buses no wall wanted echoes through any more (once they've rung out).
+            var kept = new HashSet<SpaceBus>();
+            foreach (var w in wanted)
+            {
+                var bus = EchoBus(w.field, w.anchor);
+                if (bus != null) kept.Add(bus);
+            }
+            for (int b = 0; b < _echoes.Count; b++)
+            {
+                var bus = _echoes[b];
+                if (bus.Owner is ValueTuple<SoundField, int> && !kept.Contains(bus) && IsQuiet(bus, 1.5f))
+                    EndEcho(bus);
+            }
+            // Start the new ones (or join them to a live one heard from about the same way). Walls no sound has asked
+            // for yet (started early, ready for the next sound) leave a quarter of the voices spatial effects may use for
+            // rooms, spots, corners and the walls sounds ask for.
             foreach (var w in wanted)
             {
                 if (EchoBus(w.field, w.anchor) != null) continue;
+                if (TryJoin((w.field, w.anchor), w.position, w.data.Hardness) != null) continue;
                 bool asked = _asked.TryGetValue((w.field, w.anchor), out float at) && Time.unscaledTime - at < AskedFor;
                 if (!asked && SpaceBus.Playing >= SpaceBus.VoiceBudget * 3 / 4) break;
                 if (StartEcho((w.field, w.anchor), w.position, w.data) == null) break;
@@ -1420,8 +1535,9 @@ namespace Remedy.Audio
             // Facing walls echo into each other (a canyon's flutter): each to its nearest face-to-face partner.
             foreach (var w in wanted)
             {
+                // (Set by the wall a bus is for, not those joined to it.)
                 var bus = EchoBus(w.field, w.anchor);
-                if (bus == null) continue;
+                if (bus == null || !Equals(bus.Owner, (w.field, w.anchor))) continue;
                 SpaceBus partner = null;
                 float best = float.MaxValue;
                 foreach (var other in wanted)
@@ -1430,7 +1546,8 @@ namespace Remedy.Audio
                     var between = other.position - w.position;
                     float distance = between.magnitude;
                     if (distance < 4f || Vector3.Dot(w.normal, between) <= 0f || Vector3.Dot(other.normal, -between) <= 0f) continue;
-                    if (distance < best) { best = distance; partner = EchoBus(other.field, other.anchor); }
+                    var otherBus = EchoBus(other.field, other.anchor);
+                    if (distance < best && otherBus != bus) { best = distance; partner = otherBus; }
                 }
                 // Only walls far enough apart for a distinct echo: close ones bouncing at each other just buzz.
                 if (partner != null && best / SpeedOfSound >= MinFlutterDelay)
