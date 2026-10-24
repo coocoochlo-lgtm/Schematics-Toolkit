@@ -324,14 +324,34 @@ namespace Remedy.Audio
         /// (null: none, or it's before the effect and what the effect hears is already late).
         /// </summary>
         public TravelDelay Travel;
+        /// <summary>
+        /// Seconds a send takes to fade in when the sound starts going somewhere new (another room, a tail spot, other
+        /// echo walls), and the old one to fade out meanwhile: the place changes over this long rather than at once.
+        /// 0: within one block (a sharp change, as from a street into a tunnel).
+        /// </summary>
+        public float Transition;
         private readonly int _rate;
         private SpaceBus _room, _tail, _corner;
         private float _roomGain, _tailGain, _cornerGain;
+        // How far each send has faded in since it started (0 to 1; 1 at once with no Transition).
+        private float _roomIn = 1f, _tailIn = 1f, _cornerIn = 1f;
         private int _roomDelay, _tailDelay, _cornerDelay;
         // One per echo wall slot (SpaceSends.Echoes).
         private readonly SpaceBus[] _echoes = new SpaceBus[SpaceSends.MaxEchoes];
         private readonly float[] _echoGains = new float[SpaceSends.MaxEchoes];
+        private readonly float[] _echoIn = new float[SpaceSends.MaxEchoes];
         private readonly int[] _echoDelays = new int[SpaceSends.MaxEchoes];
+
+        // Sends the sound has moved on from, fading out over Transition (the oldest goes at once when it's full).
+        private struct Leaving
+        {
+            public SpaceBus Bus;
+            public float Gain, PerSample;
+            public int Delay;
+        }
+        private const int MaxLeaving = 24;
+        private readonly Leaving[] _leaving = new Leaving[MaxLeaving];
+        private int _leavingCount;
 
         public SpatialSender(int sampleRate) => _rate = sampleRate;
 
@@ -339,11 +359,16 @@ namespace Remedy.Audio
         {
             _room = _tail = _corner = null;
             _roomGain = _tailGain = _cornerGain = 0f;
+            _roomIn = _tailIn = _cornerIn = 1f;
             for (int e = 0; e < _echoes.Length; e++)
             {
                 _echoes[e] = null;
                 _echoGains[e] = 0f;
+                _echoIn[e] = 1f;
             }
+            for (int i = 0; i < _leavingCount; i++)
+                _leaving[i].Bus = null;
+            _leavingCount = 0;
         }
 
         /// <summary>
@@ -375,38 +400,92 @@ namespace Remedy.Audio
                 sends.Tail?.Duck(at, count, amount);
                 for (int e = 0; e < sends.EchoCount; e++)
                     sends.Echoes[e]?.Duck(at, count, amount);
+                // (And the places it's leaving, while they still carry it.)
+                for (int i = 0; i < _leavingCount; i++)
+                    _leaving[i].Bus?.Duck(at, count, amount);
             }
-            SendTo(ref _room, ref _roomGain, ref _roomDelay, sends?.Room, (sends?.RoomGain ?? 0f) * mix, 0, sound, at, count);
-            SendTo(ref _tail, ref _tailGain, ref _tailDelay, sends?.Tail, (sends?.TailGain ?? 0f) * mix, 0, sound, at, count);
+            // (Fading in by this much more this block.)
+            float fadeIn = Transition > 0.001f ? count / (Transition * _rate) : 1f;
+            FadeOutLeaving(sound, at, count);
+            SendTo(ref _room, ref _roomGain, ref _roomIn, ref _roomDelay, sends?.Room, (sends?.RoomGain ?? 0f) * mix, 0, sound, at, count, fadeIn);
+            SendTo(ref _tail, ref _tailGain, ref _tailIn, ref _tailDelay, sends?.Tail, (sends?.TailGain ?? 0f) * mix, 0, sound, at, count, fadeIn);
             int echoes = sends?.EchoCount ?? 0;
             for (int e = 0; e < _echoes.Length; e++)
             {
                 bool used = e < echoes;
-                SendTo(ref _echoes[e], ref _echoGains[e], ref _echoDelays[e], used ? sends.Echoes[e] : null,
-                    used ? sends.EchoGains[e] * mix : 0f, used ? sends.EchoDelays[e] : 0, sound, at, count);
+                SendTo(ref _echoes[e], ref _echoGains[e], ref _echoIn[e], ref _echoDelays[e], used ? sends.Echoes[e] : null,
+                    used ? sends.EchoGains[e] * mix : 0f, used ? sends.EchoDelays[e] : 0, sound, at, count, fadeIn);
             }
-            SendTo(ref _corner, ref _cornerGain, ref _cornerDelay, sends?.Corner, (sends?.CornerGain ?? 0f) * mix, sends?.CornerDelay ?? 0, sound, at, count);
+            SendTo(ref _corner, ref _cornerGain, ref _cornerIn, ref _cornerDelay, sends?.Corner, (sends?.CornerGain ?? 0f) * mix, sends?.CornerDelay ?? 0, sound, at, count, fadeIn);
         }
 
-        private void SendTo(ref SpaceBus current, ref float gain, ref int delay, SpaceBus target, float targetGain, int targetDelay, float[] sound, long at, int count)
+        // One send: on to where it should go now. A new place fades in (fadeIn more each block) while the old one
+        // fades out (over Transition, among the leaving ones; within this block with none).
+        private void SendTo(ref SpaceBus current, ref float gain, ref float faded, ref int delay, SpaceBus target, float targetGain, int targetDelay,
+            float[] sound, long at, int count, float fadeIn)
         {
             if (target != current)
             {
-                if (current != null && gain > 0f)
-                    current.Add(at + delay, sound, count, gain, 0f);
+                float was = gain * faded;
+                if (current != null && was > 0f)
+                {
+                    if (fadeIn >= 1f)
+                        current.Add(at + delay, sound, count, was, 0f);
+                    else
+                        Leave(current, was, delay, sound, at, count);
+                }
                 current = target;
                 delay = targetDelay;
-                if (current != null)
-                    current.Add(at + delay, sound, count, 0f, targetGain);
                 gain = current != null ? targetGain : 0f;
-                return;
+                faded = 0f;
+                if (current == null)
+                    return;
             }
             if (current == null)
                 return;
             int difference = targetDelay - delay;
             delay = Math.Abs(difference) > _rate / 20 ? targetDelay : delay + Mathf.Clamp(difference, -16, 16);
-            current.Add(at + delay, sound, count, gain, targetGain);
+            float from = gain * faded;
+            faded = Mathf.Min(1f, faded + fadeIn);
+            current.Add(at + delay, sound, count, from, targetGain * faded);
             gain = targetGain;
+        }
+
+        // Keeps sending to a place the sound has moved on from, fading out over Transition from this block on.
+        private void Leave(SpaceBus bus, float gain, int delay, float[] sound, long at, int count)
+        {
+            if (_leavingCount == MaxLeaving)
+            {
+                // Full: the oldest goes now (within this block).
+                ref var oldest = ref _leaving[0];
+                oldest.Bus.Add(at + oldest.Delay, sound, count, oldest.Gain, 0f);
+                Array.Copy(_leaving, 1, _leaving, 0, MaxLeaving - 1);
+                _leavingCount--;
+            }
+            float perSample = gain / Mathf.Max(1f, Transition * _rate);
+            float next = Mathf.Max(0f, gain - perSample * count);
+            bus.Add(at + delay, sound, count, gain, next);
+            if (next > 0f)
+                _leaving[_leavingCount++] = new Leaving { Bus = bus, Gain = next, PerSample = perSample, Delay = delay };
+        }
+
+        private void FadeOutLeaving(float[] sound, long at, int count)
+        {
+            int kept = 0;
+            for (int i = 0; i < _leavingCount; i++)
+            {
+                var leaving = _leaving[i];
+                float next = Mathf.Max(0f, leaving.Gain - leaving.PerSample * count);
+                if (leaving.Bus != null)
+                    leaving.Bus.Add(at + leaving.Delay, sound, count, leaving.Gain, next);
+                if (next <= 0f || leaving.Bus == null)
+                    continue;
+                leaving.Gain = next;
+                _leaving[kept++] = leaving;
+            }
+            for (int i = kept; i < _leavingCount; i++)
+                _leaving[i].Bus = null;
+            _leavingCount = kept;
         }
     }
 

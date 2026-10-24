@@ -405,7 +405,7 @@ namespace Remedy.Audio
         }
     }
 
-    [SchematicDoc(@"{""name"": ""Delay"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Effects"", ""description"": ""An echo: the audio again after Delay seconds (up to 2; a typed-in Delay only keeps as much memory as it needs), each echo Feedback times as loud as the last (0 one echo, near 1 many). Mix is how much echo is heard (0 none, 1 only echo). Mode Spatial echoes the place the sound is in, from the Sound Field baked there: a slapback off the nearest wall (fluttering between parallel hard walls), and, in the game, the echo walls nearby (cliffs, canyon sides, a hall's far wall: Echoes sets how much), each as late as sound takes to get there and back. Mix then scales the place's amount. Outside every Sound Field it's open air (no slapback); in the preview with Space set to None it uses its own Delay and Feedback. In Spatial mode the sound itself is always heard whole, with the echoes added on top; Source Blend sets how far they duck under it while it plays (0: all the way, like sidechain compression; 1: never). Mode Trail leaves its own echo (Delay and Feedback) repeating where the sound has been, a new spot every Trail Spacing meters, so the echoes trail behind a moving sound; a Spatial Reverb or Delay anywhere before or after it in the cue treats each spot as a sound where it is: rings the room it's in and echoes it off the walls from there."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Delay"", ""type"": ""float""}, {""name"": ""Feedback"", ""type"": ""float""}, {""name"": ""Mix"", ""type"": ""float""}], ""outputs"": [{""name"": ""Out"", ""type"": ""audio""}]}")]
+    [SchematicDoc(@"{""name"": ""Delay"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Effects"", ""description"": ""An echo: the audio again after Delay seconds (up to 2; a typed-in Delay only keeps as much memory as it needs), each echo Feedback times as loud as the last (0 one echo, near 1 many). Mix is how much echo is heard (0 none, 1 only echo). Mode Spatial echoes the place the sound is in, from the Sound Field baked there: a slapback off the nearest wall (fluttering between parallel hard walls), and, in the game, the echo walls nearby (cliffs, canyon sides, a hall's far wall: Echoes sets how much), each as late as sound takes to get there and back. Mix then scales the place's amount. Outside every Sound Field it's open air (no slapback); in the preview with Space set to None it uses its own Delay and Feedback. In Spatial mode the sound itself is always heard whole, with the echoes added on top; Source Blend sets how far they duck under it while it plays (0: all the way, like sidechain compression; 1: never). Transition is how many seconds it takes to change over when the sound moves somewhere new (into or out of a room, past other walls): 0 at once, about 0.5 smooth. Mode Trail leaves its own echo (Delay and Feedback) repeating where the sound has been, a new spot every Trail Spacing meters, so the echoes trail behind a moving sound; a Spatial Reverb or Delay anywhere before or after it in the cue treats each spot as a sound where it is: rings the room it's in and echoes it off the walls from there."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Delay"", ""type"": ""float""}, {""name"": ""Feedback"", ""type"": ""float""}, {""name"": ""Mix"", ""type"": ""float""}], ""outputs"": [{""name"": ""Out"", ""type"": ""audio""}]}")]
     [Serializable]
     [Node(Name = "Delay", Path = "Effects"), Tags(SoundNode.Tag)]
     public class SoundDelayNode : SoundNode
@@ -431,6 +431,8 @@ namespace Remedy.Audio
         [Editable] public float Echoes = 1f;
         [Editable, Tooltip("Spatial: how much the place's slapback and echoes may drown out the sound itself, which is always heard in full from where it is. 0: they duck under the sound while it plays (like sidechain compression: the louder it is, the further), swelling back in its gaps and after it; 1: never ducked.")]
         public float SourceBlend = 0.5f;
+        [Editable, Tooltip("Spatial: seconds the echo (its slapback spot and echo walls) takes to change over when the sound moves somewhere new (into or out of a room, past other walls): the old place fades out while the new one fades in. 0: at once (dramatic: a street into a tunnel); about 0.5 to 1: smooth (a small room you step in and out of).")]
+        public float Transition = 0.5f;
         [Editable, Tooltip("Trail: meters the sound moves before it leaves a new echo spot behind (smaller: a smoother trail, more spots).")]
         public float TrailSpacing = 1f;
         [Editable, Tooltip("Trail: the most spots repeating at once for one playing sound; past this its oldest is taken for the next.")]
@@ -461,6 +463,7 @@ namespace Remedy.Audio
                     Line = new float[(int)(MaxDelay * builder.SampleRate) + 4],
                     Place = probe,
                     SourceBlend = Mathf.Clamp01(SourceBlend),
+                    Transition = Mathf.Max(0f, Transition),
                 };
             }
             TrailProbe trail = null;
@@ -525,6 +528,7 @@ namespace Remedy.Audio
             public float[] WetScale;
             public PlaceProbe Place;
             public float SourceBlend = 1f;
+            public float Transition;
             private readonly SourceDucker _ducker;
             // Trail: the echo repeats at the trail's spots instead (the sound only sends to them), when it can leave them.
             public TrailProbe Trail;
@@ -551,6 +555,7 @@ namespace Remedy.Audio
             public override void Process(SoundContext context, int count)
             {
                 var o = Output("Out");
+                _sender.Transition = Transition;
                 if (Trail != null && count > 0)
                 {
                     Volatile.Write(ref Trail.A, Mathf.Clamp(Delay[count - 1], 0.001f, MaxDelay));
@@ -672,7 +677,7 @@ namespace Remedy.Audio
         }
     }
 
-    [SchematicDoc(@"{""name"": ""Reverb"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Effects"", ""description"": ""Room echo: Room Size (0 small, 1 a cathedral), Damping (how soon the high end dies away: 0 bright, 1 dull), Mix (0 dry, 1 only the room). Mode Shared sends to the scene's reverb (Reverb Zones) instead of running its own: far cheaper for sounds played often or many at once (Room Size and Damping then come from the zone). Mode Spatial rings like the place the sound is in, from the Sound Field baked there: a small tiled bathroom, a dead carpeted office, a huge stone hall, open air (Mix then scales the place's reverb: 1 is as much as the place makes; outside every Sound Field it's open air, nearly dry; in the preview with Space set to None the place is this node's Room Size and Damping). In the game, Spatial sounds in a room make the room itself ring (heard from the room, carrying on after the sound moves away or stops), and in the open they're thrown back by the echo walls nearby (cliffs, canyon sides, buildings: Echoes sets how much), as late as sound takes to get there and back. In Spatial mode the sound itself is always heard whole, with the reverb added on top; Source Blend sets how far the reverb (its own, the room's, a tail's, the echoes) ducks under it while it plays (0: all the way, like sidechain compression; 1: never). Mode Trail leaves its own reverb (Room Size and Damping) ringing where the sound has been, a new spot every Trail Spacing meters, so the tail trails behind a moving sound (Mix 1: only the trail); a Spatial Reverb or Delay anywhere before or after it in the cue treats each spot as a sound where it is: rings the room it's in and echoes it off the walls from there."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Room Size"", ""type"": ""float""}, {""name"": ""Damping"", ""type"": ""float""}, {""name"": ""Mix"", ""type"": ""float""}], ""outputs"": [{""name"": ""Out"", ""type"": ""audio""}]}")]
+    [SchematicDoc(@"{""name"": ""Reverb"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Effects"", ""description"": ""Room echo: Room Size (0 small, 1 a cathedral), Damping (how soon the high end dies away: 0 bright, 1 dull), Mix (0 dry, 1 only the room). Mode Shared sends to the scene's reverb (Reverb Zones) instead of running its own: far cheaper for sounds played often or many at once (Room Size and Damping then come from the zone). Mode Spatial rings like the place the sound is in, from the Sound Field baked there: a small tiled bathroom, a dead carpeted office, a huge stone hall, open air (Mix then scales the place's reverb: 1 is as much as the place makes; outside every Sound Field it's open air, nearly dry; in the preview with Space set to None the place is this node's Room Size and Damping). In the game, Spatial sounds in a room make the room itself ring (heard from the room, carrying on after the sound moves away or stops), and in the open they're thrown back by the echo walls nearby (cliffs, canyon sides, buildings: Echoes sets how much), as late as sound takes to get there and back. In Spatial mode the sound itself is always heard whole, with the reverb added on top; Source Blend sets how far the reverb (its own, the room's, a tail's, the echoes) ducks under it while it plays (0: all the way, like sidechain compression; 1: never). Transition is how many seconds it takes to change over when the sound moves somewhere new (into or out of a room, past other walls): 0 at once, about 0.5 smooth. Mode Trail leaves its own reverb (Room Size and Damping) ringing where the sound has been, a new spot every Trail Spacing meters, so the tail trails behind a moving sound (Mix 1: only the trail); a Spatial Reverb or Delay anywhere before or after it in the cue treats each spot as a sound where it is: rings the room it's in and echoes it off the walls from there."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Room Size"", ""type"": ""float""}, {""name"": ""Damping"", ""type"": ""float""}, {""name"": ""Mix"", ""type"": ""float""}], ""outputs"": [{""name"": ""Out"", ""type"": ""audio""}]}")]
     [Serializable]
     [Node(Name = "Reverb", Path = "Effects"), Tags(SoundNode.Tag)]
     public class SoundReverbNode : SoundNode
@@ -695,6 +700,8 @@ namespace Remedy.Audio
         [Editable] public float Echoes = 1f;
         [Editable, Tooltip("Spatial: how much the place's reverb (its room's, a tail's, and echoes) may drown out the sound itself, which is always heard in full from where it is. 0: they duck under the sound while it plays (like sidechain compression: the louder it is, the further), swelling back in its gaps and after it; 1: never ducked.")]
         public float SourceBlend = 0.5f;
+        [Editable, Tooltip("Spatial: seconds the reverb (its room, tail spot and echo walls) takes to change over when the sound moves somewhere new (into or out of a room, past other walls): the old place fades out while the new one fades in. 0: at once (dramatic: a street into a tunnel); about 0.5 to 1: smooth (a small room you step in and out of).")]
+        public float Transition = 0.5f;
         [Editable, Tooltip("Trail: meters the sound moves before it leaves a new reverb spot behind (smaller: a smoother trail, more spots).")]
         public float TrailSpacing = 1f;
         [Editable, Tooltip("Trail: the most spots ringing at once for one playing sound; past this its oldest is taken for the next.")]
@@ -731,6 +738,7 @@ namespace Remedy.Audio
                     Mix = builder.Input(this, "Mix", Mix),
                     Place = probe,
                     SourceBlend = Mathf.Clamp01(SourceBlend),
+                    Transition = Mathf.Max(0f, Transition),
                 };
             }
             if (Mode == ReverbMode.Trail)
@@ -816,6 +824,7 @@ namespace Remedy.Audio
             public PlaceProbe Place;
             // Spatial: the sound itself stays whole, and the reverb ducks under it as far as SourceBlend lets it.
             public float SourceBlend = 1f;
+            public float Transition;
             private readonly SourceDucker _ducker;
             public TrailProbe Trail;
             TrailProbe ITrailed.Trail => Trail;
@@ -841,6 +850,7 @@ namespace Remedy.Audio
             public override void Process(SoundContext context, int count)
             {
                 var o = Output("Out");
+                _sender.Transition = Transition;
                 if (Trail != null && count > 0)
                 {
                     // The node's settings for the spot (the world side sets them on it).
