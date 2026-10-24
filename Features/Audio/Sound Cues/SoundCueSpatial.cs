@@ -145,8 +145,7 @@ namespace Remedy.Audio
                     // Behind the sound itself by the extra way round (the sound is heard with no travel time of its own).
                     int delay = (int)((_simPaths[i] - direct) / SoundSpaces.SpeedOfSound * simulation.Rate);
                     float gain = _simReflectivity[i] / (1f + _simPaths[i] / 50f) * Mathf.Clamp01(EchoAmount) * gate * SoundSpaces.Exaggerate;
-                    if (sends.EchoA == null) { sends.EchoA = _simBuses[i]; sends.DelayA = delay; sends.GainA = gain; }
-                    else { sends.EchoB = _simBuses[i]; sends.DelayB = delay; sends.GainB = gain; }
+                    sends.AddEcho(_simBuses[i], delay, gain);
                 }
                 return sends;
             }
@@ -162,45 +161,56 @@ namespace Remedy.Audio
                 inRoom = acoustic.Bus != null && acoustic.Bus.Healthy;
                 found = new SpaceSends { Room = acoustic.Bus, RoomGain = acoustic.Acoustics.Wet * SoundSpaces.Exaggerate };
             }
-            // Echo walls too, in a room or out of one.
-            if (EchoAmount > 0f && SoundField.TryGetCell(position, out var field, out int index) && field.Data.TryGet(index, out var cell))
+            // Echo walls too, in a room or out of one: every wall the place hears (one each way: the sides, the floor,
+            // the ceiling), in a fixed order so each keeps its send.
+            if (EchoAmount > 0f && SoundField.TryGetCell(position, out var field, out int index) && field.Data.IsOpen(index))
             {
-                found ??= new SpaceSends();
-                Echo(spaces, field, cell.AnchorA, position, listener, ref found.EchoA, ref found.DelayA, ref found.GainA);
-                Echo(spaces, field, cell.AnchorB, position, listener, ref found.EchoB, ref found.DelayB, ref found.GainB);
+                int walls = field.Data.WallsOf(index, _walls);
+                if (walls > 0)
+                {
+                    found ??= new SpaceSends();
+                    Array.Sort(_walls, 0, walls);
+                    for (int w = 0; w < walls; w++)
+                        Echo(spaces, field, _walls[w], position, listener, found);
+                }
             }
             return found;
         }
 
-        // An echo arriving very soon after the sound itself is heard as the same sound doubled, out of step: off soft,
-        // absorbent walls none until 50 ms behind (the reverb covers it), but off hard, reflective ones (tiles, stone,
-        // bare concrete) from a few milliseconds: a small hard room's slap. Fades in over as long again.
-        private static float Gate(float lag, float reflectivity, float hardness)
-        {
-            float start = Mathf.Max(0.002f, EchoGateStart * (1f - Mathf.Clamp01(reflectivity * hardness)));
-            return Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(start, start * 2f, lag));
-        }
+        private readonly ushort[] _walls = new ushort[SoundFieldData.WallsPerCell];
 
-        // An echo wall the place can see: its bus (if it's one of the live ones), the path's delay and how much it
-        // throws back (more for reflective walls, less the farther the sound is from it).
-        private void Echo(SoundSpaces spaces, SoundField field, ushort anchor, Vector3 position, Vector3 listener, ref SpaceBus bus, ref int delay, ref float gain)
+        // An echo is only heard as one once it comes far enough behind the sound itself: sooner, the ear takes it as
+        // part of the sound (a sound on the floor, or right by a wall, has no echo off it). Silent until EchoGateStart
+        // behind, fully heard by EchoGateFull, whatever the wall (soft ones are just quieter).
+        private static float Gate(float lag, float reflectivity, float hardness)
+            => Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(EchoGateStart, EchoGateFull, lag));
+
+        // An echo wall the place hears: sound bounces off it where a mirror would show the listener (kept on the wall),
+        // so it comes from there, as late as that way round is longer than the way straight to the listener, and as
+        // loud as the wall throws back (less the farther the sound is from it, and fading where the true bounce would
+        // fall past the wall's edge). Its bus is one of the live ones (asked for here, and moved to where it's heard from).
+        private void Echo(SoundSpaces spaces, SoundField field, ushort anchor, Vector3 position, Vector3 listener, SpaceSends sends)
         {
             if (anchor == SoundFieldData.NoAnchor || anchor >= field.Data.Anchors.Count)
                 return;
             var data = field.Data.Anchors[anchor];
-            var wall = field.transform.TransformPoint(data.Position);
+            var toLocal = field.transform.worldToLocalMatrix;
+            if (!SoundFieldData.Reflection(data, toLocal.MultiplyPoint3x4(position), toLocal.MultiplyPoint3x4(listener), out var bounce, out float outside))
+                return;
+            var wall = field.transform.TransformPoint(bounce);
             float toWall = Vector3.Distance(position, wall), toListener = Vector3.Distance(wall, listener);
             float extra = toWall + toListener - Vector3.Distance(position, listener);
             float gate = Gate(extra / SoundSpaces.SpeedOfSound, data.Reflectivity, data.Hardness);
             if (gate <= 0f)
                 return;
-            bus = spaces.RequestEcho(field, anchor);
+            float edge = 1f / (1f + outside * outside * 0.25f);
+            float gain = data.Reflectivity / (1f + toWall / 25f) * Mathf.Clamp01(EchoAmount) * gate * edge * SoundSpaces.Exaggerate;
+            var bus = spaces.RequestEcho(field, anchor, wall, gain);
             if (bus == null)
                 return;
             // Behind the sound itself by the extra way round: Unity plays the sound with no travel time, so an echo
             // delayed by its whole path came later and later after it the farther away the sound was (a muddy smear).
-            delay = (int)(extra / SoundSpaces.SpeedOfSound * spaces.Rate);
-            gain = data.Reflectivity / (1f + toWall / 25f) * Mathf.Clamp01(EchoAmount) * gate * SoundSpaces.Exaggerate;
+            sends.AddEcho(bus, (int)(extra / SoundSpaces.SpeedOfSound * spaces.Rate), gain);
         }
 
         private readonly System.Collections.Generic.List<SpaceBus> _spots = new();
@@ -223,11 +233,10 @@ namespace Remedy.Audio
             }
         }
 
-        /// <summary>
-        /// How far behind the sound itself an echo off soft walls starts being heard, in seconds (heard fully at twice
-        /// this; hard, reflective walls' echoes start sooner).
-        /// </summary>
-        public const float EchoGateStart = 0.05f;
+        /// <summary>How far behind the sound itself an echo starts being heard, in seconds (sooner, it's part of the sound).</summary>
+        public const float EchoGateStart = 0.005f;
+        /// <summary>How far behind the sound itself an echo is heard fully, in seconds.</summary>
+        public const float EchoGateFull = 0.025f;
 
         protected void Set(int index, float value) => Volatile.Write(ref Targets[index], value);
     }
@@ -280,16 +289,25 @@ namespace Remedy.Audio
         /// </summary>
         public TravelDelay Travel;
         private readonly int _rate;
-        private SpaceBus _room, _echoA, _echoB, _tail, _corner;
-        private float _roomGain, _gainA, _gainB, _tailGain, _cornerGain;
-        private int _roomDelay, _delayA, _delayB, _tailDelay, _cornerDelay;
+        private SpaceBus _room, _tail, _corner;
+        private float _roomGain, _tailGain, _cornerGain;
+        private int _roomDelay, _tailDelay, _cornerDelay;
+        // One per echo wall slot (SpaceSends.Echoes).
+        private readonly SpaceBus[] _echoes = new SpaceBus[SpaceSends.MaxEchoes];
+        private readonly float[] _echoGains = new float[SpaceSends.MaxEchoes];
+        private readonly int[] _echoDelays = new int[SpaceSends.MaxEchoes];
 
         public SpatialSender(int sampleRate) => _rate = sampleRate;
 
         public void Reset()
         {
-            _room = _echoA = _echoB = _tail = _corner = null;
-            _roomGain = _gainA = _gainB = _tailGain = _cornerGain = 0f;
+            _room = _tail = _corner = null;
+            _roomGain = _tailGain = _cornerGain = 0f;
+            for (int e = 0; e < _echoes.Length; e++)
+            {
+                _echoes[e] = null;
+                _echoGains[e] = 0f;
+            }
         }
 
         /// <summary>Sends <paramref name="sound"/>'s block (Mix times each send's own amount).</summary>
@@ -310,8 +328,13 @@ namespace Remedy.Audio
             long at = context.HeardSample(context.SamplePosition) + context.SendLead + (Travel != null ? Volatile.Read(ref Travel.Samples) : 0);
             SendTo(ref _room, ref _roomGain, ref _roomDelay, sends?.Room, (sends?.RoomGain ?? 0f) * mix, 0, sound, at, count);
             SendTo(ref _tail, ref _tailGain, ref _tailDelay, sends?.Tail, (sends?.TailGain ?? 0f) * mix, 0, sound, at, count);
-            SendTo(ref _echoA, ref _gainA, ref _delayA, sends?.EchoA, (sends?.GainA ?? 0f) * mix, sends?.DelayA ?? 0, sound, at, count);
-            SendTo(ref _echoB, ref _gainB, ref _delayB, sends?.EchoB, (sends?.GainB ?? 0f) * mix, sends?.DelayB ?? 0, sound, at, count);
+            int echoes = sends?.EchoCount ?? 0;
+            for (int e = 0; e < _echoes.Length; e++)
+            {
+                bool used = e < echoes;
+                SendTo(ref _echoes[e], ref _echoGains[e], ref _echoDelays[e], used ? sends.Echoes[e] : null,
+                    used ? sends.EchoGains[e] * mix : 0f, used ? sends.EchoDelays[e] : 0, sound, at, count);
+            }
             SendTo(ref _corner, ref _cornerGain, ref _cornerDelay, sends?.Corner, (sends?.CornerGain ?? 0f) * mix, sends?.CornerDelay ?? 0, sound, at, count);
         }
 

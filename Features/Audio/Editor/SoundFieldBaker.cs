@@ -13,21 +13,19 @@ namespace Remedy.Audio
     /// Bakes a <see cref="SoundField"/>: from every cell, rays go out in all directions against the scene's meshes (not
     /// physics, which doesn't run in Edit Mode), and what they hit -- how far, how many, which side, made of what Surface
     /// Material (painted per triangle, else the object's tag; with neither, bare and fully hard: no absorption, full
-    /// hardness) -- becomes the cell's measurements. Far, reflective hits are gathered into echo anchors, and each cell remembers the two it hears best.
+    /// hardness) -- becomes the cell's measurements. Echo walls: each open cell looks one cell along each of its six sides, and a surface met there (from either side, so thin and single-sided walls work both ways) is that side's wall; the sides that met the same flat surface are joined into one wall (long ones in tiles), and each cell remembers the best wall it can see each way.
     /// </summary>
     public static class SoundFieldBaker
     {
         public const string Folder = "Assets/Content/Audio/Sound Fields";
         /// <summary>Above this many cells, baking asks first.</summary>
         public const int LargeBake = 400_000;
-        /// <summary>
-        /// Hits nearer than this don't make echo anchors (closer, they're part of the sound itself). Small hard rooms
-        /// echo too: whether a near wall's echo is heard is down to its material (see the Spatial effects' echo gate).
-        /// </summary>
-        public const float AnchorMinDistance = 1.5f;
-        /// <summary>The grid hits are gathered into anchors on, in meters.</summary>
-        public const float AnchorGrid = 8f;
-        public const int MaxAnchors = 64;
+        /// <summary>The longest a wall is, in meters: longer surfaces are split into tiles this size.</summary>
+        public const float WallTile = 12f;
+        /// <summary>The most walls a field keeps (the biggest, most reflective).</summary>
+        public const int MaxWalls = 60000;
+        /// <summary>A wall must be made of at least this many cell sides.</summary>
+        public const int MinWallSides = 2;
 
         public static Vector3Int CellsFor(SoundField field)
         {
@@ -44,11 +42,12 @@ namespace Remedy.Audio
                    || (data.Box.center - field.Center).sqrMagnitude > 1e-4f || data.Rays != field.BakeRays;
         }
 
-        private sealed class Bucket
+        // One cell side that met a surface: where (in the field's space), facing which way (into the cell), and made of what.
+        private struct Side
         {
-            public int Count;
-            public Vector3 Position, Normal;
+            public Vector3 Point, Normal;
             public float Reflectivity, Hardness;
+            public int Wall;
         }
 
         /// <summary>Bakes the field (with a progress bar you can cancel). False if cancelled or there was nothing to bake.</summary>
@@ -85,7 +84,6 @@ namespace Remedy.Audio
             scratch.CellSize = cellSize;
             scratch.Box = box;
             scratch.Packed = packed;
-            var buckets = new Dictionary<(int, int, int, int), Bucket>();
             var open = new List<int>();
 
             try
@@ -121,9 +119,6 @@ namespace Remedy.Audio
                                 nearest = t;
                                 nearestDirection = (byte)d;
                             }
-                            // (Not the floor: it's under every sound, and would crowd out the walls.)
-                            if (t >= AnchorMinDistance && geometry.Normal[triangle].y < 0.7f)
-                                AddToBucket(buckets, origin + directions[d] * t, geometry.Normal[triangle], 1f - geometry.Absorption[triangle], geometry.Hardness[triangle]);
                         }
 
                         // Inside something: most rays find the backs of faces.
@@ -172,62 +167,13 @@ namespace Remedy.Audio
 
                 var doorways = FindDoorways(scratch, links, open);
 
-                // Echo anchors: the most-seen, most reflective surfaces far from the cells.
-                int totalAnchorHits = buckets.Values.Sum(b => b.Count);
-                int minimum = Mathf.Max(8, (int)(totalAnchorHits * 0.002f));
-                var anchors = buckets.Values
-                    .Where(b => b.Count >= minimum)
-                    .OrderByDescending(b => b.Count * (b.Reflectivity / b.Count))
-                    .Take(MaxAnchors)
-                    .Select(b => new SoundFieldAnchor
-                    {
-                        Position = toLocal.MultiplyPoint3x4(b.Position / b.Count),
-                        Normal = toLocal.MultiplyVector(b.Normal).normalized,
-                        Area = b.Count,
-                        Reflectivity = b.Reflectivity / b.Count,
-                        Hardness = b.Hardness / b.Count,
-                    })
-                    .ToList();
-
-                // Each open cell's two best anchors it can see (facing it, close and big, nothing in the way).
-                if (anchors.Count > 0)
-                {
-                    var scored = new List<(float score, int anchor)>(anchors.Count);
-                    for (int i = 0; i < open.Count; i++)
-                    {
-                        if (i % 2048 == 0 && EditorUtility.DisplayCancelableProgressBar("Baking Sound Field", $"{field.name}: echo anchors", i / (float)open.Count))
-                            return false;
-                        int cellIndex = open[i];
-                        int cx = cellIndex % cells.x, cy = cellIndex / cells.x % cells.y, cz = cellIndex / (cells.x * cells.y);
-                        var local = scratch.CellCenter(cx, cy, cz);
-                        scored.Clear();
-                        for (int a = 0; a < anchors.Count; a++)
-                        {
-                            var toCell = local - anchors[a].Position;
-                            float distance = toCell.magnitude;
-                            if (distance < 1f || Vector3.Dot(anchors[a].Normal, toCell) <= 0f)
-                                continue;
-                            scored.Add((anchors[a].Reflectivity * anchors[a].Area / (1f + distance * distance * 0.01f), a));
-                        }
-                        scored.Sort((p, q) => q.score.CompareTo(p.score));
-                        ushort first = SoundFieldData.NoAnchor, second = SoundFieldData.NoAnchor;
-                        var worldCell = toWorld.MultiplyPoint3x4(local);
-                        for (int s = 0; s < scored.Count && s < 4 && second == SoundFieldData.NoAnchor; s++)
-                        {
-                            var target = toWorld.MultiplyPoint3x4(anchors[scored[s].anchor].Position);
-                            var toTarget = target - worldCell;
-                            float distance = toTarget.magnitude;
-                            if (geometry.Raycast(worldCell, toTarget / distance, distance - 1.5f, out _, out _, out _))
-                                continue; // something in the way
-                            if (first == SoundFieldData.NoAnchor) first = (ushort)scored[s].anchor;
-                            else second = (ushort)scored[s].anchor;
-                        }
-                        scratch.TryGet(cellIndex, out var cell);
-                        cell.AnchorA = first;
-                        cell.AnchorB = second;
-                        scratch.Set(cellIndex, false, cell);
-                    }
-                }
+                // Echo walls: the surfaces each open cell's sides meet, joined into flat walls.
+                var anchors = FindWalls(field, scratch, geometry, open, toWorld, toLocal, cellSize, out var sidesByCell);
+                if (anchors == null)
+                    return false;
+                var cellWalls = PickCellWalls(field, scratch, geometry, open, anchors, toWorld, reach);
+                if (cellWalls == null)
+                    return false;
 
                 var data = field.Data != null ? field.Data : CreateAsset(field);
                 Undo.RecordObject(data, "Bake Sound Field");
@@ -239,6 +185,7 @@ namespace Remedy.Audio
                 data.Links = links;
                 data.Doorways = doorways;
                 data.Anchors = anchors;
+                data.CellWalls = cellWalls;
                 data.BakedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
                 EditorUtility.SetDirty(data);
                 AssetDatabase.SaveAssetIfDirty(data);
@@ -249,7 +196,7 @@ namespace Remedy.Audio
                     EditorUtility.SetDirty(field);
                 }
                 SceneView.RepaintAll();
-                Debug.Log($"Sound Field \"{field.name}\": baked {count:N0} cells ({open.Count:N0} open) against {geometry.TriangleCount:N0} triangles, {anchors.Count} echo anchors, {doorways.Count} doorways.", field);
+                Debug.Log($"Sound Field \"{field.name}\": baked {count:N0} cells ({open.Count:N0} open) against {geometry.TriangleCount:N0} triangles, {anchors.Count} echo walls, {doorways.Count} doorways.", field);
                 return true;
             }
             finally
@@ -344,19 +291,294 @@ namespace Remedy.Audio
             return false;
         }
 
-        private static void AddToBucket(Dictionary<(int, int, int, int), Bucket> buckets, Vector3 point, Vector3 normal, float reflectivity, float hardness)
+        // The six sides of a cell, in the field's space: +X, -X, +Y, -Y, +Z, -Z.
+        private static readonly Vector3Int[] SideSteps =
         {
-            // Hits on the same patch of the same face: the same grid square and the same main facing.
+            new(1, 0, 0), new(-1, 0, 0), new(0, 1, 0), new(0, -1, 0), new(0, 0, 1), new(0, 0, -1),
+        };
+
+        /// <summary>
+        /// The echo walls: from every open cell, along each of its six sides as far as the next cell's middle, the
+        /// surface met (if any) is that side's wall (a back face too, as the surface facing this way: single-sided and
+        /// thin walls throw sound back on both sides; a cell inside something never gets this far). Sides facing the same
+        /// way, next to each other across the surface and in the same plane (and the same tile, <see cref="WallTile"/>)
+        /// are one wall: its rectangle, the way it faces, its area and its materials, averaged. Null if cancelled.
+        /// </summary>
+        private static List<SoundFieldAnchor> FindWalls(SoundField field, SoundFieldData scratch, BakeGeometry geometry, List<int> open,
+            Matrix4x4 toWorld, Matrix4x4 toLocal, float cellSize, out Dictionary<int, Side> sides)
+        {
+            var cells = scratch.Cells;
+            sides = new Dictionary<int, Side>();
+            for (int i = 0; i < open.Count; i++)
+            {
+                if (i % 4096 == 0 && EditorUtility.DisplayCancelableProgressBar("Baking Sound Field", $"{field.name}: echo walls", i / (float)open.Count * 0.5f))
+                    return null;
+                int cellIndex = open[i];
+                int cx = cellIndex % cells.x, cy = cellIndex / cells.x % cells.y, cz = cellIndex / (cells.x * cells.y);
+                var local = scratch.CellCenter(cx, cy, cz);
+                var origin = toWorld.MultiplyPoint3x4(local);
+                for (int side = 0; side < 6; side++)
+                {
+                    var step = (Vector3)SideSteps[side];
+                    var direction = toWorld.MultiplyVector(step);
+                    float length = direction.magnitude * cellSize;
+                    direction /= direction.magnitude;
+                    if (!geometry.Raycast(origin, direction, length, out float t, out int triangle, out bool back))
+                        continue;
+                    // The surface as it faces this cell; only one across the way (not a sloping one met side-on).
+                    var facing = geometry.Normal[triangle] * (back ? -1f : 1f);
+                    if (Vector3.Dot(facing, -direction) < 0.5f)
+                        continue;
+                    sides[cellIndex * 6 + side] = new Side
+                    {
+                        Point = toLocal.MultiplyPoint3x4(origin + direction * t),
+                        Normal = toLocal.MultiplyVector(facing).normalized,
+                        Reflectivity = 1f - geometry.Absorption[triangle],
+                        Hardness = geometry.Hardness[triangle],
+                        Wall = -1,
+                    };
+                }
+            }
+
+            // Joined: from each side not yet in a wall, every side next to it (along the two directions across the
+            // surface) facing the same way, in the same plane and the same tile.
+            var walls = new List<SoundFieldAnchor>();
+            var stack = new Stack<int>();
+            var members = new List<int>();
+            var keys = sides.Keys.ToList();
+            int[] stepIndex = { 1, cells.x, cells.x * cells.y };
+            int done = 0;
+            foreach (var key in keys)
+            {
+                if (++done % 4096 == 0 && EditorUtility.DisplayCancelableProgressBar("Baking Sound Field", $"{field.name}: joining echo walls", 0.5f + done / (float)keys.Count * 0.5f))
+                    return null;
+                if (sides[key].Wall >= 0)
+                    continue;
+                int side = key % 6, axis = side / 2;
+                int axisU = (axis + 1) % 3, axisV = (axis + 2) % 3;
+                var seed = sides[key];
+                int startCell = key / 6;
+                int TileOf(int cellIndex, int along)
+                {
+                    int coordinate = along == 0 ? cellIndex % cells.x : along == 1 ? cellIndex / cells.x % cells.y : cellIndex / (cells.x * cells.y);
+                    return Mathf.FloorToInt(coordinate * cellSize / WallTile);
+                }
+                int tileU = TileOf(startCell, axisU), tileV = TileOf(startCell, axisV);
+                members.Clear();
+                stack.Clear();
+                stack.Push(key);
+                int id = walls.Count;
+                var marked = seed;
+                marked.Wall = id;
+                sides[key] = marked;
+                while (stack.Count > 0)
+                {
+                    int current = stack.Pop();
+                    members.Add(current);
+                    int cellIndex = current / 6;
+                    var here = sides[current];
+                    int[] coordinates = { cellIndex % cells.x, cellIndex / cells.x % cells.y, cellIndex / (cells.x * cells.y) };
+                    foreach (int along in new[] { axisU, axisV })
+                    {
+                        for (int sign = -1; sign <= 1; sign += 2)
+                        {
+                            int next = coordinates[along] + sign;
+                            int size = along == 0 ? cells.x : along == 1 ? cells.y : cells.z;
+                            if (next < 0 || next >= size)
+                                continue;
+                            int neighbour = cellIndex + sign * stepIndex[along];
+                            if (TileOf(neighbour, axisU) != tileU || TileOf(neighbour, axisV) != tileV)
+                                continue;
+                            int neighbourKey = neighbour * 6 + side;
+                            if (!sides.TryGetValue(neighbourKey, out var other) || other.Wall >= 0)
+                                continue;
+                            // The same surface: facing the same way and in the same plane.
+                            if (Vector3.Dot(other.Normal, here.Normal) < 0.9f || Mathf.Abs(Vector3.Dot(other.Point - here.Point, here.Normal)) > cellSize * 0.5f)
+                                continue;
+                            other.Wall = id;
+                            sides[neighbourKey] = other;
+                            stack.Push(neighbourKey);
+                        }
+                    }
+                }
+                if (members.Count < MinWallSides)
+                {
+                    // Too small to be a wall (a post, a box): its sides stay out of the walls.
+                    foreach (var member in members)
+                    {
+                        var unjoined = sides[member];
+                        unjoined.Wall = int.MaxValue;
+                        sides[member] = unjoined;
+                    }
+                    continue;
+                }
+                // Its rectangle: the sides' extent across the surface (each a cell wide), around their middle.
+                Vector3 normal = Vector3.zero, sum = Vector3.zero;
+                float reflectivity = 0f, hardness = 0f;
+                foreach (var member in members)
+                {
+                    var m = sides[member];
+                    normal += m.Normal;
+                    sum += m.Point;
+                    reflectivity += m.Reflectivity;
+                    hardness += m.Hardness;
+                }
+                normal.Normalize();
+                var centroid = sum / members.Count;
+                var u = Vector3.ProjectOnPlane(axisU == 0 ? Vector3.right : axisU == 1 ? Vector3.up : Vector3.forward, normal).normalized;
+                var v = Vector3.Cross(normal, u);
+                float minU = float.MaxValue, maxU = float.MinValue, minV = float.MaxValue, maxV = float.MinValue;
+                foreach (var member in members)
+                {
+                    var offset = sides[member].Point - centroid;
+                    float du = Vector3.Dot(offset, u), dv = Vector3.Dot(offset, v);
+                    minU = Mathf.Min(minU, du); maxU = Mathf.Max(maxU, du);
+                    minV = Mathf.Min(minV, dv); maxV = Mathf.Max(maxV, dv);
+                }
+                walls.Add(new SoundFieldAnchor
+                {
+                    Position = centroid + u * ((minU + maxU) * 0.5f) + v * ((minV + maxV) * 0.5f),
+                    Normal = normal,
+                    Tangent = u,
+                    HalfSize = new Vector2((maxU - minU) * 0.5f + cellSize * 0.5f, (maxV - minV) * 0.5f + cellSize * 0.5f),
+                    Area = members.Count * cellSize * cellSize,
+                    Reflectivity = reflectivity / members.Count,
+                    Hardness = hardness / members.Count,
+                });
+            }
+            if (walls.Count > MaxWalls)
+                walls = walls.OrderByDescending(w => w.Area * w.Reflectivity).Take(MaxWalls).ToList();
+            return walls;
+        }
+
+        /// <summary>
+        /// Each open cell's walls: for each way a wall can face, the best one it can see (facing it, big, reflective and
+        /// near, nothing in the way), up to <see cref="SoundFieldData.WallsPerCell"/>, best first. Null if cancelled.
+        /// </summary>
+        private static ushort[] PickCellWalls(SoundField field, SoundFieldData scratch, BakeGeometry geometry, List<int> open,
+            List<SoundFieldAnchor> walls, Matrix4x4 toWorld, float reach)
+        {
+            var cells = scratch.Cells;
+            var result = new ushort[scratch.Count * SoundFieldData.WallsPerCell];
+            for (int i = 0; i < result.Length; i++)
+                result[i] = SoundFieldData.NoAnchor;
+            if (walls.Count == 0)
+                return result;
+
+            // Walls by where they are (a coarse grid), so each cell only weighs the ones within reach.
+            const float grid = 16f;
+            var byPlace = new Dictionary<(int, int, int), List<int>>();
+            for (int w = 0; w < walls.Count; w++)
+            {
+                var wall = walls[w];
+                float radius = wall.HalfSize.magnitude;
+                var min = wall.Position - Vector3.one * radius;
+                var max = wall.Position + Vector3.one * radius;
+                for (int gx = Mathf.FloorToInt(min.x / grid); gx <= Mathf.FloorToInt(max.x / grid); gx++)
+                for (int gy = Mathf.FloorToInt(min.y / grid); gy <= Mathf.FloorToInt(max.y / grid); gy++)
+                for (int gz = Mathf.FloorToInt(min.z / grid); gz <= Mathf.FloorToInt(max.z / grid); gz++)
+                {
+                    if (!byPlace.TryGetValue((gx, gy, gz), out var list))
+                        byPlace[(gx, gy, gz)] = list = new List<int>();
+                    list.Add(w);
+                }
+            }
+
+            var nearbyBySquare = new Dictionary<(int, int, int), List<int>>();
+            var best = new (float score, int wall)[6, 3];
+            var picked = new List<(float score, int wall)>(6);
+            for (int i = 0; i < open.Count; i++)
+            {
+                if (i % 2048 == 0 && EditorUtility.DisplayCancelableProgressBar("Baking Sound Field", $"{field.name}: walls each place hears", i / (float)open.Count))
+                    return null;
+                int cellIndex = open[i];
+                int cx = cellIndex % cells.x, cy = cellIndex / cells.x % cells.y, cz = cellIndex / (cells.x * cells.y);
+                var local = scratch.CellCenter(cx, cy, cz);
+                // (Gathered once per grid square: every cell in it weighs the same walls.)
+                int ox = Mathf.FloorToInt(local.x / grid), oy = Mathf.FloorToInt(local.y / grid), oz = Mathf.FloorToInt(local.z / grid);
+                if (!nearbyBySquare.TryGetValue((ox, oy, oz), out var nearby))
+                {
+                    nearby = new List<int>();
+                    var seen = new HashSet<int>();
+                    int reachCells = Mathf.CeilToInt(reach / grid);
+                    for (int gx = ox - reachCells; gx <= ox + reachCells; gx++)
+                    for (int gy = oy - reachCells; gy <= oy + reachCells; gy++)
+                    for (int gz = oz - reachCells; gz <= oz + reachCells; gz++)
+                        if (byPlace.TryGetValue((gx, gy, gz), out var list))
+                            foreach (var w in list)
+                                if (seen.Add(w)) nearby.Add(w);
+                    nearbyBySquare[(ox, oy, oz)] = nearby;
+                }
+
+                for (int f = 0; f < 6; f++)
+                for (int k = 0; k < 3; k++)
+                    best[f, k] = (0f, -1);
+                foreach (int w in nearby)
+                {
+                    var wall = walls[w];
+                    var closest = Closest(wall, local);
+                    var toCell = local - closest;
+                    float distance = toCell.magnitude;
+                    if (distance > reach || Vector3.Dot(wall.Normal, local - wall.Position) <= 0.05f)
+                        continue;
+                    float score = wall.Reflectivity * Mathf.Sqrt(wall.Area) / (1f + distance * distance * 0.01f);
+                    int facing = Facing(wall.Normal);
+                    // The three best each way, to try in turn until one has nothing in the way.
+                    for (int k = 0; k < 3; k++)
+                    {
+                        if (score <= best[facing, k].score && best[facing, k].wall >= 0)
+                            continue;
+                        for (int m = 2; m > k; m--)
+                            best[facing, m] = best[facing, m - 1];
+                        best[facing, k] = (score, w);
+                        break;
+                    }
+                }
+                picked.Clear();
+                var worldCell = toWorld.MultiplyPoint3x4(local);
+                for (int f = 0; f < 6; f++)
+                {
+                    for (int k = 0; k < 3; k++)
+                    {
+                        var (score, w) = best[f, k];
+                        if (w < 0)
+                            break;
+                        var target = toWorld.MultiplyPoint3x4(Closest(walls[w], local) + walls[w].Normal * 0.1f);
+                        var toTarget = target - worldCell;
+                        float distance = toTarget.magnitude;
+                        if (distance > 0.2f && geometry.Raycast(worldCell, toTarget / distance, distance - 0.1f, out _, out _, out _))
+                            continue; // something in the way
+                        picked.Add((score, w));
+                        break;
+                    }
+                }
+                picked.Sort((p, q) => q.score.CompareTo(p.score));
+                for (int k = 0; k < picked.Count && k < SoundFieldData.WallsPerCell; k++)
+                    result[cellIndex * SoundFieldData.WallsPerCell + k] = (ushort)picked[k].wall;
+                // (And as the cell's two anchors, for anything still reading those.)
+                scratch.TryGet(cellIndex, out var cell);
+                cell.AnchorA = picked.Count > 0 ? (ushort)picked[0].wall : SoundFieldData.NoAnchor;
+                cell.AnchorB = picked.Count > 1 ? (ushort)picked[1].wall : SoundFieldData.NoAnchor;
+                scratch.Set(cellIndex, false, cell);
+            }
+            return result;
+        }
+
+        // The point of a wall nearest a point (both in the field's space).
+        private static Vector3 Closest(in SoundFieldAnchor wall, Vector3 point)
+        {
+            var u = wall.Tangent;
+            var v = Vector3.Cross(wall.Normal, u);
+            var offset = point - wall.Position;
+            return wall.Position + u * Mathf.Clamp(Vector3.Dot(offset, u), -wall.HalfSize.x, wall.HalfSize.x)
+                + v * Mathf.Clamp(Vector3.Dot(offset, v), -wall.HalfSize.y, wall.HalfSize.y);
+        }
+
+        // Which of the six ways a wall faces most: +X, -X, +Y, -Y, +Z, -Z.
+        private static int Facing(Vector3 normal)
+        {
             var a = new Vector3(Mathf.Abs(normal.x), Mathf.Abs(normal.y), Mathf.Abs(normal.z));
-            int facing = a.x >= a.y && a.x >= a.z ? (normal.x > 0 ? 0 : 1) : a.y >= a.z ? (normal.y > 0 ? 2 : 3) : (normal.z > 0 ? 4 : 5);
-            var key = (Mathf.FloorToInt(point.x / AnchorGrid), Mathf.FloorToInt(point.y / AnchorGrid), Mathf.FloorToInt(point.z / AnchorGrid), facing);
-            if (!buckets.TryGetValue(key, out var bucket))
-                buckets[key] = bucket = new Bucket();
-            bucket.Count++;
-            bucket.Position += point;
-            bucket.Normal += normal;
-            bucket.Reflectivity += reflectivity;
-            bucket.Hardness += hardness;
+            return a.x >= a.y && a.x >= a.z ? (normal.x > 0 ? 0 : 1) : a.y >= a.z ? (normal.y > 0 ? 2 : 3) : (normal.z > 0 ? 4 : 5);
         }
 
         private static SoundFieldData CreateAsset(SoundField field)
@@ -609,7 +831,7 @@ namespace Remedy.Audio
             if (field.Data != null && field.Data.Count > 0)
             {
                 var data = field.Data;
-                EditorGUILayout.HelpBox($"Baked {data.BakedAt}: {data.Count:N0} cells, {data.Anchors?.Count ?? 0} echo anchors.", MessageType.Info);
+                EditorGUILayout.HelpBox($"Baked {data.BakedAt}: {data.Count:N0} cells, {data.Anchors?.Count ?? 0} echo walls.", MessageType.Info);
                 if (SoundFieldBaker.IsStale(field))
                     EditorGUILayout.HelpBox("The box, cell size or rays changed since the bake: bake again.", MessageType.Warning);
             }
@@ -627,6 +849,7 @@ namespace Remedy.Audio
                         field.Data.Packed = Array.Empty<byte>();
                         field.Data.Cells = Vector3Int.zero;
                         field.Data.Anchors.Clear();
+                        field.Data.CellWalls = Array.Empty<ushort>();
                         EditorUtility.SetDirty(field.Data);
                         SceneView.RepaintAll();
                     }

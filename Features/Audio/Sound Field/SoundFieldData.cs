@@ -5,14 +5,24 @@ using UnityEngine;
 namespace Remedy.Audio
 {
     /// <summary>
-    /// A big surface that throws sound back (a cliff, a canyon wall, the side of a building), found while baking a
-    /// <see cref="SoundField"/>: where echoes in the open come from. In the field's space.
+    /// A wall that throws sound back (a room's wall, floor or ceiling, a cliff, the side of a building), found while
+    /// baking a <see cref="SoundField"/>: the cell sides that met the same flat surface, joined into one rectangle (long
+    /// surfaces in tiles). In the field's space.
     /// </summary>
     [Serializable]
     public struct SoundFieldAnchor
     {
+        /// <summary>Its middle.</summary>
         public Vector3 Position;
+        /// <summary>The way it faces (toward the space it throws sound back into).</summary>
         public Vector3 Normal;
+        /// <summary>
+        /// One of its sides' directions, along the surface; the other is Normal x Tangent. Zero in older bakes (a point:
+        /// echoes come from Position).
+        /// </summary>
+        public Vector3 Tangent;
+        /// <summary>Half its size along Tangent and along the other side, in meters.</summary>
+        public Vector2 HalfSize;
         /// <summary>How much of it was seen while baking (roughly its size, as the field sees it).</summary>
         public float Area;
         /// <summary>How much sound it throws back, 0 to 1 (1 - its materials' Absorption).</summary>
@@ -71,6 +81,71 @@ namespace Remedy.Audio
         public List<SoundFieldAnchor> Anchors = new();
         /// <summary>The openings between spaces (empty in older bakes).</summary>
         public List<SoundFieldDoorway> Doorways = new();
+        /// <summary>
+        /// Per cell, the walls it hears (up to <see cref="WallsPerCell"/>: the best one each way, nearest and biggest
+        /// first; <see cref="NoAnchor"/> for none). Empty in older bakes, which have only the cell's two anchors.
+        /// </summary>
+        [HideInInspector] public ushort[] CellWalls = Array.Empty<ushort>();
+        /// <summary>Walls kept per cell: one for each way a wall can face (four sides, floor, ceiling).</summary>
+        public const int WallsPerCell = 6;
+
+        /// <summary>Whether the bake has walls per cell (older ones: two anchors per cell).</summary>
+        public bool HasCellWalls => CellWalls != null && CellWalls.Length == Count * WallsPerCell && Count > 0;
+
+        /// <summary>
+        /// The walls a cell hears, into <paramref name="into"/> (at least <see cref="WallsPerCell"/> long); how many.
+        /// Older bakes: its two anchors.
+        /// </summary>
+        public int WallsOf(int index, ushort[] into)
+        {
+            int found = 0;
+            if (HasCellWalls)
+            {
+                for (int w = 0; w < WallsPerCell; w++)
+                {
+                    ushort wall = CellWalls[index * WallsPerCell + w];
+                    if (wall != NoAnchor && wall < Anchors.Count)
+                        into[found++] = wall;
+                }
+                return found;
+            }
+            if (TryGet(index, out var cell))
+            {
+                if (cell.AnchorA != NoAnchor && cell.AnchorA < Anchors.Count) into[found++] = cell.AnchorA;
+                if (cell.AnchorB != NoAnchor && cell.AnchorB < Anchors.Count) into[found++] = cell.AnchorB;
+            }
+            return found;
+        }
+
+        /// <summary>
+        /// Where sound from <paramref name="from"/> bounces off a wall to reach <paramref name="to"/> (both in the field's
+        /// space): the mirror reflection point, kept within the wall. False when either is behind it (no bounce). For
+        /// older bakes' point anchors: the anchor itself. <paramref name="outside"/>: how far past the wall's edge the
+        /// true reflection point is (0 when on it).
+        /// </summary>
+        public static bool Reflection(in SoundFieldAnchor wall, Vector3 from, Vector3 to, out Vector3 point, out float outside)
+        {
+            point = wall.Position;
+            outside = 0f;
+            var normal = wall.Normal;
+            float fromSide = Vector3.Dot(from - wall.Position, normal), toSide = Vector3.Dot(to - wall.Position, normal);
+            if (fromSide <= 0.01f || toSide <= 0.01f)
+                return false;
+            if (wall.Tangent.sqrMagnitude < 0.5f)
+                return true;
+            // The listener's mirror image behind the wall; the straight line to it crosses the wall where sound bounces.
+            var mirror = to - 2f * toSide * normal;
+            float t = fromSide / (fromSide - Vector3.Dot(mirror - wall.Position, normal));
+            var hit = from + (mirror - from) * t;
+            var u = wall.Tangent;
+            var v = Vector3.Cross(normal, u);
+            var offset = hit - wall.Position;
+            float du = Vector3.Dot(offset, u), dv = Vector3.Dot(offset, v);
+            float cu = Mathf.Clamp(du, -wall.HalfSize.x, wall.HalfSize.x), cv = Mathf.Clamp(dv, -wall.HalfSize.y, wall.HalfSize.y);
+            outside = Mathf.Sqrt((du - cu) * (du - cu) + (dv - cv) * (dv - cv));
+            point = wall.Position + u * cu + v * cv;
+            return true;
+        }
 
         /// <summary>Whether the bake has links (sound around corners); older bakes don't until baked again.</summary>
         public bool HasLinks => Links != null && Links.Length == Count && Count > 0;

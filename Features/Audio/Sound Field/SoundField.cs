@@ -194,9 +194,9 @@ namespace Remedy.Audio
 #endif
         }
 
-        // Each baked echo wall as a patch about its size, facing out, like the preview's walls: dim while quiet, glowing
-        // orange (and its line out growing) with how loud the echo off it is right now. Read from the live echo walls,
-        // so it costs nothing extra in the game.
+        // Each baked echo wall as its rectangle, facing out, like the preview's walls: dim while quiet, glowing orange
+        // (and its line out growing) with how loud the echo off it is right now, with a ball where it's heard from.
+        // Read from the live echo walls, so it costs nothing extra in the game.
         private void DrawEchoWalls()
         {
             var anchors = Data?.Anchors;
@@ -209,9 +209,22 @@ namespace Remedy.Audio
                 var anchor = anchors[a];
                 var bus = spaces != null ? spaces.EchoBus(this, a) : null;
                 float glow = bus != null ? Mathf.Clamp01(bus.Peak * 4f) : 0f;
-                float side = Mathf.Clamp(Mathf.Sqrt(Mathf.Max(0f, anchor.Area)), 0.5f, 12f);
                 var normal = anchor.Normal.sqrMagnitude > 0.0001f ? anchor.Normal.normalized : Vector3.forward;
-                Gizmos.matrix = toWorld * Matrix4x4.TRS(anchor.Position, Quaternion.LookRotation(normal), new Vector3(side, side, 0.02f));
+                // Its rectangle (older bakes' point anchors: a square about their size).
+                Quaternion turn;
+                Vector3 size;
+                if (anchor.Tangent.sqrMagnitude > 0.5f)
+                {
+                    turn = Quaternion.LookRotation(normal, Vector3.Cross(normal, anchor.Tangent));
+                    size = new Vector3(anchor.HalfSize.x * 2f, anchor.HalfSize.y * 2f, 0.02f);
+                }
+                else
+                {
+                    float side = Mathf.Clamp(Mathf.Sqrt(Mathf.Max(0f, anchor.Area)), 0.5f, 12f);
+                    turn = Quaternion.LookRotation(normal);
+                    size = new Vector3(side, side, 0.02f);
+                }
+                Gizmos.matrix = toWorld * Matrix4x4.TRS(anchor.Position, turn, size);
                 var idle = bus != null ? new Color(1f, 0.8f, 0.35f, 0.18f) : new Color(0.75f, 0.75f, 0.75f, 0.1f);
                 var color = Color.Lerp(idle, new Color(1f, 0.45f, 0.15f, 0.75f), glow);
                 Gizmos.color = color;
@@ -221,6 +234,13 @@ namespace Remedy.Audio
                 Gizmos.DrawWireCube(Vector3.zero, Vector3.one);
                 Gizmos.matrix = toWorld;
                 Gizmos.DrawLine(anchor.Position, anchor.Position + normal * (0.5f + glow * 4f));
+                // Where on it the echo is heard from right now (the loudest sound's bounce point).
+                if (bus != null)
+                {
+                    Gizmos.matrix = Matrix4x4.identity;
+                    Gizmos.DrawSphere(bus.transform.position, 0.25f + glow * 0.75f);
+                    Gizmos.matrix = toWorld;
+                }
             }
             Gizmos.matrix = toWorld;
         }

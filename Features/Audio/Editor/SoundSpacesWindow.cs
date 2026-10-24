@@ -56,7 +56,7 @@ namespace Remedy.Audio
             {
                 if (field == null) continue;
                 bool baked = field.Data != null && field.Data.Count > 0;
-                Row(field.name, baked ? $"{field.Data.Count:N0} cells · {field.Data.Anchors?.Count ?? 0} echo surfaces" : "NOT BAKED");
+                Row(field.name, baked ? $"{field.Data.Count:N0} cells · {field.Data.Anchors?.Count ?? 0} echo walls{(field.Data.HasCellWalls ? "" : " (old bake: bake again for walls)")}" : "NOT BAKED");
             }
 
             if (!Application.isPlaying)
@@ -143,7 +143,7 @@ namespace Remedy.Audio
                     ? $"no slapback (the nearest surface, {place.NearestWall:0.0} m, is too close to be heard as an echo)"
                     : "no slapback (the surfaces are soft or absorbent)");
             if (EchoSurfacesInReach(listener) == 0)
-                reasons.Add($"no echo surfaces in reach (no reflective surfaces were found {SoundFieldBaker.AnchorMinDistance:0.#} m+ away when baking; re-bake after changing materials)");
+                reasons.Add("no echo walls in reach (none were found near here when baking; bake again after changing the level or its materials)");
             return reasons.Count == 0 ? "Reverb, slapback and echoes are all available here." : char.ToUpper(reasons[0][0]) + string.Join("; ", reasons).Substring(1) + ".";
         }
 

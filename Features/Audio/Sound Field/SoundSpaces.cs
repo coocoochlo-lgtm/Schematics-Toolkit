@@ -631,8 +631,8 @@ namespace Remedy.Audio
                 long at = head + Math.Max(ForwardLead, frames * 2);
                 Forward(forward.Room, at, forward.RoomGain * forwardMix, frames, fedUntil);
                 Forward(forward.Tail, at, forward.TailGain * forwardMix, frames, fedUntil);
-                Forward(forward.EchoA, head + Math.Max(forward.DelayA, ForwardLead), forward.GainA * forwardMix, frames, fedUntil);
-                Forward(forward.EchoB, head + Math.Max(forward.DelayB, ForwardLead), forward.GainB * forwardMix, frames, fedUntil);
+                for (int e = 0; e < forward.EchoCount; e++)
+                    Forward(forward.Echoes[e], head + Math.Max(forward.EchoDelays[e], ForwardLead), forward.EchoGains[e] * forwardMix, frames, fedUntil);
             }
         }
 
@@ -817,17 +817,33 @@ namespace Remedy.Audio
         public SpaceBus Bus;
     }
 
-    /// <summary>Where a Spatial reverb sends a block: a room, and up to two echo walls (each with its own delay).</summary>
+    /// <summary>Where a Spatial reverb sends a block: a room, and up to <see cref="MaxEchoes"/> echo walls (each with its own delay).</summary>
     public sealed class SpaceSends
     {
+        /// <summary>The most echo walls one sound is heard off at once: one each way (four sides, floor, ceiling).</summary>
+        public const int MaxEchoes = SoundFieldData.WallsPerCell;
+
         public SpaceBus Room;
         public float RoomGain;
         /// <summary>The tail spot where the sound is (outside rooms): its reverb or slapback, left there.</summary>
         public SpaceBus Tail;
         public float TailGain;
-        public SpaceBus EchoA, EchoB;
-        public int DelayA, DelayB;
-        public float GainA, GainB;
+        /// <summary>The echo walls it's heard off: <see cref="EchoCount"/> of them, each with its delay and gain.</summary>
+        public readonly SpaceBus[] Echoes = new SpaceBus[MaxEchoes];
+        public readonly int[] EchoDelays = new int[MaxEchoes];
+        public readonly float[] EchoGains = new float[MaxEchoes];
+        public int EchoCount;
+
+        /// <summary>Adds an echo wall (ignored past <see cref="MaxEchoes"/>).</summary>
+        public void AddEcho(SpaceBus bus, int delay, float gain)
+        {
+            if (bus == null || EchoCount >= MaxEchoes)
+                return;
+            Echoes[EchoCount] = bus;
+            EchoDelays[EchoCount] = delay;
+            EchoGains[EchoCount] = gain;
+            EchoCount++;
+        }
         /// <summary>Round a corner: the bus at the corner, how much later than the sound itself, and how loud.</summary>
         public SpaceBus Corner;
         public int CornerDelay;
@@ -1175,19 +1191,26 @@ namespace Remedy.Audio
         /// <summary>Seconds an anchor stays wanted after a sound last asked for it.</summary>
         public const float AskedFor = 3f;
 
+        // Where on each wall it's heard from: the bounce point of the loudest sound asking for it lately (a wall is one
+        // voice, so one place; the sounds sharing it are heard from where the loudest bounces).
+        private readonly Dictionary<(SoundField, int), (Vector3 at, float weight)> _heardAt = new();
+
         /// <summary>
-        /// The echo wall for an anchor a sound wants to be heard off: the live one, or one made for it now if there's
-        /// room (within reach of the listener); and it's kept while sounds keep asking.
+        /// The echo wall for a wall a sound wants to be heard off, at <paramref name="at"/> (where it bounces) as loud as
+        /// <paramref name="weight"/>: the live one, or one made for it now if there's room (within reach of the
+        /// listener); and it's kept while sounds keep asking.
         /// </summary>
-        public SpaceBus RequestEcho(SoundField field, int anchor)
+        public SpaceBus RequestEcho(SoundField field, int anchor, Vector3 at, float weight)
         {
             var key = (field, anchor);
             _asked[key] = Time.unscaledTime;
+            if (!_heardAt.TryGetValue(key, out var heard) || weight >= heard.weight)
+                _heardAt[key] = (at, weight);
             var bus = EchoBus(field, anchor);
             if (bus != null || field?.Data?.Anchors == null || anchor < 0 || anchor >= field.Data.Anchors.Count)
                 return bus;
             var data = field.Data.Anchors[anchor];
-            var position = field.transform.TransformPoint(data.Position);
+            var position = at;
             if (Vector3.Distance(ListenerPosition, position) > EchoRange)
                 return null;
             int live = 0;
@@ -1216,6 +1239,11 @@ namespace Remedy.Audio
 
         private void Update()
         {
+            // Each live echo wall glides to where it's heard from (sudden jumps would throw its sound across the room).
+            float glide = 1f - Mathf.Exp(-Time.unscaledDeltaTime / 0.08f);
+            foreach (var bus in _echoes)
+                if (bus != null && bus.Owner is ValueTuple<SoundField, int> wall && _heardAt.TryGetValue(wall, out var heard))
+                    bus.transform.position = Vector3.Lerp(bus.transform.position, heard.at, glide);
             if (Time.unscaledTime < _nextEchoUpdate)
                 return;
             _nextEchoUpdate = Time.unscaledTime + 0.25f;
@@ -1235,10 +1263,13 @@ namespace Remedy.Audio
                 var data = field != null ? field.Data : null;
                 if (data?.Anchors == null || !field.isActiveAndEnabled) continue;
                 var toWorld = field.transform.localToWorldMatrix;
+                var toLocal = field.transform.worldToLocalMatrix;
+                var localListener = toLocal.MultiplyPoint3x4(listener);
                 for (int a = 0; a < data.Anchors.Count; a++)
                 {
                     var anchor = data.Anchors[a];
-                    var position = toWorld.MultiplyPoint3x4(anchor.Position);
+                    // (Its nearest point to the listener: a long wall is near however far its middle is.)
+                    var position = toWorld.MultiplyPoint3x4(NearestOn(anchor, localListener));
                     float distance = Vector3.Distance(listener, position);
                     if (distance > EchoRange) continue;
                     float score = anchor.Reflectivity * Mathf.Sqrt(anchor.Area) / (1f + distance / 30f);
@@ -1266,6 +1297,13 @@ namespace Remedy.Audio
             {
                 if (EchoBus(w.field, w.anchor) != null) continue;
                 if (StartEcho((w.field, w.anchor), w.position, w.data) == null) break;
+            }
+            // Where each is heard from is asked afresh each round (the loudest of this round's).
+            var heardKeys = new List<(SoundField, int)>(_heardAt.Keys);
+            foreach (var key in heardKeys)
+            {
+                if (EchoBus(key.Item1, key.Item2) == null) _heardAt.Remove(key);
+                else _heardAt[key] = (_heardAt[key].at, 0f);
             }
             // Forget old asks.
             if (_asked.Count > 256)
@@ -1296,6 +1334,18 @@ namespace Remedy.Audio
                 else
                     bus.SetPartner(null, 1, 0f);
             }
+        }
+
+        // The point of a wall nearest a point (both in the field's space); an older bake's point anchor is just itself.
+        private static Vector3 NearestOn(in SoundFieldAnchor wall, Vector3 point)
+        {
+            if (wall.Tangent.sqrMagnitude < 0.5f)
+                return wall.Position;
+            var u = wall.Tangent;
+            var v = Vector3.Cross(wall.Normal, u);
+            var offset = point - wall.Position;
+            return wall.Position + u * Mathf.Clamp(Vector3.Dot(offset, u), -wall.HalfSize.x, wall.HalfSize.x)
+                + v * Mathf.Clamp(Vector3.Dot(offset, v), -wall.HalfSize.y, wall.HalfSize.y);
         }
 
         private void ReleaseFarRooms()
