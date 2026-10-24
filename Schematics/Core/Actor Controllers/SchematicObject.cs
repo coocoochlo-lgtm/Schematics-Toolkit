@@ -46,6 +46,15 @@ namespace Remedy.Schematics
         private int _objectId;
 
         [SerializeField, HideInInspector]
+        private bool _previewSound = true;
+
+        /// <summary>
+        /// Editor only in effect: whether the sound its graph plays On Create loops in the Scene view (outside Play
+        /// Mode) while the Scene view's Sound Sources toggle is on. On for each object until turned off in its Inspector.
+        /// </summary>
+        public bool PreviewSound { get => _previewSound; set => _previewSound = value; }
+
+        [SerializeField, HideInInspector]
         private List<GraphVariableOverride> _graphOverrides = new();
 
         /// <summary>This object's own starting values for graph Variables (any graph it runs).</summary>
