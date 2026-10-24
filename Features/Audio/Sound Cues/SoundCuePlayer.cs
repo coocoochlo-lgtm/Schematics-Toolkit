@@ -356,6 +356,17 @@ namespace Remedy.Audio
             if (voice.Culled) text.Append(", CULLED (too quiet to render)");
             if (source.mute) text.Append(", muted");
             text.Append(IsLive ? ", rendered live" : ", streamed");
+            if (IsLive && _live != null)
+            {
+                // (In tenths, and the cue in 6 dB steps, so it's logged as it changes, not as it wobbles.)
+                float left = System.Threading.Volatile.Read(ref _live.PlacedLeft), right = System.Threading.Volatile.Read(ref _live.PlacedRight);
+                float level = System.Threading.Volatile.Read(ref _live.CueLevel);
+                float db = level > 1e-5f ? Mathf.Round(20f * Mathf.Log10(level) / 6f) * 6f : -100f;
+                text.Append($" (Unity places it at left {Mathf.Round(left * 10f) / 10f:0.0}, right {Mathf.Round(right * 10f) / 10f:0.0}; "
+                    + $"the cue's own peak {(db <= -99f ? "silent" : $"{db:0} dB")})");
+            }
+            if (source.outputAudioMixerGroup != null) text.Append($", mixer group {source.outputAudioMixerGroup.name}");
+            if (source.spatialBlend < 0.99f) text.Append($", spatial blend {source.spatialBlend:0.00}");
             if (_spatializeWas) text.Append($", spatializer plugin turned off for live rendering ({AudioSettings.GetSpatializerPluginName()})");
             else if (source.spatialize) text.Append($", spatializer plugin ON ({AudioSettings.GetSpatializerPluginName()})");
             if (source.spread > 0f) text.Append($", spread {source.spread:0}");

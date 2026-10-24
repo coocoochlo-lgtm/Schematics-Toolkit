@@ -22,6 +22,12 @@ namespace Remedy.Audio
 
         public SoundCueVoice Voice => Volatile.Read(ref _voice);
 
+        /// <summary>
+        /// The last block's measure (for Log Direct Sound): how loud Unity made the clip of ones in each ear (its
+        /// placement and falloff: about 0.7 each straight ahead, 1 and 0 hard to a side), and the cue's own level.
+        /// </summary>
+        public float PlacedLeft, PlacedRight, CueLevel;
+
         public void Begin(SoundCueVoice voice)
         {
             voice.Context.SendLead = SendLead;
@@ -46,6 +52,19 @@ namespace Remedy.Audio
             context.HeardStart = AudioSettings.dspTime - context.SamplePosition / (double)Mathf.Max(1, context.SampleRate);
             Array.Clear(_mono, 0, frames);
             voice.Render(_mono, 0, frames);
+            if (SoundCuePlayer.LogDirect && frames > 0)
+            {
+                float left = 0f, right = 0f, level = 0f;
+                for (int f = 0; f < frames; f++)
+                {
+                    left += Math.Abs(data[f * channels]);
+                    right += Math.Abs(data[f * channels + (channels > 1 ? 1 : 0)]);
+                    level = Math.Max(level, Math.Abs(_mono[f]));
+                }
+                Volatile.Write(ref PlacedLeft, left / frames);
+                Volatile.Write(ref PlacedRight, right / frames);
+                Volatile.Write(ref CueLevel, level);
+            }
             for (int f = 0; f < frames; f++)
             {
                 float sample = _mono[f];
