@@ -174,6 +174,15 @@ namespace Remedy.Audio
                 if (_live == null && !TryGetComponent(out _live))
                     _live = gameObject.AddComponent<SoundCueLiveRender>();
                 _live.Begin(voice);
+                // Unity places a clip of ones and the cue is multiplied in after: only a plain left/right volume
+                // works on that. A spatializer plugin (Spatialize, from the SFX Source Prefab) filters by direction
+                // instead, and its filters pass next to nothing of a steady signal straight ahead or behind: the
+                // sound vanished whenever it was in front of or behind the listener.
+                if (Source.spatialize)
+                {
+                    _spatializeWas = true;
+                    Source.spatialize = false;
+                }
                 Source.clip = SpaceBus.DcClip(rate);
                 Source.loop = true;
                 UpdateControls(voice);
@@ -183,6 +192,12 @@ namespace Remedy.Audio
             }
             if (_live != null)
                 _live.End();
+            // (A streamed cue is real sound: a spatializer plugin is fine on it, if the source had one.)
+            if (_spatializeWas)
+            {
+                Source.spatialize = true;
+                _spatializeWas = false;
+            }
 
             // Endless cues: a long clip that loops (the voice keeps counting time across loops). The clip is kept
             // and reused while its rate and length stay the same.
@@ -328,6 +343,8 @@ namespace Remedy.Audio
         public static bool LogDirect;
 
         private string _lastDirect;
+        // Spatialize was on (from the SFX Source Prefab) and is off while the cue renders live (see Play).
+        private bool _spatializeWas;
 
         private void ReportDirect(SoundCueVoice voice, float distance)
         {
@@ -338,6 +355,14 @@ namespace Remedy.Audio
             if (_fade != RoomFade.None) text.Append($", Sound Room fade {_fade}");
             if (voice.Culled) text.Append(", CULLED (too quiet to render)");
             if (source.mute) text.Append(", muted");
+            text.Append(IsLive ? ", rendered live" : ", streamed");
+            if (_spatializeWas) text.Append($", spatializer plugin turned off for live rendering ({AudioSettings.GetSpatializerPluginName()})");
+            else if (source.spatialize) text.Append($", spatializer plugin ON ({AudioSettings.GetSpatializerPluginName()})");
+            if (source.spread > 0f) text.Append($", spread {source.spread:0}");
+            foreach (var filter in GetComponents<Behaviour>())
+                if (filter is AudioLowPassFilter || filter is AudioHighPassFilter || filter is AudioEchoFilter || filter is AudioReverbFilter
+                    || filter is AudioDistortionFilter || filter is AudioChorusFilter)
+                    text.Append($", {filter.GetType().Name}{(filter.enabled ? "" : " (off)")}");
             foreach (var probe in voice.Context.Probes)
             {
                 var report = probe.DirectReport;

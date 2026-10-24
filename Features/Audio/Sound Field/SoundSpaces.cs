@@ -143,6 +143,9 @@ namespace Remedy.Audio
             source.clip = DcClip(rate);
             source.spatialBlend = 1f;
             source.dopplerLevel = 0f;
+            // (Never a spatializer plugin: it plays a clip of ones that its sound is multiplied into, which only a
+            // plain left/right volume keeps intact.)
+            source.spatialize = false;
             source.rolloffMode = AudioRolloffMode.Logarithmic;
             source.priority = IdlePriority;
             try
