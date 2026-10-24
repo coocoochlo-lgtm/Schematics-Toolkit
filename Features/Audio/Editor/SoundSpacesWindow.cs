@@ -48,6 +48,7 @@ namespace Remedy.Audio
             SoundField.ShowEchoWalls = EditorGUILayout.Toggle(new GUIContent("Show Echo Walls", "Draw every baked echo wall in the Scene view, glowing with how much it's echoing (in Play Mode)."), SoundField.ShowEchoWalls);
             if (GUI.changed)
                 SceneView.RepaintAll();
+            SpaceBus.LogBuses = EditorGUILayout.Toggle(new GUIContent("Log Buses", "Log every room, echo wall, spot and corner starting and stopping, with how many voices they hold, and every effect left out for want of a voice."), SpaceBus.LogBuses);
 
             Section("Sound Fields");
             if (SoundField.All.Count == 0)
@@ -125,9 +126,9 @@ namespace Remedy.Audio
                 foreach (var bus in spaces.Corners.Buses) if (bus != null && bus.Source.isPlaying) playing++;
             }
             int real = AudioSettings.GetConfiguration().numRealVoices;
-            Row("Rooms, walls, spots and corners playing", $"{playing} of Unity's {real} real voices");
-            if (playing * 2 > real)
-                Verdict($"Spatial effects are using over half of Unity's voices: other sounds may be cut. Raise Max Real Voices (Project Settings > Audio) to 64 or more.");
+            Row("Rooms, walls, spots and corners playing", $"{playing} of the {SpaceBus.VoiceBudget} they may use (half of Unity's {real} real voices)");
+            if (playing >= SpaceBus.VoiceBudget)
+                Verdict("Spatial effects have all the voices they may use: new rooms, echo walls and spots are left out (the sounds still play, and other sounds keep their voices). Raise Max Real Voices (Project Settings > Audio) to 64 or more for more.");
         }
 
         // Why a Spatial sound where the listener is sounds the way it does, in a sentence.

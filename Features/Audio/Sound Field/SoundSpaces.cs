@@ -161,10 +161,78 @@ namespace Remedy.Audio
         }
 
         /// <summary>
-        /// Where buses stand when Unity runs short of real voices (lower is kept first; ordinary sounds are 128): a room
-        /// carries every sound in it, an echo wall many, a tail or trail spot one sound's ringing. Idle: last.
+        /// Where buses stand when Unity runs short of real voices (lower is kept first): after ordinary sounds (128), so
+        /// a burst of echo walls can never take the music's or a sound's own voice (that cut every sound in the game for
+        /// as long as they played); among themselves a room first (it carries every sound in it), then an echo wall,
+        /// a corner, a tail or trail spot. Idle: last.
         /// </summary>
-        public const int RoomPriority = 64, EchoPriority = 100, CornerPriority = 110, SpotPriority = 160, IdlePriority = 256;
+        public const int RoomPriority = 132, EchoPriority = 140, CornerPriority = 144, SpotPriority = 160, IdlePriority = 256;
+
+        // The buses holding a voice now (every pool's, and the preview's).
+        private static readonly HashSet<SpaceBus> _playing = new();
+        private bool _holdsVoice;
+
+        /// <summary>Buses playing now (each holds one of Unity's real voices).</summary>
+        public static int Playing => _playing.Count;
+
+        /// <summary>
+        /// Most buses playing at once: half of Unity's real voices (Project Settings > Audio > Max Real Voices), so
+        /// at least the other half is always left for ordinary sounds and music.
+        /// </summary>
+        public static int VoiceBudget
+        {
+            get
+            {
+                if (Time.frameCount != _budgetFrame)
+                {
+                    _budgetFrame = Time.frameCount;
+                    _budget = Mathf.Max(4, AudioSettings.GetConfiguration().numRealVoices / 2);
+                }
+                return _budget;
+            }
+        }
+        private static int _budget = 16, _budgetFrame = -1;
+
+        /// <summary>Whether it can start (it's playing already, or there's a voice to spare); says why not, now and then.</summary>
+        internal static bool CanStart(SpaceBus bus, string what)
+        {
+            if (bus != null && bus._holdsVoice) return true;
+            if (Playing < VoiceBudget) return true;
+            SoundSpaces.OutOfVoices(what);
+            return false;
+        }
+
+        /// <summary>Logs each bus start and stop (Sound Spaces window: Log Buses), for finding what takes the voices.</summary>
+        public static bool LogBuses;
+
+        private void StartPlaying()
+        {
+            if (!Source.isPlaying) Source.Play();
+            if (!_holdsVoice)
+            {
+                _holdsVoice = true;
+                _playing.Add(this);
+            }
+            if (LogBuses)
+                Debug.Log($"[Sound Spaces] Start {Kind} bus for {Describe(Owner)} at {transform.position:F1} (priority {Source.priority}): {Playing} playing of {VoiceBudget} allowed, {AudioSettings.GetConfiguration().numRealVoices} real voices", this);
+        }
+
+        private void ReleaseVoice()
+        {
+            if (!_holdsVoice) return;
+            _holdsVoice = false;
+            _playing.Remove(this);
+        }
+
+        private void OnDestroy() => ReleaseVoice();
+
+        internal static string Describe(object owner) => owner switch
+        {
+            null => "nothing",
+            AcousticRoom room => $"room at {room.Center:F0}",
+            ValueTuple<SoundField, int> wall => $"wall {wall.Item2} of {(wall.Item1 != null ? wall.Item1.name : "a removed field")}",
+            _ => owner.GetType().Name,
+        };
 
         /// <summary>Its place when Unity runs short of real voices (see <see cref="RoomPriority"/>).</summary>
         internal void SetPriority(int priority) => Source.priority = Mathf.Clamp(priority, 0, 256);
@@ -191,7 +259,7 @@ namespace Remedy.Audio
             Source.minDistance = Mathf.Max(2f, radius);
             Source.maxDistance = Source.minDistance * 10f + 60f;
             Source.spread = 180f;
-            if (!Source.isPlaying) Source.Play();
+            StartPlaying();
         }
 
         /// <summary>Starts it echoing as a wall, at a place, about <paramref name="size"/> meters across.</summary>
@@ -204,7 +272,7 @@ namespace Remedy.Audio
             Source.maxDistance = 600f;
             Source.spread = 60f;
             SetEcho(hardness);
-            if (!Source.isPlaying) Source.Play();
+            StartPlaying();
         }
 
         private void Begin(object owner, Vector3 position)
@@ -240,6 +308,8 @@ namespace Remedy.Audio
         /// <summary>Lets it go: stopped (freeing its voice) and empty, ready to be taken again.</summary>
         internal void End()
         {
+            if (LogBuses && _holdsVoice)
+                Debug.Log($"[Sound Spaces] Stop {Kind} bus for {Describe(Owner)}: {Playing - 1} playing", this);
             Owner = null;
             lock (_lock)
             {
@@ -255,6 +325,7 @@ namespace Remedy.Audio
                 Source.Stop();
                 Source.priority = IdlePriority;
             }
+            ReleaseVoice();
         }
 
         private static AnimationCurve _noFalloff;
@@ -275,7 +346,7 @@ namespace Remedy.Audio
             Source.maxDistance = 1000f;
             Source.spread = 30f;
             SetRingTime(0.3f);
-            if (!Source.isPlaying) Source.Play();
+            StartPlaying();
         }
 
         /// <summary>A corner's darkening: the highest pitch that gets round (Hz).</summary>
@@ -303,7 +374,7 @@ namespace Remedy.Audio
             Source.minDistance = 2f;
             Source.maxDistance = 300f;
             Source.spread = 60f;
-            if (!Source.isPlaying) Source.Play();
+            StartPlaying();
         }
 
         /// <summary>A slapback's delay (seconds), how much comes round again, and how dull (0 bright, 1 dull) it is.</summary>
@@ -766,6 +837,8 @@ namespace Remedy.Audio
                 free = oldest; // the pool's full: the trail carries on with its own oldest
             if (free == null)
                 return null; // all ringing: the sound keeps its own effect for now
+            if (!SpaceBus.CanStart(free, kind == SpaceBus.BusKind.Slap ? "a slapback spot" : "a reverb spot"))
+                return null; // no voice to spare: the same
             free.Owner = new Spot { Kind = kind, Position = position, RingsFor = ringsFor, Trail = trail, TakenAt = Time.realtimeSinceStartup };
             fresh = true;
             return free;
@@ -894,8 +967,8 @@ namespace Remedy.Audio
                 bus = free;
                 if (bus == null && _buses.Count < _max)
                     _buses.Add(bus = SpaceBus.Create(_parent, _rate));
-                if (bus == null)
-                    return null; // all busy: the sound is heard straight, through the walls
+                if (bus == null || !SpaceBus.CanStart(bus, "a sound round a corner"))
+                    return null; // all busy (or no voice to spare): the sound is heard straight, through the walls
                 bus.BeginCorner(claim, corner);
             }
             bus.SetCorner(cutoff);
@@ -1000,6 +1073,32 @@ namespace Remedy.Audio
         {
             _instance = null;
             Exaggerate = 1f;
+            _nextVoiceWarning = 0f;
+        }
+
+        private static float _nextVoiceWarning;
+
+        /// <summary>
+        /// A spatial effect couldn't start for want of a voice: said at most every 10 seconds, with what holds them.
+        /// (The sound itself still plays, without that effect.)
+        /// </summary>
+        internal static void OutOfVoices(string what)
+        {
+            if (Time.realtimeSinceStartup < _nextVoiceWarning && !SpaceBus.LogBuses) return;
+            _nextVoiceWarning = Time.realtimeSinceStartup + 10f;
+            int rooms = 0, walls = 0, spots = 0, corners = 0;
+            if (_instance != null)
+            {
+                foreach (var bus in _instance._rooms) if (bus != null && bus.Owner != null) rooms++;
+                foreach (var bus in _instance._echoes) if (bus != null && bus.Owner != null) walls++;
+                if (_instance._tails != null) foreach (var bus in _instance._tails.Buses) if (bus != null && bus.Owner != null) spots++;
+                if (_instance._corners != null) foreach (var bus in _instance._corners.Buses) if (bus != null && bus.Owner != null) corners++;
+            }
+            int real = AudioSettings.GetConfiguration().numRealVoices;
+            Debug.LogWarning($"[Sound Spaces] No voice to spare for {what}: spatial effects already use {SpaceBus.Playing} of the "
+                + $"{SpaceBus.VoiceBudget} they may ({rooms} rooms, {walls} echo walls, {spots} tail spots, {corners} corners; "
+                + $"half of Unity's {real} real voices, the rest kept for ordinary sounds and music). The sound plays without it. "
+                + "Raise Max Real Voices (Project Settings > Audio) for more.");
         }
 
         // Rooms and echo walls in the Scene view while playing: brighter the louder they are.
@@ -1077,6 +1176,8 @@ namespace Remedy.Audio
                 if (bus.Owner is AcousticRoom previous)
                     previous.Bus = null;
             }
+            if (!SpaceBus.CanStart(bus, "a room's reverb"))
+                return null;
             bus.BeginRoom(room, room.Center, room.Radius);
             bus.SetRoom(room.Acoustics.Feedback, room.Acoustics.Damping);
             return bus;
@@ -1228,7 +1329,7 @@ namespace Remedy.Audio
                 if (candidate.Owner == null) { bus = candidate; break; }
             if (bus == null && _echoes.Count < MaxEchoes * 2)
                 _echoes.Add(bus = SpaceBus.Create(transform, _rate));
-            if (bus == null)
+            if (bus == null || !SpaceBus.CanStart(bus, "an echo wall"))
                 return null;
             bus.BeginEcho(key, position, Mathf.Sqrt(data.Area), data.Hardness);
             _liveAnchors[key] = bus;
@@ -1292,10 +1393,13 @@ namespace Remedy.Audio
                     _liveAnchors.Remove(key);
                     bus.End();
                 }
-            // Start the new ones.
+            // Start the new ones. Walls no sound has asked for yet (started early, ready for the next sound) leave a
+            // quarter of the voices spatial effects may use for rooms, spots, corners and the walls sounds ask for.
             foreach (var w in wanted)
             {
                 if (EchoBus(w.field, w.anchor) != null) continue;
+                bool asked = _asked.TryGetValue((w.field, w.anchor), out float at) && Time.unscaledTime - at < AskedFor;
+                if (!asked && SpaceBus.Playing >= SpaceBus.VoiceBudget * 3 / 4) break;
                 if (StartEcho((w.field, w.anchor), w.position, w.data) == null) break;
             }
             // Where each is heard from is asked afresh each round (the loudest of this round's).
