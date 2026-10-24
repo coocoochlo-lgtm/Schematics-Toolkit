@@ -49,6 +49,7 @@ namespace Remedy.Audio
             if (GUI.changed)
                 SceneView.RepaintAll();
             SoundSpaces.JoinEchoes = EditorGUILayout.Toggle(new GUIContent("Join Echo Walls", $"Walls heard from about the same way (within {SoundSpaces.JoinAngle:0}°) and sounding alike share one echo voice, heard from between them; each still echoes as late as it should. Off: every wall gets its own (more voices)."), SoundSpaces.JoinEchoes);
+            SoundCuePlayer.LogDirect = EditorGUILayout.Toggle(new GUIContent("Log Direct Sound", "Log each change in what decides how loud a playing sound itself is heard: Unity setting its source aside (out of voices), a Sound Room fade, culling, and its Around Corners and Occlusion nodes' decisions. For finding why a sound cuts out."), SoundCuePlayer.LogDirect);
             SoundSpaces.LogEchoes = EditorGUILayout.Toggle(new GUIContent("Log Echoes", "Log, twice a second for each Spatial effect, every echo wall its sound is heard off: the way round, how late, the gate, the edge fade, how loud that makes it, and which bus. For finding where an echo dips as you move."), SoundSpaces.LogEchoes);
             SpaceBus.LogBuses = EditorGUILayout.Toggle(new GUIContent("Log Buses", "Log every room, echo wall, spot and corner starting and stopping, with how many voices they hold, and every effect left out for want of a voice."), SpaceBus.LogBuses);
 

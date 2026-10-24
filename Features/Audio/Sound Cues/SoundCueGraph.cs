@@ -248,6 +248,12 @@ namespace Remedy.Audio
     public abstract class SoundProbe
     {
         public abstract void Update(in SoundProbeWorld world);
+
+        /// <summary>
+        /// What it last decided that changes how loud the sound itself is heard (a way round, how blocked), for Log
+        /// Direct Sound; null: nothing of the kind. Main thread.
+        /// </summary>
+        public virtual string DirectReport => null;
     }
 
     /// <summary>

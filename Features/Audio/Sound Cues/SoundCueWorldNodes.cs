@@ -104,6 +104,16 @@ namespace Remedy.Audio
                 Set(occlusion);
             }
 
+            public override string DirectReport
+            {
+                get
+                {
+                    float occlusion = Volatile.Read(ref Targets[0]);
+                    // (In tenths, so it's logged as it changes, not as it wobbles.)
+                    return $"Occlusion: {occlusion:0.0} (volume x{Volatile.Read(ref Targets[2]):0.0}, muffled to {Mathf.Round(Volatile.Read(ref Targets[1]) / 1000f):0} kHz)";
+                }
+            }
+
             public void Set(float occlusion)
             {
                 // The cutoff falls evenly in pitch (octaves), not in Hz, so half-blocked sounds half-muffled.

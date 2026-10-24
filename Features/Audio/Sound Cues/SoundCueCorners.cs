@@ -82,6 +82,8 @@ namespace Remedy.Audio
                     pool = route == SoundRoute.Around ? SoundSpaces.Get()?.Corners : null;
                 }
 
+                _route = route;
+                _behind = 0f;
                 if (route == SoundRoute.Sealed)
                 {
                     Set(null, 1f);
@@ -90,6 +92,7 @@ namespace Remedy.Audio
                 // How far behind the corner the sound has slipped, seen from the listener: just past the edge it's still
                 // mostly heard straight (sound spreads round an edge), fading to fully round the corner by Fade Angle.
                 float behind = route == SoundRoute.Around ? Behind(world.ListenerPosition, corner, world.Position, Node.FadeAngle) : 0f;
+                _behind = behind;
                 var bus = route == SoundRoute.Around && pool != null && behind > 0f
                     ? pool.Take(_claim, corner, Cutoff(bend * behind))
                     : null;
@@ -133,6 +136,22 @@ namespace Remedy.Audio
             {
                 Volatile.Write(ref Sends, sends);
                 Volatile.Write(ref Targets[0], blocked);
+            }
+
+            private SoundRoute _route;
+            private float _behind;
+
+            public override string DirectReport
+            {
+                get
+                {
+                    float blocked = Volatile.Read(ref Targets[0]);
+                    string straight = blocked >= 0.99f ? $"straight sound down to Through Walls ({Node.ThroughWalls:0.00}, muffled)"
+                        : blocked > 0.01f ? $"straight sound {Mathf.Round((1f - blocked) * 10f) * 10f:0}% (the rest through walls)" : "straight sound in full";
+                    return _route == SoundRoute.Sealed ? $"Around Corners: SEALED (no way through the Sound Field between them): {straight}"
+                        : _route == SoundRoute.Around ? $"Around Corners: round a corner ({Mathf.Round(_behind * 10f) * 10f:0}% behind it): {straight}"
+                        : $"Around Corners: clear: {straight}";
+                }
             }
         }
 

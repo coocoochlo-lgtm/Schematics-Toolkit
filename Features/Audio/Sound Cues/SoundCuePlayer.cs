@@ -316,6 +316,39 @@ namespace Remedy.Audio
                 Source.reverbZoneMix = voice.Context.ReverbSend;
             if (voice.Context.Probes.Count > 0 && !voice.Culled && Time.unscaledTime >= _nextProbe)
                 RunProbes(voice);
+            if (LogDirect && Application.isPlaying)
+                ReportDirect(voice, distance);
+        }
+
+        /// <summary>
+        /// Logs, for every playing cue, each change in what decides how loud the sound itself is heard: Unity setting
+        /// its source aside (out of real voices), a Sound Room fade, being culled as inaudible, and what its Around
+        /// Corners and Occlusion nodes decided (Sound Spaces window: Log Direct Sound). For finding why it cuts out.
+        /// </summary>
+        public static bool LogDirect;
+
+        private string _lastDirect;
+
+        private void ReportDirect(SoundCueVoice voice, float distance)
+        {
+            var source = Source;
+            var text = new System.Text.StringBuilder();
+            text.Append(source.isVirtual ? "SET ASIDE BY UNITY (virtual: out of real voices, or too quiet to it)" : "playing");
+            if (!source.isPlaying) text.Append(", source NOT playing");
+            if (_fade != RoomFade.None) text.Append($", Sound Room fade {_fade}");
+            if (voice.Culled) text.Append(", CULLED (too quiet to render)");
+            if (source.mute) text.Append(", muted");
+            foreach (var probe in voice.Context.Probes)
+            {
+                var report = probe.DirectReport;
+                if (report != null) text.Append("; ").Append(report);
+            }
+            string state = text.ToString();
+            if (state == _lastDirect)
+                return;
+            _lastDirect = state;
+            Debug.Log($"[Direct] {(Cue != null ? Cue.name : "?")} on {(Follow != null ? Follow.name : name)}, {distance:0.0} m from the listener, "
+                + $"volume {source.volume:0.00}, heard at {HearingAt(distance):0.000}: {state}", this);
         }
 
         private Vector2 _previewPosition;
