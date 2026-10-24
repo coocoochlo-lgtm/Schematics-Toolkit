@@ -92,6 +92,7 @@ namespace Remedy.Audio
                     place = SoundAcoustics.OpenAir;
                 tails = SoundSpaces.Get()?.Tails;
             }
+            _hearing = world.Hearing;
             var sends = SendsFrom(world.Position, world.ListenerPosition, world.Previewing, out bool inRoom);
             if (!inRoom && AddTail(tails, world.Position, place, ref sends))
                 inRoom = true;
@@ -119,6 +120,14 @@ namespace Remedy.Audio
         /// </summary>
         private SpaceSends SendsFrom(Vector3 position, Vector3 listener, bool previewing, out bool inRoom)
         {
+            bool log = SoundSpaces.LogEchoes && !previewing && Time.realtimeSinceStartup >= _nextEchoLog;
+            if (log)
+            {
+                _nextEchoLog = Time.realtimeSinceStartup + 0.5f;
+                _echoLog ??= new System.Text.StringBuilder();
+                _echoLog.Clear();
+            }
+            _logging = log;
             inRoom = false;
             if (previewing)
             {
@@ -174,10 +183,23 @@ namespace Remedy.Audio
                         Echo(spaces, field, _walls[w], position, listener, found);
                 }
             }
+            if (log)
+            {
+                if (_echoLog.Length == 0)
+                    _echoLog.Append("  no echo walls where the sound is");
+                Debug.Log($"[Echoes] {GetType().DeclaringType?.Name ?? GetType().Name} at {position:F1}, listener {listener:F1} ({Vector3.Distance(position, listener):0.0} m):\n{_echoLog}");
+            }
+            _logging = false;
             return found;
         }
 
         private readonly ushort[] _walls = new ushort[SoundFieldData.WallsPerCell];
+        // The voice's own falloff (its volume and distance falloff at a distance; see SoundProbeWorld.Hearing).
+        private Func<float, float> _hearing;
+        // Log Echoes (Sound Spaces window): this update's lines, and when next.
+        private System.Text.StringBuilder _echoLog;
+        private float _nextEchoLog;
+        private bool _logging;
 
         // An echo is only heard as one once it comes far enough behind the sound itself: sooner, the ear takes it as
         // part of the sound (a sound on the floor, or right by a wall, has no echo off it). Silent until EchoGateStart
@@ -187,8 +209,10 @@ namespace Remedy.Audio
 
         // An echo wall the place hears: sound bounces off it where a mirror would show the listener (kept on the wall),
         // so it comes from there, as late as that way round is longer than the way straight to the listener, and as
-        // loud as the wall throws back (less the farther the sound is from it, and fading where the true bounce would
-        // fall past the wall's edge). Its bus is one of the live ones (asked for here, and moved to where it's heard from).
+        // loud as the sound itself would be that far away (the whole way: to the wall and on to the listener, by the
+        // voice's own falloff) times what the wall throws back, fading where the true bounce would fall past the wall's
+        // edge. Its bus is one of the live ones (asked for here; it plays from that way round the listener, with no
+        // falloff of its own, so nearing the wall doesn't make it louder).
         private void Echo(SoundSpaces spaces, SoundField field, ushort anchor, Vector3 position, Vector3 listener, SpaceSends sends)
         {
             if (anchor == SoundFieldData.NoAnchor || anchor >= field.Data.Anchors.Count)
@@ -196,16 +220,28 @@ namespace Remedy.Audio
             var data = field.Data.Anchors[anchor];
             var toLocal = field.transform.worldToLocalMatrix;
             if (!SoundFieldData.Reflection(data, toLocal.MultiplyPoint3x4(position), toLocal.MultiplyPoint3x4(listener), out var bounce, out float outside))
+            {
+                if (_logging) _echoLog.Append($"  wall {anchor}: no bounce towards the listener (behind it)\n");
                 return;
+            }
             var wall = field.transform.TransformPoint(bounce);
             float toWall = Vector3.Distance(position, wall), toListener = Vector3.Distance(wall, listener);
-            float extra = toWall + toListener - Vector3.Distance(position, listener);
+            float path = toWall + toListener;
+            float extra = path - Vector3.Distance(position, listener);
             float gate = Gate(extra / SoundSpaces.SpeedOfSound, data.Reflectivity, data.Hardness);
-            if (gate <= 0f)
-                return;
             float edge = 1f / (1f + outside * outside * 0.25f);
-            float gain = data.Reflectivity / (1f + toWall / 25f) * Mathf.Clamp01(EchoAmount) * gate * edge * SoundSpaces.Exaggerate;
-            var bus = spaces.RequestEcho(field, anchor, wall, gain);
+            float heard = _hearing != null ? _hearing(path) : 1f / Mathf.Max(1f, path);
+            float gain = data.Reflectivity * heard * Mathf.Clamp01(EchoAmount) * gate * edge * SoundSpaces.Exaggerate;
+            var bus = gate > 0f ? spaces.RequestEcho(field, anchor, wall, gain) : null;
+            if (_logging)
+            {
+                int joined = bus != null ? spaces.JoinedTo(bus) : 0;
+                _echoLog.Append($"  wall {anchor}: {toWall:0.0} + {toListener:0.0} = {path:0.0} m ({extra / SoundSpaces.SpeedOfSound * 1000f:0} ms late), "
+                    + $"falloff {heard:0.000} x reflects {data.Reflectivity:0.00} x gate {gate:0.00} x edge {edge:0.00} = {gain:0.0000} ({20f * Mathf.Log10(Mathf.Max(gain, 1e-6f)):0.0} dB) -> "
+                    + (gate <= 0f ? "gated out (too soon after the sound)" : bus == null ? "NO BUS (none free, or out of voices)"
+                        : $"bus #{bus.GetHashCode()}{(Equals(bus.Owner, (field, (int)anchor)) ? "" : " (joined to another wall's)")}{(joined > 0 ? $", {joined} joined" : "")}")
+                    + "\n");
+            }
             if (bus == null)
                 return;
             // Behind the sound itself by the extra way round: Unity plays the sound with no travel time, so an echo

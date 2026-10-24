@@ -283,10 +283,6 @@ namespace Remedy.Audio
                     PrefabUtility.RecordPrefabInstancePropertyModifications(source);
                     _nextScan = 0;
                 }
-                bool all = GUILayout.Toggle(Enabled, new GUIContent(Enabled ? "Scene View: On" : "Scene View: Off",
-                    "The Scene view's Sound Sources toggle (in its toolbar): every sound source's loop, on or off."), EditorStyles.miniButton, GUILayout.Width(100));
-                if (all != Enabled)
-                    Enabled = all;
             }
         }
     }

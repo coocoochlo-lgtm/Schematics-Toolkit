@@ -238,7 +238,7 @@ namespace Remedy.Audio
                 if (bus != null)
                 {
                     Gizmos.matrix = Matrix4x4.identity;
-                    Gizmos.DrawSphere(bus.transform.position, 0.25f + glow * 0.75f);
+                    Gizmos.DrawSphere(bus.HeardFrom, 0.25f + glow * 0.75f);
                     Gizmos.matrix = toWorld;
                 }
             }

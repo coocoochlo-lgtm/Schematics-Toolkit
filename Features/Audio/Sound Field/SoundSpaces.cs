@@ -267,14 +267,27 @@ namespace Remedy.Audio
             StartPlaying();
         }
 
-        /// <summary>Starts it echoing as a wall, at a place, about <paramref name="size"/> meters across.</summary>
+        /// <summary>
+        /// An echo wall's: where on the wall it's heard from (the loudness-weighted bounce points of the sounds it
+        /// carries). The bus itself plays from that way round the listener, at <see cref="SoundSpaces.EchoOrbit"/>.
+        /// </summary>
+        public Vector3 HeardFrom;
+
+        /// <summary>
+        /// Starts it echoing as a wall, heard from a place on it. It has no distance falloff of its own: it circles the
+        /// listener, and what's sent already fell off over the whole way (the sound to the wall and on to the listener).
+        /// </summary>
         internal void BeginEcho(object owner, Vector3 position, float size, float hardness)
         {
             Begin(owner, position);
+            HeardFrom = position;
             Kind = BusKind.Echo;
             Source.priority = EchoPriority;
-            Source.minDistance = Mathf.Clamp(size, 3f, 40f);
-            Source.maxDistance = 600f;
+            _noFalloff ??= AnimationCurve.Constant(0f, 1f, 1f);
+            Source.rolloffMode = AudioRolloffMode.Custom;
+            Source.SetCustomCurve(AudioSourceCurveType.CustomRolloff, _noFalloff);
+            Source.minDistance = 1f;
+            Source.maxDistance = 1000f;
             Source.spread = 60f;
             SetEcho(hardness);
             StartPlaying();
@@ -1074,6 +1087,12 @@ namespace Remedy.Audio
         public const int MaxEchoes = 24;
         /// <summary>How far from the listener echo walls are kept, in meters.</summary>
         public const float EchoRange = 220f;
+        /// <summary>
+        /// How far from the listener an echo wall's bus plays, in meters: from its wall's way round the listener, always
+        /// this far, so how loud it is comes only from the whole way the sound went (not from how near the wall is), and it
+        /// turns smoothly as the listener passes the wall rather than flipping from ear to ear.
+        /// </summary>
+        public const float EchoOrbit = 3f;
         public const float SpeedOfSound = 343f;
         /// <summary>Facing walls echo into each other only this far apart (in seconds of travel), this strongly.</summary>
         public const float MinFlutterDelay = 0.05f, FlutterGain = 0.25f;
@@ -1085,6 +1104,13 @@ namespace Remedy.Audio
         /// for hearing clearly whether they work. 1 is as designed. Set from the Sound Spaces debug window.
         /// </summary>
         public static float Exaggerate = 1f;
+
+        /// <summary>
+        /// Logs, twice a second for each Spatial effect, every echo wall its sound is heard off: the way round, how late,
+        /// the gate, the edge fade and the loudness that come of it, and which bus (Sound Spaces window: Log Echoes). For
+        /// finding where an echo dips or drops out as the listener moves.
+        /// </summary>
+        public static bool LogEchoes;
 
         /// <summary>The room reverbs (in use or idle).</summary>
         public IReadOnlyList<SpaceBus> RoomBuses => _rooms;
@@ -1169,7 +1195,7 @@ namespace Remedy.Audio
             {
                 if (bus.Owner == null) continue;
                 Gizmos.color = Color.Lerp(new Color(1f, 0.85f, 0.3f, 0.4f), new Color(1f, 0.4f, 0.2f, 1f), Mathf.Clamp01(bus.Peak * 4f));
-                Gizmos.DrawSphere(bus.transform.position, 1f + bus.Peak * 6f);
+                Gizmos.DrawSphere(bus.HeardFrom, 1f + bus.Peak * 6f);
             }
         }
 
@@ -1389,7 +1415,7 @@ namespace Remedy.Audio
             {
                 if (!(bus.Owner is ValueTuple<SoundField, int>) || Mathf.Abs(bus.Hardness - Mathf.Clamp01(hardness)) > JoinHardness)
                     continue;
-                var toBus = bus.transform.position - listener;
+                var toBus = bus.HeardFrom - listener;
                 float busDistance = toBus.magnitude;
                 if (busDistance < 0.5f || Mathf.Max(distance, busDistance) / Mathf.Min(distance, busDistance) > JoinDistance)
                     continue;
@@ -1478,6 +1504,7 @@ namespace Remedy.Audio
         {
             // Each live echo wall glides to where it's heard from (sudden jumps would throw its sound across the room):
             // the bounce points of the walls it carries (its own and those joined to it), weighted by how loud each is.
+            // Its bus plays from that way round the listener, EchoOrbit away.
             float glide = 1f - Mathf.Exp(-Time.unscaledDeltaTime / 0.08f);
             _targets.Clear();
             foreach (var pair in _heardAt)
@@ -1488,8 +1515,15 @@ namespace Remedy.Audio
                 _targets.TryGetValue(bus, out var target);
                 _targets[bus] = (target.sum + pair.Value.at * weight, target.weight + weight);
             }
-            foreach (var pair in _targets)
-                pair.Key.transform.position = Vector3.Lerp(pair.Key.transform.position, pair.Value.sum / pair.Value.weight, glide);
+            var listener = ListenerPosition;
+            foreach (var bus in _echoes)
+            {
+                if (bus == null || !(bus.Owner is ValueTuple<SoundField, int>)) continue;
+                if (_targets.TryGetValue(bus, out var target))
+                    bus.HeardFrom = Vector3.Lerp(bus.HeardFrom, target.sum / target.weight, glide);
+                var way = bus.HeardFrom - listener;
+                bus.transform.position = listener + (way.sqrMagnitude > 1e-4f ? way.normalized : Vector3.forward) * EchoOrbit;
+            }
             if (Time.unscaledTime < _nextEchoUpdate)
                 return;
             _nextEchoUpdate = Time.unscaledTime + 0.25f;
@@ -1539,7 +1573,7 @@ namespace Remedy.Audio
                 var bus = pair.Value;
                 bool gone = bus == null || bus.Owner == null || !keep.Contains(pair.Key);
                 if (!gone && _heardAt.TryGetValue(pair.Key, out var heard))
-                    gone = Vector3.Angle(heard.at - listener, bus.transform.position - listener) > LeaveAngle;
+                    gone = Vector3.Angle(heard.at - listener, bus.HeardFrom - listener) > LeaveAngle;
                 if (gone) _leaving.Add(pair.Key);
             }
             foreach (var key in _leaving)
