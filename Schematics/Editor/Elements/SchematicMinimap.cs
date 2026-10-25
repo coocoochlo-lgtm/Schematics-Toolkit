@@ -30,10 +30,7 @@ public class SchematicMinimap : VisualElement
     private Rect _contentBounds;
     private bool _dragging;
 
-    private static Texture2D _input, _output;
     private static Texture _behavior;
-    private static Texture2D InputIcon => _input ??= Resources.Load<Texture2D>("Icons/Input");
-    private static Texture2D OutputIcon => _output ??= Resources.Load<Texture2D>("Icons/Output");
     private static Texture BehaviorIcon => _behavior ??= EditorGUIUtility.IconContent("cs Script Icon").image;
 
     private const string VisibleKey = "SchematicMinimap.Visible";
@@ -211,8 +208,9 @@ public class SchematicMinimap : VisualElement
             float size = 12f;
             switch (target)
             {
-                case SendSignalNode _: icon = OutputIcon; tint = new Color(1f, 0.75f, 0.35f); break;
-                case OnSignalReceivedNode _: icon = InputIcon; tint = new Color(0.45f, 0.9f, 1f); break;
+                // (As on the nodes: sending, blue, as the Behavior receives it; reacting, red, as it sent it.)
+                case SendSignalNode _: icon = DockRows.SignalIcon; tint = DockRows.SignalColor(output: false); break;
+                case OnSignalReceivedNode _: icon = DockRows.SignalIcon; tint = DockRows.SignalColor(output: true); break;
                 case GetBehaviorVariableNode get:
                     icon = PrefabHierarchy.VariableIcon;
                     tint = PrefabHierarchy.ColorOf(BehaviorReflection.Get(get.Target.Type)?.FindVariableType(get.Variable));

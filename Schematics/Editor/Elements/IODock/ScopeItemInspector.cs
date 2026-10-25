@@ -74,7 +74,7 @@ public class ScopeItemInspectorEditor : Editor
         using (new EditorGUILayout.HorizontalScope())
         {
             GUILayout.Space(8);
-            var icon = target.Kind == DockItem.ItemKind.Signal ? DockRows.InputIcon
+            var icon = target.Kind == DockItem.ItemKind.Signal ? DockRows.SignalIcon
                      : target.Kind == DockItem.ItemKind.GraphVariable ? DockRows.GraphVariableIcon : DockRows.VariableIcon;
             // (A Variable's dot in its type's colour.)
             var previousColor = GUI.color;

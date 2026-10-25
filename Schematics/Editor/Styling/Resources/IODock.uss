@@ -466,8 +466,9 @@ EventContainerRenderer
 	width: 160px;
 	height: 96px;
 	border-width: 0px;
-	background-image: url("Textures/graph-output.png");
-	background-size: 35% 50%;
+	background-image: url("Textures/signal-mark.png");
+	-unity-background-image-tint-color: rgb(255, 97, 90);
+	background-size: 40px 40px;
 	background-position: 12px 12px;
 }
 
@@ -600,8 +601,9 @@ EventContainerRenderer
 	width: 160px;
 	height: 96px;
 	border-width: 0px;
-	background-image: url("Textures/graph-input.png");
-	background-size: 35% 50%;
+	background-image: url("Textures/signal-mark.png");
+	-unity-background-image-tint-color: rgb(97, 158, 255);
+	background-size: 40px 40px;
 	background-position: 12px 12px;
 }
 
@@ -950,4 +952,35 @@ TextElement
 .dock-row-signal.event-container-input, .dock-row-signal.event-container-output
 {
 	background-color: rgba(0,60,45,0.25);
+}
+
+/* --- Variable nodes: the Signal nodes' look, with the Variable's ring (tinted with its type's colour, along with the
+   border, by VariableNodeLook) and its title kept, as that's its name. --- */
+.node-Get-Variable, .node-Set-Variable, .node-Get-Graph-Variable, .node-Set-Graph-Variable
+{
+	min-width: 160px;
+	border-width: 0px;
+	background-image: url("Textures/variable-mark.png");
+	background-size: 28px 28px;
+	background-position: 10px 8px;
+}
+
+.node-Get-Variable #node-border, .node-Set-Variable #node-border,
+.node-Get-Graph-Variable #node-border, .node-Set-Graph-Variable #node-border
+{
+	opacity: 1;
+	border-width: 1px;
+	border-color: rgba(200,200,200,0.75);
+	background-color: rgba(255,255,255,0.12);
+	background-image: url("Textures/io-graph-gradient.png");
+}
+
+.node-Get-Variable #node-border #title, .node-Set-Variable #node-border #title,
+.node-Get-Graph-Variable #node-border #title, .node-Set-Graph-Variable #node-border #title
+{
+	background-image: none;
+	background-color: rgba(0,0,0,0);
+	padding-left: 40px;
+	min-height: 40px;
+	-unity-font-style: bold;
 }

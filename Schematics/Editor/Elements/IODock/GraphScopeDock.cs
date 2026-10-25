@@ -178,7 +178,7 @@ public class GraphScopeDock : VisualElement
         string use = output
             ? (own ? "Output Signal: this graph sends it (drag it in for Send); other graphs react to it." : "Output Signal of " + graph.name + ": drag it in to react to it (On Received).")
             : (own ? "Input Signal: other graphs send it; this graph reacts to it (drag it in for On Received)." : "Input Signal of " + graph.name + ": drag it in to send it (Send, with the object in To).");
-        var row = DockRows.Build(item, output ? DockRows.OutputIcon : DockRows.InputIcon, signal.Name, detail,
+        var row = DockRows.Build(item, DockRows.SignalIcon, signal.Name, detail,
             use + " Click it to find its nodes and edit it in the Inspector."
             + (string.IsNullOrEmpty(signal.Description) ? "" : "\n\n" + signal.Description),
             () => { _window.FocusNodes(dockItem); ScopeItemInspector.Show(dockItem); });
@@ -186,6 +186,7 @@ public class GraphScopeDock : VisualElement
         row.RemoveFromClassList("event-container-input");
         row.RemoveFromClassList("event-container-output");
         row.AddToClassList(output ? "event-container-output" : "event-container-input");
+        DockRows.ColorSignalMark(row, output);
         if (signal.Asset != null)
             _rows[item.Key] = row;
         return row;

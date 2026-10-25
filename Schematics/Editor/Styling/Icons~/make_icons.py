@@ -29,6 +29,15 @@ ICONS = {
   <path d="M7 16 C10 4, 14 4, 16 16 S22 28, 25 16" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>
   <circle cx="5" cy="16" r="4" fill="#ffffff"/>
   <circle cx="27" cy="16" r="4" fill="#ffffff"/>''',
+    # A Signal (dock rows, nodes, minimap; tinted where it's drawn: blue received, red sent): a triangle going off,
+    # outlined, its centre dimmer.
+    "signal-mark": '''
+  <path d="M8 4.5 L8 27.5 L28 16 Z" fill="#ffffff" fill-opacity="0.45"/>
+  <path d="M9.6 7.3 L9.6 24.7 L24.8 16 Z" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linejoin="round"/>''',
+    # A Variable (tinted with its type's colour): a value, as a ring with a dimmer centre.
+    "variable-mark": '''
+  <circle cx="16" cy="16" r="13.5" fill="#ffffff" fill-opacity="0.45"/>
+  <circle cx="16" cy="16" r="11.75" fill="none" stroke="#ffffff" stroke-width="3.5"/>''',
     # A note on the graph (its mark on the minimap): a pencil.
     "note-pencil": '''
   <g fill="#ffffff">

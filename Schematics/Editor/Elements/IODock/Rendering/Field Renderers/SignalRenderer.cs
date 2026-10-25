@@ -13,10 +13,6 @@ public class SignalRenderer : FieldRenderer
 {
     private static List<SignalRenderer> _eventLinkWaitPool = new(); // Events waiting for the rest of the Component to finish displaying before attempting to draw
     private SignalContainerRendererAttribute _evAttr;
-    private static Texture2D _oIcon;
-    private static Texture2D _outputIcon => _oIcon ??= Resources.Load<Texture2D>("Icons/Output");
-    private static Texture2D _iIcon;
-    private static Texture2D _inputIcon => _iIcon ??= Resources.Load<Texture2D>("Icons/Input");
 
     // Reflection caches
     private static readonly Dictionary<Type, Type[]> _genericArgumentsCache = new();
@@ -227,10 +223,9 @@ public class SignalRenderer : FieldRenderer
 
         bool signalType = _evAttr.Outgoing || _field.Attributes.Any(attr => attr.AttributeType == typeof(OutputSignalAttribute));
 
-        // Drag Handle
-        Texture2D myTexture = signalType ? myTexture = _outputIcon : myTexture = _inputIcon;
-
-        Image imageElement = new Image();
+        // The drag handle: its bar and triangle, at the start of the row (like a Variable's), in the Signal's colour.
+        var imageElement = DockRows.SignalMark(signalType);
+        imageElement.pickingMode = PickingMode.Position;
 
         imageElement.style.cursor = new StyleCursor(UnityDefaultCursor.DefaultCursor(UnityDefaultCursor.CursorType.Link));
         imageElement.RegisterCallback<MouseDownEvent>(evt =>
@@ -251,18 +246,10 @@ public class SignalRenderer : FieldRenderer
             column.RemoveFromClassList("event-container-hover");
         });
 
-        imageElement.image = myTexture;
-        imageElement.style.width = 20;
-        imageElement.style.height = 16;
-        imageElement.style.alignSelf = Align.Center;
-        imageElement.style.opacity = 0.75f;
+        imageElement.tooltip = (signalType ? "Output Signal" : "Input Signal") + ": drag it into the graph.";
 
-        imageElement.tooltip = signalType ? "Output Signal" : "Input Signal";
-
-        // Like a Variable's row: its bar and mark first, in the Signal's colour.
-        row.Add(DockRows.SignalMark(signalType));
-        row.Add(nameField);
         row.Add(imageElement);
+        row.Add(nameField);
 
         column.AddToClassList("event-container");
         // The Variables' rows' tight look.

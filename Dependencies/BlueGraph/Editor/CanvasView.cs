@@ -671,6 +671,8 @@ namespace BlueGraph.Editor
 
                     element.Initialize(node, this, edgeConnectorListener);
                     AddElement(element);
+                    try { NodeViewAdded?.Invoke(element); }
+                    catch (Exception e) { Debug.LogException(e); }
 
                     nodeMap.Add(node, element);
                     Dirty(element);
@@ -890,6 +892,9 @@ namespace BlueGraph.Editor
         /// (macros, for one).
         /// </summary>
         public static event Action<CanvasView, ContextualMenuPopulateEvent> ExtendContextMenu;
+
+        /// <summary>A node's view was made and added (editor tools style some kinds of node: Variables in their type's colour).</summary>
+        public static event Action<NodeView> NodeViewAdded;
 
         public override void BuildContextualMenu(ContextualMenuPopulateEvent evt)
         {

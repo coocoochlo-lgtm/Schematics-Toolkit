@@ -144,7 +144,7 @@ namespace Remedy.Vehicles.Editor
                 Signal = signal,
                 Direction = direction,
             };
-            var icon = direction == SignalDirection.Output ? DockRows.OutputIcon : DockRows.InputIcon;
+            var icon = DockRows.SignalIcon;
             string kind = direction == SignalDirection.Output ? "Output" : "Input";
             box.Add(DockRows.Build(item, icon, label, parameters,
                 $"{kind} Signal ({signal.name}): {tooltip} Drag it into the graph; click to find the asset.",

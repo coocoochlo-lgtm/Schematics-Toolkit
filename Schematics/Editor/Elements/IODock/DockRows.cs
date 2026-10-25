@@ -19,12 +19,29 @@ public static class DockRows
     /// Behavior Variables: a white ring with a dimmer centre, tinted with the colour of the Variable's type where it's
     /// drawn (<see cref="ColorOf"/>, the wires' colours), in the dock and the minimap alike.
     /// </summary>
-    public static Texture2D VariableIcon => _variableIcon != null ? _variableIcon : _variableIcon = MakeDot(solid: false);
+    public static Texture2D VariableIcon => _variableIcon != null ? _variableIcon
+        : _variableIcon = Resources.Load<Texture2D>("Textures/variable-mark") ?? MakeDot(solid: false);
     /// <summary>
     /// Signals: a white triangle with a dimmer centre (the Variables' ring, as a triangle: a value goes, a Signal goes
     /// off), tinted with <see cref="SignalColor"/> where it's drawn.
     /// </summary>
-    public static Texture2D SignalIcon => _signalIcon != null ? _signalIcon : _signalIcon = MakeTriangle();
+    public static Texture2D SignalIcon => _signalIcon != null ? _signalIcon
+        : _signalIcon = Resources.Load<Texture2D>("Textures/signal-mark") ?? MakeTriangle();
+
+    /// <summary>Recolours a Signal row's bar and triangle (a row coloured by something other than its item's direction).</summary>
+    public static void ColorSignalMark(VisualElement row, bool output)
+    {
+        var mark = row?.Q(className: "dock-signal-mark");
+        if (mark == null)
+            return;
+        var color = SignalColor(output);
+        var chip = mark.Q(className: "dock-type-chip");
+        if (chip != null)
+            chip.style.backgroundColor = color;
+        var icon = mark.Q<Image>();
+        if (icon != null)
+            icon.tintColor = color;
+    }
 
     /// <summary>A Signal's tint, by which way it goes: received, blue; sent, red.</summary>
     public static Color SignalColor(bool output) => output ? new Color(1f, 0.38f, 0.35f) : new Color(0.38f, 0.62f, 1f);
