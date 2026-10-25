@@ -87,6 +87,21 @@ namespace BlueGraph.Editor
             
             SetTheme(Target.Theme);
             ApplyColor();
+
+            // Resized from any edge or corner. Sized by hand, it keeps that size (no longer fitting itself to its nodes;
+            // Resize To Fit Nodes in its menu turns that back on).
+            EdgeResizer.Attach(this, new Vector2(150f, 50f), () =>
+            {
+                var graph = GetFirstAncestorOfType<CanvasView>()?.Graph;
+                if (graph != null)
+                    Undo.RegisterCompleteObjectUndo(graph, "Resize Comment");
+            }, () =>
+            {
+                Target.FixedSize = true;
+                var graph = GetFirstAncestorOfType<CanvasView>()?.Graph;
+                if (graph != null)
+                    EditorUtility.SetDirty(graph);
+            });
         }
         
         public virtual void BuildContextualMenu(ContextualMenuPopulateEvent evt)

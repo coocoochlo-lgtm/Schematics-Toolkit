@@ -29,6 +29,13 @@ ICONS = {
   <path d="M7 16 C10 4, 14 4, 16 16 S22 28, 25 16" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>
   <circle cx="5" cy="16" r="4" fill="#ffffff"/>
   <circle cx="27" cy="16" r="4" fill="#ffffff"/>''',
+    # A note on the graph (its mark on the minimap): a pencil.
+    "note-pencil": '''
+  <g fill="#ffffff">
+    <path d="M21.5 4.5 L27.5 10.5 L12 26 L6 20 Z"/>
+    <path d="M23.2 2.8 a2.5 2.5 0 0 1 3.5 0 l2.5 2.5 a2.5 2.5 0 0 1 0 3.5 l-0.9 0.9 -6 -6 Z"/>
+    <path d="M4.8 21.4 L10.6 27.2 L2.5 29.5 Z"/>
+  </g>''',
 }
 
 # Window tab icons, one per graph type (and the IO Dock and the State Machine window): drawn in {c}, written twice,

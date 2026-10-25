@@ -1,0 +1,13 @@
+/* The grips along a comment's or note's edges and corners (EdgeResizer), with the matching resize cursor. */
+.edge-grip { position: absolute; }
+.edge-grip-left, .edge-grip-right { top: 8px; bottom: 8px; width: 8px; cursor: resize-horizontal; }
+.edge-grip-top, .edge-grip-bottom { left: 8px; right: 8px; height: 8px; cursor: resize-vertical; }
+.edge-grip-left { left: -4px; }
+.edge-grip-right { right: -4px; }
+.edge-grip-top { top: -4px; }
+.edge-grip-bottom { bottom: -4px; }
+.edge-grip-top-left, .edge-grip-top-right, .edge-grip-bottom-left, .edge-grip-bottom-right { width: 12px; height: 12px; }
+.edge-grip-top-left { left: -4px; top: -4px; cursor: resize-up-left; }
+.edge-grip-bottom-right { right: -4px; bottom: -4px; cursor: resize-up-left; }
+.edge-grip-top-right { right: -4px; top: -4px; cursor: resize-up-right; }
+.edge-grip-bottom-left { left: -4px; bottom: -4px; cursor: resize-up-right; }

@@ -192,7 +192,18 @@ public class SchematicMinimap : VisualElement
         foreach (var note in _canvas.Query<NoteView>().ToList())
         {
             var rect = ToMap(note.GetPosition());
-            EditorGUI.DrawRect(rect, _canvas.selection.Contains(note) ? new Color(0.3f, 0.6f, 0.9f, 1f) : note.Target.Color);
+            var noteColor = note.Target.Color;
+            EditorGUI.DrawRect(rect, _canvas.selection.Contains(note) ? new Color(0.3f, 0.6f, 0.9f, 1f) : noteColor);
+            // A pencil on it (dark on light colors, light on dark), as big as fits.
+            float pencil = Mathf.Min(12f, rect.width - 2f, rect.height - 2f);
+            if (NoteIcon != null && pencil >= 4f)
+            {
+                var previous = GUI.color;
+                float luminance = 0.2126f * noteColor.r + 0.7152f * noteColor.g + 0.0722f * noteColor.b;
+                GUI.color = luminance > 0.5f ? new Color(0.1f, 0.1f, 0.1f, 0.85f) : new Color(1f, 1f, 1f, 0.9f);
+                GUI.DrawTexture(new Rect(rect.center.x - pencil * 0.5f, rect.center.y - pencil * 0.5f, pencil, pencil), NoteIcon, ScaleMode.ScaleToFit);
+                GUI.color = previous;
+            }
             if (rect.Contains(mouse) && !string.IsNullOrEmpty(note.Target.Text))
                 hover = FirstLine(note.Target.Text);
         }
@@ -261,6 +272,10 @@ public class SchematicMinimap : VisualElement
     }
 
     // The comment under the mouse: the innermost one, when comments sit inside each other.
+    private static Texture2D _noteIcon;
+    // Notes' mark: a pencil (white, tinted where it's drawn).
+    private static Texture2D NoteIcon => _noteIcon != null ? _noteIcon : _noteIcon = Resources.Load<Texture2D>("Textures/note-pencil");
+
     // A note's first line, short, for its name on hover.
     private static string FirstLine(string text)
     {

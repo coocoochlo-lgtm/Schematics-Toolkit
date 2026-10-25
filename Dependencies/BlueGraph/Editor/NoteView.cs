@@ -7,9 +7,10 @@ using UnityEngine.UIElements;
 namespace BlueGraph.Editor
 {
     /// <summary>
-    /// A note on the canvas: a solid, colored box of text. Drag it anywhere on it to move it, the corner to resize it;
-    /// double-click to edit the text (clicking away keeps it, Escape doesn't). Text that doesn't fit scrolls. The swatch
-    /// picks any color, the right-click menu a ready-made one.
+    /// A note on the canvas: a colored box of text (a little see-through). Drag it anywhere on it to move it, any edge or
+    /// corner to resize it; double-click to edit the text (clicking away keeps it, Escape doesn't). Text that doesn't fit
+    /// scrolls. Ctrl + the mouse wheel (or the right-click menu) sizes its text. The swatch picks any color, the
+    /// right-click menu a ready-made one.
     /// </summary>
     public class NoteView : GraphElement, ICanDirty
     {
@@ -24,6 +25,13 @@ namespace BlueGraph.Editor
 
         /// <summary>The smallest a note gets.</summary>
         public const float MinWidth = 120f, MinHeight = 60f;
+
+        /// <summary>How see-through a note is (its color's alpha).</summary>
+        public const float Opacity = 0.85f;
+
+        /// <summary>Text sizes offered in the right-click menu.</summary>
+        private static readonly (string name, float size)[] TextSizes =
+            { ("Small", 14f), ("Medium", 20f), ("Large", Note.DefaultFontSize), ("Larger", 36f), ("Huge", 52f) };
 
         public NoteView(Note note)
         {
@@ -64,7 +72,6 @@ namespace BlueGraph.Editor
             scroll.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
             textLabel = new Label(string.IsNullOrEmpty(note.Text) ? "" : note.Text);
             textLabel.style.whiteSpace = WhiteSpace.Normal;
-            textLabel.style.fontSize = 13;
             textLabel.style.paddingLeft = textLabel.style.paddingRight = 2;
             textLabel.enableRichText = true;
             scroll.Add(textLabel);
@@ -73,6 +80,10 @@ namespace BlueGraph.Editor
             textEditor.style.display = DisplayStyle.None;
             textEditor.style.marginLeft = textEditor.style.marginRight = 0;
             var input = textEditor.Q(TextField.textInputUssName);
+            // See-through, so the note shows behind the text being edited.
+            input.style.backgroundColor = Color.clear;
+            input.style.borderTopWidth = input.style.borderBottomWidth = input.style.borderLeftWidth = input.style.borderRightWidth = 0;
+            input.style.paddingLeft = input.style.paddingRight = 2;
             input.RegisterCallback<KeyDownEvent>(OnTextKeyDown, TrickleDown.TrickleDown);
             input.RegisterCallback<FocusOutEvent>(_ => FinishEditing());
             scroll.Add(textEditor);
@@ -82,11 +93,25 @@ namespace BlueGraph.Editor
                             Capabilities.Resizable | Capabilities.Copiable;
 
             SetPosition(note.Region);
-            RegisterCallback<MouseDownEvent>(OnMouseDown);
+            // (Caught on the way down, before the scroll view and the canvas get the clicks.)
+            RegisterCallback<PointerDownEvent>(OnPointerDown, TrickleDown.TrickleDown);
+            RegisterCallback<WheelEvent>(OnWheel, TrickleDown.TrickleDown);
+            EdgeResizer.Attach(this, new Vector2(MinWidth, MinHeight), () =>
+            {
+                var graph = Graph;
+                if (graph != null)
+                    Undo.RegisterCompleteObjectUndo(graph, "Resize Note");
+            }, () =>
+            {
+                var graph = Graph;
+                if (graph != null)
+                    EditorUtility.SetDirty(graph);
+            });
             // Resized from the corner: kept.
             RegisterCallback<GeometryChangedEvent>(_ => KeepSize());
             this.AddManipulator(new ContextualMenuManipulator(BuildContextualMenu));
             ApplyColor();
+            ApplyFontSize();
         }
 
         public virtual void BuildContextualMenu(ContextualMenuPopulateEvent evt)
@@ -99,6 +124,13 @@ namespace BlueGraph.Editor
                 var picked = color;
                 evt.menu.AppendAction("Color/" + colorName, _ => SetColor(picked),
                     SameColor(current, picked) ? DropdownMenuAction.Status.Checked : DropdownMenuAction.Status.Normal);
+            }
+            float currentSize = Target.FontSize;
+            foreach (var (sizeName, size) in TextSizes)
+            {
+                var picked = size;
+                evt.menu.AppendAction("Text Size/" + sizeName, _ => SetFontSize(picked),
+                    Mathf.Approximately(currentSize, size) ? DropdownMenuAction.Status.Checked : DropdownMenuAction.Status.Normal);
             }
             evt.menu.AppendAction("Edit Text", _ => EditText());
             evt.menu.AppendSeparator();
@@ -130,15 +162,57 @@ namespace BlueGraph.Editor
                 EditorUtility.SetDirty(graph);
         }
 
-        /// <summary>A solid box in the note's color, with dark text on light colors and light on dark; the usual blue outline when selected.</summary>
+        // Ctrl + wheel over the note: its text bigger or smaller (otherwise the wheel scrolls the text, or zooms the canvas).
+        private double lastSizeChange = -10;
+
+        private void OnWheel(WheelEvent evt)
+        {
+            if (!evt.ctrlKey && !evt.commandKey)
+                return;
+            SetFontSize(Target.FontSize + (evt.delta.y < 0 ? 2f : -2f));
+            evt.StopPropagation();
+        }
+
+        /// <summary>Sizes the note's text (undoably; a burst of wheel steps is one undo step).</summary>
+        public void SetFontSize(float size)
+        {
+            size = Mathf.Clamp(size, 8f, 96f);
+            if (Mathf.Approximately(size, Target.FontSize))
+                return;
+            var graph = Graph;
+            double now = EditorApplication.timeSinceStartup;
+            if (graph != null && now - lastSizeChange > 1.0)
+                Undo.RegisterCompleteObjectUndo(graph, "Note Text Size");
+            lastSizeChange = now;
+            Target.FontSize = size;
+            ApplyFontSize();
+            if (graph != null)
+                EditorUtility.SetDirty(graph);
+        }
+
+        private void ApplyFontSize()
+        {
+            textLabel.style.fontSize = Target.FontSize;
+            textEditor.style.fontSize = Target.FontSize;
+            var input = textEditor.Q(TextField.textInputUssName);
+            if (input != null)
+                input.style.fontSize = Target.FontSize;
+        }
+
+        /// <summary>A box in the note's color, with dark text on light colors and light on dark; the usual blue outline when selected.</summary>
         public void ApplyColor()
         {
             var color = Target.Color;
-            style.backgroundColor = color;
+            style.backgroundColor = new Color(color.r, color.g, color.b, Opacity);
             var border = selected ? (Color)new Color32(0x44, 0xC0, 0xFF, 0xFF) : Color.Lerp(color, Color.black, 0.25f);
             style.borderTopColor = style.borderBottomColor = style.borderLeftColor = style.borderRightColor = border;
             float luminance = 0.2126f * color.r + 0.7152f * color.g + 0.0722f * color.b;
-            textLabel.style.color = luminance > 0.5f ? new Color(0.1f, 0.1f, 0.1f) : new Color(0.95f, 0.95f, 0.95f);
+            var textColor = luminance > 0.5f ? new Color(0.1f, 0.1f, 0.1f) : new Color(0.95f, 0.95f, 0.95f);
+            textLabel.style.color = textColor;
+            // The text being edited in the same color (its field is see-through, on the note).
+            textEditor.style.color = textColor;
+            foreach (var text in textEditor.Query<TextElement>().ToList())
+                text.style.color = textColor;
         }
 
         public override void OnSelected()
@@ -153,13 +227,15 @@ namespace BlueGraph.Editor
             ApplyColor();
         }
 
-        private void OnMouseDown(MouseDownEvent evt)
+        // Double-click anywhere on the note (but its swatch and edge grips) to edit its text.
+        private void OnPointerDown(PointerDownEvent evt)
         {
-            if (evt.clickCount == 2 && !(evt.target is VisualElement element && colorField.Contains(element)) && textEditor.style.display == DisplayStyle.None)
-            {
-                EditText();
-                evt.StopPropagation();
-            }
+            if (evt.button != 0 || evt.clickCount != 2 || textEditor.style.display != DisplayStyle.None)
+                return;
+            if (evt.target is VisualElement element && (colorField.Contains(element) || element.ClassListContains("edge-grip")))
+                return;
+            EditText();
+            evt.StopPropagation();
         }
 
         /// <summary>Edits the text in place.</summary>

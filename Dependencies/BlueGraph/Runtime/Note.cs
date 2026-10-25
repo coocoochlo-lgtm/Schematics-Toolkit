@@ -35,6 +35,18 @@ namespace BlueGraph
             }
         }
 
+        /// <summary>The text size a new note gets.</summary>
+        public const float DefaultFontSize = 26f;
+
+        [SerializeField] private float fontSize = DefaultFontSize;
+
+        /// <summary>The note's text size (notes saved before it had one get the default).</summary>
+        public float FontSize
+        {
+            get { return fontSize > 0f ? fontSize : DefaultFontSize; }
+            set { fontSize = Mathf.Clamp(value, 8f, 96f); }
+        }
+
         [SerializeField] private Rect region;
 
         /// <summary>Where the note is on the canvas, and its size.</summary>
