@@ -252,8 +252,9 @@ public class SignalRenderer : FieldRenderer
         });
 
         imageElement.image = myTexture;
-        imageElement.style.width = 32;
-        imageElement.style.height = 24;
+        imageElement.style.width = 20;
+        imageElement.style.height = 16;
+        imageElement.style.alignSelf = Align.Center;
         imageElement.style.opacity = 0.75f;
 
         imageElement.tooltip = signalType ? "Output Signal" : "Input Signal";
@@ -262,6 +263,8 @@ public class SignalRenderer : FieldRenderer
         row.Add(imageElement);
 
         column.AddToClassList("event-container");
+        // The Variables' rows' tight look.
+        column.AddToClassList("dock-signal");
         column.AddToClassList("event-container-" + (signalType ? "output" : "input"));
         // Flashes when it's sent in Play Mode.
         SignalFlash.Track(column, signalData);

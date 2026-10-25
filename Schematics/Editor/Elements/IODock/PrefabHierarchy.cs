@@ -1015,11 +1015,6 @@ public class PrefabHierarchy : VisualElement
         if (propertiesObject == null)
             return panel;
 
-        var open = new Button(() => EditorUtility.OpenPropertyEditor(propertiesObject)) { text = "Open", tooltip = "Show it in an Inspector window of its own." };
-        open.style.alignSelf = Align.FlexEnd;
-        open.style.width = 44;
-        panel.Add(open);
-
         if (!HasCustomEditor(propertiesObject))
         {
             panel.Add(CreateHeaderTabs(propertiesObject, TabsKey(PathOf(tf), $"{type.FullName}|{variableName}|headers")));

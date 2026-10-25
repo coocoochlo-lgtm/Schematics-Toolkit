@@ -904,3 +904,33 @@ TextElement
 	border-bottom-left-radius: 3px;
 	border-bottom-right-radius: 3px;
 }
+
+/* Signals' rows, as tight as the Variables' (Behavior dock). */
+.dock-signal
+{
+	margin: 1px 4px 1px 8px;
+	padding: 2px 4px;
+	border-radius: 4px;
+	border-width: 0px;
+}
+.dock-signal .event-name
+{
+	margin-bottom: 0;
+	padding: 0 4px;
+	border-radius: 2px;
+}
+.dock-signal TextField
+{
+	margin: 0;
+}
+.dock-signal Toggle
+{
+	margin: 0 2px;
+}
+
+/* Foldout arrows turn when opened (LazyFoldout sets the angle). */
+.list-toggle #unity-checkmark, LazyFoldout #unity-checkmark
+{
+	transition-property: rotate;
+	transition-duration: 0.12s;
+}
