@@ -88,6 +88,14 @@ public class PrefabHierarchy : VisualElement
     {
         Clear();
         _foldouts.Clear();
+        // Copies of list and class Variables are made again from the prefab (but those with an edit still waiting).
+        foreach (var key in _boxedEdits.Keys.ToList())
+            if (!_pendingEdits.ContainsKey(key))
+            {
+                if (_boxedEdits[key].holder != null)
+                    UnityEngine.Object.DestroyImmediate(_boxedEdits[key].holder);
+                _boxedEdits.Remove(key);
+            }
 
         // Always the prefab asset: every change is made through the load-edit-save below.
         if (_prefab == null)
@@ -528,6 +536,18 @@ public class PrefabHierarchy : VisualElement
                     ScopeItemInspector.Show(item);
                 });
             var definition = variable;
+            // Arrays, lists and classes: edited right under the row, at full width, with Unity's own drawers (a list's
+            // add, remove and reorder; each item by its name).
+            if (variable.Type.Type != null && SchematicValue.IsBoxable(variable.Type.Type))
+            {
+                section.Add(row);
+                var body = new IMGUIContainer(() => DrawBoxedValue(path, type, attachment, definition));
+                body.style.marginLeft = 22;
+                body.style.marginRight = 4;
+                body.style.marginBottom = 3;
+                section.Add(body);
+                continue;
+            }
             var field = new IMGUIContainer(() => DrawVariableField(path, type, attachment, definition));
             field.style.flexGrow = 1;
             field.style.flexShrink = 1;
@@ -589,9 +609,96 @@ public class PrefabHierarchy : VisualElement
                 if (edit.Revert)
                     attachment.Overrides.RemoveAll(o => o.Name == edit.Variable);
                 else
-                    attachment.SetOverride(edit.Variable, ToCopy(edit.Value, root), edit.ValueType);
+                    attachment.SetOverride(edit.Variable, SchematicValue.IsBoxable(edit.ValueType) ? RemapToCopy(edit.Value, root) : ToCopy(edit.Value, root), edit.ValueType);
             }
         });
+    }
+
+    // Copies of array, list and class Variables being edited here (by EditKey), with Unity's drawers on them.
+    private readonly Dictionary<string, (DockBoxedValue holder, SerializedObject serialized)> _boxedEdits = new();
+
+    // An array, list or class Variable: this object's value in Unity's own drawers (a copy; each change is queued to be
+    // written to the prefab like any other), with a button back to the Behavior's default when it has its own.
+    private void DrawBoxedValue(string path, Type behavior, BehaviorAttachment attachment, VariableDefinition definition)
+    {
+        var type = definition.Type.Type;
+        if (type == null)
+            return;
+        string key = EditKey(path, behavior, definition.Name);
+        if (!_boxedEdits.TryGetValue(key, out var edit) || edit.holder == null)
+        {
+            var holder = ScriptableObject.CreateInstance<DockBoxedValue>();
+            holder.hideFlags = HideFlags.HideAndDontSave;
+            // (A copy made by Unity's serializer, so editing it never touches the prefab's own data in memory.)
+            var source = ScriptableObject.CreateInstance<DockBoxedValue>();
+            source.hideFlags = HideFlags.HideAndDontSave;
+            source.Box = SchematicBox.Create(type, CurrentValue(path, behavior, attachment, definition, type));
+            EditorUtility.CopySerializedManagedFieldsOnly(source, holder);
+            UnityEngine.Object.DestroyImmediate(source);
+            holder.Box ??= SchematicBox.Create(type, null);
+            edit = (holder, new SerializedObject(holder));
+            _boxedEdits[key] = edit;
+        }
+
+        _pendingEdits.TryGetValue(key, out var pending);
+        bool overridden = pending != null ? !pending.Revert : attachment.FindOverride(definition.Name) != null;
+        edit.serialized.Update();
+        var property = edit.serialized.FindProperty(DockBoxedValue.ValuePath);
+        using (new EditorGUILayout.HorizontalScope())
+        {
+            using (new EditorGUILayout.VerticalScope())
+            {
+                if (property != null)
+                    EditorGUILayout.PropertyField(property, new GUIContent(overridden ? "Value" : "Value (default)",
+                        "This object's value: add, remove and edit items here; it's saved into the prefab shortly after."), true);
+                else
+                    EditorGUILayout.LabelField("(Unity can't draw this type)");
+            }
+            using (new EditorGUI.DisabledScope(!overridden))
+                if (GUILayout.Button(new GUIContent("↺", "Back to the Behavior's default"), EditorStyles.miniButton, GUILayout.Width(22)))
+                {
+                    QueueEdit(path, behavior, definition.Name, type, null, revert: true);
+                    _boxedEdits.Remove(key);
+                    GUIUtility.ExitGUI();
+                }
+        }
+        if (edit.serialized.ApplyModifiedPropertiesWithoutUndo())
+            QueueEdit(path, behavior, definition.Name, type, edit.holder.Box?.Boxed);
+    }
+
+    // Values inside an array, list or class can hold references to the prefab's own objects too (a Socket's Transform):
+    // each is pointed at the matching object in the loaded copy, however deep.
+    private object RemapToCopy(object value, GameObject copy, int depth = 0)
+    {
+        if (value == null || depth > 8)
+            return value;
+        if (value is UnityEngine.Object)
+            return ToCopy(value, copy);
+        var type = value.GetType();
+        if (type.IsPrimitive || type.IsEnum || value is string || type.IsValueType && !type.IsSerializable)
+            return value;
+        if (value is System.Collections.IList list)
+        {
+            for (int i = 0; i < list.Count; i++)
+                if (list[i] != null && !(list[i] is string) && !list[i].GetType().IsPrimitive)
+                    list[i] = RemapToCopy(list[i], copy, depth + 1);
+            return value;
+        }
+        if (!type.IsSerializable)
+            return value;
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        foreach (var field in type.GetFields(flags))
+        {
+            if (field.IsNotSerialized || field.IsInitOnly || (!field.IsPublic && field.GetCustomAttribute<SerializeField>() == null))
+                continue;
+            var inner = field.GetValue(value);
+            if (inner == null || inner is string || field.FieldType.IsPrimitive || field.FieldType.IsEnum)
+                continue;
+            var mapped = RemapToCopy(inner, copy, depth + 1);
+            if (!ReferenceEquals(mapped, inner) || type.IsValueType)
+                field.SetValue(value, mapped);
+        }
+        return value;
     }
 
     // A reference to one of the prefab's own objects has to point at the matching object in the loaded copy.
