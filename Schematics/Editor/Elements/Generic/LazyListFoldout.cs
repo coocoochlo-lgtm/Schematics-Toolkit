@@ -23,6 +23,9 @@ public class LazyListFoldout : LazyFoldout
 
     private Action<object> _onItemAdded;
     private Action<object> _onItemRemoved;
+    // Items have a remove button (the list was given onItemRemoved, and can be changed); confirmRemove: asked first.
+    private readonly bool _removable;
+    private readonly Func<object, bool> _confirmRemove;
 
     private Action<MouseDownEvent, object, Action> _itemLabelClicked;
 
@@ -60,9 +63,12 @@ public class LazyListFoldout : LazyFoldout
         Func<Texture2D> getListIcon = null,
         Func<object, Texture2D> getItemIcon = null,
         bool contentModifiable = true,
-        bool startExpanded = false
+        bool startExpanded = false,
+        Func<object, bool> confirmRemove = null
     )
     {
+        _removable = onItemRemoved != null && contentModifiable;
+        _confirmRemove = confirmRemove;
         _collection = new AnyCollection(collection);
         _listClassName = className;
         _title = title;
@@ -240,15 +246,38 @@ public class LazyListFoldout : LazyFoldout
                                                 "-",
                                                 () =>
                                                 {
+                                                    if (_confirmRemove != null && !_confirmRemove(item))
+                                                        return;
                                                     _onItemRemoved(item);
                                                     Collection.RemoveAt(index);
                                                     RenderContent(true);
                                                 });
+            removeButton.tooltip = "Remove";
+
+            // The remove button: in the item's own header when it has one (a child object's foldout), at the end of a
+            // row item, else in a slim row of its own; not when the item draws its own (an Identity List item).
+            var ownToggle = itemContent?.Q<Toggle>();
+            bool ownRemove = ownToggle != null && ownToggle.Q(className: "list-button-remove") != null;
+            if (_removable && !ownRemove)
+            {
+                var nestedHeader = itemContent?.Q(className: "list-toggle-container");
+                if (nestedHeader != null)
+                    nestedHeader.Add(removeButton);
+                else if (itemContent != null && itemContent.style.flexDirection == FlexDirection.Row)
+                    itemContent.Add(removeButton);
+                else
+                {
+                    itemHeader.Clear();
+                    itemHeader.style.flexDirection = FlexDirection.Row;
+                    itemHeader.style.justifyContent = Justify.FlexEnd;
+                    itemHeader.Add(removeButton);
+                    itemContainer.Insert(0, itemHeader);
+                }
+            }
 
             container.Add(itemContainer);
 
             listContainer.Add(container);
-            itemHeader.Add(removeButton);
 
             _listItem = _listItem == 0 ? 1 : 0;
         }

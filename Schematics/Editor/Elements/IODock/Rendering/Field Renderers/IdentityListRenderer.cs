@@ -19,6 +19,8 @@ public class IdentityListContainerRenderer : FieldRenderer
 
     // Which items are open, kept across redraws (adding, removing or renaming an item redraws the list).
     private static readonly HashSet<string> _openItems = new();
+    // The item just added, whose name is typed in place once it's drawn (-1: none).
+    private int _renameIndex = -1;
 
     public IdentityListContainerRenderer(SchematicGraphEditorWindow window, UnityEngine.Object obj, object parent, object target, FieldOrPropertyInfo fieldInfo, CustomFieldRendererAttribute attr, string path, List<Action> onModified) : base(window, obj, parent, target, fieldInfo, attr, path, onModified)
     {
@@ -93,19 +95,14 @@ public class IdentityListContainerRenderer : FieldRenderer
                                                         var newItem = Activator.CreateInstance(elementType);
                                                         var identifier = IdentifierMember(elementType);
 
-                                                        // A unique starting name ("New Map", "New Map 2"...), shown ready to type over.
+                                                        // A unique starting name ("New Map", "New Map 2"...), then typed over in place
+                                                        // in the new item's header once it's drawn.
                                                         if (identifier != null && identifier.MemberType == typeof(string))
+                                                        {
                                                             identifier.SetValue(newItem, UniqueName());
-
-                                                        Add(new InlineIdentifierEditor(popupRect: _containerFoldout.contentContainer.parent.Q<Toggle>().WorldBoundToScreen(),
-                                                                                        identifierType: ListIdentifierType.Name,
-                                                                                        getOriginalValue: () => identifier?.GetValue(newItem),
-                                                                                        onFinishedEditting: (bool success, object value) =>
-                                                                                        {
-                                                                                            if (identifier != null && value is string name && !string.IsNullOrWhiteSpace(name))
-                                                                                                identifier.SetValue(newItem, name.Trim());
-                                                                                            onCreationFinished?.Invoke(newItem);
-                                                                                        }));
+                                                            _renameIndex = _listAttr.Renamable ? (CurrentList()?.Count ?? 0) : -1;
+                                                        }
+                                                        onCreationFinished?.Invoke(newItem);
                                                     },
                                                     createItemContent: (int index, object item) =>
                                                     {
@@ -214,6 +211,14 @@ public class IdentityListContainerRenderer : FieldRenderer
                 evt.StopPropagation();
                 ChangeValue(elementPath, current, toggle, newName => itemFoldout.text = newName);
             }, TrickleDown.TrickleDown);
+
+            // Just added: its name typed in place right away.
+            if (index == _renameIndex)
+            {
+                _renameIndex = -1;
+                _openItems.Add(key);
+                toggle.schedule.Execute(() => ChangeValue(elementPath, current, toggle, newName => itemFoldout.text = newName)).ExecuteLater(1);
+            }
         }
 
         (bool drawFields, VisualElement fieldsContainer) = IODockRegistry.RenderMultipleFields(_window, _object, current, elementPath, onModified: _onModified);
@@ -223,8 +228,18 @@ public class IdentityListContainerRenderer : FieldRenderer
         return itemFoldout;
     }
 
+    // Renames an item: a name is typed in place, in its header (the popup only to pick from a dropdown's options, or
+    // where there's no header to type into).
     private void ChangeValue(string elementPath, object item, VisualElement anchor, Action<string> onItemEditted)
     {
+        var title = anchor as Label ?? anchor?.Q<Label>();
+        if (_listAttr.IdentifierType == ListIdentifierType.Name && title != null && title.parent != null)
+        {
+            var target = ManagedPath.Resolve(_object, elementPath) ?? item;
+            string current = IdentifierMember(target.GetType())?.GetValue(target)?.ToString() ?? "";
+            Remedy.Schematics.Templates.InlineRename.Begin(title, current, name => ApplyRename(elementPath, item, name, onItemEditted));
+            return;
+        }
         var identifierEditor = new InlineIdentifierEditor(popupRect: anchor.WorldBoundToScreen(),
                                                             identifierType: _listAttr.IdentifierType,
                                                             getOriginalValue: () =>

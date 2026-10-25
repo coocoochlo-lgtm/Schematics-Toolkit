@@ -120,6 +120,9 @@ public class PrefabHierarchy : VisualElement
 
     private string PathOf(Transform tf) => _shown != null && tf != null ? _shown.transform.GetRelativePath(tf) : "";
 
+    // A child just added, whose name is typed in place once its row is drawn (null: none).
+    private static string _renamePath;
+
     /// <summary>
     /// Twice a second: only redraws (never edits) when the prefab asset's objects or attached Behaviors changed
     /// elsewhere, e.g. a Prefab Mode save. Values aren't watched, so typing in a field never rebuilds.
@@ -289,28 +292,22 @@ public class PrefabHierarchy : VisualElement
                                                     // Setup Item/VisualElements
                                                     createItemInstance: (Action<object> onCreationFinished) =>
                                                     {
+                                                        // Made at once as "GameObject" (or "GameObject 2"...), then its name is typed in
+                                                        // place in its row once the dock is drawn again.
                                                         var parentPath = PathOf(tf);
-
-                                                        new InlineIdentifierEditor(popupRect: childListContainer.Q<Toggle>().WorldBoundToScreen(),
-                                                                                        identifierType: ListIdentifierType.Name,
-                                                                                        getOriginalValue: () => "GameObject",
-                                                                                        onFinishedEditting: (bool success, object value) =>
-                                                                                        {
-                                                                                            var name = value?.ToString();
-                                                                                            if (string.IsNullOrWhiteSpace(name))
-                                                                                                return;
-
-                                                                                            // The popup reports from its OnDisable; the prefab is edited afterwards.
-                                                                                            EditorApplication.delayCall += () => EditPrefab("Add Child", (root, live) =>
-                                                                                            {
-                                                                                                var parent = FindInCopy(root, parentPath);
-                                                                                                if (parent == null)
-                                                                                                    return;
-                                                                                                var child = new GameObject(name);
-                                                                                                child.transform.SetParent(parent, false);
-                                                                                                if (live) Undo.RegisterCreatedObjectUndo(child, "Add Child");
-                                                                                            });
-                                                                                        });
+                                                        string name = "GameObject";
+                                                        for (int n = 2; tf.Find(name) != null; n++)
+                                                            name = "GameObject " + n;
+                                                        _renamePath = string.IsNullOrEmpty(parentPath) ? name : parentPath + "/" + name;
+                                                        EditorApplication.delayCall += () => EditPrefab("Add Child", (root, live) =>
+                                                        {
+                                                            var parent = FindInCopy(root, parentPath);
+                                                            if (parent == null)
+                                                                return;
+                                                            var child = new GameObject(name);
+                                                            child.transform.SetParent(parent, false);
+                                                            if (live) Undo.RegisterCreatedObjectUndo(child, "Add Child");
+                                                        });
                                                     },
 
                                                     createItemContent: (int index, object item) =>
@@ -327,6 +324,12 @@ public class PrefabHierarchy : VisualElement
                                                             evt.StopPropagation();
                                                             RenameObject(childTf, nameLabel);
                                                         });
+                                                        // Just added: its name typed in place right away.
+                                                        if (nameLabel != null && _renamePath != null && PathOf(childTf) == _renamePath)
+                                                        {
+                                                            _renamePath = null;
+                                                            nameLabel.schedule.Execute(() => RenameObject(childTf, nameLabel)).ExecuteLater(1);
+                                                        }
 
                                                         AddComponentRow(objectContainer, childTf, schematicWindow);
                                                         RestoreExpanded(objectContainer, childTf);
@@ -344,7 +347,12 @@ public class PrefabHierarchy : VisualElement
                                                         if (evt.clickCount == 2 && evt.button == 0)
                                                             RenameObject((Transform)item, childListContainer);
                                                     },
-                                                    getListIcon: () => { return EditorGUIUtility.IconContent("GameObject Icon").image as Texture2D; } );
+                                                    getListIcon: () => { return EditorGUIUtility.IconContent("GameObject Icon").image as Texture2D; },
+                                                    // Deleting an object takes its children and Behaviors with it: asked first.
+                                                    confirmRemove: (object item) => item is Transform child && child != null
+                                                        && EditorUtility.DisplayDialog("Delete Object",
+                                                            $"Delete {child.name}{(child.childCount > 0 ? " and everything under it" : "")}, with its Schematic Behaviors?",
+                                                            "Delete", "Cancel"));
 
 
         _foldouts.Add(childListFoldout);
@@ -957,7 +965,7 @@ public class PrefabHierarchy : VisualElement
         });
     }
 
-    /// <summary>Renames a GameObject of the prefab (double-click its name).</summary>
+    /// <summary>Renames a GameObject of the prefab (double-click its name): typed into its name, in place.</summary>
     private void RenameObject(Transform tf, VisualElement anchor)
     {
         if (tf == null)
@@ -967,26 +975,32 @@ public class PrefabHierarchy : VisualElement
             return; // The root is named after the prefab file.
         var current = tf.name;
 
+        void Apply(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name) || name == current)
+                return;
+            // (After the field is gone: the dock is drawn again for the change.)
+            EditorApplication.delayCall += () => EditPrefab("Rename", (root, live) =>
+            {
+                var target = FindInCopy(root, tfPath);
+                if (target == null)
+                    return;
+                if (live)
+                    Undo.RecordObject(target.gameObject, "Rename");
+                target.name = name;
+            });
+        }
+
+        var label = anchor as Label ?? anchor?.Q<Label>(className: "list-label");
+        if (label != null && label.parent != null)
+        {
+            Remedy.Schematics.Templates.InlineRename.Begin(label, current, Apply);
+            return;
+        }
         new InlineIdentifierEditor(popupRect: anchor.WorldBoundToScreen(),
                                    identifierType: ListIdentifierType.Name,
                                    getOriginalValue: () => current,
-                                   onFinishedEditting: (bool change, object newValue) =>
-                                   {
-                                       var name = newValue?.ToString();
-                                       if (string.IsNullOrWhiteSpace(name) || name == current)
-                                           return;
-
-                                       // The popup reports from its OnDisable; the prefab is edited afterwards.
-                                       EditorApplication.delayCall += () => EditPrefab("Rename", (root, live) =>
-                                       {
-                                           var target = FindInCopy(root, tfPath);
-                                           if (target == null)
-                                               return;
-                                           if (live)
-                                               Undo.RecordObject(target.gameObject, "Rename");
-                                           target.name = name;
-                                       });
-                                   });
+                                   onFinishedEditting: (bool change, object newValue) => Apply(newValue?.ToString()));
     }
 
     /// <summary>

@@ -87,6 +87,7 @@ public class GraphScopeDock : VisualElement
                 row.Add(field);
             }
 
+            RenameOnDoubleClick(row, variable.Name, name => GraphScopeEditing.RenameVariable(graph, variable, name));
             row.AddManipulator(new ContextualMenuManipulator(evt =>
             {
                 evt.menu.AppendAction("Rename", _ => Rename(row, variable.Name, name => GraphScopeEditing.RenameVariable(graph, variable, name)));
@@ -140,6 +141,7 @@ public class GraphScopeDock : VisualElement
             GraphScopeEditing.VariableTypes);
         card.Add(parameters);
 
+        RenameOnDoubleClick(row, signal.Name, name => GraphScopeEditing.RenameSignal(graph, signal, name));
         row.AddManipulator(new ContextualMenuManipulator(evt =>
         {
             evt.menu.AppendAction("Rename", _ => Rename(row, signal.Name, name => GraphScopeEditing.RenameSignal(graph, signal, name)));
@@ -328,8 +330,28 @@ public class GraphScopeDock : VisualElement
         return label;
     }
 
+    // Double-click a row's name to rename it (in place).
+    private void RenameOnDoubleClick(VisualElement row, string current, Action<string> rename)
+    {
+        var name = row.Q<Label>(className: "dock-row-name");
+        name?.RegisterCallback<PointerDownEvent>(evt =>
+        {
+            if (evt.button != 0 || evt.clickCount != 2)
+                return;
+            evt.StopPropagation();
+            Rename(row, current, rename);
+        }, TrickleDown.TrickleDown);
+    }
+
+    // Renames a row's item: typed into its name, in place (a popup where there's no name to type into).
     private void Rename(VisualElement anchor, string current, Action<string> rename)
     {
+        var name = anchor?.Q<Label>(className: "dock-row-name");
+        if (name != null && name.parent != null)
+        {
+            Remedy.Schematics.Templates.InlineRename.Begin(name, current, value => rename(value));
+            return;
+        }
         Add(new InlineIdentifierEditor(popupRect: anchor.WorldBoundToScreen(),
                                        identifierType: ListIdentifierType.Name,
                                        getOriginalValue: () => current,
