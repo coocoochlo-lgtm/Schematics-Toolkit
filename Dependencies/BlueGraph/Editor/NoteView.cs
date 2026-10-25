@@ -46,6 +46,17 @@ namespace BlueGraph.Editor
             style.paddingTop = 2;
             style.paddingBottom = 4;
 
+            // A soft gloss over the color (the browser cards'), rounded with the note.
+            var gloss = new VisualElement { name = "note-gloss", pickingMode = PickingMode.Ignore };
+            gloss.style.position = Position.Absolute;
+            gloss.style.left = gloss.style.top = gloss.style.right = gloss.style.bottom = 0;
+            gloss.style.borderTopLeftRadius = gloss.style.borderTopRightRadius = gloss.style.borderBottomLeftRadius = gloss.style.borderBottomRightRadius = 3;
+            var glossTexture = Resources.Load<Texture2D>("Textures/button-gradient");
+            if (glossTexture != null)
+                gloss.style.backgroundImage = glossTexture;
+            gloss.style.opacity = 0.28f;
+            Add(gloss);
+
             // The swatch along the top, at the right.
             var top = new VisualElement();
             top.style.flexDirection = FlexDirection.Row;
@@ -85,7 +96,17 @@ namespace BlueGraph.Editor
             input.style.borderTopWidth = input.style.borderBottomWidth = input.style.borderLeftWidth = input.style.borderRightWidth = 0;
             input.style.paddingLeft = input.style.paddingRight = 2;
             input.RegisterCallback<KeyDownEvent>(OnTextKeyDown, TrickleDown.TrickleDown);
-            input.RegisterCallback<FocusOutEvent>(_ => FinishEditing());
+            input.RegisterCallback<FocusOutEvent>(_ =>
+            {
+                // Losing focus straight after it opened is the rest of the double-click (the canvas taking the mouse
+                // up), not clicking away: it keeps the focus.
+                if (EditorApplication.timeSinceStartup - editStarted < 0.3)
+                {
+                    input.schedule.Execute(() => { if (Editing) input.Focus(); });
+                    return;
+                }
+                FinishEditing();
+            });
             scroll.Add(textEditor);
             Add(scroll);
 
@@ -228,19 +249,36 @@ namespace BlueGraph.Editor
         }
 
         // Double-click anywhere on the note (but its swatch and edge grips) to edit its text.
+        // The last press, to tell a double-click by its timing too (not only by the event's click count).
+        private double lastPress = -10;
+        private Vector2 lastPressAt;
+        private double editStarted = -10;
+
+        private bool Editing => textEditor.resolvedStyle.display != DisplayStyle.None && textEditor.style.display != DisplayStyle.None;
+
         private void OnPointerDown(PointerDownEvent evt)
         {
-            if (evt.button != 0 || evt.clickCount != 2 || textEditor.style.display != DisplayStyle.None)
+            if (evt.button != 0 || Editing)
                 return;
             if (evt.target is VisualElement element && (colorField.Contains(element) || element.ClassListContains("edge-grip")))
                 return;
-            EditText();
+            double now = EditorApplication.timeSinceStartup;
+            bool doubleClick = evt.clickCount == 2
+                || (now - lastPress < 0.4 && ((Vector2)evt.position - lastPressAt).sqrMagnitude < 36f);
+            lastPress = now;
+            lastPressAt = evt.position;
+            if (!doubleClick)
+                return;
+            lastPress = -10;
             evt.StopPropagation();
+            // Opened once this click is over (the canvas would otherwise take the focus back on the mouse up).
+            schedule.Execute(EditText).StartingIn(30);
         }
 
         /// <summary>Edits the text in place.</summary>
         public void EditText()
         {
+            editStarted = EditorApplication.timeSinceStartup;
             textLabel.style.display = DisplayStyle.None;
             textEditor.SetValueWithoutNotify(Target.Text ?? "");
             textEditor.style.display = DisplayStyle.Flex;
@@ -261,6 +299,7 @@ namespace BlueGraph.Editor
         {
             if (textEditor.style.display == DisplayStyle.None)
                 return;
+            editStarted = -10;
             textEditor.style.display = DisplayStyle.None;
             textLabel.style.display = DisplayStyle.Flex;
             if (!isEditingCancelled && textEditor.value != Target.Text)

@@ -84,6 +84,12 @@ namespace BlueGraph.Editor
 
             RegisterCallback<MouseDownEvent>(OnMouseDown);
             this.AddManipulator(new ContextualMenuManipulator(BuildContextualMenu));
+            // Right-clicking the body is right-clicking the canvas (its own menu: create a node, add a note...); the
+            // comment's menu is its header's.
+            RegisterCallback<PointerDownEvent>(OpenCanvasMenuFromBody, TrickleDown.TrickleDown);
+            RegisterCallback<PointerUpEvent>(OpenCanvasMenuFromBody, TrickleDown.TrickleDown);
+            RegisterCallback<MouseDownEvent>(StopRightClickInBody, TrickleDown.TrickleDown);
+            RegisterCallback<MouseUpEvent>(StopRightClickInBody, TrickleDown.TrickleDown);
             
             SetTheme(Target.Theme);
             ApplyColor();
@@ -132,6 +138,25 @@ namespace BlueGraph.Editor
 
                 evt.menu.AppendSeparator();
             }
+        }
+
+        // A right-click in the body (not the header, not an edge grip): the canvas's menu, where it was clicked.
+        private void OpenCanvasMenuFromBody<T>(PointerEventBase<T> evt) where T : PointerEventBase<T>, new()
+        {
+            if (evt.button != 1 || HitTest(evt.localPosition) || (evt.target is VisualElement element && element.ClassListContains("edge-grip")))
+                return;
+            var canvas = GetFirstAncestorOfType<CanvasView>();
+            if (canvas == null || panel?.contextualMenuManager == null)
+                return;
+            // (Shown on the press or the release, whichever the platform opens menus on.)
+            panel.contextualMenuManager.DisplayMenuIfEventMatches(evt, canvas);
+            evt.StopPropagation();
+        }
+
+        private void StopRightClickInBody<T>(MouseEventBase<T> evt) where T : MouseEventBase<T>, new()
+        {
+            if (evt.button == 1 && !HitTest(evt.localMousePosition))
+                evt.StopPropagation();
         }
 
         private static bool SameColor(Color a, Color b) =>
