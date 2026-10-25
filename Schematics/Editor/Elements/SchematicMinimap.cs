@@ -194,18 +194,6 @@ public class SchematicMinimap : VisualElement
             var rect = ToMap(note.GetPosition());
             var noteColor = note.Target.Color;
             EditorGUI.DrawRect(rect, _canvas.selection.Contains(note) ? new Color(0.3f, 0.6f, 0.9f, 1f) : noteColor);
-            // A pencil on it (dark on light colors, light on dark), as big as fits.
-            float pencil = Mathf.Min(12f, rect.width - 2f, rect.height - 2f);
-            if (NoteIcon != null && pencil >= 4f)
-            {
-                var previous = GUI.color;
-                float luminance = 0.2126f * noteColor.r + 0.7152f * noteColor.g + 0.0722f * noteColor.b;
-                GUI.color = luminance > 0.5f ? new Color(0.1f, 0.1f, 0.1f, 0.85f) : new Color(1f, 1f, 1f, 0.9f);
-                GUI.DrawTexture(new Rect(rect.center.x - pencil * 0.5f, rect.center.y - pencil * 0.5f, pencil, pencil), NoteIcon, ScaleMode.ScaleToFit);
-                GUI.color = previous;
-            }
-            if (rect.Contains(mouse) && !string.IsNullOrEmpty(note.Target.Text))
-                hover = FirstLine(note.Target.Text);
         }
 
         _nodeHits.Clear();
@@ -257,6 +245,11 @@ public class SchematicMinimap : VisualElement
                 hover = target.Name;
         }
 
+        // Each note's pencil, on top (at a size that reads, however small the note is on the map); hovered, its first
+        // few words instead.
+        foreach (var note in _canvas.Query<NoteView>().ToList())
+            DrawNoteMark(ToMap(note.GetPosition()), note.Target, mouse);
+
         // The visible part of the graph.
         var view = ToMap(viewport);
         DrawOutline(view, new Color(1f, 1f, 1f, 0.8f));
@@ -271,19 +264,48 @@ public class SchematicMinimap : VisualElement
         }
     }
 
-    // The comment under the mouse: the innermost one, when comments sit inside each other.
     private static Texture2D _noteIcon;
     // Notes' mark: a pencil (white, tinted where it's drawn).
     private static Texture2D NoteIcon => _noteIcon != null ? _noteIcon : _noteIcon = Resources.Load<Texture2D>("Textures/note-pencil");
 
-    // A note's first line, short, for its name on hover.
-    private static string FirstLine(string text)
+    private const float NoteIconSize = 10f;
+
+    // A note's mark on the map: its pencil (dark on light colors, light on dark) at its middle; with the mouse over it,
+    // the note's first three words in its place.
+    private void DrawNoteMark(Rect rect, BlueGraph.Note note, Vector2 mouse)
     {
-        int end = text.IndexOf('\n');
-        var line = end >= 0 ? text.Substring(0, end) : text;
-        return line.Length > 40 ? line.Substring(0, 40) + "\u2026" : line;
+        var color = note.Color;
+        float luminance = 0.2126f * color.r + 0.7152f * color.g + 0.0722f * color.b;
+        var ink = luminance > 0.5f ? new Color(0.1f, 0.1f, 0.1f, 0.9f) : new Color(1f, 1f, 1f, 0.95f);
+        var icon = new Rect(rect.center.x - NoteIconSize * 0.5f, rect.center.y - NoteIconSize * 0.5f, NoteIconSize, NoteIconSize);
+        if (rect.Contains(mouse) || Inflate(icon, 2f).Contains(mouse))
+        {
+            var content = new GUIContent(FirstWords(note.Text, 3));
+            var style = new GUIStyle(EditorStyles.miniBoldLabel) { normal = { textColor = ink }, alignment = TextAnchor.MiddleCenter };
+            var size = style.CalcSize(content);
+            var label = new Rect(Mathf.Clamp(rect.center.x - size.x * 0.5f - 3f, 0f, Width - size.x - 6f), rect.center.y - size.y * 0.5f, size.x + 6f, size.y);
+            EditorGUI.DrawRect(label, color);
+            GUI.Label(label, content, style);
+            return;
+        }
+        if (NoteIcon == null)
+            return;
+        var previous = GUI.color;
+        GUI.color = ink;
+        GUI.DrawTexture(icon, NoteIcon, ScaleMode.ScaleToFit);
+        GUI.color = previous;
     }
 
+    // The first few words of a note ("..." when there are more); "Note" when it has none.
+    private static string FirstWords(string text, int count)
+    {
+        var words = (text ?? "").Split(new[] { ' ', '\n', '\r', '\t' }, System.StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length == 0)
+            return "Note";
+        return string.Join(" ", words, 0, Mathf.Min(count, words.Length)) + (words.Length > count ? "..." : "");
+    }
+
+    // The comment under the mouse: the innermost one, when comments sit inside each other.
     private CommentView CommentAt(Vector2 local)
     {
         CommentView best = null;

@@ -20,6 +20,7 @@ namespace BlueGraph.Editor
         private readonly Label textLabel;
         private readonly TextField textEditor;
         private readonly ColorField colorField;
+        private readonly Image pencil;
         private bool isEditingCancelled;
         private double lastColorChange = -10;
 
@@ -57,11 +58,17 @@ namespace BlueGraph.Editor
             gloss.style.opacity = 0.28f;
             Add(gloss);
 
-            // The swatch along the top, at the right.
+            // Along the top: a pencil at the left (it's a note), the swatch at the right.
             var top = new VisualElement();
             top.style.flexDirection = FlexDirection.Row;
-            top.style.justifyContent = Justify.FlexEnd;
+            top.style.justifyContent = Justify.SpaceBetween;
+            top.style.alignItems = Align.Center;
             top.style.flexShrink = 0;
+            pencil = new Image { image = Resources.Load<Texture2D>("Textures/note-pencil"), scaleMode = ScaleMode.ScaleToFit, pickingMode = PickingMode.Ignore };
+            pencil.style.width = pencil.style.height = 14;
+            pencil.style.marginLeft = 1;
+            pencil.style.marginTop = 1;
+            top.Add(pencil);
             colorField = new ColorField
             {
                 showAlpha = false,
@@ -230,6 +237,7 @@ namespace BlueGraph.Editor
             float luminance = 0.2126f * color.r + 0.7152f * color.g + 0.0722f * color.b;
             var textColor = luminance > 0.5f ? new Color(0.1f, 0.1f, 0.1f) : new Color(0.95f, 0.95f, 0.95f);
             textLabel.style.color = textColor;
+            pencil.tintColor = new Color(textColor.r, textColor.g, textColor.b, 0.7f);
             // The text being edited in the same color (its field is see-through, on the note).
             textEditor.style.color = textColor;
             foreach (var text in textEditor.Query<TextElement>().ToList())
