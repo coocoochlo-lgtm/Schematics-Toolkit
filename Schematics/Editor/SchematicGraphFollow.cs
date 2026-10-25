@@ -231,9 +231,8 @@ public partial class SchematicGraphEditorWindow
     private void LoadedForFollow()
     {
         ApplyTitle();
-        // (Every graph window's dock is the IO Dock's to show while it's open.)
-        if (HierarchyIODock.InUse)
-            _sidebarAndContent?.SetSidebarShown(false);
+        // (The dock is the IO Dock's to show, in the Hierarchy: in the window only while it's maximized.)
+        _sidebarAndContent?.SetSidebarShown(DockInWindow);
         if (FollowsSelection)
             rootVisualElement.Insert(0, new SchematicTargetHeader(forDock: false));
         FollowerChanged?.Invoke(this);
@@ -263,18 +262,36 @@ public partial class SchematicGraphEditorWindow
     /// <summary>The IO Dock is showing the dock: the canvas takes the whole tab.</summary>
     internal void LendDock() => _sidebarAndContent?.SetSidebarShown(false);
 
-    /// <summary>The IO Dock closed: the dock goes back in this window's sidebar.</summary>
+    /// <summary>The IO Dock let go of the dock: it goes back in this window's sidebar (shown only while maximized).</summary>
     internal void ReturnDock()
     {
         if (_sidebarTabs == null || _sidebarAndContent == null)
             return;
         if (_sidebarTabs.parent != _sidebarAndContent.SidebarContainer)
             _sidebarAndContent.SidebarContainer.Add(_sidebarTabs);
-        _sidebarAndContent.SetSidebarShown(true);
+        _sidebarAndContent.SetSidebarShown(DockInWindow);
     }
+
+    // The dock shows in this window's own sidebar only while it's maximized (the Hierarchy, and its IO Dock, are down
+    // meanwhile); otherwise it's the IO Dock's, in the Hierarchy.
+    private bool DockInWindow => maximized && !HierarchyIODock.InUse;
+
+    // Maximized last frame (the sidebar shown or hidden when that changes).
+    private bool _wasMaximized;
 
     protected override void Update()
     {
+        // Maximized or restored: the dock in the sidebar while maximized, hidden otherwise.
+        bool maximizedNow = maximized;
+        if (maximizedNow != _wasMaximized && _sidebarAndContent != null)
+        {
+            _wasMaximized = maximizedNow;
+            if (maximizedNow && !HierarchyIODock.InUse)
+                ReturnDock();
+            else
+                _sidebarAndContent.SetSidebarShown(DockInWindow && _sidebarTabs?.parent == _sidebarAndContent.SidebarContainer);
+        }
+
         // The Graph tab with nothing loaded (just opened, or after a script reload): its graph loaded again, or wait.
         if (FollowsSelection && Canvas == null)
         {
