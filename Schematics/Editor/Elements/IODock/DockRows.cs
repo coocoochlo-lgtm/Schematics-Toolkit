@@ -12,7 +12,7 @@ using UnityEngine.UIElements;
 /// </summary>
 public static class DockRows
 {
-    private static Texture2D _inputIcon, _outputIcon, _variableIcon, _graphIcon;
+    private static Texture2D _inputIcon, _outputIcon, _variableIcon, _graphIcon, _signalIcon;
     public static Texture2D InputIcon => _inputIcon ??= Resources.Load<Texture2D>("Icons/Input");
     public static Texture2D OutputIcon => _outputIcon ??= Resources.Load<Texture2D>("Icons/Output");
     /// <summary>
@@ -20,6 +20,40 @@ public static class DockRows
     /// drawn (<see cref="ColorOf"/>, the wires' colours), in the dock and the minimap alike.
     /// </summary>
     public static Texture2D VariableIcon => _variableIcon != null ? _variableIcon : _variableIcon = MakeDot(solid: false);
+    /// <summary>
+    /// Signals: a white triangle with a dimmer centre (the Variables' ring, as a triangle: a value goes, a Signal goes
+    /// off), tinted with <see cref="SignalColor"/> where it's drawn.
+    /// </summary>
+    public static Texture2D SignalIcon => _signalIcon != null ? _signalIcon : _signalIcon = MakeTriangle();
+
+    /// <summary>A Signal's tint, by which way it goes (the minimap's): in, cyan; out, amber.</summary>
+    public static Color SignalColor(bool output) => output ? new Color(1f, 0.75f, 0.35f) : new Color(0.45f, 0.9f, 1f);
+
+    /// <summary>
+    /// The start of a Signal's row, like a Variable's: a bar and the triangle, in the Signal's colour.
+    /// </summary>
+    public static VisualElement SignalMark(bool output)
+    {
+        var mark = new VisualElement { pickingMode = PickingMode.Ignore };
+        mark.AddToClassList("dock-signal-mark");
+        mark.style.flexDirection = FlexDirection.Row;
+        mark.style.alignItems = Align.Center;
+        mark.style.flexShrink = 0;
+        var chip = new VisualElement { pickingMode = PickingMode.Ignore };
+        chip.AddToClassList("dock-type-chip");
+        chip.style.width = 4;
+        chip.style.height = 14;
+        chip.style.marginRight = 4;
+        chip.style.backgroundColor = SignalColor(output);
+        mark.Add(chip);
+        var icon = new Image { image = SignalIcon, tintColor = SignalColor(output), pickingMode = PickingMode.Ignore };
+        icon.style.width = 16;
+        icon.style.height = 16;
+        icon.style.marginRight = 4;
+        mark.Add(icon);
+        return mark;
+    }
+
     /// <summary>Graph Variables: a solid dot (so they read apart from Behavior ones), tinted the same way.</summary>
     public static Texture2D GraphVariableIcon => _graphIcon != null ? _graphIcon : _graphIcon = MakeDot(solid: true);
 
@@ -47,7 +81,9 @@ public static class DockRows
         handle.style.flexShrink = 0;
         row.Add(handle);
 
-        if (!signal)
+        if (signal)
+            handle.Add(SignalMark(item.Direction == SignalDirection.Output));
+        else
         {
             var chip = new VisualElement();
             chip.AddToClassList("dock-type-chip");
@@ -59,6 +95,9 @@ public static class DockRows
         }
 
         var image = new Image { image = icon };
+        // (A Signal's mark is its triangle, above.)
+        if (signal)
+            image.style.display = DisplayStyle.None;
         // A Variable's dot in its type's colour.
         if (!signal && (icon == VariableIcon || icon == GraphVariableIcon))
             image.tintColor = ColorOf(item.ValueType);
@@ -206,6 +245,36 @@ public static class DockRows
         foreach (var (name, type) in parameters)
             parts.Add($"{TypeName(type)} {name}");
         return string.Join(", ", parts);
+    }
+
+    // White, for tinting, at 32 px: a triangle pointing right, outlined, its centre dimmer (as the Variables' ring).
+    private static Texture2D MakeTriangle()
+    {
+        const int size = 32;
+        var texture = new Texture2D(size, size, TextureFormat.RGBA32, false) { hideFlags = HideFlags.HideAndDontSave, filterMode = FilterMode.Bilinear };
+        var corners = new[] { new Vector2(8f, 4.5f), new Vector2(8f, 27.5f), new Vector2(28f, 16f) };
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                var p = new Vector2(x + 0.5f, y + 0.5f);
+                // How far inside every edge it is (negative: outside).
+                float d = float.MaxValue;
+                for (int i = 0; i < 3; i++)
+                {
+                    var a = corners[i];
+                    var b = corners[(i + 1) % 3];
+                    var edge = (b - a).normalized;
+                    var inward = new Vector2(-edge.y, edge.x);
+                    if (Vector2.Dot(corners[(i + 2) % 3] - a, inward) < 0f)
+                        inward = -inward;
+                    d = Mathf.Min(d, Vector2.Dot(p - a, inward));
+                }
+                float alpha = Mathf.Clamp01(d + 0.5f);
+                float inner = Mathf.Clamp01(d - 3.5f + 0.5f);
+                texture.SetPixel(x, y, new Color(1f, 1f, 1f, Mathf.Lerp(alpha, 0.45f, inner)));
+            }
+        texture.Apply();
+        return texture;
     }
 
     // White, for tinting: drawn at 32 px (crisp at 16 and on high-DPI screens).

@@ -934,3 +934,13 @@ TextElement
 	transition-property: rotate;
 	transition-duration: 0.12s;
 }
+
+/* Signal and Variable names, equally bright. */
+.dock-signal .event-name, .dock-signal .event-name TextElement, .dock-row .event-name, .dock-row-name
+{
+	color: #e6e6e6;
+}
+.dock-signal-mark
+{
+	margin-left: 2px;
+}

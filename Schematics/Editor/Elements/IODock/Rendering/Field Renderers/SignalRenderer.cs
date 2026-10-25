@@ -259,6 +259,8 @@ public class SignalRenderer : FieldRenderer
 
         imageElement.tooltip = signalType ? "Output Signal" : "Input Signal";
 
+        // Like a Variable's row: its bar and mark first, in the Signal's colour.
+        row.Add(DockRows.SignalMark(signalType));
         row.Add(nameField);
         row.Add(imageElement);
 
