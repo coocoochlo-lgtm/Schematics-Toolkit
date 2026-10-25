@@ -285,88 +285,35 @@ public class SignalRenderer : FieldRenderer
             }
         }
 
-        var paramList = new LazyListFoldout(collection: signalData.Parameters.Contents,
-                                            className: "event-parameters",
-                                            title: "Parameters",
-                                            onItemAdded: (object item) => 
-                                            { 
-                                                signalData.Parameters.Contents.Add((SignalData.Parameter)item);
-                                                signalData.RuntimeArgs = new Union[signalData.Parameters.Contents.Count];
-                                            },
-                                            onItemRemoved: (object item) => 
-                                            { 
-                                                signalData.Parameters.Contents.Remove((SignalData.Parameter)item);
-                                                signalData.RuntimeArgs = new Union[signalData.Parameters.Contents.Count];
-                                            },
-                                            createItemInstance: (Action<object> onFinished) =>
-                                            {
-                                                var value = new SignalData.Parameter();
-                                                onFinished?.Invoke(value);
-                                            },
-                                            createItemContent: (int index, object value) =>
-                                            {
-                                                var param = signalData.Parameters[index];
-                                                var paramType = param.Type;
-
-                                                var typePopup = new PopupField<Type>(
-                                                    Union.TypeLookup.Values.Where(type => type != null).ToList(),
-                                                    Union.TypeLookup[param.Type],
-                                                    t => t?.Name ?? "???",
-                                                    t => t?.Name ?? "???"
-                                                );
-
-                                                typePopup.SetEnabled(_evAttr.ParamTypeModifiable && decidedType == null);
-                                                if (decidedType != null)
-                                                    typePopup.tooltip = "Set by the Input Action's control type.";
-
-                                                var nameField = new TextField { value = ((SignalData.Parameter)value).Name , style = { flexGrow = 1, paddingLeft = 0 } };
-
-                                                nameField.Children().ElementAt(0).AddToClassList("event-name");
-
-                                                nameField.RegisterCallback<MouseEnterEvent>(_ => nameField.Children().ElementAt(0).AddToClassList("event-name-hover"));
-                                                nameField.RegisterCallback<MouseLeaveEvent>(_ => nameField.Children().ElementAt(0).RemoveFromClassList("event-name-hover"));
-
-                                                string oldName = nameField.value;
-                                                string newName = nameField.value;
-                                                                
-                                                nameField.RegisterValueChangedCallback(evt =>
-                                                {
-                                                    newName = evt.newValue;
-                                                });
-
-                                                nameField.SetEnabled(_evAttr.ParamNameModifiable);
-
-                                                var paramRow = new VisualElement
-                                                {
-                                                    style =
-                                                    {
-                                                        flexDirection = FlexDirection.Row,
-                                                        borderBottomWidth = 0,
-                                                        paddingLeft = 0
-                                                    }
-                                                };
-
-                                                paramRow.AddToClassList("event-parameter-container");
-                                                paramRow.RegisterCallback<MouseEnterEvent>(_ => nameField.Children().ElementAt(0).AddToClassList("event-parameter-container-hover"));
-                                                paramRow.RegisterCallback<MouseLeaveEvent>(_ => nameField.Children().ElementAt(0).RemoveFromClassList("event-parameter-container-hover"));
-
-                                                paramRow.Add(typePopup);
-                                                paramRow.Add(nameField);
-
-                                                var typeDef = SchematicEditorData.EditorTypeSettings.FirstOrDefault(item => Type.GetType(item.Type) == typePopup.value);
-                                                if (typeDef != null)
-                                                    paramRow.style.backgroundColor = typeDef.ColorInEditor;
-                                                else
-                                                {
-                                                    Debug.LogWarning("Type Definition does not exist for: " + typePopup.value);
-                                                }
-
-                                                return paramRow;
-                                            },
-                                            getItemName: (object item) => { return ((SignalData.Parameter)item).Name; },
-                                            contentModifiable: _evAttr.ParametersEditable && decidedType == null,
-                                            startExpanded: true
-                                            );
+        // Its parameters: a dot each, in its type's colour, in a line under the name; hover one for "name: type". Where
+        // they can be changed: double-click the name to rename it, click the type for the list of types, right-click a
+        // dot to remove it, "+" to add one.
+        bool editable = decidedType == null;
+        Type TypeOf(SignalData.Parameter parameter) => Union.TypeLookup.TryGetValue(parameter.Value.Type, out var type) ? type : null;
+        var paramList = new SignalParameterList(
+            () => signalData.Parameters.Contents.Select(p => (p.Name, TypeOf(p))).ToList(),
+            (parameters, renamedFrom, renamedTo) =>
+            {
+                Undo.RecordObject(signalData, "Edit Signal Parameters");
+                var old = signalData.Parameters.Contents;
+                var edited = new List<SignalData.Parameter>();
+                foreach (var (name, type) in parameters)
+                {
+                    // (A parameter keeping its type keeps its value; the one renamed is found by its old name.)
+                    string was = name == renamedTo && renamedFrom != null ? renamedFrom : name;
+                    int at = old.FindIndex(p => p.Name == was);
+                    edited.Add(at >= 0 && TypeOf(old[at]) == type ? new SignalData.Parameter(name, old[at].Value) : new SignalData.Parameter(name, new Union(type)));
+                }
+                signalData.Parameters.Contents = edited;
+                signalData.RuntimeArgs = new Union[edited.Count];
+                EditorUtility.SetDirty(signalData);
+                if (_window != null && _window.Canvas != null)
+                    _window.Canvas.Reload();
+            },
+            SignalParameterList.UnionTypes,
+            editable: editable && _evAttr.ParametersEditable,
+            namesEditable: editable && _evAttr.ParamNameModifiable,
+            typesEditable: editable && _evAttr.ParamTypeModifiable);
 
         signalData.RuntimeArgs = new Union[signalData.Parameters.Contents.Count];
 
