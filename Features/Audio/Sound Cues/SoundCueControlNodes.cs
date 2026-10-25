@@ -11,7 +11,7 @@ namespace Remedy.Audio
     // The Output, and the controls: values that change over time or with the game, for any input to follow. Every
     // wire carries one value per sample, like a shader's wires carry one per pixel.
 
-    [SchematicDoc(@"{""name"": ""Output"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue"", ""description"": ""The finished sound: its Audio, times its Volume. Length: Auto plays as long as the longest Sound Wave or Generator in the cue; Fixed plays for Duration seconds; Endless plays until it's stopped. Heard By AI: how far away AI can hear it in the open, in meters (0: AI never hear it); walls, corners and doorways between change that as they would the sound."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Volume"", ""type"": ""float""}]}")]
+    [SchematicDoc(@"{""name"": ""Output"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue"", ""description"": ""The finished sound: its Audio, times its Volume. Length: Auto plays as long as the longest Sound Wave or Generator in the cue; Fixed plays for Duration seconds; Endless plays until it's stopped. Heard By AI: how far away AI can hear it in the open, in meters (0: AI never hear it); walls, corners and doorways between change that as they would the sound. Echo Delay: how late its Spatial echoes and slapback come back, as a multiple of real sound (1 as sound travels, 2 twice as late, 0.5 half)."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Volume"", ""type"": ""float""}]}")]
     [Serializable]
     [NodeColor(NodeColors.Event)]
     [Node(Name = "Output", Path = "Output", Deletable = false), Tags(SoundNode.Tag)]
@@ -51,6 +51,8 @@ namespace Remedy.Audio
         public float AudibleRange = 60f;
         [Editable, Tooltip("Custom falloff: the volume (1 = full) across the range, from Full Volume Within (0) to Audible Range (1).")]
         public AnimationCurve FalloffCurve = AnimationCurve.EaseInOut(0f, 1f, 1f, 0f);
+        [Editable, Tooltip("How late its echoes come back, as a multiple of real sound (Spatial Reverb and Delay): 1 as sound travels; 2 twice as late, as if sound were half as fast (bigger, slower echoes); 0.5 half as late. Echo walls and slapback; the sound itself and its reverb aren't delayed.")]
+        public float EchoDelay = 1f;
 
         /// <summary>Whether the cue sets its own falloff (rather than leaving it to the AudioSource).</summary>
         public bool OwnsFalloff => Falloff != FalloffShape.AudioSource;

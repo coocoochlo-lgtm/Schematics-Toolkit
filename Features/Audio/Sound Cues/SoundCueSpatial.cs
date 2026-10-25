@@ -26,6 +26,15 @@ namespace Remedy.Audio
         /// none.
         /// </summary>
         public System.Collections.Generic.List<TrailProbe> Trails;
+        /// <summary>
+        /// How late echoes come back, as a multiple of real sound (the cue's Output Echo Delay): their delay behind the
+        /// sound itself, and the slapback's.
+        /// </summary>
+        public float EchoDelay = 1f;
+
+        /// <summary>A cue's Output Echo Delay (1 when it has no Output).</summary>
+        public static float EchoDelayOf(BlueGraph.Graph graph)
+            => graph is SoundCueGraph cue && cue.Output != null ? Mathf.Clamp(cue.Output.EchoDelay, 0f, 10f) : 1f;
         /// <summary>The effect's Mix, from the audio thread (how much a Trail's spots send on).</summary>
         public float SendMix = 1f;
         /// <summary>
@@ -148,11 +157,11 @@ namespace Remedy.Audio
                 float direct = Vector3.Distance(position, listener);
                 for (int i = 0; i < count; i++)
                 {
-                    float gate = Gate((_simPaths[i] - direct) / SoundSpaces.SpeedOfSound, _simReflectivity[i], _simHardness[i]);
+                    float gate = Gate((_simPaths[i] - direct) / SoundSpaces.SpeedOfSound * EchoDelay, _simReflectivity[i], _simHardness[i]);
                     if (gate <= 0f) continue;
                     sends ??= new SpaceSends();
                     // Behind the sound itself by the extra way round (the sound is heard with no travel time of its own).
-                    int delay = (int)((_simPaths[i] - direct) / SoundSpaces.SpeedOfSound * simulation.Rate);
+                    int delay = (int)((_simPaths[i] - direct) / SoundSpaces.SpeedOfSound * EchoDelay * simulation.Rate);
                     float gain = _simReflectivity[i] / (1f + _simPaths[i] / 50f) * Mathf.Clamp01(EchoAmount) * gate * SoundSpaces.Exaggerate;
                     sends.AddEcho(_simBuses[i], delay, gain);
                 }
@@ -228,7 +237,9 @@ namespace Remedy.Audio
             float toWall = Vector3.Distance(position, wall), toListener = Vector3.Distance(wall, listener);
             float path = toWall + toListener;
             float extra = path - Vector3.Distance(position, listener);
-            float gate = Gate(extra / SoundSpaces.SpeedOfSound, data.Reflectivity, data.Hardness);
+            // (Echo Delay stretches how late it comes, and so when it's heard as an echo apart from the sound.)
+            float late = extra / SoundSpaces.SpeedOfSound * EchoDelay;
+            float gate = Gate(late, data.Reflectivity, data.Hardness);
             float edge = 1f / (1f + outside * outside * 0.25f);
             float heard = _hearing != null ? _hearing(path) : 1f / Mathf.Max(1f, path);
             float gain = data.Reflectivity * heard * Mathf.Clamp01(EchoAmount) * gate * edge * SoundSpaces.Exaggerate;
@@ -236,7 +247,7 @@ namespace Remedy.Audio
             if (_logging)
             {
                 int joined = bus != null ? spaces.JoinedTo(bus) : 0;
-                _echoLog.Append($"  wall {anchor}: {toWall:0.0} + {toListener:0.0} = {path:0.0} m ({extra / SoundSpaces.SpeedOfSound * 1000f:0} ms late), "
+                _echoLog.Append($"  wall {anchor}: {toWall:0.0} + {toListener:0.0} = {path:0.0} m ({late * 1000f:0} ms late), "
                     + $"falloff {heard:0.000} x reflects {data.Reflectivity:0.00} x gate {gate:0.00} x edge {edge:0.00} = {gain:0.0000} ({20f * Mathf.Log10(Mathf.Max(gain, 1e-6f)):0.0} dB) -> "
                     + (gate <= 0f ? "gated out (too soon after the sound)" : bus == null ? "NO BUS (none free, or out of voices)"
                         : $"bus #{bus.GetHashCode()}{(Equals(bus.Owner, (field, (int)anchor)) ? "" : " (joined to another wall's)")}{(joined > 0 ? $", {joined} joined" : "")}")
@@ -246,7 +257,7 @@ namespace Remedy.Audio
                 return;
             // Behind the sound itself by the extra way round: Unity plays the sound with no travel time, so an echo
             // delayed by its whole path came later and later after it the farther away the sound was (a muddy smear).
-            sends.AddEcho(bus, (int)(extra / SoundSpaces.SpeedOfSound * spaces.Rate), gain);
+            sends.AddEcho(bus, (int)(late * spaces.Rate), gain);
         }
 
         private readonly System.Collections.Generic.List<SpaceBus> _spots = new();

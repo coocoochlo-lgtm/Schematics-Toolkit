@@ -447,7 +447,7 @@ namespace Remedy.Audio
             {
                 // What it hears first (so Trails before it are built, and their probes run before this one's).
                 var audio = builder.Input(this, "Audio", 0f);
-                var probe = new PlaceProbe { Node = this, Targets = new float[3] };
+                var probe = new PlaceProbe { Node = this, Targets = new float[3], EchoDelay = SpatialProbe.EchoDelayOf(Graph) };
                 TrailProbe.Link(builder.Upstream(this, "Audio"), null, probe);
                 probe.Fallback();
                 builder.Context.Probes.Add(probe);
@@ -500,7 +500,7 @@ namespace Remedy.Audio
 
             protected override void Shape(in SoundAcoustics place, bool elsewhere)
             {
-                Set(0, place.SlapbackDelay);
+                Set(0, Mathf.Min(MaxDelay, place.SlapbackDelay * EchoDelay));
                 Set(1, place.SlapbackFeedback);
                 Set(2, elsewhere ? 0f : place.SlapbackWet);
             }
@@ -509,7 +509,7 @@ namespace Remedy.Audio
             protected override SpaceBus Tail(TailPool pool, Vector3 position, in SoundAcoustics place, out float amount)
             {
                 amount = place.SlapbackWet;
-                return amount > 0.001f ? pool.Slap(position, place.SlapbackDelay, place.SlapbackFeedback, place.Damping) : null;
+                return amount > 0.001f ? pool.Slap(position, Mathf.Min(MaxDelay, place.SlapbackDelay * EchoDelay), place.SlapbackFeedback, place.Damping) : null;
             }
 
             public override void Fallback()
@@ -723,7 +723,7 @@ namespace Remedy.Audio
                 // What it hears first (so Trails before it are built, and their probes run before this one's).
                 var audio = builder.Input(this, "Audio", 0f);
                 // The place's reverb, asked of the Sound Field by the player (main thread) and glided between.
-                var probe = new PlaceProbe { Node = this, Targets = new float[3] };
+                var probe = new PlaceProbe { Node = this, Targets = new float[3], EchoDelay = SpatialProbe.EchoDelayOf(Graph) };
                 TrailProbe.Link(builder.Upstream(this, "Audio"), null, probe);
                 probe.Fallback();
                 builder.Context.Probes.Add(probe);
