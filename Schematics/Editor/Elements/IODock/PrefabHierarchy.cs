@@ -2,6 +2,7 @@ using Remedy.Framework;
 using Remedy.Schematics;
 using SchematicAssets;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -593,6 +594,14 @@ public class PrefabHierarchy : VisualElement
             }
             // Arrays, lists and classes: edited right under the row, at full width, with Unity's own drawers (a list's
             // add, remove and reorder; each item by its name).
+            // Lists of items that hold Signals (a Weapon Holder's Weapon Inputs): each item's fields, and its Signals as
+            // Signal rows to drag into the graph (to send them to the Behavior), as before it was a Behavior.
+            if (variable.Type.Type != null && HoldsSignals(variable.Type.Type))
+            {
+                section.Add(row);
+                section.Add(SignalItemsBody(path, type, attachment, definition));
+                continue;
+            }
             if (variable.Type.Type != null && SchematicValue.IsBoxable(variable.Type.Type))
             {
                 section.Add(row);
@@ -681,11 +690,185 @@ public class PrefabHierarchy : VisualElement
 
     // An array, list or class Variable: this object's value in Unity's own drawers (a copy; each change is queued to be
     // written to the prefab like any other), with a button back to the Behavior's default when it has its own.
-    private void DrawBoxedValue(string path, Type behavior, BehaviorAttachment attachment, VariableDefinition definition)
+    #region Lists of items with Signals
+
+    // The item type of an array or List whose items (plain classes) hold Signals; null for anything else.
+    private static Type SignalItemType(Type type)
+    {
+        var element = type.IsArray ? type.GetElementType()
+                    : type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>) ? type.GetGenericArguments()[0] : null;
+        if (element == null || element.IsPrimitive || element == typeof(string) || typeof(UnityEngine.Object).IsAssignableFrom(element))
+            return null;
+        foreach (var field in element.GetFields(BindingFlags.Public | BindingFlags.Instance))
+            if (IODockRegistry.IsSignalType(field.FieldType))
+                return element;
+        return null;
+    }
+
+    private static bool HoldsSignals(Type type) => SignalItemType(type) != null;
+
+    /// <summary>
+    /// A list Variable whose items hold Signals (a Weapon Holder's Weapon Inputs), edited in place: each item's fields
+    /// with Unity's drawers, and each of its Signals as a Signal row, to drag into the graph (Send: the graph sends it to
+    /// the Behavior, which reacts as the item says). An item's missing Signal is made for it, with the prefab's other
+    /// Schematic assets. "+" adds an item, "−" removes one; saved into the prefab as the other list Variables are.
+    /// </summary>
+    private VisualElement SignalItemsBody(string path, Type behavior, BehaviorAttachment attachment, VariableDefinition definition)
     {
         var type = definition.Type.Type;
-        if (type == null)
-            return;
+        var itemType = SignalItemType(type);
+        var body = new VisualElement();
+        body.AddToClassList("dock-signal-items");
+        body.style.marginLeft = 22;
+        body.style.marginRight = 4;
+        body.style.marginBottom = 3;
+        // (Leaving saves what's waiting, as the Variables section does.)
+        body.RegisterCallback<DetachFromPanelEvent>(_ => FlushEdits());
+
+        void Commit(DockBoxedValue holder) => QueueEdit(path, behavior, definition.Name, type, holder.Box?.Boxed);
+
+        // The list with one item added or one removed (-1: none), as the Variable's own kind of list.
+        object Changed(IList items, int remove, bool add)
+        {
+            var list = new List<object>();
+            for (int i = 0; items != null && i < items.Count; i++)
+                if (i != remove)
+                    list.Add(items[i]);
+            if (add)
+                list.Add(Activator.CreateInstance(itemType));
+            if (type.IsArray)
+            {
+                var array = Array.CreateInstance(itemType, list.Count);
+                for (int i = 0; i < list.Count; i++)
+                    array.SetValue(list[i], i);
+                return array;
+            }
+            var typed = (IList)Activator.CreateInstance(type);
+            foreach (var item in list)
+                typed.Add(item);
+            return typed;
+        }
+
+        // (Fields report a change as they're first bound: only changes after that are edits.)
+        bool ready = false;
+
+        void Build()
+        {
+            body.Clear();
+            ready = false;
+            body.schedule.Execute(() => ready = true).ExecuteLater(150);
+            var edit = BoxedEdit(path, behavior, attachment, definition);
+            var holder = edit.holder;
+            var items = holder.Box?.Boxed as IList;
+            if (EnsureSignals(items, path, behavior, definition))
+            {
+                edit.serialized.Update();
+                Commit(holder);
+            }
+
+            for (int i = 0; items != null && i < items.Count; i++)
+            {
+                int index = i;
+                var item = items[i];
+                if (item == null)
+                    continue;
+                string itemPath = $"{DockBoxedValue.ValuePath}.Array.data[{i}]";
+
+                var card = new VisualElement();
+                card.AddToClassList("dock-signal-item");
+
+                var header = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center } };
+                var number = new Label($"{ObjectNames.NicifyVariableName(itemType.Name)} {i + 1}");
+                number.AddToClassList("dock-signal-item-title");
+                number.style.flexGrow = 1;
+                header.Add(number);
+                var remove = new Button(() =>
+                {
+                    holder.Box.Boxed = Changed(holder.Box.Boxed as IList, index, false);
+                    edit.serialized.Update();
+                    Commit(holder);
+                    Build();
+                }) { text = "−", tooltip = "Remove this item." };
+                remove.AddToClassList("list-button-remove");
+                remove.style.position = Position.Relative;
+                header.Add(remove);
+                card.Add(header);
+
+                // Its plain fields, with Unity's drawers, bound to the copy (saved as they change).
+                var fields = new VisualElement();
+                foreach (var field in itemType.GetFields(BindingFlags.Public | BindingFlags.Instance))
+                {
+                    if (IODockRegistry.IsSignalType(field.FieldType))
+                        continue;
+                    var property = edit.serialized.FindProperty(itemPath + "." + field.Name);
+                    if (property == null)
+                        continue;
+                    var propertyField = new UnityEditor.UIElements.PropertyField(property);
+                    propertyField.RegisterValueChangeCallback(_ => { if (ready) Commit(holder); });
+                    fields.Add(propertyField);
+                }
+                fields.Bind(edit.serialized);
+                card.Add(fields);
+
+                // Its Signals, as Signal rows.
+                var (draw, rows) = IODockRegistry.RenderMultipleFields(_schematicWindow, holder, item, itemPath,
+                    onModified: new List<Action> { () => Commit(holder) });
+                SignalRenderer.DrawDelayedEvents();
+                if (draw && rows != null)
+                    card.Add(rows);
+                body.Add(card);
+            }
+
+            var add = new Button(() =>
+            {
+                holder.Box ??= SchematicBox.Create(type, null);
+                holder.Box.Boxed = Changed(holder.Box.Boxed as IList, -1, true);
+                edit.serialized.Update();
+                Commit(holder);
+                Build();
+            }) { text = "+ " + ObjectNames.NicifyVariableName(itemType.Name), tooltip = "Add an item (its Signal is made for it)." };
+            add.AddToClassList("identity-list-add");
+            body.Add(add);
+        }
+
+        Build();
+        return body;
+    }
+
+    // Gives every item's empty Signal fields a Signal of their own (kept with the prefab's other Schematic assets, one
+    // per Behavior, object, Variable and item). True if any was given one.
+    private bool EnsureSignals(IList items, string path, Type behavior, VariableDefinition definition)
+    {
+        if (items == null || _prefab == null)
+            return false;
+        bool assigned = false;
+        for (int i = 0; i < items.Count; i++)
+        {
+            var item = items[i];
+            if (item == null)
+                continue;
+            foreach (var field in item.GetType().GetFields(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (!typeof(SignalData).IsAssignableFrom(field.FieldType) || field.GetValue(item) as SignalData != null)
+                    continue;
+                string name = $"{ObjectNames.NicifyVariableName(definition.Name)} {i + 1}";
+                var signal = SchematicAssetManager.Create(_prefab, PropertiesScope(behavior, path) + "_" + definition.Name + "_" + i,
+                    field.Name, name, field.FieldType) as SignalData;
+                if (signal == null)
+                    continue;
+                field.SetValue(item, signal);
+                assigned = true;
+            }
+        }
+        return assigned;
+    }
+
+    #endregion
+
+    // The editable copy of a list or class Variable's value for this object (made once, kept while it's being edited).
+    private (DockBoxedValue holder, SerializedObject serialized) BoxedEdit(string path, Type behavior, BehaviorAttachment attachment, VariableDefinition definition)
+    {
+        var type = definition.Type.Type;
         string key = EditKey(path, behavior, definition.Name);
         if (!_boxedEdits.TryGetValue(key, out var edit) || edit.holder == null)
         {
@@ -701,6 +884,16 @@ public class PrefabHierarchy : VisualElement
             edit = (holder, new SerializedObject(holder));
             _boxedEdits[key] = edit;
         }
+        return edit;
+    }
+
+    private void DrawBoxedValue(string path, Type behavior, BehaviorAttachment attachment, VariableDefinition definition)
+    {
+        var type = definition.Type.Type;
+        if (type == null)
+            return;
+        string key = EditKey(path, behavior, definition.Name);
+        var edit = BoxedEdit(path, behavior, attachment, definition);
 
         _pendingEdits.TryGetValue(key, out var pending);
         bool overridden = pending != null ? !pending.Revert : attachment.FindOverride(definition.Name) != null;

@@ -1218,3 +1218,23 @@ LazyListFoldout
 {
 	color: #e6e6e6;
 }
+
+/* Items of a list Variable that hold Signals (Weapon Inputs): a slim card each, its fields, then its Signal rows. */
+.dock-signal-item
+{
+	background-color: rgba(255,255,255,0.035);
+	border-left-width: 2px;
+	border-left-color: rgba(97,158,255,0.5);
+	border-top-left-radius: 3px;
+	border-top-right-radius: 3px;
+	border-bottom-left-radius: 3px;
+	border-bottom-right-radius: 3px;
+	padding: 2px 4px 3px 6px;
+	margin: 2px 0;
+}
+.dock-signal-item-title
+{
+	-unity-font-style: bold;
+	color: #b8b8b8;
+	font-size: 11px;
+}
