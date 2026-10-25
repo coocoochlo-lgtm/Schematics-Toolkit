@@ -232,7 +232,7 @@ namespace BlueGraph.Editor
             }
 
             if (change.movedElements != null || change.elementsToRemove != null)
-                ScheduleCommentRefit();
+                ScheduleCommentRefit(animate: true);
 
             if (change.elementsToRemove != null)
             {
@@ -799,22 +799,25 @@ namespace BlueGraph.Editor
         private bool refitScheduled;
 
         /// <summary>
-        /// A node being dragged moved from one place to another: the comments it was in grow to keep it in as it's pushed
-        /// against their edges (while it's dragged, not once it's dropped).
+        /// A node being dragged moved from one place to another: the comments refit around their nodes as it goes (growing
+        /// as it's pushed against their edges, shrinking as it's pulled back in), rather than once it's dropped.
         /// </summary>
         internal void NodeDragged(NodeView node, Rect from, Rect to)
         {
-            bool grew = false;
+            bool changed = false;
             foreach (var comment in commentViews)
-                grew |= comment.GrowFor(from, to);
-            if (grew && Graph != null)
+                changed |= comment.FitWhileDragging(node, from, to);
+            if (changed && Graph != null)
                 EditorUtility.SetDirty(Graph);
         }
 
         /// <summary>
         /// Refits every auto-sizing comment around its nodes, once layout has caught up (node sizes are only known then).
         /// </summary>
-        public void ScheduleCommentRefit()
+        public void ScheduleCommentRefit() => ScheduleCommentRefit(animate: false);
+
+        /// <summary>The same; <paramref name="animate"/>: the comments spring to their new size (after a drag) rather than jump.</summary>
+        public void ScheduleCommentRefit(bool animate)
         {
             if (refitScheduled)
                 return;
@@ -824,7 +827,7 @@ namespace BlueGraph.Editor
                 refitScheduled = false;
                 bool changed = false;
                 foreach (var comment in commentViews)
-                    changed |= comment.FitToMembers();
+                    changed |= comment.FitToMembers(animate);
                 if (changed && Graph != null)
                     EditorUtility.SetDirty(Graph);
             }).StartingIn(20);

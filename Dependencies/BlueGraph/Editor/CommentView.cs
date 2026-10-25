@@ -279,7 +279,10 @@ namespace BlueGraph.Editor
         }
 
         /// <summary>Resizes the comment around its member nodes (unless it's fixed-size). True if it changed.</summary>
-        public bool FitToMembers()
+        public bool FitToMembers() => FitToMembers(animate: false);
+
+        /// <summary>The same; <paramref name="animate"/>: it springs to its new size rather than jumping.</summary>
+        public bool FitToMembers(bool animate)
         {
             if (Target.FixedSize)
                 return false;
@@ -293,10 +296,16 @@ namespace BlueGraph.Editor
                 var r = member.GetPosition();
                 bounds = Rect.MinMaxRect(Mathf.Min(bounds.xMin, r.xMin), Mathf.Min(bounds.yMin, r.yMin), Mathf.Max(bounds.xMax, r.xMax), Mathf.Max(bounds.yMax, r.yMax));
             }
-            var fitted = Rect.MinMaxRect(bounds.xMin - FitPadding, bounds.yMin - FitTitlePadding, bounds.xMax + FitPadding, bounds.yMax + FitPadding);
+            var fitted = Padded(bounds);
             if (fitted == Target.Region)
                 return false;
+            if (animate)
+            {
+                SpringTo(fitted);
+                return true;
+            }
 
+            StopSpring();
             // Set directly: SetPosition would treat a move as dragging the comment and carry the nodes along.
             base.SetPosition(fitted);
             Target.Region = fitted;
@@ -304,27 +313,100 @@ namespace BlueGraph.Editor
         }
 
         /// <summary>
-        /// A node dragged from <paramref name="from"/> to <paramref name="to"/>: if it was one of this comment's (its centre
-        /// inside) and is still touching it, the comment grows to keep it in, padding and all. A node flung out in one go
-        /// (clear of the comment already) leaves it instead. True if it grew. (It shrinks back to fit once dropped.)
+        /// A node dragged from <paramref name="from"/> to <paramref name="to"/>: the comment refits around its nodes as it
+        /// goes. The dragged node stays one of them while it's still touching the comment (so pushing it against an edge
+        /// grows the comment, pulling it back in shrinks it); flung clear of the comment in one go, it leaves. Others are
+        /// its nodes when their centre is inside. True if the comment's size changed.
         /// </summary>
-        public bool GrowFor(Rect from, Rect to)
+        public bool FitWhileDragging(NodeView dragged, Rect from, Rect to)
         {
-            // (A comment being dragged itself carries its nodes: nothing to grow for.)
+            // (A comment being dragged itself carries its nodes: nothing to fit.)
             if (Target.FixedSize || selected)
                 return false;
+            var canvas = GetFirstAncestorOfType<CanvasView>();
+            if (canvas == null)
+                return false;
             var region = Target.Region;
-            if (!region.Contains(from.center) || !to.Overlaps(region))
+            bool any = false;
+            var bounds = default(Rect);
+            foreach (var node in canvas.nodes.ToList())
+            {
+                if (!(node is NodeView view))
+                    continue;
+                var rect = view == dragged ? to : view.GetPosition();
+                bool member = view == dragged
+                    ? region.Contains(from.center) && to.Overlaps(region)
+                    : region.Contains(rect.center);
+                if (!member)
+                    continue;
+                bounds = any ? Rect.MinMaxRect(Mathf.Min(bounds.xMin, rect.xMin), Mathf.Min(bounds.yMin, rect.yMin), Mathf.Max(bounds.xMax, rect.xMax), Mathf.Max(bounds.yMax, rect.yMax)) : rect;
+                any = true;
+            }
+            if (!any)
                 return false;
-            var grown = Rect.MinMaxRect(
-                Mathf.Min(region.xMin, to.xMin - FitPadding), Mathf.Min(region.yMin, to.yMin - FitTitlePadding),
-                Mathf.Max(region.xMax, to.xMax + FitPadding), Mathf.Max(region.yMax, to.yMax + FitPadding));
-            if (grown == region)
+            var fitted = Padded(bounds);
+            if (fitted == region)
                 return false;
-            // Set directly: SetPosition would treat a move as dragging the comment and carry the nodes along.
-            base.SetPosition(grown);
-            Target.Region = grown;
+            SpringTo(fitted);
             return true;
+        }
+
+        private static Rect Padded(Rect bounds) =>
+            Rect.MinMaxRect(bounds.xMin - FitPadding, bounds.yMin - FitTitlePadding, bounds.xMax + FitPadding, bounds.yMax + FitPadding);
+
+        // The size and place shown, springing towards the comment's real ones (Target.Region) after a refit, so it
+        // stretches and settles, a little elastically, rather than jumping.
+        private Vector4 shown, velocity;
+        private IVisualElementScheduledItem spring;
+        private double lastSpringTick;
+
+        // How stiff, and how much it bounces (1 would settle without overshooting).
+        private const float SpringStiffness = 420f, SpringDamping = 0.6f;
+
+        private static Vector4 Edges(Rect r) => new Vector4(r.xMin, r.yMin, r.xMax, r.yMax);
+
+        private void SpringTo(Rect region)
+        {
+            if (spring == null || !spring.isActive)
+            {
+                shown = Edges(base.GetPosition());
+                velocity = Vector4.zero;
+                lastSpringTick = EditorApplication.timeSinceStartup;
+                if (spring == null)
+                    spring = schedule.Execute(SpringTick).Every(16);
+                else
+                    spring.Resume();
+            }
+            Target.Region = region;
+        }
+
+        private void SpringTick()
+        {
+            double now = EditorApplication.timeSinceStartup;
+            float dt = Mathf.Clamp((float)(now - lastSpringTick), 0.001f, 0.05f);
+            lastSpringTick = now;
+            var target = Edges(Target.Region);
+            float damping = 2f * Mathf.Sqrt(SpringStiffness) * SpringDamping;
+            // (Two half steps: steady even when a frame runs long.)
+            for (int i = 0; i < 2; i++)
+            {
+                float h = dt * 0.5f;
+                velocity += (SpringStiffness * (target - shown) - damping * velocity) * h;
+                shown += velocity * h;
+            }
+            if ((target - shown).magnitude < 0.5f && velocity.magnitude < 10f)
+            {
+                shown = target;
+                spring.Pause();
+            }
+            base.SetPosition(Rect.MinMaxRect(shown.x, shown.y, shown.z, shown.w));
+        }
+
+        // The spring stopped where it is (the comment moved or resized some other way).
+        private void StopSpring()
+        {
+            if (spring != null && spring.isActive)
+                spring.Pause();
         }
 
         /// <summary>
@@ -341,6 +423,7 @@ namespace BlueGraph.Editor
         public override void SetPosition(Rect newPos)
         {
             var previous = Target.Region;
+            StopSpring();
             base.SetPosition(newPos);
             Target.Region = newPos;
 
