@@ -84,6 +84,21 @@ namespace Remedy.Schematics
         {
             if (graph == null)
                 return null;
+            // The Graph tab, when it's open: it moves to this graph (unless it's locked) rather than another tab opening.
+            var follower = SchematicGraphEditorWindow.Follower;
+            if (follower != null)
+            {
+                if (!follower.FollowLocked)
+                {
+                    var stage = PrefabStageUtility.GetCurrentPrefabStage();
+                    var root = stage != null ? stage.prefabContentsRoot : null;
+                    bool stageRoot = root != null && root.TryGetComponent(out SchematicObject schematic) && schematic.SchematicGraph == graph;
+                    follower.Follow(graph, stageRoot ? root : null, graph.Prefab);
+                }
+                if (focus)
+                    follower.Focus();
+                return follower;
+            }
             // Any window already on this graph, even one whose canvas a script reload dropped (it's loaded again).
             var window = Resources.FindObjectsOfTypeAll<SchematicGraphEditorWindow>().FirstOrDefault(w => w != null && w.SchematicGraph == graph);
             if (window == null)

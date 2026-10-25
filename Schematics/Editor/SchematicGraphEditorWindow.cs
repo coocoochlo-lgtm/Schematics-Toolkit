@@ -403,7 +403,8 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
 
         Canvas.Add(canvasOverlay);
 
-        WindowsToSave.Add(this);
+        if (!WindowsToSave.Contains(this))
+            WindowsToSave.Add(this);
         /*_processed.Clear();*/
 
         if (SchematicGraph != null)
@@ -477,6 +478,9 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
 
         // Sprocket, the assistant (Preferences > Schematics Assistant).
         Remedy.Schematics.Assistant.AssistantOverlay.Attach(this);
+
+        // The Graph tab (following the selection): its header, and its dock lent to the IO Dock.
+        LoadedForFollow();
 
         Profiler.StopTracking(loadProcess);
 

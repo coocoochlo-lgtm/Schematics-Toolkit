@@ -79,4 +79,12 @@ public class SidebarAndContent : VisualElement
         _resizer.RegisterCallback<MouseLeaveEvent>(_ => _resizer.RemoveFromClassList(name + "-divider-hover"));
 
     }
+
+    /// <summary>Shows or hides the sidebar (and its divider): hidden, the content has the whole width.</summary>
+    public void SetSidebarShown(bool shown)
+    {
+        var display = shown ? DisplayStyle.Flex : DisplayStyle.None;
+        if (childCount > 0) this[0].style.display = display;
+        if (childCount > 1) this[1].style.display = display;
+    }
 }

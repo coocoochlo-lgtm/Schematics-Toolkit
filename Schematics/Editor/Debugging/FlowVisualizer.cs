@@ -462,6 +462,10 @@ public class FlowVisualizer : VisualElement
     private GameObject FindInspected()
     {
         var graph = _window.SchematicGraph;
+        // The Graph tab: the instance it's on (kept while something else is selected).
+        if (_window.FollowsSelection && _window.FollowedInstance != null
+            && _window.FollowedInstance.TryGetComponent(out SchematicObject followed) && followed.SchematicGraph == graph)
+            return followed.gameObject;
         var selected = Selection.activeGameObject;
         if (selected != null && !EditorUtility.IsPersistent(selected))
         {
