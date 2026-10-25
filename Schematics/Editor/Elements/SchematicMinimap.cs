@@ -270,13 +270,12 @@ public class SchematicMinimap : VisualElement
 
     private const float NoteIconSize = 10f;
 
-    // A note's mark on the map: its pencil (dark on light colors, light on dark) at its middle; with the mouse over it,
+    // A note's mark on the map: its pencil (white, as notes' text is) at its middle; with the mouse over it,
     // the note's first three words in its place.
     private void DrawNoteMark(Rect rect, BlueGraph.Note note, Vector2 mouse)
     {
         var color = note.Color;
-        float luminance = 0.2126f * color.r + 0.7152f * color.g + 0.0722f * color.b;
-        var ink = luminance > 0.5f ? new Color(0.1f, 0.1f, 0.1f, 0.9f) : new Color(1f, 1f, 1f, 0.95f);
+        var ink = Color.white;
         var icon = new Rect(rect.center.x - NoteIconSize * 0.5f, rect.center.y - NoteIconSize * 0.5f, NoteIconSize, NoteIconSize);
         if (rect.Contains(mouse) || Inflate(icon, 2f).Contains(mouse))
         {

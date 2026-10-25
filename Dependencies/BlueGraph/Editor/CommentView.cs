@@ -83,6 +83,7 @@ namespace BlueGraph.Editor
                             Capabilities.Deletable | Capabilities.Resizable;
 
             RegisterCallback<MouseDownEvent>(OnMouseDown);
+            RegisterCallback<WheelEvent>(OnWheel, TrickleDown.TrickleDown);
             this.AddManipulator(new ContextualMenuManipulator(BuildContextualMenu));
             // Right-clicking the body is right-clicking the canvas (its own menu: create a node, add a note...); the
             // comment's menu is its header's.
@@ -93,6 +94,7 @@ namespace BlueGraph.Editor
             
             SetTheme(Target.Theme);
             ApplyColor();
+            ApplyFontSize();
 
             // Resized from any edge or corner. Sized by hand, it keeps that size (no longer fitting itself to its nodes;
             // Resize To Fit Nodes in its menu turns that back on).
@@ -129,6 +131,15 @@ namespace BlueGraph.Editor
                 var screenPoint = (window != null ? window.position.position : Vector2.zero) + evt.mousePosition;
                 evt.menu.AppendAction("Color/Custom\u2026", _ => CommentColorWindow.Open(this, screenPoint));
 
+                // The title's size: the notes' choices (or Ctrl + the mouse wheel over the header).
+                float currentSize = Target.FontSize;
+                foreach (var (sizeName, size) in NoteView.TextSizes)
+                {
+                    var pickedSize = size;
+                    evt.menu.AppendAction("Text Size/" + sizeName, _ => SetFontSize(pickedSize),
+                        Mathf.Approximately(currentSize, size) ? DropdownMenuAction.Status.Checked : DropdownMenuAction.Status.Normal);
+                }
+
                 evt.menu.AppendAction("Resize To Fit Nodes", _ =>
                 {
                     Target.FixedSize = !Target.FixedSize;
@@ -157,6 +168,43 @@ namespace BlueGraph.Editor
         {
             if (evt.button == 1 && !HitTest(evt.localMousePosition))
                 evt.StopPropagation();
+        }
+
+        // Ctrl + wheel over the header: the title bigger or smaller.
+        private double lastSizeChange = -10;
+
+        private void OnWheel(WheelEvent evt)
+        {
+            if ((!evt.ctrlKey && !evt.commandKey) || !HitTest(evt.localMousePosition))
+                return;
+            SetFontSize(Target.FontSize + (evt.delta.y < 0 ? 2f : -2f));
+            evt.StopPropagation();
+        }
+
+        /// <summary>Sizes the comment's title (undoably; a burst of wheel steps is one undo step).</summary>
+        public void SetFontSize(float size)
+        {
+            size = Mathf.Clamp(size, 8f, 96f);
+            if (Mathf.Approximately(size, Target.FontSize))
+                return;
+            var graph = GetFirstAncestorOfType<CanvasView>()?.Graph;
+            double now = EditorApplication.timeSinceStartup;
+            if (graph != null && now - lastSizeChange > 1.0)
+                Undo.RegisterCompleteObjectUndo(graph, "Comment Text Size");
+            lastSizeChange = now;
+            Target.FontSize = size;
+            ApplyFontSize();
+            if (graph != null)
+                EditorUtility.SetDirty(graph);
+        }
+
+        private void ApplyFontSize()
+        {
+            titleLabel.style.fontSize = Target.FontSize;
+            titleEditor.style.fontSize = Target.FontSize;
+            var input = titleEditor.Q(TextField.textInputUssName);
+            if (input != null)
+                input.style.fontSize = Target.FontSize;
         }
 
         private static bool SameColor(Color a, Color b) =>
@@ -200,9 +248,16 @@ namespace BlueGraph.Editor
             style.borderTopColor = style.borderBottomColor = style.borderLeftColor = style.borderRightColor = border;
 
             titleLabel.style.backgroundColor = color;
-            // Dark text on light colors, light text on dark ones.
-            float luminance = 0.2126f * color.r + 0.7152f * color.g + 0.0722f * color.b;
-            titleLabel.style.color = luminance > 0.5f ? Color.black : Color.white;
+            // A soft gloss over the color (the browser cards' and notes'), under the title.
+            var gloss = Resources.Load<Texture2D>("Textures/button-gradient");
+            if (gloss != null)
+            {
+                titleLabel.style.backgroundImage = gloss;
+                titleLabel.style.unityBackgroundImageTintColor = new Color(1f, 1f, 1f, 0.28f);
+            }
+            // White text, with a soft shadow so it reads on light colors too.
+            titleLabel.style.color = Color.white;
+            titleLabel.style.textShadow = NoteView.TextShade;
         }
 
         public override void OnSelected()

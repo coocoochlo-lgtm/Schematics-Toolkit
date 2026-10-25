@@ -96,6 +96,18 @@ namespace BlueGraph
             set { fixedSize = value; }
         }
 
+        /// <summary>The title's text size a new comment gets (a note's).</summary>
+        public const float DefaultFontSize = 26f;
+
+        [SerializeField] private float fontSize = DefaultFontSize;
+
+        /// <summary>The title's text size (comments saved before it had one get the default).</summary>
+        public float FontSize
+        {
+            get { return fontSize > 0f ? fontSize : DefaultFontSize; }
+            set { fontSize = Mathf.Clamp(value, 8f, 96f); }
+        }
+
         [SerializeField] private Rect region;
 
         /// <summary>

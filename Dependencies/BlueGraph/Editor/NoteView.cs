@@ -31,7 +31,7 @@ namespace BlueGraph.Editor
         public const float Opacity = 0.85f;
 
         /// <summary>Text sizes offered in the right-click menu.</summary>
-        private static readonly (string name, float size)[] TextSizes =
+        internal static readonly (string name, float size)[] TextSizes =
             { ("Small", 14f), ("Medium", 20f), ("Large", Note.DefaultFontSize), ("Larger", 36f), ("Huge", 52f) };
 
         public NoteView(Note note)
@@ -227,22 +227,31 @@ namespace BlueGraph.Editor
                 input.style.fontSize = Target.FontSize;
         }
 
-        /// <summary>A box in the note's color, with dark text on light colors and light on dark; the usual blue outline when selected.</summary>
+        /// <summary>
+        /// A box in the note's color with white text (a soft shadow under it keeps it readable on light colors); the usual
+        /// blue outline when selected.
+        /// </summary>
         public void ApplyColor()
         {
             var color = Target.Color;
             style.backgroundColor = new Color(color.r, color.g, color.b, Opacity);
             var border = selected ? (Color)new Color32(0x44, 0xC0, 0xFF, 0xFF) : Color.Lerp(color, Color.black, 0.25f);
             style.borderTopColor = style.borderBottomColor = style.borderLeftColor = style.borderRightColor = border;
-            float luminance = 0.2126f * color.r + 0.7152f * color.g + 0.0722f * color.b;
-            var textColor = luminance > 0.5f ? new Color(0.1f, 0.1f, 0.1f) : new Color(0.95f, 0.95f, 0.95f);
+            var textColor = Color.white;
             textLabel.style.color = textColor;
-            pencil.tintColor = new Color(textColor.r, textColor.g, textColor.b, 0.7f);
+            textLabel.style.textShadow = TextShade;
+            pencil.tintColor = new Color(1f, 1f, 1f, 0.8f);
             // The text being edited in the same color (its field is see-through, on the note).
             textEditor.style.color = textColor;
             foreach (var text in textEditor.Query<TextElement>().ToList())
+            {
                 text.style.color = textColor;
+                text.style.textShadow = TextShade;
+            }
         }
+
+        // A soft dark shadow under white text, so it reads on light colors too.
+        internal static readonly TextShadow TextShade = new TextShadow { offset = new Vector2(0.5f, 1f), blurRadius = 2f, color = new Color(0f, 0f, 0f, 0.55f) };
 
         public override void OnSelected()
         {
