@@ -1065,3 +1065,108 @@ TextElement
 {
 	color: #e6e6e6;
 }
+
+/* ---- Lists and foldouts (the Global tab's Input Maps and Inputs, and the like), in the tabs' and rows' flat, tight
+   look: no gradient boxes, a thin guide line for each level, quiet buttons that light up on hover. ---- */
+LazyListFoldout
+{
+	background-color: rgba(0,0,0,0);
+	background-image: none;
+	border-width: 0px;
+	border-left-width: 1px;
+	border-left-color: rgba(255,255,255,0.08);
+	margin: 1px 0 1px 4px;
+}
+
+.list-content
+{
+	margin-right: 0px;
+	border-width: 0px;
+	padding: 0 0 2px 8px;
+}
+
+.list-toggle-container
+{
+	background-image: none;
+	background-color: rgba(255,255,255,0.045);
+	border-top-left-radius: 3px;
+	border-top-right-radius: 3px;
+	border-bottom-left-radius: 3px;
+	border-bottom-right-radius: 3px;
+	padding: 2px 4px;
+	margin: 1px 0;
+}
+
+.list-toggle-container:hover
+{
+	background-color: rgba(255,255,255,0.08);
+}
+
+.list-header, .child-header
+{
+	background-image: none;
+}
+
+.list-label
+{
+	color: #d8d8d8;
+	padding-right: 18px;
+}
+
+.list-customizationbar
+{
+	background-image: none;
+	padding: 0;
+}
+
+.list-item-0, .list-item-1, .list-container-1-0, .list-container-1-1
+{
+	background-color: rgba(0,0,0,0);
+	background-image: none;
+}
+
+.list-item-content
+{
+	padding: 0;
+}
+
+.list-button-add, .list-button-remove
+{
+	background-image: none;
+	background-color: rgba(0,0,0,0);
+	border-width: 0px;
+	color: #8f8f8f;
+	-unity-font-style: bold;
+	width: 16px;
+	height: 16px;
+	padding: 0;
+	margin: 0 0 0 2px;
+	border-top-left-radius: 3px;
+	border-top-right-radius: 3px;
+	border-bottom-left-radius: 3px;
+	border-bottom-right-radius: 3px;
+}
+
+.list-button-add-hover
+{
+	background-image: none;
+	background-color: rgba(255,255,255,0.12);
+	color: #ffffff;
+}
+
+.list-button-remove-hover
+{
+	background-image: none;
+	background-color: rgba(255,80,80,0.25);
+	color: #ff9090;
+}
+
+/* (The object hierarchy keeps its own colours.) */
+.list-item-game-object
+{
+	background-color: #171737;
+}
+.list-container-game-object
+{
+	background-color: #252525;
+}

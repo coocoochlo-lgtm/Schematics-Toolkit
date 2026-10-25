@@ -142,7 +142,7 @@ public class LazyListFoldout : LazyFoldout
 
             var label = new Label()
             {
-                text = (getListIcon == null ? "... " : "") + title,
+                text = title,
             };
 
             if(getListIcon != null)
