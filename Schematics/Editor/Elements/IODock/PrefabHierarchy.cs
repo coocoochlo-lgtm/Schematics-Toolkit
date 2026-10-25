@@ -1104,7 +1104,7 @@ public class PrefabHierarchy : VisualElement
         if (groups.Count <= 1)
             return groups.Count == 1 ? Fields(groups[0].paths) : new VisualElement();
 
-        var tabs = new TabView("", "headers", false, hideTabLabels: false, collapsible: true);
+        var tabs = new TabView("", "headers", topScrollBar: true, hideTabLabels: false, collapsible: true);
         foreach (var (header, paths) in groups)
         {
             var id = header;
