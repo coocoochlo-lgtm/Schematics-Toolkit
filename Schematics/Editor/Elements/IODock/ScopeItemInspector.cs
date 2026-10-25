@@ -76,7 +76,14 @@ public class ScopeItemInspectorEditor : Editor
             GUILayout.Space(8);
             var icon = target.Kind == DockItem.ItemKind.Signal ? DockRows.InputIcon
                      : target.Kind == DockItem.ItemKind.GraphVariable ? DockRows.GraphVariableIcon : DockRows.VariableIcon;
+            // (A Variable's dot in its type's colour.)
+            var previousColor = GUI.color;
+            if (target.Kind != DockItem.ItemKind.Signal)
+                GUI.color = DockRows.ColorOf(target.Kind == DockItem.ItemKind.GraphVariable
+                    ? target.Graph?.FindVariable(target.VariableId)?.ValueType
+                    : target.Behavior != null ? BehaviorReflection.Get(target.Behavior)?.FindVariableType(target.Name) : null);
             GUILayout.Label(icon, GUILayout.Width(20), GUILayout.Height(20));
+            GUI.color = previousColor;
             EditorGUILayout.LabelField(ObjectNames.NicifyVariableName(target.Name ?? "?"), EditorStyles.largeLabel, GUILayout.Height(22));
         }
         string scope = target.Kind switch

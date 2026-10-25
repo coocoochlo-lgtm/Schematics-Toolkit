@@ -210,6 +210,10 @@ public class SchematicMinimap : VisualElement
                     icon = PrefabHierarchy.VariableIcon;
                     tint = PrefabHierarchy.ColorOf(BehaviorReflection.Get(set.Target.Type)?.FindVariableType(set.Variable));
                     break;
+                case GraphVariableNodeBase graphVariable:
+                    icon = DockRows.GraphVariableIcon;
+                    tint = DockRows.ColorOf(graphVariable.Definition?.ValueType);
+                    break;
                 case BehaviorReferenceNode _: icon = BehaviorIcon; break;
             }
 

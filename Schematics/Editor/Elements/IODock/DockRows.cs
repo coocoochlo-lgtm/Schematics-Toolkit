@@ -15,9 +15,13 @@ public static class DockRows
     private static Texture2D _inputIcon, _outputIcon, _variableIcon, _graphIcon;
     public static Texture2D InputIcon => _inputIcon ??= Resources.Load<Texture2D>("Icons/Input");
     public static Texture2D OutputIcon => _outputIcon ??= Resources.Load<Texture2D>("Icons/Output");
-    public static Texture2D VariableIcon => _variableIcon ??= MakeDot(new Color(0.55f, 0.85f, 1f));
-    /// <summary>Graph Variables: the same dot in the graph's own colour, so they read apart from Behavior ones.</summary>
-    public static Texture2D GraphVariableIcon => _graphIcon ??= MakeDot(new Color(0.95f, 0.6f, 0.85f));
+    /// <summary>
+    /// Behavior Variables: a white ring with a dimmer centre, tinted with the colour of the Variable's type where it's
+    /// drawn (<see cref="ColorOf"/>, the wires' colours), in the dock and the minimap alike.
+    /// </summary>
+    public static Texture2D VariableIcon => _variableIcon != null ? _variableIcon : _variableIcon = MakeDot(solid: false);
+    /// <summary>Graph Variables: a solid dot (so they read apart from Behavior ones), tinted the same way.</summary>
+    public static Texture2D GraphVariableIcon => _graphIcon != null ? _graphIcon : _graphIcon = MakeDot(solid: true);
 
     /// <summary>A row for a Variable or Signal, styled like the IO Dock's (it needs the IODock stylesheet above it).</summary>
     public static VisualElement Build(DockItem item, Texture icon, string label, string detail, string tooltip, Action click)
@@ -55,6 +59,9 @@ public static class DockRows
         }
 
         var image = new Image { image = icon };
+        // A Variable's dot in its type's colour.
+        if (!signal && (icon == VariableIcon || icon == GraphVariableIcon))
+            image.tintColor = ColorOf(item.ValueType);
         image.style.width = 16;
         image.style.height = 16;
         image.style.marginRight = 4;
@@ -162,20 +169,21 @@ public static class DockRows
         return string.Join(", ", parts);
     }
 
-    private static Texture2D MakeDot(Color color)
+    // White, for tinting: drawn at 32 px (crisp at 16 and on high-DPI screens).
+    private static Texture2D MakeDot(bool solid)
     {
-        const int size = 16;
-        var texture = new Texture2D(size, size, TextureFormat.RGBA32, false) { hideFlags = HideFlags.HideAndDontSave };
-        float radius = size * 0.5f - 1.5f;
+        const int size = 32;
+        var texture = new Texture2D(size, size, TextureFormat.RGBA32, false) { hideFlags = HideFlags.HideAndDontSave, filterMode = FilterMode.Bilinear };
+        float radius = size * 0.5f - 2.5f;
         for (int y = 0; y < size; y++)
             for (int x = 0; x < size; x++)
             {
                 float d = Vector2.Distance(new Vector2(x + 0.5f, y + 0.5f), new Vector2(size * 0.5f, size * 0.5f));
                 float a = Mathf.Clamp01(radius - d + 0.5f);
-                // A ring with a dimmer centre reads as "a value" next to the Signal arrows.
-                var c = d < radius - 3f ? color * new Color(1, 1, 1, 0.45f) : color;
-                c.a *= a;
-                texture.SetPixel(x, y, c);
+                // A ring with a dimmer centre reads as "a value" next to the Signal arrows; a graph's is solid.
+                float inner = Mathf.Clamp01(radius - 5.5f - d + 0.5f);
+                float alpha = solid ? a : Mathf.Lerp(a, 0.45f, inner);
+                texture.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
             }
         texture.Apply();
         return texture;
