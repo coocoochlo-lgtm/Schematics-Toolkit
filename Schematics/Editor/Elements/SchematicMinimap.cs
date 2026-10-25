@@ -210,7 +210,7 @@ public class SchematicMinimap : VisualElement
             {
                 // (As on the nodes: sending, blue, as the Behavior receives it; reacting, red, as it sent it.)
                 case SendSignalNode _: icon = DockRows.SignalIcon; tint = DockRows.SignalColor(output: false); break;
-                case OnSignalReceivedNode _: icon = DockRows.SignalIcon; tint = DockRows.SignalColor(output: true); break;
+                case OnSignalReceivedNode _: icon = DockRows.SignalInIcon; tint = DockRows.SignalColor(output: true); break;
                 case GetBehaviorVariableNode get:
                     icon = PrefabHierarchy.VariableIcon;
                     tint = PrefabHierarchy.ColorOf(BehaviorReflection.Get(get.Target.Type)?.FindVariableType(get.Variable));

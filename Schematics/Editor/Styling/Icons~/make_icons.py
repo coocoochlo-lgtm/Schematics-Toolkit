@@ -34,6 +34,12 @@ ICONS = {
     "signal-mark": '''
   <path d="M8 4.5 L8 27.5 L28 16 Z" fill="#ffffff" fill-opacity="0.45"/>
   <path d="M9.6 7.3 L9.6 24.7 L24.8 16 Z" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linejoin="round"/>''',
+    # The same, pointing the other way: a Signal coming into the graph (one it reacts to).
+    "signal-mark-in": '''
+  <g transform="translate(32,0) scale(-1,1)">
+    <path d="M8 4.5 L8 27.5 L28 16 Z" fill="#ffffff" fill-opacity="0.45"/>
+    <path d="M9.6 7.3 L9.6 24.7 L24.8 16 Z" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linejoin="round"/>
+  </g>''',
     # A Variable (tinted with its type's colour): a value, as a ring with a dimmer centre.
     "variable-mark": '''
   <circle cx="16" cy="16" r="13.5" fill="#ffffff" fill-opacity="0.45"/>

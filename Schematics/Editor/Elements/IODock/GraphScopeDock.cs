@@ -186,7 +186,9 @@ public class GraphScopeDock : VisualElement
         row.RemoveFromClassList("event-container-input");
         row.RemoveFromClassList("event-container-output");
         row.AddToClassList(output ? "event-container-output" : "event-container-input");
-        DockRows.ColorSignalMark(row, output);
+        // Its triangle by which way it goes for this graph: its own Outputs and others' Inputs are sent from here (▶);
+        // its own Inputs and others' Outputs come in (◀).
+        DockRows.SetSignalMark(row, intoGraph: own != output);
         if (signal.Asset != null)
             _rows[item.Key] = row;
         return row;

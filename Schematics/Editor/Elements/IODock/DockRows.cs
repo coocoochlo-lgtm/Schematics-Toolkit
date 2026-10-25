@@ -12,7 +12,7 @@ using UnityEngine.UIElements;
 /// </summary>
 public static class DockRows
 {
-    private static Texture2D _inputIcon, _outputIcon, _variableIcon, _graphIcon, _signalIcon;
+    private static Texture2D _inputIcon, _outputIcon, _variableIcon, _graphIcon, _signalIcon, _signalInIcon;
     public static Texture2D InputIcon => _inputIcon ??= Resources.Load<Texture2D>("Icons/Input");
     public static Texture2D OutputIcon => _outputIcon ??= Resources.Load<Texture2D>("Icons/Output");
     /// <summary>
@@ -28,26 +28,46 @@ public static class DockRows
     public static Texture2D SignalIcon => _signalIcon != null ? _signalIcon
         : _signalIcon = Resources.Load<Texture2D>("Textures/signal-mark") ?? MakeTriangle();
 
-    /// <summary>Recolours a Signal row's bar and triangle (a row coloured by something other than its item's direction).</summary>
-    public static void ColorSignalMark(VisualElement row, bool output)
+    /// <summary>The Signal triangle pointing the other way (left): a Signal coming into the graph, which it reacts to.</summary>
+    public static Texture2D SignalInIcon => _signalInIcon != null ? _signalInIcon
+        : _signalInIcon = Resources.Load<Texture2D>("Textures/signal-mark-in") ?? SignalIcon;
+
+    /// <summary>
+    /// The triangle for a Signal by which way it goes for the graph: out of it (▶, the graph sends it: Send a Signal) or
+    /// into it (◀, the graph reacts to it: On Signal Received).
+    /// </summary>
+    public static Texture2D SignalIconFor(bool intoGraph) => intoGraph ? SignalInIcon : SignalIcon;
+
+    /// <summary>
+    /// Sets a Signal row's bar and triangle by which way the Signal goes for the graph (a row whose item doesn't say: a
+    /// graph's own Signals).
+    /// </summary>
+    public static void SetSignalMark(VisualElement row, bool intoGraph)
     {
         var mark = row?.Q(className: "dock-signal-mark");
         if (mark == null)
             return;
-        var color = SignalColor(output);
+        var color = SignalColor(intoGraph);
         var chip = mark.Q(className: "dock-type-chip");
         if (chip != null)
             chip.style.backgroundColor = color;
         var icon = mark.Q<Image>();
         if (icon != null)
+        {
+            icon.image = SignalIconFor(intoGraph);
             icon.tintColor = color;
+        }
     }
 
-    /// <summary>A Signal's tint, by which way it goes: received, blue; sent, red.</summary>
+    /// <summary>
+    /// A Signal's tint, by which way it goes for a Behavior: received (the graph sends it), blue; sent (the graph reacts
+    /// to it), red. (<paramref name="output"/>: sent by the Behavior, so coming into the graph.)
+    /// </summary>
     public static Color SignalColor(bool output) => output ? new Color(1f, 0.38f, 0.35f) : new Color(0.38f, 0.62f, 1f);
 
     /// <summary>
-    /// The start of a Signal's row, like a Variable's: a bar and the triangle, in the Signal's colour.
+    /// The start of a Signal's row, like a Variable's: a bar and the triangle, in the Signal's colour, the triangle
+    /// pointing the way it goes for the graph (<paramref name="output"/>, a Behavior's output: into it, ◀).
     /// </summary>
     public static VisualElement SignalMark(bool output)
     {
@@ -63,7 +83,7 @@ public static class DockRows
         chip.style.marginRight = 4;
         chip.style.backgroundColor = SignalColor(output);
         mark.Add(chip);
-        var icon = new Image { image = SignalIcon, tintColor = SignalColor(output), pickingMode = PickingMode.Ignore };
+        var icon = new Image { image = SignalIconFor(intoGraph: output), tintColor = SignalColor(output), pickingMode = PickingMode.Ignore };
         icon.style.width = 16;
         icon.style.height = 16;
         icon.style.marginRight = 4;

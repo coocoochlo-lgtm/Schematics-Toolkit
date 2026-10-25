@@ -460,13 +460,50 @@ EventContainerRenderer
 }
 
 	
+/* --- Every node: the Variable nodes' look (a gradient body, a thin border in the node's colour, set by NodeLook,
+   and its title on the body, centred, wrapping rather than spilling out). The Signal and Variable nodes' own rules
+   below build on this. --- */
+.nodeView #node-border
+{
+	border-width: 1px;
+	border-color: rgba(200,200,200,0.6);
+	background-color: rgba(255,255,255,0.12);
+	background-image: url("Textures/io-graph-gradient.png");
+}
+
+.nodeView #node-border #title
+{
+	background-image: none;
+	background-color: rgba(0,0,0,0);
+	height: auto;
+	min-height: 30px;
+	padding: 4px 10px;
+	justify-content: center;
+	align-items: center;
+}
+
+.nodeView #node-border #title #title-label
+{
+	-unity-text-align: middle-center;
+	white-space: normal;
+	flex-grow: 1;
+	flex-shrink: 1;
+	margin: 0;
+	-unity-font-style: bold;
+}
+
+.nodeView #node-border #contents
+{
+	background-image: none;
+}
+
 /* --- Nodes --- */
 .node-On-Signal-Received
 {
 	width: 160px;
 	height: 96px;
 	border-width: 0px;
-	background-image: url("Textures/signal-mark.png");
+	background-image: url("Textures/signal-mark-in.png");
 	-unity-background-image-tint-color: rgb(255, 97, 90);
 	background-size: 40px 40px;
 	background-position: 12px 12px;
@@ -955,7 +992,7 @@ TextElement
 }
 
 /* --- Variable nodes: the Signal nodes' look, with the Variable's ring (tinted with its type's colour, along with the
-   border, by VariableNodeLook) and its title kept, as that's its name. --- */
+   border, by NodeLook) and its title kept, as that's its name. --- */
 .node-Get-Variable, .node-Set-Variable, .node-Get-Graph-Variable, .node-Set-Graph-Variable
 {
 	min-width: 160px;
@@ -980,7 +1017,8 @@ TextElement
 {
 	background-image: none;
 	background-color: rgba(0,0,0,0);
-	padding-left: 40px;
-	min-height: 40px;
-	-unity-font-style: bold;
+	/* (Room for the ring at the left; the name centred in the rest, wrapping within the node.) */
+	padding-left: 42px;
+	padding-right: 10px;
+	min-height: 44px;
 }
