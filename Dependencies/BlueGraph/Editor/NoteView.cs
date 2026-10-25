@@ -42,7 +42,7 @@ namespace BlueGraph.Editor
             style.minWidth = MinWidth;
             style.minHeight = MinHeight;
             style.borderTopLeftRadius = style.borderTopRightRadius = style.borderBottomLeftRadius = style.borderBottomRightRadius = 4;
-            style.borderTopWidth = style.borderBottomWidth = style.borderLeftWidth = style.borderRightWidth = 2;
+            style.borderTopWidth = style.borderBottomWidth = style.borderLeftWidth = style.borderRightWidth = 3;
             style.paddingLeft = style.paddingRight = 4;
             style.paddingTop = 2;
             style.paddingBottom = 4;
@@ -235,7 +235,8 @@ namespace BlueGraph.Editor
         {
             var color = Target.Color;
             style.backgroundColor = new Color(color.r, color.g, color.b, Opacity);
-            var border = selected ? (Color)new Color32(0x44, 0xC0, 0xFF, 0xFF) : Color.Lerp(color, Color.black, 0.25f);
+            // A thick outline in a bright version of its colour.
+            var border = selected ? (Color)new Color32(0x44, 0xC0, 0xFF, 0xFF) : Color.Lerp(color, Color.white, 0.45f);
             style.borderTopColor = style.borderBottomColor = style.borderLeftColor = style.borderRightColor = border;
             var textColor = Color.white;
             textLabel.style.color = textColor;

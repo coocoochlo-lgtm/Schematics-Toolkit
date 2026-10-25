@@ -7,9 +7,9 @@ using UnityEngine.UIElements;
 
 /// <summary>
 /// The parameters under a Signal in the IO Dock (a Behavior's Signals, graph Signals in the Graph tab): a dot each, in
-/// its type's colour, in a line under the Signal's name; hover one for "name: type" (the type dimmer). Where they can be
-/// edited: double-click the name to rename it, click the type for the list of types, right-click a dot to remove it,
-/// "+" to add one (its type first, then its name). It doesn't store anything itself: it reads the current list and
+/// its type's colour, in a line under the Signal's name; hovered, a dot stretches out into a pill holding "name: type"
+/// (the type dimmer). Where they can be edited: double-click the name to rename it, click the type for the list of
+/// types, right-click a pill to remove it, "+" to add one (its type first, then its name). It doesn't store anything itself: it reads the current list and
 /// hands every edit to its owner, which saves it (with Undo) and re-pins the nodes that use the Signal.
 /// </summary>
 public sealed class SignalParameterList : VisualElement
@@ -38,12 +38,14 @@ public sealed class SignalParameterList : VisualElement
     private readonly bool _editable, _namesEditable, _typesEditable;
     private readonly int _max;
 
-    private readonly VisualElement _dots, _caption;
-    private readonly Label _name, _type;
+    private readonly VisualElement _dots;
+    private readonly List<(VisualElement pill, Label name, Label type)> _pills = new();
     private Label _add;
-    private int _shown = -1;
-    // Renaming one, or its type menu open: its name stays shown.
-    private bool _pinned;
+    // Renaming one: it stays stretched out.
+    private int _pinned = -1;
+
+    // A pill's size folded (a dot) and stretched out (as wide as its words, up to this).
+    private const float Dot = 9f, PillHeight = 14f, PillMaxWidth = 260f;
 
     public SignalParameterList(Func<List<(string name, Type type)>> read, WriteHandler write, IReadOnlyList<(string path, Type type)> types,
                                bool editable = true, bool namesEditable = true, bool typesEditable = true, int max = MaxParameters)
@@ -62,40 +64,8 @@ public sealed class SignalParameterList : VisualElement
         style.alignItems = Align.Center;
         style.minHeight = 12;
 
-        _dots = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, flexShrink = 0 } };
+        _dots = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, flexWrap = Wrap.Wrap, flexShrink = 1 } };
         Add(_dots);
-
-        _caption = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, marginLeft = 6, display = DisplayStyle.None } };
-        _name = new Label();
-        _name.AddToClassList("dock-signal-param-name");
-        _type = new Label();
-        _type.AddToClassList("dock-signal-param-type");
-        _caption.Add(_name);
-        _caption.Add(_type);
-        Add(_caption);
-
-        if (_namesEditable)
-        {
-            _name.tooltip = "Double-click to rename it (also its pin's name on the nodes).";
-            _name.RegisterCallback<MouseDownEvent>(evt =>
-            {
-                if (evt.button != 0 || evt.clickCount != 2 || _shown < 0) return;
-                evt.StopPropagation();
-                Rename(_shown);
-            });
-        }
-        if (_typesEditable)
-        {
-            _type.tooltip = "Click to change the type of value it carries.";
-            _type.RegisterCallback<MouseDownEvent>(evt =>
-            {
-                if (evt.button != 0 || _shown < 0) return;
-                evt.StopPropagation();
-                ShowTypeMenu(_shown);
-            });
-        }
-
-        RegisterCallback<MouseLeaveEvent>(_ => Hide());
         Refresh();
 
         // Undo / Redo of a parameter edit: show the restored list.
@@ -103,32 +73,14 @@ public sealed class SignalParameterList : VisualElement
         RegisterCallback<DetachFromPanelEvent>(_ => Undo.undoRedoPerformed -= Refresh);
     }
 
-    /// <summary>Redraws the dots from the current parameters.</summary>
+    /// <summary>Redraws the pills from the current parameters.</summary>
     public void Refresh()
     {
         _dots.Clear();
+        _pills.Clear();
         var parameters = _read?.Invoke() ?? new List<(string, Type)>();
         for (int i = 0; i < parameters.Count; i++)
-        {
-            int index = i;
-            var dot = new VisualElement();
-            dot.AddToClassList("dock-signal-param-dot");
-            dot.style.width = dot.style.height = 9;
-            dot.style.borderTopLeftRadius = dot.style.borderTopRightRadius = dot.style.borderBottomLeftRadius = dot.style.borderBottomRightRadius = 4.5f;
-            dot.style.marginRight = 3;
-            dot.style.backgroundColor = DockRows.ColorOf(parameters[i].type);
-            dot.RegisterCallback<MouseEnterEvent>(_ => Show(index));
-            if (_editable)
-                dot.AddManipulator(new ContextualMenuManipulator(evt =>
-                    evt.menu.AppendAction("Remove Parameter", _ =>
-                    {
-                        var edited = _read();
-                        if (index >= edited.Count) return;
-                        edited.RemoveAt(index);
-                        Write(edited, null, null);
-                    })));
-            _dots.Add(dot);
-        }
+            _dots.Add(Pill(parameters[i].name, parameters[i].type, i));
 
         _add = null;
         if (_editable)
@@ -148,13 +100,93 @@ public sealed class SignalParameterList : VisualElement
         }
 
         style.display = parameters.Count > 0 || _editable ? DisplayStyle.Flex : DisplayStyle.None;
-        if (_shown >= parameters.Count)
+        if (_pinned >= parameters.Count)
+            _pinned = -1;
+        if (_pinned >= 0)
+            Stretch(_pinned, true);
+    }
+
+    // A parameter: a dot in its type's colour that stretches out into a pill holding "name: type" while hovered.
+    private VisualElement Pill(string name, Type type, int index)
+    {
+        var color = DockRows.ColorOf(type);
+        float luminance = 0.2126f * color.r + 0.7152f * color.g + 0.0722f * color.b;
+        var ink = luminance > 0.6f ? new Color(0.08f, 0.08f, 0.08f) : Color.white;
+
+        var pill = new VisualElement();
+        pill.AddToClassList("dock-signal-param-pill");
+        pill.style.backgroundColor = color;
+        pill.style.flexDirection = FlexDirection.Row;
+        pill.style.alignItems = Align.Center;
+        pill.style.flexShrink = 0;
+        pill.style.overflow = Overflow.Hidden;
+        pill.style.borderTopLeftRadius = pill.style.borderTopRightRadius = pill.style.borderBottomLeftRadius = pill.style.borderBottomRightRadius = PillHeight * 0.5f;
+        pill.style.marginRight = 3;
+        pill.style.marginTop = pill.style.marginBottom = 1;
+
+        var nameLabel = new Label(name + ":");
+        nameLabel.AddToClassList("dock-signal-param-name");
+        nameLabel.style.color = ink;
+        var typeLabel = new Label(TypeLabel(type));
+        typeLabel.AddToClassList("dock-signal-param-type");
+        typeLabel.style.color = new Color(ink.r, ink.g, ink.b, 0.6f);
+        pill.Add(nameLabel);
+        pill.Add(typeLabel);
+        _pills.Add((pill, nameLabel, typeLabel));
+        SetStretched(pill, nameLabel, typeLabel, false);
+
+        pill.RegisterCallback<MouseEnterEvent>(_ => Stretch(index, true));
+        pill.RegisterCallback<MouseLeaveEvent>(_ => Stretch(index, false));
+
+        if (_namesEditable)
         {
-            _pinned = false;
-            Hide();
+            nameLabel.tooltip = "Double-click to rename it (also its pin's name on the nodes).";
+            nameLabel.RegisterCallback<MouseDownEvent>(evt =>
+            {
+                if (evt.button != 0 || evt.clickCount != 2) return;
+                evt.StopPropagation();
+                Rename(index);
+            });
         }
-        else if (_shown >= 0)
-            Show(_shown);
+        if (_typesEditable)
+        {
+            typeLabel.tooltip = "Click to change the type of value it carries.";
+            typeLabel.RegisterCallback<MouseDownEvent>(evt =>
+            {
+                if (evt.button != 0) return;
+                evt.StopPropagation();
+                ShowTypeMenu(index, typeLabel);
+            });
+        }
+        if (_editable)
+            pill.AddManipulator(new ContextualMenuManipulator(evt =>
+                evt.menu.AppendAction("Remove Parameter", _ =>
+                {
+                    var edited = _read();
+                    if (index >= edited.Count) return;
+                    edited.RemoveAt(index);
+                    Write(edited, null, null);
+                })));
+        return pill;
+    }
+
+    // Stretches a pill out (or folds it back to a dot, unless it's being renamed).
+    private void Stretch(int index, bool stretched)
+    {
+        if (index < 0 || index >= _pills.Count)
+            return;
+        if (!stretched && _pinned == index)
+            return;
+        var (pill, name, type) = _pills[index];
+        SetStretched(pill, name, type, stretched);
+    }
+
+    private static void SetStretched(VisualElement pill, Label name, Label type, bool stretched)
+    {
+        pill.style.maxWidth = stretched ? PillMaxWidth : Dot;
+        pill.style.minWidth = Dot;
+        pill.style.height = stretched ? PillHeight : Dot;
+        name.style.opacity = type.style.opacity = stretched ? 1f : 0f;
     }
 
     /// <summary>Starts renaming the first parameter, or adding one when there are none.</summary>
@@ -167,34 +199,14 @@ public sealed class SignalParameterList : VisualElement
             ShowAddMenu();
     }
 
-    private void Show(int index)
-    {
-        var parameters = _read?.Invoke();
-        if (parameters == null || index < 0 || index >= parameters.Count)
-            return;
-        _shown = index;
-        var (name, type) = parameters[index];
-        _name.text = name + ":";
-        _name.style.color = DockRows.ColorOf(type);
-        _type.text = TypeLabel(type);
-        _caption.style.display = DisplayStyle.Flex;
-    }
-
-    private void Hide()
-    {
-        if (_pinned) return;
-        _shown = -1;
-        _caption.style.display = DisplayStyle.None;
-    }
-
     private void Rename(int index)
     {
         var parameters = _read();
-        if (index >= parameters.Count) return;
-        Show(index);
-        _pinned = true;
+        if (index >= parameters.Count || index >= _pills.Count) return;
+        _pinned = index;
+        Stretch(index, true);
         string old = parameters[index].name;
-        Remedy.Schematics.Templates.InlineRename.Begin(_name, old, wanted =>
+        Remedy.Schematics.Templates.InlineRename.Begin(_pills[index].name, old, wanted =>
         {
             var edited = _read();
             if (index >= edited.Count) return;
@@ -203,12 +215,12 @@ public sealed class SignalParameterList : VisualElement
             Write(edited, old, wanted);
         }, () =>
         {
-            _pinned = false;
-            if (panel != null) Show(index);
+            _pinned = -1;
+            if (panel != null) Stretch(index, false);
         });
     }
 
-    private void ShowTypeMenu(int index)
+    private void ShowTypeMenu(int index, VisualElement under)
     {
         var parameters = _read();
         if (index >= parameters.Count) return;
@@ -226,7 +238,7 @@ public sealed class SignalParameterList : VisualElement
                 Write(edited, null, null);
             });
         }
-        menu.DropDown(_type.worldBound);
+        menu.DropDown(under.worldBound);
     }
 
     private void ShowAddMenu()

@@ -1022,24 +1022,36 @@ TextElement
 	flex-grow: 0;
 }
 
-/* A Signal's parameters: dots in their types' colours under its name; "name: type" beside them on hover. */
+/* A Signal's parameters: dots in their types' colours under its name, each stretching out into a pill holding
+   "name: type" while hovered (SignalParameterList sets the sizes; these animate them). */
 .dock-signal-params
 {
 	margin: 1px 0 1px 32px;
+}
+.dock-signal-param-pill
+{
+	transition-property: max-width, height;
+	transition-duration: 0.14s;
+	transition-timing-function: ease-out;
 }
 .dock-signal-param-name
 {
 	-unity-font-style: bold;
 	font-size: 10px;
 	margin: 0;
-	padding: 0 2px 0 0;
+	padding: 0 2px 0 6px;
+	white-space: nowrap;
+	transition-property: opacity;
+	transition-duration: 0.12s;
 }
 .dock-signal-param-type
 {
-	color: #8a8a8a;
 	font-size: 10px;
 	margin: 0;
-	padding: 0;
+	padding: 0 6px 0 0;
+	white-space: nowrap;
+	transition-property: opacity;
+	transition-duration: 0.12s;
 }
 .dock-signal-param-add
 {
@@ -1049,7 +1061,7 @@ TextElement
 	margin: 0 0 0 2px;
 	padding: 0 3px;
 }
-.dock-signal-param-add:hover, .dock-signal-param-type:hover
+.dock-signal-param-add:hover
 {
 	color: #e6e6e6;
 }

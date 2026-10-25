@@ -34,6 +34,10 @@ internal static class NodeLook
                 _ => null,
             };
             color = DockRows.ColorOf(type);
+            // Its title bar a darker shade of its colour (the Schematic green, deepened).
+            var titleColor = node.GetType().GetCustomAttribute<NodeColorAttribute>(true);
+            if (titleColor != null)
+                view.titleContainer.style.backgroundColor = Color.Lerp(titleColor.Color, Color.black, 0.35f);
             // Its bar and ring beside its name, as on its row in the IO Dock.
             var label = view.titleContainer.Q<Label>("title-label");
             if (label != null && view.titleContainer.Q(className: "node-variable-mark") == null)

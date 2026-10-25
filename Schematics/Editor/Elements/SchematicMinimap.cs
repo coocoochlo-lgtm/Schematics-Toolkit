@@ -246,9 +246,11 @@ public class SchematicMinimap : VisualElement
         // Each note's pencil, on top (at a size that reads, however small the note is on the map). Hovered, or in the
         // comment hovered, its first few words instead: laid out clear of the comment's name and of each other.
         var named = new List<(Rect map, BlueGraph.Note note)>();
+        _noteHits.Clear();
         foreach (var note in _canvas.Query<NoteView>().ToList())
         {
             var rect = ToMap(note.GetPosition());
+            _noteHits.Add((Inflate(NoteIconRect(rect), 2f), note.GetPosition()));
             bool inHovered = _hovered != null && _hovered.GetPosition().Contains(note.GetPosition().center);
             if (inHovered || NoteHovered(rect, mouse))
                 named.Add((rect, note.Target));
@@ -263,7 +265,7 @@ public class SchematicMinimap : VisualElement
                 taken.Add(Inflate(commentName, 1f));
             named.Sort((a, b) => a.map.center.y.CompareTo(b.map.center.y));
             foreach (var (map, note) in named)
-                DrawNoteName(map, note, taken);
+                _noteHits.Add((DrawNoteName(map, note, taken), note.Region));
         }
 
         // The visible part of the graph.
@@ -306,7 +308,7 @@ public class SchematicMinimap : VisualElement
 
     // A note's first three words on a patch of its colour, at the note, or moved (down, else up) clear of the names
     // already placed (<paramref name="taken"/>), with a thin line back to the note when moved.
-    private void DrawNoteName(Rect rect, BlueGraph.Note note, List<Rect> taken)
+    private Rect DrawNoteName(Rect rect, BlueGraph.Note note, List<Rect> taken)
     {
         _noteNameStyle ??= new GUIStyle(EditorStyles.miniBoldLabel) { normal = { textColor = Color.white }, alignment = TextAnchor.MiddleCenter };
         var content = new GUIContent(FirstWords(note.Text, 3));
@@ -325,6 +327,7 @@ public class SchematicMinimap : VisualElement
         }
         EditorGUI.DrawRect(label, note.Color);
         GUI.Label(label, content, _noteNameStyle);
+        return label;
     }
 
     // A label moved down (or, past the bottom, up) until it no longer overlaps any already placed.
@@ -531,16 +534,28 @@ public class SchematicMinimap : VisualElement
     private Vector2 _mapOffset;
     // What was drawn where last time (minimap rect, graph rect), so clicks can find it.
     private readonly List<(Rect map, Rect graph)> _nodeHits = new();
+    // Notes' pencils and shown names on the map, and the notes they're for (clicked: the view frames the note).
+    private readonly List<(Rect map, Rect graph)> _noteHits = new();
     private readonly List<(Rect map, Rect graph, CommentView comment)> _commentHits = new();
     private readonly List<CommentMark> _commentMarks = new();
 
     private Vector2 ToGraph(Vector2 local) => _contentBounds.position + (local - _mapOffset) / _mapScale;
 
-    // A click on a node glides to that node, on a comment to the whole comment, anywhere else to that point.
+    // A click on a note (its pencil or name) frames it, on a node glides to it, on a comment frames the whole comment,
+    // anywhere else glides to that point.
     private void Click(Vector2 local)
     {
         if (_mapScale <= 0f) return;
 
+        // A note's pencil or name: to the note (names are drawn over everything, so they win).
+        for (int i = _noteHits.Count - 1; i >= 0; i--)
+        {
+            if (_noteHits[i].map.Contains(local))
+            {
+                _motion.Frame(_noteHits[i].graph);
+                return;
+            }
+        }
         // Nodes win over the comments around them.
         for (int i = _nodeHits.Count - 1; i >= 0; i--)
         {
