@@ -538,15 +538,36 @@ namespace Remedy.Schematics
         /// Opens the IO Dock as a tab beside the Hierarchy (if it isn't open), in front of it; <paramref name="focus"/>:
         /// and focused (otherwise the window in use stays so).
         /// </summary>
-        internal static void OpenBesideHierarchy(bool focus)
+        internal static void OpenBesideHierarchy(bool focus) => OpenBesideHierarchy(focus, redock: false);
+
+        // redock: floating IO Docks (opened while the Hierarchy was down) are taken down to open again beside it.
+        private static void OpenBesideHierarchy(bool focus, bool redock)
         {
-            if (IsOpen && !focus)
-                return;
             // Unity 6.3's Hierarchy is "HierarchyWindow", earlier versions' "SceneHierarchyWindow".
             var assembly = typeof(Editor).Assembly;
             var hierarchy = assembly.GetType("UnityEditor.HierarchyWindow") ?? assembly.GetType("UnityEditor.SceneHierarchyWindow");
+            bool hierarchyOpen = hierarchy != null && Resources.FindObjectsOfTypeAll(hierarchy).Length > 0;
+            // A graph window maximized (Unity takes every other window down meanwhile, the Hierarchy too): opening now
+            // would make a floating IO Dock, so it opens beside the Hierarchy once that's restored.
+            if (AnyGraphMaximized())
+            {
+                SessionState.SetBool(ReopenKey, true);
+                return;
+            }
+            bool open = false;
+            foreach (var dock in Resources.FindObjectsOfTypeAll<SchematicIODockWindow>())
+            {
+                if (dock == null)
+                    continue;
+                if (redock && !dock.docked && hierarchyOpen)
+                    dock.Close();
+                else
+                    open = true;
+            }
+            if (open && !focus)
+                return;
             var before = focusedWindow;
-            var window = hierarchy != null ? GetWindow<SchematicIODockWindow>("IO Dock", focus, hierarchy) : GetWindow<SchematicIODockWindow>("IO Dock", focus);
+            var window = hierarchyOpen ? GetWindow<SchematicIODockWindow>("IO Dock", focus, hierarchy) : GetWindow<SchematicIODockWindow>("IO Dock", focus);
             window.Show();
             if (!focus && before != null && before != window)
                 before.Focus();
@@ -561,7 +582,15 @@ namespace Remedy.Schematics
                 return;
             SessionState.SetBool(ReopenKey, false);
             // (Once the layout is back.)
-            EditorApplication.delayCall += () => OpenBesideHierarchy(focus: false);
+            EditorApplication.delayCall += () => OpenBesideHierarchy(focus: false, redock: true);
+        }
+
+        private static bool AnyGraphMaximized()
+        {
+            foreach (var graphWindow in Resources.FindObjectsOfTypeAll<SchematicGraphEditorWindow>())
+                if (graphWindow != null && graphWindow.maximized)
+                    return true;
+            return false;
         }
 
         private void OnEnable() => SchematicGraphEditorWindow.FollowerChanged += OnFollowerChanged;
