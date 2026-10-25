@@ -38,7 +38,7 @@ public class RemedyInput : SingletonData<RemedyInput>
     // The latest value of each held input, resent every frame by UpdateInputs.
     private static readonly Dictionary<SignalData, object> _currentInput = new();
 
-    [IdentityListRenderer(identifierType: ListIdentifierType.Name, identifierField: "Name", depth: 0, foldoutTitle: "Input Maps", itemLabel: "Map", renamable: true)]
+    [IdentityListRenderer(identifierType: ListIdentifierType.Name, identifierField: "Name", depth: 0, foldoutTitle: "Input Maps", itemLabel: "Map", renamable: true, AsTabs = true)]
     public InputActionMap[] InputMaps = new InputActionMap[0];
     // The map in use while the game runs: one of InputMaps itself, so never saved. Saved, it was a second copy of that
     // map's data in the asset pointing at the same object, and applying any edit wrote the map from both: the second
@@ -371,7 +371,7 @@ public class RemedyInput : SingletonData<RemedyInput>
     public class InputActionMap 
     {
         public string Name;
-        [IdentityListRenderer(identifierType: ListIdentifierType.Name, identifierField: "Name", depth: 1, foldoutTitle: "Inputs", itemLabel: "Input", renamable: true)]
+        [IdentityListRenderer(identifierType: ListIdentifierType.Name, identifierField: "Name", depth: 1, foldoutTitle: "Inputs", itemLabel: "Input", renamable: true, Flat = true)]
         public InputActionEvent[] Inputs = new InputActionEvent[0];
 
         public InputActionMap() { }

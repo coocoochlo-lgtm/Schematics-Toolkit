@@ -1170,3 +1170,38 @@ LazyListFoldout
 {
 	background-color: #252525;
 }
+
+/* Globals and Input Maps as tabs; a flat list's "add" button. */
+.globals-tab, .maps-tab
+{
+	padding: 3px 8px;
+	background-color: #343434;
+}
+.globals-tab-hover, .maps-tab-hover
+{
+	background-color: #505050;
+}
+.globals-tab-selected, .maps-tab-selected
+{
+	background-color: #1e3a52;
+}
+.globals-tab-content, .maps-tab-content
+{
+	padding-top: 4px;
+}
+.identity-list-add
+{
+	align-self: flex-start;
+	margin: 3px 0 2px 4px;
+	padding: 1px 8px;
+	font-size: 11px;
+	background-image: none;
+	background-color: rgba(255,255,255,0.06);
+	border-width: 0px;
+	color: #a8a8a8;
+}
+.identity-list-add:hover
+{
+	background-color: rgba(255,255,255,0.12);
+	color: #ffffff;
+}

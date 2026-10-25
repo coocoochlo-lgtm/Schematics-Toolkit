@@ -311,24 +311,24 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
         {
             if (_dg != null) return _dg;
 
+            // Each global (the Input System...) a tab of its own, its dock under it, rather than a foldout each.
             VisualElement globalContainer = new();
+            var tabs = new TabView("", "globals", topScrollBar: true, hideTabLabels: false);
 
             foreach (var instance in _globals)
             {
-                var objFoldout = new Foldout()
-                {
-                    text = instance.name
-                };
-
                 var path = AssetDatabase.GetAssetPath(SchematicEditorData.Instance) + "/Global Events/" + instance.name + "/";
                 (bool draw, VisualElement dock) = IODockRegistry.RenderObjectDock(instance.type, _currentWindow, instance.data, null, path);
 
-                if (draw)
+                if (draw && dock != null)
                 {
-                    objFoldout.Add(dock);
-                    globalContainer.Add(objFoldout);
+                    var id = instance.name;
+                    while (tabs.HasTab(id))
+                        id += " ";
+                    tabs.AddTab(id).Add(dock);
                 }
             }
+            globalContainer.Add(tabs);
 
             _dg = globalContainer;
 

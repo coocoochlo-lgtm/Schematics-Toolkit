@@ -63,6 +63,17 @@ public class IdentityListContainerRenderer : FieldRenderer
 
         _container.Clear();
 
+        if (_listAttr.AsTabs)
+        {
+            _container.Add(DrawTabs());
+            return;
+        }
+        if (_listAttr.Flat)
+        {
+            _container.Add(DrawFlat());
+            return;
+        }
+
         /// <summary>
         /// Creates a Lazy Loaded List Foldout with add/remove functionality
         /// </summary>
@@ -128,6 +139,151 @@ public class IdentityListContainerRenderer : FieldRenderer
     }
 
     private string ItemLabel => string.IsNullOrEmpty(_listAttr.ItemLabel) ? "Item" : _listAttr.ItemLabel;
+
+    // The tab open in each tabbed list (by object and list), kept across redraws.
+    private static readonly Dictionary<string, int> _openTab = new();
+
+    /// <summary>
+    /// The items as a row of tabs, each named by its identifier, the open one's fields under them: "+" adds one (its
+    /// name typed in place on its tab), double-click a tab to rename it, right-click it to rename or remove it.
+    /// </summary>
+    private VisualElement DrawTabs()
+    {
+        var holder = new VisualElement();
+        var tabs = new TabView("", "maps", topScrollBar: true, hideTabLabels: false);
+        string listKey = ItemKey(ListPath);
+        var list = CurrentList();
+        var ids = new List<string>();
+        for (int i = 0; list != null && i < list.Count; i++)
+        {
+            int index = i;
+            var item = list[i];
+            var elementPath = PathManager.GetArrayPath(_path, _field, index);
+            string name = NameOf(item);
+            string id = name;
+            while (tabs.HasTab(id))
+                id += " ";
+            ids.Add(id);
+            var tab = tabs.AddTab(id);
+            tab.UseFactory(() => ItemFields(elementPath, item) ?? new VisualElement());
+
+            var button = tab.Button;
+            if (CanRename(item))
+            {
+                button.tooltip = name + " (double-click to rename)";
+                button.RegisterCallback<PointerDownEvent>(evt =>
+                {
+                    if (evt.button != 0 || evt.clickCount != 2) return;
+                    evt.StopPropagation();
+                    RenameTab(button, elementPath, item);
+                }, TrickleDown.TrickleDown);
+            }
+            button.AddManipulator(new ContextualMenuManipulator(evt =>
+            {
+                if (CanRename(item))
+                    evt.menu.AppendAction("Rename", _ => RenameTab(button, elementPath, item));
+                evt.menu.AppendAction("Remove " + ItemLabel, _ =>
+                {
+                    ChangeList("Remove " + ItemLabel, items =>
+                    {
+                        if (index < 0 || index >= items.Count) return false;
+                        items.RemoveAt(index);
+                        return true;
+                    });
+                    Redraw(true);
+                });
+            }));
+
+            // Just added: open, its name typed in place on its tab.
+            if (index == _renameIndex)
+            {
+                _renameIndex = -1;
+                _openTab[listKey] = index;
+                if (CanRename(item))
+                    button.schedule.Execute(() => RenameTab(button, elementPath, item)).ExecuteLater(1);
+            }
+        }
+        tabs.AddActionButton("+", "Add a " + ItemLabel + ".", AddItem).AddToClassList("tab-add-component");
+
+        // The tab open before (the first the first time).
+        int open = _openTab.TryGetValue(listKey, out var remembered) ? remembered : 0;
+        if (ids.Count > 0)
+            tabs.SelectTab(ids[Mathf.Clamp(open, 0, ids.Count - 1)]);
+        tabs.SelectionChanged += id => { if (id != null) _openTab[listKey] = ids.IndexOf(id); };
+
+        if (ids.Count == 0)
+        {
+            var hint = new Label($"No {ItemLabel}s yet: \"+\" adds one.");
+            hint.style.opacity = 0.6f;
+            hint.style.marginLeft = 6;
+            hint.style.marginTop = 2;
+            holder.Add(tabs);
+            holder.Add(hint);
+            return holder;
+        }
+        holder.Add(tabs);
+        return holder;
+    }
+
+    /// <summary>The items straight in place (each its own foldout), with an "add" button after them.</summary>
+    private VisualElement DrawFlat()
+    {
+        var holder = new VisualElement();
+        holder.AddToClassList("identity-list-flat");
+        var list = CurrentList();
+        for (int i = 0; list != null && i < list.Count; i++)
+            holder.Add(CreateItemContent(i, list[i]));
+        var add = new Button(AddItem) { text = "+ " + ItemLabel, tooltip = "Add a " + ItemLabel + "." };
+        add.AddToClassList("identity-list-add");
+        holder.Add(add);
+        return holder;
+    }
+
+    // An item's fields, drawn from the object's current data.
+    private VisualElement ItemFields(string elementPath, object item)
+    {
+        var current = ManagedPath.Resolve(_object, elementPath);
+        if (current == null || current.GetType() != item?.GetType())
+            current = item;
+        (bool drawFields, VisualElement fieldsContainer) = IODockRegistry.RenderMultipleFields(_window, _object, current, elementPath, onModified: _onModified);
+        SignalRenderer.DrawDelayedEvents();
+        return drawFields ? fieldsContainer : null;
+    }
+
+    // A new item, with a unique starting name typed over in place once it's drawn.
+    private void AddItem()
+    {
+        var elementType = ManagedPath.ElementType(_field.MemberType);
+        if (elementType == null)
+            return;
+        var newItem = Activator.CreateInstance(elementType);
+        var identifier = IdentifierMember(elementType);
+        if (identifier != null && identifier.MemberType == typeof(string))
+        {
+            identifier.SetValue(newItem, UniqueName());
+            _renameIndex = _listAttr.Renamable ? (CurrentList()?.Count ?? 0) : -1;
+        }
+        ChangeList("Add " + ItemLabel, items => { items.Add(newItem); return true; });
+        Redraw(true);
+    }
+
+    // A tab's name typed over in place, on the tab.
+    private void RenameTab(Button button, string elementPath, object item)
+    {
+        var label = button.Q<Label>();
+        if (label == null)
+            return;
+        var target = ManagedPath.Resolve(_object, elementPath) ?? item;
+        string current = IdentifierMember(target.GetType())?.GetValue(target)?.ToString() ?? "";
+        Remedy.Schematics.Templates.InlineRename.Begin(label, current, name => ApplyRename(elementPath, item, name, _ => Redraw(true)));
+    }
+
+    // An item's identifier alone ("Character Controller", not "Map: Character Controller").
+    private string NameOf(object item)
+    {
+        var name = item != null ? IdentifierMember(item.GetType())?.GetValue(item)?.ToString() : null;
+        return string.IsNullOrEmpty(name) ? "(unnamed)" : name;
+    }
 
     private string GetItemName(object item)
     {

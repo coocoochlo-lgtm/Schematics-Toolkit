@@ -17,6 +17,13 @@ public class IdentityListRendererAttribute : CustomFieldRendererAttribute
     public string ItemLabel;
     /// <summary>Whether items can be renamed (double-click their title) through the identifier field.</summary>
     public bool Renamable;
+    /// <summary>
+    /// Items as a row of tabs (each named by its identifier; "+" adds one, double-click a tab to rename it, right-click
+    /// it to rename or remove it), the open one's fields under them, instead of a foldout of foldouts.
+    /// </summary>
+    public bool AsTabs;
+    /// <summary>The items straight in place, without the foldout around them, an "add" button after them.</summary>
+    public bool Flat;
 
     /// <summary>
     /// 
