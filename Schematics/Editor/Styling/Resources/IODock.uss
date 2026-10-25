@@ -1238,3 +1238,12 @@ LazyListFoldout
 	color: #b8b8b8;
 	font-size: 11px;
 }
+
+/* An item's plain fields (Socket, Event...), as compact label-and-field rows. */
+.dock-plain-field-label
+{
+	color: #a8a8a8;
+	font-size: 11px;
+	margin: 0 4px 0 0;
+	-unity-text-align: middle-left;
+}

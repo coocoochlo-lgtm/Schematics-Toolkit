@@ -74,7 +74,12 @@ public static class IODockRegistry
     /// </summary>
     /// <param name="parent"></param>
     /// <returns></returns>
-    public static (bool, VisualElement) RenderMultipleFields(SchematicGraphEditorWindow window, UnityEngine.Object obj, object parent, string propertyPath = "", List<Action> onModified = null, bool displayObjectName = false)
+    /// <param name="plainFields">
+    /// Also its plain fields (numbers, text, toggles, enums, vectors, colours, object references) that have no renderer of
+    /// their own, editable: for items of lists (a Weapon Input's Socket and Event, an Input's settings), so what a
+    /// modular Signal does can be set right beside it.
+    /// </param>
+    public static (bool, VisualElement) RenderMultipleFields(SchematicGraphEditorWindow window, UnityEngine.Object obj, object parent, string propertyPath = "", List<Action> onModified = null, bool displayObjectName = false, bool plainFields = false)
     {
         var container = new VisualElement()
         {
@@ -118,6 +123,11 @@ public static class IODockRegistry
                         draw = true;
                         fieldDrawn = true;
                     }
+                    else if (plainFields && PlainFieldRow(obj, parent, field.Name, onModified) is { } plain)
+                    {
+                        container.Add(plain);
+                        draw = true;
+                    }
                 }
                 else
                 {
@@ -136,6 +146,47 @@ public static class IODockRegistry
         }
 
         return (draw, container);
+    }
+
+    /// <summary>
+    /// A plain field of <paramref name="parent"/> as an editable row: its name, then a field for its value (written
+    /// straight into it, recorded for Undo on <paramref name="obj"/>, then <paramref name="onModified"/>). Null for
+    /// fields that aren't saved, are hidden, or have no simple field (lists, classes).
+    /// </summary>
+    public static VisualElement PlainFieldRow(UnityEngine.Object obj, object parent, string fieldName, List<Action> onModified)
+    {
+        var field = parent?.GetType().GetField(fieldName, BindingFlags.Public | BindingFlags.Instance);
+        if (field == null || field.IsInitOnly || field.IsLiteral || field.IsNotSerialized
+            || field.IsDefined(typeof(HideInInspector), true))
+            return null;
+        var type = field.FieldType;
+        if (type.IsArray || (type.IsGenericType && !type.IsEnum) || SchematicValue.IsBoxable(type))
+            return null;
+        var input = DockValueFields.Create(type, field.GetValue(parent), value =>
+        {
+            if (obj != null)
+                Undo.RecordObject(obj, "Edit " + ObjectNames.NicifyVariableName(field.Name));
+            field.SetValue(parent, value);
+            if (obj != null)
+                EditorUtility.SetDirty(obj);
+            if (onModified != null)
+                foreach (var modified in onModified)
+                    modified?.Invoke();
+        });
+        if (input == null)
+            return null;
+        var row = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, marginTop = 1, marginBottom = 1 } };
+        row.AddToClassList("dock-plain-field");
+        var label = new Label(ObjectNames.NicifyVariableName(field.Name));
+        label.AddToClassList("dock-plain-field-label");
+        label.style.width = 80;
+        label.style.flexShrink = 0;
+        var tooltip = field.GetCustomAttribute<TooltipAttribute>();
+        if (tooltip != null)
+            label.tooltip = tooltip.tooltip;
+        row.Add(label);
+        row.Add(input);
+        return row;
     }
 
     /// <summary>

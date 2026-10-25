@@ -749,14 +749,9 @@ public class PrefabHierarchy : VisualElement
             return typed;
         }
 
-        // (Fields report a change as they're first bound: only changes after that are edits.)
-        bool ready = false;
-
         void Build()
         {
             body.Clear();
-            ready = false;
-            body.schedule.Execute(() => ready = true).ExecuteLater(150);
             var edit = BoxedEdit(path, behavior, attachment, definition);
             var holder = edit.holder;
             var items = holder.Box?.Boxed as IList;
@@ -794,25 +789,9 @@ public class PrefabHierarchy : VisualElement
                 header.Add(remove);
                 card.Add(header);
 
-                // Its plain fields, with Unity's drawers, bound to the copy (saved as they change).
-                var fields = new VisualElement();
-                foreach (var field in itemType.GetFields(BindingFlags.Public | BindingFlags.Instance))
-                {
-                    if (IODockRegistry.IsSignalType(field.FieldType))
-                        continue;
-                    var property = edit.serialized.FindProperty(itemPath + "." + field.Name);
-                    if (property == null)
-                        continue;
-                    var propertyField = new UnityEditor.UIElements.PropertyField(property);
-                    propertyField.RegisterValueChangeCallback(_ => { if (ready) Commit(holder); });
-                    fields.Add(propertyField);
-                }
-                fields.Bind(edit.serialized);
-                card.Add(fields);
-
-                // Its Signals, as Signal rows.
+                // Its fields, editable (Socket, Event...), and its Signals as Signal rows, in the order they're declared.
                 var (draw, rows) = IODockRegistry.RenderMultipleFields(_schematicWindow, holder, item, itemPath,
-                    onModified: new List<Action> { () => Commit(holder) });
+                    onModified: new List<Action> { () => { edit.serialized.Update(); Commit(holder); } }, plainFields: true);
                 SignalRenderer.DrawDelayedEvents();
                 if (draw && rows != null)
                     card.Add(rows);

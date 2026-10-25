@@ -245,7 +245,7 @@ public class IdentityListContainerRenderer : FieldRenderer
         var current = ManagedPath.Resolve(_object, elementPath);
         if (current == null || current.GetType() != item?.GetType())
             current = item;
-        (bool drawFields, VisualElement fieldsContainer) = IODockRegistry.RenderMultipleFields(_window, _object, current, elementPath, onModified: _onModified);
+        (bool drawFields, VisualElement fieldsContainer) = IODockRegistry.RenderMultipleFields(_window, _object, current, elementPath, onModified: _onModified, plainFields: true);
         SignalRenderer.DrawDelayedEvents();
         return drawFields ? fieldsContainer : null;
     }
@@ -377,7 +377,7 @@ public class IdentityListContainerRenderer : FieldRenderer
             }
         }
 
-        (bool drawFields, VisualElement fieldsContainer) = IODockRegistry.RenderMultipleFields(_window, _object, current, elementPath, onModified: _onModified);
+        (bool drawFields, VisualElement fieldsContainer) = IODockRegistry.RenderMultipleFields(_window, _object, current, elementPath, onModified: _onModified, plainFields: true);
         if (drawFields && fieldsContainer != null)
             itemFoldout.Add(fieldsContainer);
 
