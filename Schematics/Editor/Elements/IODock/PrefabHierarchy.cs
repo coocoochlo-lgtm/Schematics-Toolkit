@@ -548,11 +548,18 @@ public class PrefabHierarchy : VisualElement
                 section.Add(body);
                 continue;
             }
-            var field = new IMGUIContainer(() => DrawVariableField(path, type, attachment, definition));
-            field.style.flexGrow = 1;
-            field.style.flexShrink = 1;
-            field.style.minWidth = 60;
-            row.Add(field);
+            // A native field where there is one (much cheaper than an IMGUI field per row), with the button back to the
+            // default; IMGUI for the rest.
+            if (NativeVariableField(path, type, attachment, definition) is { } native)
+                row.Add(native);
+            else
+            {
+                var field = new IMGUIContainer(() => DrawVariableField(path, type, attachment, definition));
+                field.style.flexGrow = 1;
+                field.style.flexShrink = 1;
+                field.style.minWidth = 60;
+                row.Add(field);
+            }
             section.Add(row);
         }
         return section;
@@ -726,6 +733,42 @@ public class PrefabHierarchy : VisualElement
             return pending.Revert ? definition.Default?.Get(type) : pending.Value;
         var entry = attachment.FindOverride(definition.Name);
         return entry != null ? entry.Value.Get(type) : definition.Default?.Get(type);
+    }
+
+    // A Variable's value as a native field and the button back to the default (null when there's no native field for its type).
+    private VisualElement NativeVariableField(string path, Type behavior, BehaviorAttachment attachment, VariableDefinition definition)
+    {
+        var type = definition.Type.Type;
+        if (type == null || SchematicValue.IsBoxable(type))
+            return null;
+        Button revert = null;
+        var field = DockValueFields.Create(type, CurrentValue(path, behavior, attachment, definition, type), value =>
+        {
+            QueueEdit(path, behavior, definition.Name, type, value);
+            revert?.SetEnabled(true);
+        });
+        if (field == null)
+            return null;
+        var holder = new VisualElement();
+        holder.style.flexDirection = FlexDirection.Row;
+        holder.style.flexGrow = 1;
+        holder.style.flexShrink = 1;
+        holder.style.minWidth = 60;
+        holder.Add(field);
+        revert = new Button { text = "↺", tooltip = "Back to the Behavior's default" };
+        revert.style.width = 20;
+        revert.style.marginLeft = 2;
+        revert.style.paddingLeft = revert.style.paddingRight = 0;
+        revert.clicked += () =>
+        {
+            QueueEdit(path, behavior, definition.Name, type, null, revert: true);
+            DockValueFields.Show(field, definition.Default?.Get(type));
+            revert.SetEnabled(false);
+        };
+        _pendingEdits.TryGetValue(EditKey(path, behavior, definition.Name), out var pending);
+        revert.SetEnabled(pending != null ? !pending.Revert : attachment.FindOverride(definition.Name) != null);
+        holder.Add(revert);
+        return holder;
     }
 
     // The field on a Variable's row: this object's value (or the default), with a button back to the default.
