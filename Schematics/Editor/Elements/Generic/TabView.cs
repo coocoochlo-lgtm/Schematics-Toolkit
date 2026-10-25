@@ -1,62 +1,71 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
 using UnityEngine.UIElements;
 
+/// <summary>
+/// A row of tabs over their contents. Each tab's content can be made the first time it's opened
+/// (<see cref="Tab.UseFactory"/>). Collapsible: clicking the open tab folds it away (no tab open), like a dropdown,
+/// and nothing is open to begin with. The tab row scrolls sideways when it doesn't fit: with a scrollbar above it
+/// (topScrollBar) or below, and with the mouse wheel.
+/// </summary>
 public class TabView : VisualElement
 {
-    private VisualElement _tabScrollBar;
+    private readonly VisualElement _tabScrollBar;
     private readonly VisualElement _tabBar;
+    private readonly VisualElement _actionBar;
     private readonly VisualElement _tabContentContainer;
     private readonly Dictionary<string, Tab> _tabContentMap = new();
+    private readonly List<string> _order = new();
     private string _selectedTab;
-    private string _tabBarName = string.Empty;
-    private bool _hideLabels = false;
+    private readonly string _tabBarName = string.Empty;
+    private readonly bool _hideLabels;
+    private readonly Label _caption;
 
-    public Tab this[string tabID]
+    /// <summary>The text at the right end of the tab row (the open tab's name, say); none when null.</summary>
+    public string Caption
     {
-        get
-        {
-            return _tabContentMap[tabID];
-        }
+        get => _caption?.text;
+        set { if (_caption != null) _caption.text = value?.Trim() ?? ""; }
     }
 
-    public TabView(string labelText = "", string className = "", bool topScrollBar = false, bool hideTabLabels = false)
+    /// <summary>Clicking the open tab folds it away; nothing is open to begin with.</summary>
+    public bool Collapsible { get; }
+
+    /// <summary>The open tab's id, or null when none is (a collapsible one folded away).</summary>
+    public string SelectedTab => _selectedTab;
+
+    /// <summary>A tab was opened (its id), or the open one folded away (null).</summary>
+    public event Action<string> SelectionChanged;
+
+    public Tab this[string tabID] => _tabContentMap[tabID];
+
+    /// <summary>Whether there's a tab with this id.</summary>
+    public bool HasTab(string tabId) => _tabContentMap.ContainsKey(tabId);
+
+    /// <summary>How many tabs there are.</summary>
+    public int TabCount => _order.Count;
+
+    public TabView(string labelText = "", string className = "", bool topScrollBar = false, bool hideTabLabels = false, bool collapsible = false)
     {
         _tabBarName = className.Replace(" ", "");
         _hideLabels = hideTabLabels;
+        Collapsible = collapsible;
 
         style.flexDirection = FlexDirection.Column;
 
-        if(!topScrollBar)
-        {
-            _tabScrollBar = new ScrollView(ScrollViewMode.Horizontal)
-            {
-                style =
-                {
-                    flexDirection = FlexDirection.Row,
-                    flexGrow = 0,
-                    height = 24
-                }
-            };
-        }
-        else
-            _tabScrollBar = new FlippedHorizontalScrollView();
-
+        var scroller = new FlippedHorizontalScrollView(scrollbarOnTop: topScrollBar);
+        _tabScrollBar = scroller;
         _tabScrollBar.AddToClassList(className + "-tab-scrollbar");
 
-        _tabBar = new VisualElement
-        {
-            style =
-            {
-                flexDirection = FlexDirection.Row,
-                flexGrow = 0
-            }
-        };
-
-        _tabScrollBar.Add(_tabBar);
+        // The tabs, then any buttons that aren't tabs ("+"), in one scrolling row.
+        var row = new VisualElement { style = { flexDirection = FlexDirection.Row, flexGrow = 0, flexShrink = 0 } };
+        _tabBar = new VisualElement { style = { flexDirection = FlexDirection.Row, flexGrow = 0, flexShrink = 0 } };
         _tabBar.AddToClassList(className + "-tabbar");
+        _actionBar = new VisualElement { style = { flexDirection = FlexDirection.Row, flexGrow = 0, flexShrink = 0 } };
+        row.Add(_tabBar);
+        row.Add(_actionBar);
+        scroller.Add(row);
 
         _tabContentContainer = new VisualElement
         {
@@ -67,36 +76,51 @@ public class TabView : VisualElement
             }
         };
         _tabContentContainer.AddToClassList(className + "-tab-content");
+        if (collapsible)
+            _tabContentContainer.style.display = DisplayStyle.None;
 
         Add(_tabScrollBar);
         Add(_tabContentContainer);
 
         if (className != string.Empty)
         {
-            var label = new Label(labelText)
+            var label = _caption = new Label(labelText)
             {
+                pickingMode = PickingMode.Ignore,
                 style = {
                     position = Position.Absolute,
                     right = 0,
                     bottom = 0
                 }
             };
-
-            _tabBar.parent.Add(label);
-
+            _tabScrollBar.hierarchy.Add(label);
             label.AddToClassList(className + "-tab-label");
         }
     }
 
-    public Tab AddTab(string tabId, Texture icon = null)
+    public Tab AddTab(string tabId, Texture icon = null) => AddTab(tabId, icon, showLabel: !_hideLabels || icon == null);
+
+    /// <summary>A tab, with its icon and, if <paramref name="showLabel"/>, its name beside it.</summary>
+    public Tab AddTab(string tabId, Texture icon, bool showLabel)
     {
         if (_tabContentMap.ContainsKey(tabId))
             throw new ArgumentException($"Tab '{tabId}' already exists.");
-        
-        var tab = new Tab(this, tabId, icon);
-        _tabContentContainer.Add(tab.Content);
 
-        return tab;
+        return new Tab(this, tabId, icon, showLabel);
+    }
+
+    /// <summary>A button in the tab row that isn't a tab (it does something when clicked: "+" adding one...), after the tabs.</summary>
+    public Button AddActionButton(string text, string tooltip, Action clicked)
+    {
+        var button = new Button(clicked) { text = text, tooltip = tooltip };
+        button.AddToClassList(_tabBarName + "-tab");
+        button.AddToClassList(_tabBarName + "-tab-action");
+        button.style.marginLeft = button.style.marginRight = 0;
+        button.style.borderTopLeftRadius = button.style.borderTopRightRadius = 0;
+        button.style.borderBottomLeftRadius = button.style.borderBottomRightRadius = 0;
+        button.style.borderBottomWidth = 0;
+        _actionBar.Add(button);
+        return button;
     }
 
     public Button GetTabButton(string tabID)
@@ -106,70 +130,92 @@ public class TabView : VisualElement
 
     public void RemoveTab(string tabId)
     {
-        if (!_tabContentMap.ContainsKey(tabId)) return;
+        if (!_tabContentMap.TryGetValue(tabId, out var tab)) return;
 
-        var content = _tabContentMap[tabId];
-        _tabContentContainer.Remove(content);
+        tab.Content.RemoveFromHierarchy();
         _tabContentMap.Remove(tabId);
-
-        var tabButton = _tabBar.Q<Button>(name: tabId);
-        if (tabButton != null) _tabBar.Remove(tabButton);
+        _order.Remove(tabId);
+        tab.Button.RemoveFromHierarchy();
 
         if (_selectedTab == tabId)
         {
             _selectedTab = null;
-            if (_tabContentMap.Count > 0)
-            {
-                var nextTab = new List<string>(_tabContentMap.Keys)[0];
-                SelectTab(nextTab);
-            }
+            if (_order.Count > 0 && !Collapsible)
+                SelectTab(_order[0]);
+            else
+                Collapse();
         }
     }
 
     public void SelectTab(string tabId)
     {
-        if (!_tabContentMap.ContainsKey(tabId)) return;
+        if (!_tabContentMap.TryGetValue(tabId, out var selected)) return;
 
         foreach (var kvp in _tabContentMap)
         {
             kvp.Value.SetVisible(false);
+            kvp.Value.Button.RemoveFromClassList(_tabBarName + "-tab-selected");
         }
 
-        _tabContentMap[tabId].SetVisible(true);
+        selected.EnsureLoaded();
+        selected.SetVisible(true);
+        selected.Button.AddToClassList(_tabBarName + "-tab-selected");
+        _tabContentContainer.style.display = DisplayStyle.Flex;
+        bool changed = _selectedTab != tabId;
         _selectedTab = tabId;
+        if (changed)
+            SelectionChanged?.Invoke(tabId);
+    }
 
-        // Optional: update tab button styles
-        foreach (var child in _tabBar.Children())
+    /// <summary>Folds the open tab away: no tab open, no content shown.</summary>
+    public void Collapse()
+    {
+        foreach (var kvp in _tabContentMap)
         {
-            child.RemoveFromClassList(_tabBarName + "-tab-selected");
+            kvp.Value.SetVisible(false);
+            kvp.Value.Button.RemoveFromClassList(_tabBarName + "-tab-selected");
         }
+        _tabContentContainer.style.display = DisplayStyle.None;
+        bool changed = _selectedTab != null;
+        _selectedTab = null;
+        if (changed)
+            SelectionChanged?.Invoke(null);
+    }
 
-        var selectedButton = _tabBar.Children().ElementAt(new List<string>(_tabContentMap.Keys).IndexOf(tabId));
-        selectedButton.AddToClassList(_tabBarName + "-tab-selected");
+    // A tab's button was clicked: open it, or (collapsible) fold it away if it's the open one.
+    private void Clicked(string tabId)
+    {
+        if (Collapsible && _selectedTab == tabId)
+            Collapse();
+        else
+            SelectTab(tabId);
     }
 
     public class Tab : VisualElement
     {
-        private bool _lazyLoad = false;
         private bool _alreadyLoaded = false;
         private Func<VisualElement> _factory;
         public VisualElement Content;
         public Button Button;
 
-        public Tab(TabView tabView, string tabId, Texture icon = null)
+        public Tab(TabView tabView, string tabId, Texture icon = null) : this(tabView, tabId, icon, !tabView._hideLabels || icon == null) { }
+
+        public Tab(TabView tabView, string tabId, Texture icon, bool showLabel)
         {
             Content = new VisualElement();
 
             // === Tab Content ===
             Content.style.display = DisplayStyle.None;
+            // (The content goes in the tab view, not in this, so Clear on a tab leaves it be.)
             tabView._tabContentContainer.Add(Content);
             tabView._tabContentMap[tabId] = this;
+            tabView._order.Add(tabId);
 
             // === Tab Button ===
             Button = new Button
             {
                 text = "",
-                tooltip = tabId,
+                tooltip = tabId.Trim(),
                 style =
                 {
                     flexDirection = FlexDirection.Row,
@@ -189,17 +235,19 @@ public class TabView : VisualElement
 
             if (icon != null)
             {
-                var img = new Image { image = icon };
+                var img = new Image { image = icon, pickingMode = PickingMode.Ignore };
                 img.style.width = 16;
                 img.style.height = 16;
-                //img.style.marginRight = 4;
+                if (showLabel)
+                    img.style.marginRight = 3;
                 Button.Add(img);
             }
-            
-            if(!tabView._hideLabels || icon == null)
+
+            if (showLabel)
             {
-                var label = new Label(tabId)
+                var label = new Label(tabId.Trim())
                 {
+                    pickingMode = PickingMode.Ignore,
                     style = { unityFontStyleAndWeight = FontStyle.Bold }
                 };
                 Button.Add(label);
@@ -208,32 +256,34 @@ public class TabView : VisualElement
             Button.AddToClassList(tabView._tabBarName + "-tab");
             Button.RegisterCallback<MouseEnterEvent>(_ => Button.AddToClassList(tabView._tabBarName + "-tab-hover"));
             Button.RegisterCallback<MouseLeaveEvent>(_ => Button.RemoveFromClassList(tabView._tabBarName + "-tab-hover"));
-
-            Button.clicked += () =>
-            {
-                tabView.SelectTab(tabId);
-
-                if (_lazyLoad && !_alreadyLoaded)
-                {
-                    Content.Clear();
-                    Content.Add(_factory());
-                    _alreadyLoaded = true;
-                }
-            };
+            Button.clicked += () => tabView.Clicked(tabId);
 
             tabView._tabBar.Add(Button);
 
             // Auto-select first tab
-            if (tabView._tabContentMap.Count == 1)
+            if (!tabView.Collapsible && tabView._order.Count == 1)
                 tabView.SelectTab(tabId);
-
-            base.Add(Content);
         }
 
+        /// <summary>Its content, made the first time the tab is opened (<paramref name="reuseGenerated"/>: kept after).</summary>
         public void UseFactory(Func<VisualElement> factory, bool reuseGenerated = true)
         {
             _factory = factory;
-            _lazyLoad = reuseGenerated;
+            _alreadyLoaded = false;
+            // (Already open: made now.)
+            if (Content.style.display == DisplayStyle.Flex)
+                EnsureLoaded();
+        }
+
+        internal void EnsureLoaded()
+        {
+            if (_alreadyLoaded || _factory == null)
+                return;
+            _alreadyLoaded = true;
+            Content.Clear();
+            var made = _factory();
+            if (made != null)
+                Content.Add(made);
         }
 
         public void SetVisible(bool visible)

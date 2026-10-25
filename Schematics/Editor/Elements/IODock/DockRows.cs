@@ -133,6 +133,43 @@ public static class DockRows
         element.RegisterCallback<MouseLeaveEvent>(_ => pressed = false);
     }
 
+    /// <summary>
+    /// Press and move to drag an item into a graph (a GameObject, a Behavior), with pointer events so it works on buttons
+    /// and in foldout headers too; a press that doesn't move is <paramref name="click"/>. <paramref name="stopPress"/>:
+    /// the press goes no further (a foldout header around it doesn't fold).
+    /// </summary>
+    public static void MakeDragSource(VisualElement element, DockItem item, Action click = null, bool stopPress = false)
+    {
+        Vector2 start = default;
+        bool pressed = false;
+        element.RegisterCallback<PointerDownEvent>(evt =>
+        {
+            if (evt.button != 0 || evt.clickCount > 1) return;
+            pressed = true;
+            start = evt.position;
+            if (stopPress) evt.StopPropagation();
+        });
+        element.RegisterCallback<PointerMoveEvent>(evt =>
+        {
+            if (!pressed || ((Vector2)evt.position - start).sqrMagnitude < 16f) return;
+            pressed = false;
+            // (A button holds on to the pointer while pressed: let go, so the drag isn't also its click.)
+            if (element.HasPointerCapture(evt.pointerId))
+                element.ReleasePointer(evt.pointerId);
+            DragAndDrop.PrepareStartDrag();
+            DragAndDrop.SetGenericData(DockItem.DragKey, item);
+            DragAndDrop.objectReferences = item.GameObject != null ? new UnityEngine.Object[] { item.GameObject } : Array.Empty<UnityEngine.Object>();
+            DragAndDrop.StartDrag(item.DisplayName);
+        });
+        element.RegisterCallback<PointerUpEvent>(evt =>
+        {
+            if (!pressed) return;
+            pressed = false;
+            click?.Invoke();
+            if (stopPress) evt.StopPropagation();
+        });
+    }
+
     public static Label SectionLabel(string text)
     {
         var label = new Label(text);

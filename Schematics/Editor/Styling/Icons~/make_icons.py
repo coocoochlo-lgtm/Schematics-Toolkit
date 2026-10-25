@@ -76,6 +76,28 @@ TAB_ICONS = {
   <circle cx="26.5" cy="16" r="3" fill="none" stroke="{c}" stroke-width="2"/>
   <rect x="3" y="22" width="18" height="5" rx="2.5" fill="{c}"/>
   <circle cx="26.5" cy="24.5" r="3" fill="{c}"/>''',
+    # The IO Dock's sections, as tabs inside a Behavior's.
+    # Variables: values, as the ringed dots their rows carry.
+    "dock-variables": '''
+  <circle cx="10" cy="10" r="6" fill="none" stroke="{c}" stroke-width="2.5"/>
+  <circle cx="10" cy="10" r="2.2" fill="{c}"/>
+  <circle cx="22" cy="22" r="6" fill="none" stroke="{c}" stroke-width="2.5"/>
+  <circle cx="22" cy="22" r="2.2" fill="{c}"/>''',
+    # Signals: a bolt, sent.
+    "dock-signals": '''
+  <path d="M18 2 L6 18 H14.5 L12 30 L26 12 H17.5 Z" fill="{c}"/>''',
+    # Properties: settings, as sliders.
+    "dock-properties": '''
+  <path d="M4 8 H28 M4 16 H28 M4 24 H28" stroke="{c}" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="20" cy="8" r="3.5" fill="{c}"/>
+  <circle cx="10" cy="16" r="3.5" fill="{c}"/>
+  <circle cx="23" cy="24" r="3.5" fill="{c}"/>''',
+    # More: what the Behavior adds itself (a Brain's slots, a vehicle's seats).
+    "dock-more": '''
+  <rect x="3" y="3" width="11" height="11" rx="2.5" fill="{c}"/>
+  <rect x="18" y="3" width="11" height="11" rx="2.5" fill="none" stroke="{c}" stroke-width="2.5"/>
+  <rect x="3" y="18" width="11" height="11" rx="2.5" fill="none" stroke="{c}" stroke-width="2.5"/>
+  <rect x="18" y="18" width="11" height="11" rx="2.5" fill="{c}"/>''',
 }
 
 

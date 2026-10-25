@@ -1,66 +1,78 @@
 using UnityEngine;
 using UnityEngine.UIElements;
 
+/// <summary>
+/// A row that scrolls sideways when it's wider than its room, with a slim scrollbar above it (or below), shown only
+/// then, and the mouse wheel scrolling it sideways too. (The tab rows of the IO Dock.)
+/// </summary>
 public class FlippedHorizontalScrollView : VisualElement
 {
-    private readonly ScrollView _scrollProxy;
     private readonly ScrollView _contentScroll;
+    private readonly Scroller _scroller;
 
     public VisualElement ContentContainer => _contentScroll.contentContainer;
 
-    public FlippedHorizontalScrollView()
+    public FlippedHorizontalScrollView() : this(scrollbarOnTop: true) { }
+
+    public FlippedHorizontalScrollView(bool scrollbarOnTop)
     {
         style.flexDirection = FlexDirection.Column;
-        style.flexGrow = 1;
+        style.flexShrink = 0;
 
-        // 1. Top ScrollView: acts as the scrollbar controller
-        _scrollProxy = new ScrollView(ScrollViewMode.Horizontal)
+        // The content, with Unity's own scrollbars hidden: the one below stands in for them.
+        _contentScroll = new ScrollView(ScrollViewMode.Horizontal) { name = "content-scroll" };
+        _contentScroll.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
+        _contentScroll.verticalScrollerVisibility = ScrollerVisibility.Hidden;
+        _contentScroll.style.flexShrink = 0;
+
+        _scroller = new Scroller(0f, 0f, value => _contentScroll.scrollOffset = new Vector2(value, 0f), SliderDirection.Horizontal)
         {
             name = "top-scrollbar-proxy"
         };
-        _scrollProxy.style.marginTop = 0;
-        _scrollProxy.style.paddingBottom = 2;
-        _scrollProxy.style.height = 16;
-        _scrollProxy.style.flexGrow = 0;
-        _scrollProxy.contentContainer.style.minWidth = new StyleLength(Length.Percent(100f));
-        _scrollProxy.verticalScrollerVisibility = ScrollerVisibility.Hidden;
-        _scrollProxy.horizontalScrollerVisibility = ScrollerVisibility.Auto;
-        _scrollProxy.contentContainer.style.minHeight = 0.01f; // So it's not invisible
-        _scrollProxy.style.backgroundColor = Color.gray1;
-        base.Add(_scrollProxy);
+        _scroller.style.height = 8;
+        _scroller.style.display = DisplayStyle.None;
+        // (Just the bar: no arrow buttons at this size.)
+        _scroller.lowButton.style.display = DisplayStyle.None;
+        _scroller.highButton.style.display = DisplayStyle.None;
 
-        // 2. Main ScrollView: real content, but no horizontal scrollbar
-        _contentScroll = new ScrollView(ScrollViewMode.Horizontal)
+        if (scrollbarOnTop)
         {
-            name = "content-scroll",
-        };
-        _contentScroll.style.flexGrow = 1;
-        _contentScroll.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
-        _contentScroll.verticalScrollerVisibility = ScrollerVisibility.Auto;
-        _contentScroll.style.backgroundColor = Color.gray1;
-        base.Add(_contentScroll);
-
-        // 3. Sync proxy scrollbar with content scroll
-        _scrollProxy.RegisterCallback<GeometryChangedEvent>(_ => UpdateScrollSync());
-        _contentScroll.RegisterCallback<GeometryChangedEvent>(_ => UpdateScrollSync());
-
-        // Keep them in sync
-        _scrollProxy.schedule.Execute(() =>
+            hierarchy.Add(_scroller);
+            hierarchy.Add(_contentScroll);
+        }
+        else
         {
-            _contentScroll.scrollOffset = new Vector2(_scrollProxy.scrollOffset.x, _contentScroll.scrollOffset.y);
-            if (_scrollProxy.horizontalScroller.style.display != DisplayStyle.None)
-                _scrollProxy.style.height = 16;
-            else
-                _scrollProxy.style.height = 0;
-        }).Every(16); // ~60fps
+            hierarchy.Add(_contentScroll);
+            hierarchy.Add(_scroller);
+        }
+
+        // The bar's reach follows the content's width and the room it has.
+        _contentScroll.RegisterCallback<GeometryChangedEvent>(_ => UpdateScroller());
+        _contentScroll.contentContainer.RegisterCallback<GeometryChangedEvent>(_ => UpdateScroller());
+
+        // The wheel scrolls it sideways (and then it isn't the panel around it that scrolls).
+        _contentScroll.RegisterCallback<WheelEvent>(evt =>
+        {
+            if (_scroller.highValue <= 0f)
+                return;
+            float delta = Mathf.Abs(evt.delta.x) > Mathf.Abs(evt.delta.y) ? evt.delta.x : evt.delta.y;
+            _scroller.value = Mathf.Clamp(_scroller.value + delta * 20f, 0f, _scroller.highValue);
+            evt.StopPropagation();
+        }, TrickleDown.TrickleDown);
     }
 
-    private void UpdateScrollSync()
+    private void UpdateScroller()
     {
-        float proxyContentWidth = _scrollProxy.contentContainer.resolvedStyle.width;
-        float actualContentWidth = _contentScroll.contentContainer.resolvedStyle.width;
-
-        _scrollProxy.contentContainer.style.width = actualContentWidth;
+        float room = _contentScroll.contentViewport.layout.width;
+        float width = _contentScroll.contentContainer.layout.width;
+        if (float.IsNaN(room) || float.IsNaN(width))
+            return;
+        float overflow = Mathf.Max(0f, width - room);
+        _scroller.highValue = overflow;
+        _scroller.Adjust(width > 0f ? Mathf.Clamp01(room / width) : 1f);
+        if (_scroller.value > overflow)
+            _scroller.value = overflow;
+        _scroller.style.display = overflow > 0.5f ? DisplayStyle.Flex : DisplayStyle.None;
     }
 
     public new void Add(VisualElement visualElement)

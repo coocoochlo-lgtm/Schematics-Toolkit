@@ -320,11 +320,6 @@ LazyFoldout #unity-checkmark
 	height: 110%;
 }
 
-.tab-add-component
-{
-	margin-left:16px;
-}
-
 .component-foldout
 {
 	margin: 2px;
@@ -820,4 +815,92 @@ TextElement
 .dock-properties
 {
 	margin: 4px 4px 2px 8px;
+}
+
+/* ---- Tab rows that fold like dropdowns: Behaviors > sections (Variables, Signals, Properties) > Properties headers ---- */
+.component-tabs
+{
+	margin: 2px;
+	margin-left: 8px;
+}
+
+.components-tab-action
+{
+	padding: 2px 6px;
+	background-color: #3a3a3a;
+	-unity-font-style: bold;
+}
+
+.tab-add-component
+{
+	margin-left: 6px;
+}
+
+.dock-behavior-name
+{
+	-unity-font-style: bold;
+	color: #b0b0b0;
+	margin-bottom: 2px;
+}
+
+.sections-tabbar
+{
+	background-color: rgba(0,0,0,0.25);
+}
+
+.sections-tab
+{
+	padding: 3px 6px;
+	background-color: #3c3c3c;
+}
+
+.sections-tab-hover, .components-tab-hover, .headers-tab-hover
+{
+	background-color: #505050;
+}
+
+.sections-tab-selected
+{
+	background-color: #1e3a52;
+}
+
+.sections-tab-label
+{
+	color: #8899a0;
+	-unity-font-style: bold;
+	margin-right: 4px;
+}
+
+.sections-tab-content
+{
+	padding: 4px 0px 2px 0px;
+}
+
+.headers-tab
+{
+	padding: 2px 6px;
+	background-color: #343434;
+	font-size: 11px;
+}
+
+.headers-tab-selected
+{
+	background-color: #2a2a2a;
+	border-bottom-width: 2px;
+	border-bottom-color: #3377aa;
+}
+
+.headers-tab-content
+{
+	padding-top: 4px;
+}
+
+/* The object selected in the scene (or Prefab Mode, or the Project window). */
+.dock-object-selected
+{
+	background-color: rgba(44, 93, 135, 0.85);
+	border-top-left-radius: 3px;
+	border-top-right-radius: 3px;
+	border-bottom-left-radius: 3px;
+	border-bottom-right-radius: 3px;
 }

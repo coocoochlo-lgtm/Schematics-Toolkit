@@ -6,6 +6,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using UnityEditor;
+using UnityEditor.SceneManagement;
+using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.UIElements;
 
@@ -79,8 +81,14 @@ public class PrefabHierarchy : VisualElement
         {
             _watch ??= schedule.Execute(Watch).Every(WatchMs);
             _watch.Resume();
+            Selection.selectionChanged += UpdateHighlight;
+            UpdateHighlight();
         });
-        RegisterCallback<DetachFromPanelEvent>(_ => _watch?.Pause());
+        RegisterCallback<DetachFromPanelEvent>(_ =>
+        {
+            _watch?.Pause();
+            Selection.selectionChanged -= UpdateHighlight;
+        });
     }
 
 
@@ -88,6 +96,7 @@ public class PrefabHierarchy : VisualElement
     {
         Clear();
         _foldouts.Clear();
+        _objectHeaders.Clear();
         // Copies of list and class Variables are made again from the prefab (but those with an edit still waiting).
         foreach (var key in _boxedEdits.Keys.ToList())
             if (!_pendingEdits.ContainsKey(key))
@@ -124,7 +133,24 @@ public class PrefabHierarchy : VisualElement
 
     // Expanded objects (by path), so a rebuild doesn't fold everything up.
     private readonly HashSet<string> _expanded = new();
-    private readonly HashSet<string> _expandedComponents = new();
+
+    // The tab open in each row of tabs (by prefab, object, Behavior and level), so a rebuild doesn't fold them up.
+    private static readonly Dictionary<string, string> _openTabs = new();
+
+    private string TabsKey(string path, string level) => $"{_assetPath}|{path}|{level}";
+
+    // Opens the tab that was open last time (or <paramref name="first"/> the first time), and remembers what's opened.
+    private static void RememberOpen(TabView tabs, string key, string first = null)
+    {
+        if (_openTabs.TryGetValue(key, out var open))
+        {
+            if (open != null && tabs.HasTab(open))
+                tabs.SelectTab(open);
+        }
+        else if (first != null && tabs.HasTab(first))
+            tabs.SelectTab(first);
+        tabs.SelectionChanged += id => _openTabs[key] = id;
+    }
 
     private string PathOf(Transform tf) => _shown != null && tf != null ? _shown.transform.GetRelativePath(tf) : "";
 
@@ -188,20 +214,6 @@ public class PrefabHierarchy : VisualElement
             {
                 objectFoldout.RenderContent(true);
                 objectFoldout.SetValueWithoutNotify(true);
-            }
-        }
-
-        if (objectContainer.Q<LazyFoldout>(className: "component-foldout") is LazyFoldout components)
-        {
-            components.RegisterValueChangedCallback(evt =>
-            {
-                if (evt.target != components) return;
-                if (evt.newValue) _expandedComponents.Add(path); else _expandedComponents.Remove(path);
-            });
-            if (_expandedComponents.Contains(path))
-            {
-                components.RenderContent();
-                components.SetValueWithoutNotify(true);
             }
         }
     }
@@ -365,138 +377,161 @@ public class PrefabHierarchy : VisualElement
 
         _foldouts.Add(childListFoldout);
 
+        // The object's icon and name: click to select it (in the scene, Prefab Mode or the Project window, whichever
+        // the graph is on), press and move to drag it into the graph; the selected one is highlighted.
+        var objectPath = PathOf(tf);
+        var objectHeader = childListFoldout.Q(className: "list-toggle-container");
+        var objectItem = new DockItem { Kind = DockItem.ItemKind.GameObject, Path = objectPath, GameObject = tf.gameObject };
+        foreach (var handle in new VisualElement[] { childListFoldout.Q<Label>(className: "list-label"), objectHeader?.Q<Image>() })
+            if (handle != null)
+                DockRows.MakeDragSource(handle, objectItem, () => SelectObject(objectPath), stopPress: true);
+        if (objectHeader != null)
+        {
+            _objectHeaders.Add((objectHeader, objectPath));
+            objectHeader.EnableInClassList("dock-object-selected", SelectedPath() == objectPath);
+        }
+
         childListContainer.Add(childListFoldout);
 
         return childListContainer;
     }
 
+    // An object's Behaviors, as a row of tabs (each with its script's icon) that open like a dropdown: click one to show
+    // it under the row, click it again to fold it away. Drag a tab into the graph for a reference to the Behavior.
     private VisualElement CreateFoldoutContent(Transform tf, SchematicGraphEditorWindow schematicWindow)
     {
         var behaviorsOnObject = GetBehaviors(tf.gameObject);
+        string path = PathOf(tf);
 
-        var foldout = new LazyFoldout(() =>
+        var container = new VisualElement();
+        container.AddToClassList("component-tabs");
+        // (It sits in the object's foldout header: clicks in it don't fold the object.)
+        StopClicks(container);
+
+        TabView tabView = new("", "components", true, HideTabLabels, collapsible: true);
+
+        foreach (var attachment in behaviorsOnObject)
         {
-            var container = new VisualElement();
-            var ioGroup = new VisualElement();
+          // One bad Behavior (a renamed script, a throwing renderer) doesn't hide the others.
+          try
+          {
+            var type = attachment.Metadata != null ? attachment.Metadata.BehaviorType.Type : null;
+            var typeName = type != null ? ObjectNames.NicifyVariableName(type.Name)
+                         : attachment.Metadata != null ? $"{attachment.Metadata.name} (Missing Script)" : "(Missing Behavior)";
+            var (icon, ownIcon) = type != null ? GetBehaviorIcon(type) : (null, false);
 
-            TabView tabView = new("", "components", true, HideTabLabels);
+            // Tab ids must be unique.
+            while (tabView.HasTab(typeName))
+                typeName += " ";
 
-            int compCount = 0;
-            foreach (var attachment in behaviorsOnObject)
+            // Its own icon alone; the generic script icon with its name beside it, so they can be told apart.
+            var tab = tabView.AddTab(typeName, icon, showLabel: !ownIcon);
+            tab.UseFactory(() =>
             {
-              // One bad Behavior (a renamed script, a throwing renderer) doesn't hide the others.
-              try
-              {
-                var type = attachment.Metadata != null ? attachment.Metadata.BehaviorType.Type : null;
-                var typeName = type != null ? ObjectNames.NicifyVariableName(type.Name)
-                             : attachment.Metadata != null ? $"{attachment.Metadata.name} (Missing Script)" : "(Missing Behavior)";
-                var icon = type != null ? GetBehaviorIcon(type) : null;
-
-                // Tab ids must be unique.
-                while (TabExists(tabView, typeName))
-                    typeName += " ";
-
-                var tab = tabView.AddTab(typeName, icon);
-                tab.UseFactory(() =>
+                try
                 {
-                    try
-                    {
-                        return CreateTabContent(attachment, type, tf, schematicWindow);
-                    }
-                    catch (Exception exception)
-                    {
-                        Debug.LogException(exception, _shown);
-                        return new HelpBox($"{typeName.Trim()} couldn't be drawn: {exception.Message}", HelpBoxMessageType.Error);
-                    }
-                });
-
-                // Right-click the tab to remove the Behavior from this GameObject.
-                var behaviorType = type;
-                var behaviorAttachment = attachment;
-                tab.Button.AddManipulator(new ContextualMenuManipulator(evt =>
+                    return CreateTabContent(attachment, type, tf, schematicWindow);
+                }
+                catch (Exception exception)
                 {
-                    evt.menu.AppendAction("Remove Behavior", _ => RemoveBehavior(behaviorType, behaviorAttachment, tf));
-                }));
+                    Debug.LogException(exception, _shown);
+                    return new HelpBox($"{typeName.Trim()} couldn't be drawn: {exception.Message}", HelpBoxMessageType.Error);
+                }
+            });
 
-                compCount++;
-              }
-              catch (Exception exception)
-              {
-                  Debug.LogException(exception, _shown);
-              }
-            }
+            // Right-click the tab to remove the Behavior from this GameObject.
+            var behaviorType = type;
+            var behaviorAttachment = attachment;
+            tab.Button.AddManipulator(new ContextualMenuManipulator(evt =>
+            {
+                evt.menu.AppendAction("Remove Behavior", _ => RemoveBehavior(behaviorType, behaviorAttachment, tf));
+            }));
+            if (type != null)
+                DockRows.MakeDragSource(tab.Button, new DockItem { Kind = DockItem.ItemKind.Behavior, Behavior = type, Path = path });
+          }
+          catch (Exception exception)
+          {
+              Debug.LogException(exception, _shown);
+          }
+        }
 
-            // Add "+" tab for adding Behaviors
-            CreateAddBehaviorButton(tabView, tf);
+        // "+": adds a Behavior.
+        CreateAddBehaviorButton(tabView, tf);
 
-            container.Add(tabView);
+        RememberOpen(tabView, TabsKey(path, "components"));
+        container.Add(tabView);
+        return container;
+    }
 
-            return container;
-        })
-        {
-            text = "components"
-        };
-
-        foldout.AddToClassList("component-foldout");
-
-        return foldout;
+    // Presses and clicks inside go no further (to a foldout header around it).
+    private static void StopClicks(VisualElement element)
+    {
+        element.RegisterCallback<PointerDownEvent>(evt => evt.StopPropagation());
+        element.RegisterCallback<PointerUpEvent>(evt => evt.StopPropagation());
+        element.RegisterCallback<MouseDownEvent>(evt => evt.StopPropagation());
+        element.RegisterCallback<MouseUpEvent>(evt => evt.StopPropagation());
+        element.RegisterCallback<ClickEvent>(evt => evt.StopPropagation());
     }
 
     /// <summary>
-    /// Creates the actual content for a Behavior tab.
+    /// A Behavior tab's content: its name, then its Variables, Signals and Properties (and anything it adds itself) as a
+    /// row of tabs of their own, each made only when it's first opened, and folding away like the Behavior tabs.
     /// </summary>
     private VisualElement CreateTabContent(BehaviorAttachment attachment, Type type, Transform tf, SchematicGraphEditorWindow schematicWindow)
     {
         var dock = new VisualElement();
-
-        if (type != null && evMap.ContainsKey(tf) && evMap[tf].ContainsKey(type))
-        {
-            return evMap[tf][type];
-        }
-
         var metadata = attachment.Metadata;
 
-        var label = new Label(type != null ? type.Name : metadata != null ? $"{metadata.name} (Missing Script)" : "(Missing Behavior)");
+        var label = new Label(type != null ? ObjectNames.NicifyVariableName(type.Name) : metadata != null ? $"{metadata.name} (Missing Script)" : "(Missing Behavior)");
+        label.AddToClassList("dock-behavior-name");
         dock.Add(label);
 
         if (type == null || metadata == null)
             return dock;
 
-        // Its Variables first, each with this object's value on its row (drag one in to Get or Set it).
-        var variables = CreateVariablesSection(attachment, type, tf, metadata, schematicWindow);
-        if (variables != null)
-            dock.Add(variables);
-
-        var (draw, dockElement) = RenderBehaviorDock(type, schematicWindow, metadata);
-        SignalRenderer.DrawDelayedEvents();
-
-        var propertiesVariables = GetPropertiesVariables(type, metadata);
-
-        if (draw || propertiesVariables.Count > 0)
-        {
-            if (dockElement == null)
-                dockElement = new VisualElement();
-
-            foreach (var propertiesVariable in propertiesVariables)
-            {
-                var propertiesFoldout = CreatePropertiesFoldout(attachment, type, propertiesVariable, tf);
-                dockElement.Add(propertiesFoldout);
-            }
-
-            dock.Add(dockElement);
-        }
-
-        // Anything the Behavior adds itself (BehaviorDockSections: the Brain's slots, a vehicle's seats).
         string path = PathOf(tf);
+        var reflection = BehaviorReflection.Get(type);
+        bool hasVariables = metadata.Variables.Any(v => v != null && (reflection == null || !reflection.IsPropertiesVariable(v.Name)));
+        var propertiesVariables = GetPropertiesVariables(type, metadata);
+        // Anything the Behavior adds itself (BehaviorDockSections: the Brain's slots, a vehicle's seats).
         var extra = BehaviorDockSections.Create(new BehaviorDockContext
         {
             Prefab = _prefab, Target = tf.gameObject, Path = path, BehaviorType = type, Attachment = attachment, Window = schematicWindow,
             Read = (variable, valueType) => CurrentValue(path, type, attachment, metadata.FindVariable(variable), valueType),
             Write = (variable, valueType, value) => QueueEdit(path, type, variable, valueType, value),
         });
-        if (extra != null)
-            dock.Add(extra);
 
+        var sections = new TabView("", "sections", false, hideTabLabels: true, collapsible: true);
+        sections.SelectionChanged += open => sections.Caption = open;
+        if (hasVariables)
+            sections.AddTab("Variables", SchematicTabIcons.Get("dock-variables"), showLabel: false)
+                .UseFactory(() => CreateVariablesSection(attachment, type, tf, metadata, schematicWindow) ?? new VisualElement());
+        if (metadata.Signals != null && metadata.Signals.Count > 0)
+            sections.AddTab("Signals", SchematicTabIcons.Get("dock-signals"), showLabel: false).UseFactory(() =>
+            {
+                var (draw, dockElement) = RenderBehaviorDock(type, schematicWindow, metadata);
+                SignalRenderer.DrawDelayedEvents();
+                return draw && dockElement != null ? dockElement : new Label("No Signals to show.") { style = { opacity = 0.6f } };
+            });
+        if (propertiesVariables.Count > 0)
+            sections.AddTab("Properties", SchematicTabIcons.Get("dock-properties"), showLabel: false)
+                .UseFactory(() => CreatePropertiesSection(attachment, type, propertiesVariables, tf));
+        if (extra != null)
+            sections.AddTab("More", SchematicTabIcons.Get("dock-more"), showLabel: false).Add(extra);
+
+        if (sections.TabCount == 0)
+            return dock;
+        // The first time: the first section open.
+        RememberOpen(sections, TabsKey(path, type.FullName + "|sections"), hasVariables ? "Variables" : null);
+        if (sections.SelectedTab == null && !_openTabs.ContainsKey(TabsKey(path, type.FullName + "|sections")))
+            foreach (var first in new[] { "Signals", "Properties", "More" })
+                if (sections.HasTab(first))
+                {
+                    sections.SelectTab(first);
+                    break;
+                }
+        sections.Caption = sections.SelectedTab;
+        dock.Add(sections);
         return dock;
     }
 
@@ -518,7 +553,6 @@ public class PrefabHierarchy : VisualElement
             if (section == null)
             {
                 section = new VisualElement();
-                section.Add(DockRows.SectionLabel("Variables"));
                 // Leaving (a redraw, another prefab) saves what's waiting.
                 section.RegisterCallback<DetachFromPanelEvent>(_ => FlushEdits());
             }
@@ -858,28 +892,33 @@ public class PrefabHierarchy : VisualElement
     }
 
     /// <summary>
-    /// Creates a foldout for Behavior properties.
+    /// The Properties tab: each Properties asset of the Behavior (named, when there's more than one).
     /// </summary>
-    private Foldout CreatePropertiesFoldout(BehaviorAttachment attachment, Type type, VariableDefinition propertiesVariable, Transform tf)
+    private VisualElement CreatePropertiesSection(BehaviorAttachment attachment, Type type, List<VariableDefinition> propertiesVariables, Transform tf)
+    {
+        var section = new VisualElement();
+        foreach (var variable in propertiesVariables)
+        {
+            if (propertiesVariables.Count > 1)
+                section.Add(DockRows.SectionLabel(ObjectNames.NicifyVariableName(variable.Name)));
+            section.Add(CreatePropertiesPanel(attachment, type, variable, tf));
+        }
+        return section;
+    }
+
+    /// <summary>
+    /// A Properties asset, edited in place: its fields split into tabs by their [Header]s (each tab's fields made only
+    /// when it's opened, so a long one stays quick), or the asset's own Inspector when it has a custom one. Right-click
+    /// to reset it; Open shows it in an Inspector window of its own.
+    /// </summary>
+    private VisualElement CreatePropertiesPanel(BehaviorAttachment attachment, Type type, VariableDefinition propertiesVariable, Transform tf)
     {
         var propertiesType = propertiesVariable.Type.Type;
         var variableName = propertiesVariable.Name;
 
-        // Its open state outlives the hierarchy being rebuilt (which it is whenever the prefab changes).
-        var openKey = $"PrefabHierarchy.Properties.{_assetPath}.{PathOf(tf)}.{type.FullName}.{variableName}";
-        var propertiesFoldout = new Foldout()
-        {
-            text = variableName == "Properties" ? "Properties" : ObjectNames.NicifyVariableName(variableName),
-            value = SessionState.GetBool(openKey, false),
-            style =
-            {
-                width = Length.Percent(100),
-                flexGrow = 0,
-                flexShrink = 0
-            }
-        };
+        var panel = new VisualElement { style = { width = Length.Percent(100), flexGrow = 0, flexShrink = 0 } };
 
-        propertiesFoldout.AddManipulator(new ContextualMenuManipulator(evt =>
+        panel.AddManipulator(new ContextualMenuManipulator(evt =>
         {
             evt.menu.AppendAction("Reset Properties", _ =>
             {
@@ -913,26 +952,27 @@ public class PrefabHierarchy : VisualElement
                 SetPropertiesOverride(type, tfPath, variableName, propertiesObject, propertiesType);
         }
 
-        propertiesFoldout.RegisterValueChangedCallback(evt =>
-        {
-            if (evt.target == propertiesFoldout)
-                SessionState.SetBool(openKey, evt.newValue);
-        });
+        if (propertiesObject == null)
+            return panel;
 
-        // The asset's Inspector, made once and kept (made again every redraw, it forgot its own foldouts at once and
-        // piled up editors), drawn only while the foldout is open; Open shows it in a window of its own.
+        var open = new Button(() => EditorUtility.OpenPropertyEditor(propertiesObject)) { text = "Open", tooltip = "Show it in an Inspector window of its own." };
+        open.style.alignSelf = Align.FlexEnd;
+        open.style.width = 44;
+        panel.Add(open);
+
+        if (!HasCustomEditor(propertiesObject))
+        {
+            panel.Add(CreateHeaderTabs(propertiesObject, TabsKey(PathOf(tf), $"{type.FullName}|{variableName}|headers")));
+            return panel;
+        }
+
+        // The asset's own Inspector, made once and kept (made again every redraw, it forgot its own foldouts at once
+        // and piled up editors).
         Editor propertiesEditor = null;
         IMGUIContainer container = null;
         container = new IMGUIContainer(() =>
         {
-            if (propertiesObject == null || !propertiesFoldout.value) return;
-
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                GUILayout.FlexibleSpace();
-                if (GUILayout.Button(new GUIContent("Open", "Show it in an Inspector window of its own."), EditorStyles.miniButton, GUILayout.Width(44)))
-                    EditorUtility.OpenPropertyEditor(propertiesObject);
-            }
+            if (propertiesObject == null) return;
             if (propertiesEditor == null || propertiesEditor.target != propertiesObject)
                 Editor.CreateCachedEditor(propertiesObject, null, ref propertiesEditor);
             propertiesEditor?.OnInspectorGUI();
@@ -946,8 +986,87 @@ public class PrefabHierarchy : VisualElement
             propertiesEditor = null;
         });
 
-        propertiesFoldout.Add(container);
-        return propertiesFoldout;
+        panel.Add(container);
+        return panel;
+    }
+
+    // Whether an asset is drawn by an Inspector of its own (kept as it is), rather than Unity's default one (split by
+    // header here). Per type, found once.
+    private static readonly Dictionary<Type, bool> _customEditors = new();
+
+    private static bool HasCustomEditor(UnityEngine.Object asset)
+    {
+        var type = asset.GetType();
+        if (_customEditors.TryGetValue(type, out var custom))
+            return custom;
+        var editor = Editor.CreateEditor(asset);
+        custom = editor != null && editor.GetType().Name != "GenericInspector";
+        if (editor != null)
+            UnityEngine.Object.DestroyImmediate(editor);
+        _customEditors[type] = custom;
+        return custom;
+    }
+
+    /// <summary>
+    /// An asset's fields, as tabs by their [Header]s (fields before the first header under "General"), each made when
+    /// opened; just the fields when there are no headers. Bound to the asset, so they follow it (in Play Mode too).
+    /// </summary>
+    private static VisualElement CreateHeaderTabs(UnityEngine.Object asset, string key)
+    {
+        var serialized = new SerializedObject(asset);
+        var groups = new List<(string header, List<string> paths)>();
+        var iterator = serialized.GetIterator();
+        for (bool enter = true; iterator.NextVisible(enter); enter = false)
+        {
+            if (iterator.propertyPath == "m_Script")
+                continue;
+            var header = HeaderOf(asset.GetType(), iterator.name);
+            if (header != null || groups.Count == 0)
+                groups.Add((header ?? "General", new List<string>()));
+            groups[groups.Count - 1].paths.Add(iterator.propertyPath);
+        }
+
+        VisualElement Fields(List<string> paths)
+        {
+            var fields = new VisualElement();
+            foreach (var propertyPath in paths)
+            {
+                var property = serialized.FindProperty(propertyPath);
+                if (property != null)
+                    fields.Add(new PropertyField(property));
+            }
+            fields.Bind(serialized);
+            return fields;
+        }
+
+        if (groups.Count <= 1)
+            return groups.Count == 1 ? Fields(groups[0].paths) : new VisualElement();
+
+        var tabs = new TabView("", "headers", false, hideTabLabels: false, collapsible: true);
+        foreach (var (header, paths) in groups)
+        {
+            var id = header;
+            while (tabs.HasTab(id))
+                id += " ";
+            var groupPaths = paths;
+            tabs.AddTab(id).UseFactory(() => Fields(groupPaths));
+        }
+        RememberOpen(tabs, key, groups[0].header);
+        return tabs;
+    }
+
+    // A field's [Header] (the last, nearest one when there are several), looked for up the class's bases.
+    private static string HeaderOf(Type type, string fieldName)
+    {
+        for (var t = type; t != null && t != typeof(ScriptableObject); t = t.BaseType)
+        {
+            var field = t.GetField(fieldName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+            if (field == null)
+                continue;
+            var headers = field.GetCustomAttributes(typeof(HeaderAttribute), false);
+            return headers.Length > 0 ? ((HeaderAttribute)headers[headers.Length - 1]).header : null;
+        }
+        return null;
     }
 
     /// <summary>
@@ -1026,7 +1145,7 @@ public class PrefabHierarchy : VisualElement
     /// </summary>
     private void CreateAddBehaviorButton(TabView tabView, Transform tf)
     {
-        tabView.AddTab("+").UseFactory(() =>
+        var addButton = tabView.AddActionButton("+", "Add a Behavior", () =>
         {
             // Initialize Behavior types cache if needed
             if (!_behaviorTypesInitialized)
@@ -1056,13 +1175,8 @@ public class PrefabHierarchy : VisualElement
             }
 
             menu.ShowAsContext();
-
-            return null;
         });
-
-        var addTabButton = tabView;
-
-        addTabButton.AddToClassList("tab-add-component");
+        addButton.AddToClassList("tab-add-component");
     }
 
     /// <summary>
@@ -1239,19 +1353,81 @@ public class PrefabHierarchy : VisualElement
         return behavior;
     }
 
+    // Behavior icons by type, found once (finding the script is a search of the project).
+    private static readonly Dictionary<Type, (Texture icon, bool own)> _behaviorIcons = new();
+
     /// <summary>
-    /// The Behavior script's own icon, if it has one (otherwise the tab shows the Behavior's name).
+    /// The Behavior script's icon: its own (<c>own</c>), or else the generic C# script icon (for which the tab shows the
+    /// Behavior's name too).
     /// </summary>
-    private static Texture GetBehaviorIcon(Type type)
+    private static (Texture icon, bool own) GetBehaviorIcon(Type type)
     {
+        if (_behaviorIcons.TryGetValue(type, out var found))
+            return found;
+        MonoScript script = null;
         foreach (var guid in AssetDatabase.FindAssets(type.Name + " t:MonoScript"))
         {
-            var script = AssetDatabase.LoadAssetAtPath<MonoScript>(AssetDatabase.GUIDToAssetPath(guid));
-            if (script != null && script.GetClass() == type)
-                return EditorGUIUtility.GetIconForObject(script);
+            var candidate = AssetDatabase.LoadAssetAtPath<MonoScript>(AssetDatabase.GUIDToAssetPath(guid));
+            if (candidate != null && candidate.GetClass() == type)
+            {
+                script = candidate;
+                break;
+            }
         }
+        Texture own = script != null ? EditorGUIUtility.GetIconForObject(script) : null;
+        found = own != null ? (own, true)
+              : (script != null ? AssetPreview.GetMiniThumbnail(script) : EditorGUIUtility.IconContent("cs Script Icon").image, false);
+        _behaviorIcons[type] = found;
+        return found;
+    }
+
+    #region Selecting objects
+
+    // Every object row's header and its object's path, for the highlight on the selected one.
+    private readonly List<(VisualElement header, string path)> _objectHeaders = new();
+
+    // Where the objects are selected: Prefab Mode's copy when it's open on this prefab, the instance the graph is on,
+    // else the prefab asset itself.
+    private GameObject SelectionRoot()
+    {
+        var stage = PrefabStageUtility.GetCurrentPrefabStage();
+        if (stage != null && stage.assetPath == _assetPath && stage.prefabContentsRoot != null)
+            return stage.prefabContentsRoot;
+        if (_schematicWindow != null && _schematicWindow.FollowedInstance != null)
+            return _schematicWindow.FollowedInstance;
+        return _shown;
+    }
+
+    private void SelectObject(string path)
+    {
+        var root = SelectionRoot();
+        if (root == null)
+            return;
+        var target = string.IsNullOrEmpty(path) ? root.transform : root.transform.Find(path);
+        if (target != null)
+            Selection.activeGameObject = target.gameObject;
+    }
+
+    // The selected object's path in the prefab, if it's one of the objects shown (in any of the places above); else null.
+    private string SelectedPath()
+    {
+        var selected = Selection.activeGameObject;
+        if (selected == null)
+            return null;
+        foreach (var root in new[] { SelectionRoot(), _shown })
+            if (root != null && (selected.transform == root.transform || selected.transform.IsChildOf(root.transform)))
+                return root.transform.GetRelativePath(selected.transform);
         return null;
     }
+
+    private void UpdateHighlight()
+    {
+        var selected = SelectedPath();
+        foreach (var (header, path) in _objectHeaders)
+            header.EnableInClassList("dock-object-selected", selected != null && path == selected);
+    }
+
+    #endregion
 
     private static bool TabExists(TabView tabView, string tabId)
     {
