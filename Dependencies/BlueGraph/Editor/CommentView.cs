@@ -360,6 +360,16 @@ namespace BlueGraph.Editor
         /// The nodes this comment groups: those whose centre lies inside it. A node dragged partly past the edge stays in
         /// (and the comment grows to fit it); dragged out past its centre, it leaves.
         /// </summary>
+        // What a comment groups and fits around: the canvas's nodes and notes.
+        private static IEnumerable<GraphElement> Groupable(CanvasView canvas)
+        {
+            foreach (var node in canvas.nodes.ToList())
+                if (node is NodeView view)
+                    yield return view;
+            foreach (var note in canvas.Query<NoteView>().ToList())
+                yield return note;
+        }
+
         public List<NodeView> MemberNodes()
         {
             var result = new List<NodeView>();
@@ -381,16 +391,23 @@ namespace BlueGraph.Editor
         {
             if (Target.FixedSize)
                 return false;
-            var members = MemberNodes();
-            if (members.Count == 0)
+            var canvas = GetFirstAncestorOfType<CanvasView>();
+            if (canvas == null)
                 return false;
-
-            var bounds = members[0].GetPosition();
-            foreach (var member in members)
+            // Its nodes and notes: those whose centre is inside it.
+            var region = Target.Region;
+            bool any = false;
+            var bounds = default(Rect);
+            foreach (var member in Groupable(canvas))
             {
                 var r = member.GetPosition();
-                bounds = Rect.MinMaxRect(Mathf.Min(bounds.xMin, r.xMin), Mathf.Min(bounds.yMin, r.yMin), Mathf.Max(bounds.xMax, r.xMax), Mathf.Max(bounds.yMax, r.yMax));
+                if (!region.Contains(r.center))
+                    continue;
+                bounds = any ? Rect.MinMaxRect(Mathf.Min(bounds.xMin, r.xMin), Mathf.Min(bounds.yMin, r.yMin), Mathf.Max(bounds.xMax, r.xMax), Mathf.Max(bounds.yMax, r.yMax)) : r;
+                any = true;
             }
+            if (!any)
+                return false;
             var fitted = Padded(bounds);
             if (fitted == Target.Region)
                 return false;
@@ -413,7 +430,7 @@ namespace BlueGraph.Editor
         /// grows the comment, pulling it back in shrinks it); flung clear of the comment in one go, it leaves. Others are
         /// its nodes when their centre is inside. True if the comment's size changed.
         /// </summary>
-        public bool FitWhileDragging(NodeView dragged, Rect from, Rect to)
+        public bool FitWhileDragging(GraphElement dragged, Rect from, Rect to)
         {
             // (A comment being dragged itself carries its nodes: nothing to fit.)
             if (Target.FixedSize || selected)
@@ -424,10 +441,8 @@ namespace BlueGraph.Editor
             var region = Target.Region;
             bool any = false;
             var bounds = default(Rect);
-            foreach (var node in canvas.nodes.ToList())
+            foreach (var view in Groupable(canvas))
             {
-                if (!(node is NodeView view))
-                    continue;
                 var rect = view == dragged ? to : view.GetPosition();
                 bool member = view == dragged
                     ? region.Contains(from.center) && to.Overlaps(region)

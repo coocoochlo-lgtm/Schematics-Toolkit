@@ -243,10 +243,28 @@ public class SchematicMinimap : VisualElement
                 hover = target.Name;
         }
 
-        // Each note's pencil, on top (at a size that reads, however small the note is on the map); hovered, its first
-        // few words instead.
+        // Each note's pencil, on top (at a size that reads, however small the note is on the map). Hovered, or in the
+        // comment hovered, its first few words instead: laid out clear of the comment's name and of each other.
+        var named = new List<(Rect map, BlueGraph.Note note)>();
         foreach (var note in _canvas.Query<NoteView>().ToList())
-            DrawNoteMark(ToMap(note.GetPosition()), note.Target, mouse);
+        {
+            var rect = ToMap(note.GetPosition());
+            bool inHovered = _hovered != null && _hovered.GetPosition().Contains(note.GetPosition().center);
+            if (inHovered || NoteHovered(rect, mouse))
+                named.Add((rect, note.Target));
+            else
+                DrawNotePencil(rect, note.Target);
+        }
+        if (named.Count > 0)
+        {
+            var taken = new List<Rect>();
+            var commentName = HoveredCommentNameRect();
+            if (commentName.width > 0f)
+                taken.Add(Inflate(commentName, 1f));
+            named.Sort((a, b) => a.map.center.y.CompareTo(b.map.center.y));
+            foreach (var (map, note) in named)
+                DrawNoteName(map, note, taken);
+        }
 
         // The visible part of the graph.
         var view = ToMap(viewport);
@@ -268,29 +286,82 @@ public class SchematicMinimap : VisualElement
 
     private const float NoteIconSize = 10f;
 
-    // A note's mark on the map: its pencil (white, as notes' text is) at its middle; with the mouse over it,
-    // the note's first three words in its place.
-    private void DrawNoteMark(Rect rect, BlueGraph.Note note, Vector2 mouse)
+    private static Rect NoteIconRect(Rect rect)
+        => new Rect(rect.center.x - NoteIconSize * 0.5f, rect.center.y - NoteIconSize * 0.5f, NoteIconSize, NoteIconSize);
+
+    private static bool NoteHovered(Rect rect, Vector2 mouse) => rect.Contains(mouse) || Inflate(NoteIconRect(rect), 2f).Contains(mouse);
+
+    // A note's mark on the map: its pencil (white, as notes' text is) at its middle.
+    private static void DrawNotePencil(Rect rect, BlueGraph.Note note)
     {
-        var color = note.Color;
-        var ink = Color.white;
-        var icon = new Rect(rect.center.x - NoteIconSize * 0.5f, rect.center.y - NoteIconSize * 0.5f, NoteIconSize, NoteIconSize);
-        if (rect.Contains(mouse) || Inflate(icon, 2f).Contains(mouse))
-        {
-            var content = new GUIContent(FirstWords(note.Text, 3));
-            var style = new GUIStyle(EditorStyles.miniBoldLabel) { normal = { textColor = ink }, alignment = TextAnchor.MiddleCenter };
-            var size = style.CalcSize(content);
-            var label = new Rect(Mathf.Clamp(rect.center.x - size.x * 0.5f - 3f, 0f, Width - size.x - 6f), rect.center.y - size.y * 0.5f, size.x + 6f, size.y);
-            EditorGUI.DrawRect(label, color);
-            GUI.Label(label, content, style);
-            return;
-        }
         if (NoteIcon == null)
             return;
         var previous = GUI.color;
-        GUI.color = ink;
-        GUI.DrawTexture(icon, NoteIcon, ScaleMode.ScaleToFit);
+        GUI.color = Color.white;
+        GUI.DrawTexture(NoteIconRect(rect), NoteIcon, ScaleMode.ScaleToFit);
         GUI.color = previous;
+    }
+
+    private static GUIStyle _noteNameStyle;
+
+    // A note's first three words on a patch of its colour, at the note, or moved (down, else up) clear of the names
+    // already placed (<paramref name="taken"/>), with a thin line back to the note when moved.
+    private void DrawNoteName(Rect rect, BlueGraph.Note note, List<Rect> taken)
+    {
+        _noteNameStyle ??= new GUIStyle(EditorStyles.miniBoldLabel) { normal = { textColor = Color.white }, alignment = TextAnchor.MiddleCenter };
+        var content = new GUIContent(FirstWords(note.Text, 3));
+        var size = _noteNameStyle.CalcSize(content);
+        var label = new Rect(Mathf.Clamp(rect.center.x - size.x * 0.5f - 3f, 0f, Mathf.Max(0f, Width - size.x - 6f)),
+            rect.center.y - size.y * 0.5f, size.x + 6f, size.y);
+        label = Clear(label, taken);
+        taken.Add(Inflate(label, 1f));
+
+        if (Mathf.Abs(label.center.y - rect.center.y) > 1f || Mathf.Abs(label.center.x - rect.center.x) > 1f)
+        {
+            Handles.color = new Color(1f, 1f, 1f, 0.6f);
+            var to = new Vector2(label.center.x, label.center.y > rect.center.y ? label.yMin : label.yMax);
+            Handles.DrawLine(rect.center, to);
+            DrawNotePencil(rect, note);
+        }
+        EditorGUI.DrawRect(label, note.Color);
+        GUI.Label(label, content, _noteNameStyle);
+    }
+
+    // A label moved down (or, past the bottom, up) until it no longer overlaps any already placed.
+    private static Rect Clear(Rect label, List<Rect> taken)
+    {
+        var start = label;
+        for (int pass = 0; pass < 2; pass++)
+        {
+            label = start;
+            for (int i = 0; i < 40; i++)
+            {
+                bool moved = false;
+                foreach (var other in taken)
+                    if (label.Overlaps(other))
+                    {
+                        label.y = pass == 0 ? other.yMax : other.yMin - label.height;
+                        moved = true;
+                    }
+                if (!moved)
+                    break;
+            }
+            if (label.yMin >= 0f && label.yMax <= Height)
+                return label;
+        }
+        label.y = Mathf.Clamp(label.y, 0f, Height - label.height);
+        return label;
+    }
+
+    // Where the hovered comment's name is drawn on the map (its label, scaled up), or nothing.
+    private Rect HoveredCommentNameRect()
+    {
+        if (_hovered == null)
+            return default;
+        foreach (var mark in _commentMarks)
+            if (mark.Comment == _hovered)
+                return mark.NameRect(_frame);
+        return default;
     }
 
     // The first few words of a note ("..." when there are more); "Note" when it has none.
@@ -437,6 +508,15 @@ public class SchematicMinimap : VisualElement
                 // The comment's color, lightened, so the name reads on the dark map and still matches its box.
                 _label.style.color = Color.Lerp(_color, Color.white, 0.55f);
             }
+        }
+
+        /// <summary>Where its name is drawn, in <paramref name="space"/>'s coordinates (scaled up when hovered).</summary>
+        public Rect NameRect(VisualElement space)
+        {
+            var bound = _label.worldBound;
+            if (float.IsNaN(bound.width) || bound.width <= 0f)
+                return default;
+            return space.WorldToLocal(bound);
         }
 
         public void Hide()

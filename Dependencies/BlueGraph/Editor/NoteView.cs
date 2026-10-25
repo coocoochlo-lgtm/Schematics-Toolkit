@@ -336,8 +336,12 @@ namespace BlueGraph.Editor
         {
             newPos.width = Mathf.Max(newPos.width, MinWidth);
             newPos.height = Mathf.Max(newPos.height, MinHeight);
+            var from = Target.Region;
             base.SetPosition(newPos);
             Target.Region = newPos;
+            // Moved or resized: the comments it's in fit around it as it goes (as they do for nodes).
+            if (from != newPos)
+                GetFirstAncestorOfType<CanvasView>()?.NodeDragged(this, from, newPos);
         }
 
         // The corner handle resizes the element directly: its new size is kept in the note.

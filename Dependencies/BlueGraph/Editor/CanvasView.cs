@@ -853,10 +853,10 @@ namespace BlueGraph.Editor
         private bool refitScheduled;
 
         /// <summary>
-        /// A node being dragged moved from one place to another: the comments refit around their nodes as it goes (growing
-        /// as it's pushed against their edges, shrinking as it's pulled back in), rather than once it's dropped.
+        /// A node (or a note) being dragged moved from one place to another: the comments refit around their nodes and notes
+        /// as it goes (growing as it's pushed against their edges, shrinking as it's pulled back in), not once it's dropped.
         /// </summary>
-        internal void NodeDragged(NodeView node, Rect from, Rect to)
+        internal void NodeDragged(GraphElement node, Rect from, Rect to)
         {
             bool changed = false;
             foreach (var comment in commentViews)
