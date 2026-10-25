@@ -202,7 +202,8 @@ namespace Remedy.Audio
             var anchors = Data?.Anchors;
             if (anchors == null || anchors.Count == 0)
                 return;
-            var spaces = Application.isPlaying ? SoundSpaces.Current : null;
+            // (In Play Mode the game's; outside it the Scene view preview's, while Sound Sources play.)
+            var spaces = SoundSpaces.Current;
             var toWorld = transform.localToWorldMatrix;
             for (int a = 0; a < anchors.Count; a++)
             {

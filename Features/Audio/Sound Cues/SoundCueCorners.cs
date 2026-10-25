@@ -60,7 +60,7 @@ namespace Remedy.Audio
                 Vector3 corner;
                 float length, bend;
                 CornerPool pool;
-                if (world.Previewing)
+                if (world.Simulated)
                 {
                     var simulation = SoundSpaceSimulation.Current;
                     if (simulation == null)

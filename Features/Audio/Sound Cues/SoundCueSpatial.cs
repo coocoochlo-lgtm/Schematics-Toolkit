@@ -72,7 +72,7 @@ namespace Remedy.Audio
         {
             SoundAcoustics place;
             TailPool tails;
-            if (world.Previewing)
+            if (world.Simulated)
             {
                 // The editor's preview: the made-up surroundings picked in its bar (SoundSpaceSimulation), if any.
                 var simulation = SoundSpaceSimulation.Current;
@@ -93,13 +93,13 @@ namespace Remedy.Audio
                 tails = SoundSpaces.Get()?.Tails;
             }
             _hearing = world.Hearing;
-            var sends = SendsFrom(world.Position, world.ListenerPosition, world.Previewing, out bool inRoom);
+            var sends = SendsFrom(world.Position, world.ListenerPosition, world.Simulated, out bool inRoom);
             if (!inRoom && AddTail(tails, world.Position, place, ref sends))
                 inRoom = true;
             if (Volatile.Read(ref Sending) == 0)
                 inRoom = false;
             Volatile.Write(ref Sends, sends);
-            ForwardTrails(world, world.Previewing, active: true);
+            ForwardTrails(world, world.Simulated, active: true);
             Shape(place, inRoom);
             // Testing (the Sound Spaces window's Exaggerate): the effect's own amount too (index 2 is it, in both).
             if (SoundSpaces.Exaggerate != 1f)
@@ -583,7 +583,7 @@ namespace Remedy.Audio
 
         public override void Update(in SoundProbeWorld world)
         {
-            var pool = world.Previewing ? SoundSpaceSimulation.Current?.Tails : SoundSpaces.Get()?.Tails;
+            var pool = world.Simulated ? SoundSpaceSimulation.Current?.Tails : SoundSpaces.Get()?.Tails;
             _pool = pool;
             SpaceBus spot = null;
             if (pool != null)

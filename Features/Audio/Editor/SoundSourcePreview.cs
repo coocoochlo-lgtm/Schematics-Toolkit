@@ -120,11 +120,31 @@ namespace Remedy.Audio
                 Scan();
             }
             if (_loops.Count == 0)
+            {
+                SoundSpaces.EndEditorPreview();
                 return;
+            }
             var camera = SceneView.lastActiveSceneView != null ? SceneView.lastActiveSceneView.camera : null;
+            // The scene's rooms, echo walls and spots, heard from the Scene view's camera (as in the game, from its listener).
+            var spaces = SoundSpaces.BeginEditorPreview();
+            if (camera != null)
+            {
+                SoundSpaces.ListenerOverride = camera.transform.position;
+                SoundSpaces.ListenerRotation = camera.transform.rotation;
+            }
             foreach (var pair in _loops)
                 Hear(pair.Key, pair.Value, camera);
+            if (spaces != null)
+                spaces.EditorTick();
+            // The echo walls' glow follows what's heard.
+            if (SoundField.ShowEchoWalls && EditorApplication.timeSinceStartup >= _nextRepaint)
+            {
+                _nextRepaint = EditorApplication.timeSinceStartup + 0.1;
+                SceneView.RepaintAll();
+            }
         }
+
+        private static double _nextRepaint;
 
         // Which objects should be looping, and start or stop them to match.
         private static void Scan()
@@ -152,15 +172,17 @@ namespace Remedy.Audio
             foreach (var pair in wanted)
                 if (!_loops.ContainsKey(pair.Key))
                 {
-                    var loop = Begin(pair.Value.node, pair.Value.sound);
+                    var loop = Begin(pair.Key, pair.Value.node, pair.Value.sound);
                     if (loop != null)
                         _loops[pair.Key] = loop;
                 }
         }
 
-        private static Loop Begin(Node node, Object sound)
+        private static Loop Begin(SchematicObject owner, Node node, Object sound)
         {
+            // (Where the sound is: its Spatial effects and Around Corners ask the scene's Sound Fields from here.)
             var host = new GameObject("Sound Source Preview") { hideFlags = HideFlags.HideAndDontSave };
+            host.transform.position = owner.transform.position;
             var source = host.AddComponent<AudioSource>();
             source.playOnAwake = false;
             // Flat as far as Unity's concerned: panned and faded here, from where it is around the Scene view's camera.
@@ -179,6 +201,12 @@ namespace Remedy.Audio
                 player.hideFlags = HideFlags.HideAndDontSave;
                 player.PreloadVoices = 0;
                 player.Cue = cue;
+                // In the scene: its sends to rooms and echo walls are timed by the audio clock, as in the game.
+                player.WorldPreview = true;
+                player.ScheduleInEditor = true;
+                if (SceneView.lastActiveSceneView != null && SceneView.lastActiveSceneView.camera != null)
+                    player.WorldListener = SceneView.lastActiveSceneView.camera.transform.position;
+                SoundSpaces.BeginEditorPreview();
                 loop.Player = player;
                 Restart(loop);
             }
@@ -211,6 +239,7 @@ namespace Remedy.Audio
             foreach (var loop in _loops.Values)
                 End(loop);
             _loops.Clear();
+            SoundSpaces.EndEditorPreview();
         }
 
         // Where it is around the Scene view's camera (x right, y ahead, its whole distance), and a cue played again
@@ -235,6 +264,10 @@ namespace Remedy.Audio
             }
 
             var player = loop.Player;
+            // Where it is in the scene and where it's heard from (for its Spatial effects and Around Corners).
+            loop.Host.transform.position = owner.transform.position;
+            if (camera != null)
+                player.WorldListener = camera.transform.position;
             var cueNode = loop.Node as PlaySoundCueNode;
             float cueVolume = cueNode != null ? Mathf.Max(0f, cueNode.Volume) : 1f;
             if (player.Cue != null && player.Cue.IsSpatial)

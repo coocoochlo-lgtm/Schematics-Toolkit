@@ -64,6 +64,16 @@ namespace Remedy.Audio
         /// </summary>
         [NonSerialized] public bool ScheduleInEditor;
 
+        /// <summary>
+        /// The editor's Scene view preview: previewing (panned and faded by <see cref="SetPreviewPosition"/>), but this
+        /// player stands where the sound is in the scene and <see cref="WorldListener"/> is the Scene view's camera, so
+        /// its Spatial effects and Around Corners hear the scene's real Sound Fields.
+        /// </summary>
+        [NonSerialized] public bool WorldPreview;
+        /// <summary>Where the Scene view's camera is, for <see cref="WorldPreview"/>.</summary>
+        [NonSerialized] public Vector3 WorldListener;
+        private float _nextWorldProbe;
+
         #region Preview spatializing (editor)
 
         /// <summary>
@@ -80,7 +90,12 @@ namespace Remedy.Audio
             if (_voice != null)
             {
                 _voice.Context.Distance = distance;
-                RunProbes(_voice);
+                // (The Scene view's preview asks the real Sound Fields: about as often as in the game, not every frame.)
+                if (!WorldPreview || Time.realtimeSinceStartup >= _nextWorldProbe)
+                {
+                    _nextWorldProbe = Time.realtimeSinceStartup + ProbeInterval;
+                    RunProbes(_voice);
+                }
             }
             var source = Source;
             if (source == null)
@@ -453,8 +468,11 @@ namespace Remedy.Audio
                 Rotation = transform.rotation,
                 Listener = DistanceOverride.HasValue || _listener == null ? null : _listener.gameObject,
                 // The preview's imaginary listener is at the middle, facing ahead (+Z); the sound is placed around it.
-                ListenerPosition = DistanceOverride.HasValue ? Vector3.zero : _listener != null ? _listener.transform.position : transform.position,
+                // The Scene view's preview: its camera, in the scene.
+                ListenerPosition = WorldPreview ? WorldListener
+                    : DistanceOverride.HasValue ? Vector3.zero : _listener != null ? _listener.transform.position : transform.position,
                 Previewing = DistanceOverride.HasValue,
+                InWorld = WorldPreview,
                 Host = gameObject,
                 Room = _room,
                 // The preview fades a sound by 1 / distance itself (its source is flat).

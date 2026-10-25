@@ -431,6 +431,37 @@ namespace Remedy.Audio
         /// Heard flat, panned and at a set volume, instead of placed in 3D (the editor's preview, which has no listener
         /// in the world: it works out where things are around its imaginary one itself).
         /// </summary>
+        /// <summary>
+        /// Heard flat from a listener that isn't Unity's (the editor's Scene view camera): panned by where it is around
+        /// the listener (less the wider its spread), and faded by its own distance falloff (its rolloff, min and max
+        /// distance, or custom curve), as Unity would place it in 3D.
+        /// </summary>
+        internal void HearFlatFrom(Vector3 listener, Quaternion facing)
+        {
+            var source = Source;
+            if (source == null)
+                return;
+            var local = Quaternion.Inverse(facing) * (transform.position - listener);
+            float distance = local.magnitude;
+            float min = Mathf.Max(0.01f, source.minDistance), max = Mathf.Max(min, source.maxDistance);
+            float gain;
+            switch (source.rolloffMode)
+            {
+                case AudioRolloffMode.Custom:
+                    var curve = source.GetCustomCurve(AudioSourceCurveType.CustomRolloff);
+                    gain = curve != null ? Mathf.Clamp01(curve.Evaluate(distance / max)) : 1f;
+                    break;
+                case AudioRolloffMode.Linear:
+                    gain = Mathf.Clamp01(1f - (distance - min) / Mathf.Max(0.001f, max - min));
+                    break;
+                default:
+                    gain = min / Mathf.Clamp(distance, min, max);
+                    break;
+            }
+            float pan = distance > 0.001f ? local.x / distance : 0f;
+            SetFlat(pan * (1f - Mathf.Clamp01(source.spread / 180f)), gain);
+        }
+
         internal void SetFlat(float pan, float volume)
         {
             Source.spatialBlend = 0f;
@@ -1140,9 +1171,10 @@ namespace Remedy.Audio
         /// <summary>The spaces (made on first use, in Play Mode only; null otherwise).</summary>
         public static SoundSpaces Get()
         {
+            // Outside Play Mode: only while the editor's Scene view preview has made them (BeginEditorPreview).
             if (!Application.isPlaying)
-                return null;
-            if (_instance == null)
+                return _instance != null && _instance._editorPreview ? _instance : null;
+            if (_instance == null || _instance._editorPreview)
             {
                 var host = new GameObject("Sound Spaces");
                 DontDestroyOnLoad(host);
@@ -1151,6 +1183,61 @@ namespace Remedy.Audio
             }
             return _instance;
         }
+
+        // The editor's Scene view preview: made by it (outside Play Mode), heard from the Scene view's camera.
+        private bool _editorPreview;
+
+        /// <summary>The editor's listener for the Scene view preview: the Scene view's camera (set every editor frame).</summary>
+        public static Vector3? ListenerOverride;
+        /// <summary>Which way <see cref="ListenerOverride"/> faces.</summary>
+        public static Quaternion ListenerRotation = Quaternion.identity;
+
+        /// <summary>
+        /// The spaces for the editor's Scene view preview (outside Play Mode): made hidden, unsaved, and run by the
+        /// editor (<see cref="EditorTick"/>), until <see cref="EndEditorPreview"/>.
+        /// </summary>
+        public static SoundSpaces BeginEditorPreview()
+        {
+            if (Application.isPlaying)
+                return null;
+            if (_instance != null && _instance._editorPreview)
+                return _instance;
+            var host = new GameObject("Sound Spaces (Scene View Preview)") { hideFlags = HideFlags.HideAndDontSave };
+            _instance = host.AddComponent<SoundSpaces>();
+            _instance._editorPreview = true;
+            _instance._rate = AudioSettings.outputSampleRate > 0 ? AudioSettings.outputSampleRate : 48000;
+            return _instance;
+        }
+
+        /// <summary>Ends the editor's Scene view preview's spaces (every room, echo wall and spot with them).</summary>
+        public static void EndEditorPreview()
+        {
+            ListenerOverride = null;
+            if (_instance == null || !_instance._editorPreview)
+                return;
+            var host = _instance.gameObject;
+            _instance = null;
+            DestroyImmediate(host);
+        }
+
+        /// <summary>The editor's Scene view preview's frame: what Update does in Play Mode, plus each bus heard from the Scene view's camera.</summary>
+        public void EditorTick()
+        {
+            if (!_editorPreview)
+                return;
+            Tick();
+            if (!ListenerOverride.HasValue)
+                return;
+            var listener = ListenerOverride.Value;
+            foreach (var bus in _rooms) if (bus != null && bus.Owner != null) bus.HearFlatFrom(listener, ListenerRotation);
+            foreach (var bus in _echoes) if (bus != null && bus.Owner != null) bus.HearFlatFrom(listener, ListenerRotation);
+            if (_tails != null) foreach (var bus in _tails.Buses) if (bus != null && bus.Owner != null) bus.HearFlatFrom(listener, ListenerRotation);
+            if (_corners != null) foreach (var bus in _corners.Buses) if (bus != null && bus.Owner != null) bus.HearFlatFrom(listener, ListenerRotation);
+        }
+
+        // Time that runs outside Play Mode too (for the editor's preview).
+        private static float Now => Time.realtimeSinceStartup;
+        private float _lastTick;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void ResetStatics()
@@ -1206,10 +1293,12 @@ namespace Remedy.Audio
         {
             get
             {
-                if (_listener == null && Time.unscaledTime >= _nextListenerSearch)
+                if (_editorPreview && ListenerOverride.HasValue)
+                    return ListenerOverride.Value;
+                if (_listener == null && Now >= _nextListenerSearch)
                 {
                     _listener = FindFirstObjectByType<AudioListener>();
-                    _nextListenerSearch = Time.unscaledTime + 1f;
+                    _nextListenerSearch = Now + 1f;
                 }
                 return _listener != null ? _listener.transform.position : Vector3.zero;
             }
@@ -1464,7 +1553,7 @@ namespace Remedy.Audio
         public SpaceBus RequestEcho(SoundField field, int anchor, Vector3 at, float weight)
         {
             var key = (field, anchor);
-            _asked[key] = Time.unscaledTime;
+            _asked[key] = Now;
             if (!_heardAt.TryGetValue(key, out var heard) || weight >= heard.weight)
                 _heardAt[key] = (at, weight);
             var bus = EchoBus(field, anchor);
@@ -1505,10 +1594,18 @@ namespace Remedy.Audio
 
         private void Update()
         {
+            if (!_editorPreview)
+                Tick();
+        }
+
+        private void Tick()
+        {
             // Each live echo wall glides to where it's heard from (sudden jumps would throw its sound across the room):
             // the bounce points of the walls it carries (its own and those joined to it), weighted by how loud each is.
             // Its bus plays from that way round the listener, EchoOrbit away.
-            float glide = 1f - Mathf.Exp(-Time.unscaledDeltaTime / 0.08f);
+            float now = Now, delta = Mathf.Clamp(now - _lastTick, 0f, 0.25f);
+            _lastTick = now;
+            float glide = 1f - Mathf.Exp(-delta / 0.08f);
             _targets.Clear();
             foreach (var pair in _heardAt)
             {
@@ -1527,9 +1624,9 @@ namespace Remedy.Audio
                 var way = bus.HeardFrom - listener;
                 bus.transform.position = listener + (way.sqrMagnitude > 1e-4f ? way.normalized : Vector3.forward) * EchoOrbit;
             }
-            if (Time.unscaledTime < _nextEchoUpdate)
+            if (Now < _nextEchoUpdate)
                 return;
-            _nextEchoUpdate = Time.unscaledTime + 0.25f;
+            _nextEchoUpdate = Now + 0.25f;
             _tails?.Update();
             _corners?.Update();
             UpdateEchoes();
@@ -1557,7 +1654,7 @@ namespace Remedy.Audio
                     if (distance > EchoRange) continue;
                     float score = anchor.Reflectivity * Mathf.Sqrt(anchor.Area) / (1f + distance / 30f);
                     // Walls sounds are being heard off come first.
-                    if (_asked.TryGetValue((field, a), out float asked) && Time.unscaledTime - asked < AskedFor)
+                    if (_asked.TryGetValue((field, a), out float asked) && Now - asked < AskedFor)
                         score += 1000f;
                     wanted.Add((score, field, a, position, toWorld.MultiplyVector(anchor.Normal).normalized, anchor));
                 }
@@ -1601,7 +1698,7 @@ namespace Remedy.Audio
             {
                 if (EchoBus(w.field, w.anchor) != null) continue;
                 if (TryJoin((w.field, w.anchor), w.position, w.data.Hardness) != null) continue;
-                bool asked = _asked.TryGetValue((w.field, w.anchor), out float at) && Time.unscaledTime - at < AskedFor;
+                bool asked = _asked.TryGetValue((w.field, w.anchor), out float at) && Now - at < AskedFor;
                 if (!asked && SpaceBus.Playing >= SpaceBus.VoiceBudget * 3 / 4) break;
                 if (StartEcho((w.field, w.anchor), w.position, w.data) == null) break;
             }
@@ -1617,7 +1714,7 @@ namespace Remedy.Audio
             {
                 var stale = new List<(SoundField, int)>();
                 foreach (var pair in _asked)
-                    if (Time.unscaledTime - pair.Value > AskedFor || pair.Key.Item1 == null) stale.Add(pair.Key);
+                    if (Now - pair.Value > AskedFor || pair.Key.Item1 == null) stale.Add(pair.Key);
                 foreach (var key in stale) _asked.Remove(key);
             }
             // Facing walls echo into each other (a canyon's flutter): each to its nearest face-to-face partner.

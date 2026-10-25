@@ -229,6 +229,14 @@ namespace Remedy.Audio
         /// True in the editor's preview, where there's no world: probes give their node's preview values.
         /// </summary>
         public bool Previewing;
+        /// <summary>
+        /// The editor's Scene view preview: previewing (the other nodes give their preview values), but the sound and
+        /// its listener (the Scene view's camera) are in the scene, so Spatial effects and Around Corners hear its real
+        /// Sound Fields (<see cref="Position"/> and <see cref="ListenerPosition"/> are in the world).
+        /// </summary>
+        public bool InWorld;
+        /// <summary>Whether to use the made-up surroundings of the preview window (previewing, and not in the scene).</summary>
+        public bool Simulated => Previewing && !InWorld;
         /// <summary>The Sound Room the sound is in (null when none, or the player doesn't use rooms).</summary>
         public SoundRoom Room;
         /// <summary>The player's own object (Signals sent to it reach the cue's Triggers, as do those sent to Self).</summary>
