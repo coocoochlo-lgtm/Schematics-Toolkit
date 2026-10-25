@@ -7,10 +7,9 @@ using UnityEngine;
 using UnityEngine.UIElements;
 
 /// <summary>
-/// Every node takes the Variable nodes' look (IODock.uss): a gradient body with its title on it and a thin border in
-/// the node's colour, its [NodeColor] (which used to fill the title bar). Variable nodes (Get and Set, a Behavior's or
-/// the graph's) show the Variable's ring, and their ring and border take the colour of the Variable's type (the wires'
-/// colours). Signal nodes keep their own styling.
+/// Every node gets a thin border in its colour, its [NodeColor] (IODock.uss centres its title). Variable nodes (Get and
+/// Set, a Behavior's or the graph's) show the bar and ring of their IO Dock rows beside their name, and their border,
+/// bar and ring take the colour of the Variable's type (the wires' colours). Signal nodes keep their own styling.
 /// </summary>
 [InitializeOnLoad]
 internal static class NodeLook
@@ -35,7 +34,24 @@ internal static class NodeLook
                 _ => null,
             };
             color = DockRows.ColorOf(type);
-            view.style.unityBackgroundImageTintColor = color;
+            // Its bar and ring beside its name, as on its row in the IO Dock.
+            var label = view.titleContainer.Q<Label>("title-label");
+            if (label != null && view.titleContainer.Q(className: "node-variable-mark") == null)
+            {
+                var mark = new VisualElement { pickingMode = PickingMode.Ignore };
+                mark.AddToClassList("node-variable-mark");
+                var chip = new VisualElement { pickingMode = PickingMode.Ignore };
+                chip.style.width = 4;
+                chip.style.height = 14;
+                chip.style.marginRight = 4;
+                chip.style.backgroundColor = color;
+                mark.Add(chip);
+                bool graphVariable = node is GraphVariableNodeBase;
+                var ring = new Image { image = graphVariable ? DockRows.GraphVariableIcon : DockRows.VariableIcon, tintColor = color, pickingMode = PickingMode.Ignore };
+                ring.style.width = ring.style.height = 16;
+                mark.Add(ring);
+                label.parent.Insert(label.parent.IndexOf(label), mark);
+            }
         }
         else
         {
@@ -43,8 +59,7 @@ internal static class NodeLook
             color = nodeColor != null ? nodeColor.Color : new Color(0.78f, 0.78f, 0.78f);
         }
 
-        // The title on the body, not a bar of the node's colour: the colour goes to the border.
-        view.titleContainer.style.backgroundColor = StyleKeyword.Null;
+        // The border in the node's colour (its title bar keeps its own).
         var border = view.Q("node-border");
         if (border != null)
         {

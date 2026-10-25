@@ -460,21 +460,16 @@ EventContainerRenderer
 }
 
 	
-/* --- Every node: the Variable nodes' look (a gradient body, a thin border in the node's colour, set by NodeLook,
-   and its title on the body, centred, wrapping rather than spilling out). The Signal and Variable nodes' own rules
-   below build on this. --- */
+/* --- Every node: a thin border in the node's colour (set by NodeLook), and its title (on its own colour bar, as
+   before) centred, wrapping rather than spilling out. The Signal and Variable nodes' own rules below build on this. --- */
 .nodeView #node-border
 {
 	border-width: 1px;
 	border-color: rgba(200,200,200,0.6);
-	background-color: rgba(255,255,255,0.12);
-	background-image: url("Textures/io-graph-gradient.png");
 }
 
 .nodeView #node-border #title
 {
-	background-image: none;
-	background-color: rgba(0,0,0,0);
 	height: auto;
 	min-height: 30px;
 	padding: 4px 10px;
@@ -490,11 +485,6 @@ EventContainerRenderer
 	flex-shrink: 1;
 	margin: 0;
 	-unity-font-style: bold;
-}
-
-.nodeView #node-border #contents
-{
-	background-image: none;
 }
 
 /* --- Nodes --- */
@@ -641,7 +631,8 @@ EventContainerRenderer
 	background-image: url("Textures/signal-mark.png");
 	-unity-background-image-tint-color: rgb(97, 158, 255);
 	background-size: 40px 40px;
-	background-position: 12px 12px;
+	/* (At the right: it's going out.) */
+	background-position: 108px 12px;
 }
 
 .node-Send-a-Signal VisualElement
@@ -997,9 +988,6 @@ TextElement
 {
 	min-width: 160px;
 	border-width: 0px;
-	background-image: url("Textures/variable-mark.png");
-	background-size: 28px 28px;
-	background-position: 10px 8px;
 }
 
 .node-Get-Variable #node-border, .node-Set-Variable #node-border,
@@ -1017,10 +1005,21 @@ TextElement
 {
 	background-image: none;
 	background-color: rgba(0,0,0,0);
-	/* (Room for the ring at the left; the name centred in the rest, wrapping within the node.) */
-	padding-left: 42px;
-	padding-right: 10px;
-	min-height: 44px;
+	min-height: 32px;
+}
+
+/* The bar and ring beside the name, as in the IO Dock's Variable rows (NodeLook puts them there). */
+.nodeView #title .node-variable-mark
+{
+	flex-direction: row;
+	align-items: center;
+	flex-shrink: 0;
+	margin-right: 4px;
+}
+.node-Get-Variable #node-border #title #title-label, .node-Set-Variable #node-border #title #title-label,
+.node-Get-Graph-Variable #node-border #title #title-label, .node-Set-Graph-Variable #node-border #title #title-label
+{
+	flex-grow: 0;
 }
 
 /* A Signal's parameters: dots in their types' colours under its name; "name: type" beside them on hover. */
