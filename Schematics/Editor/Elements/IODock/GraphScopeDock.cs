@@ -189,6 +189,10 @@ public class GraphScopeDock : VisualElement
         // Its triangle by which way it goes for this graph: its own Outputs and others' Inputs are sent from here (▶);
         // its own Inputs and others' Outputs come in (◀).
         DockRows.SetSignalMark(row, intoGraph: own != output);
+        // This graph's own: its "Send"/"Receive" switches its direction.
+        if (editable && own)
+            DockRows.MakeDirectionToggle(row, () => GraphScopeEditing.SetSignalDirection(graph, signal,
+                signal.Direction == GraphSignalDirection.Output ? GraphSignalDirection.Input : GraphSignalDirection.Output));
         if (signal.Asset != null)
             _rows[item.Key] = row;
         return row;

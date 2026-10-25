@@ -57,6 +57,9 @@ public static class DockRows
             icon.image = SignalIconFor(intoGraph);
             icon.tintColor = color;
         }
+        var verb = mark.Q<Label>(className: "dock-signal-verb");
+        if (verb != null)
+            verb.text = Verb(intoGraph);
     }
 
     /// <summary>
@@ -88,7 +91,35 @@ public static class DockRows
         icon.style.height = 16;
         icon.style.marginRight = 4;
         mark.Add(icon);
+        // "Send" or "Receive", dimmer, before the name: what the graph does with it (as the triangle points).
+        var verb = new Label(Verb(intoGraph: output)) { pickingMode = PickingMode.Ignore };
+        verb.AddToClassList("dock-signal-verb");
+        mark.Add(verb);
         return mark;
+    }
+
+    private static string Verb(bool intoGraph) => intoGraph ? "Receive" : "Send";
+
+    /// <summary>
+    /// Clicking a Signal row's "Send"/"Receive" switches which way it goes (a graph's own Signals): <paramref name="toggle"/>.
+    /// </summary>
+    public static void MakeDirectionToggle(VisualElement row, Action toggle)
+    {
+        var verb = row?.Q<Label>(className: "dock-signal-verb");
+        var mark = row?.Q(className: "dock-signal-mark");
+        if (verb == null || toggle == null)
+            return;
+        if (mark != null)
+            mark.pickingMode = PickingMode.Position;
+        verb.pickingMode = PickingMode.Position;
+        verb.AddToClassList("dock-signal-verb-toggle");
+        verb.tooltip = "Click to switch it between sent and received by this graph.";
+        verb.RegisterCallback<MouseDownEvent>(evt =>
+        {
+            if (evt.button != 0) return;
+            evt.StopPropagation();
+            toggle();
+        });
     }
 
     /// <summary>Graph Variables: a solid dot (so they read apart from Behavior ones), tinted the same way.</summary>
