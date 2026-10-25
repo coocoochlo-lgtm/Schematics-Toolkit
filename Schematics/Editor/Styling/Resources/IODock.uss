@@ -944,3 +944,10 @@ TextElement
 {
 	margin-left: 2px;
 }
+
+/* Signals' rows on the Variables' background (their bar and triangle tell received from sent). */
+.dock-signal.event-container-input, .dock-signal.event-container-output,
+.dock-row-signal.event-container-input, .dock-row-signal.event-container-output
+{
+	background-color: rgba(0,60,45,0.25);
+}

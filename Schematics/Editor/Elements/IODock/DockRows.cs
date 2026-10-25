@@ -26,8 +26,8 @@ public static class DockRows
     /// </summary>
     public static Texture2D SignalIcon => _signalIcon != null ? _signalIcon : _signalIcon = MakeTriangle();
 
-    /// <summary>A Signal's tint, by which way it goes (the minimap's): in, cyan; out, amber.</summary>
-    public static Color SignalColor(bool output) => output ? new Color(1f, 0.75f, 0.35f) : new Color(0.45f, 0.9f, 1f);
+    /// <summary>A Signal's tint, by which way it goes: received, blue; sent, red.</summary>
+    public static Color SignalColor(bool output) => output ? new Color(1f, 0.38f, 0.35f) : new Color(0.38f, 0.62f, 1f);
 
     /// <summary>
     /// The start of a Signal's row, like a Variable's: a bar and the triangle, in the Signal's colour.
