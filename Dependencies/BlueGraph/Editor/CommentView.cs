@@ -303,6 +303,41 @@ namespace BlueGraph.Editor
             return true;
         }
 
+        /// <summary>
+        /// A node dragged from <paramref name="from"/> to <paramref name="to"/>: if it was one of this comment's (its centre
+        /// inside) and is still touching it, the comment grows to keep it in, padding and all. A node flung out in one go
+        /// (clear of the comment already) leaves it instead. True if it grew. (It shrinks back to fit once dropped.)
+        /// </summary>
+        public bool GrowFor(Rect from, Rect to)
+        {
+            // (A comment being dragged itself carries its nodes: nothing to grow for.)
+            if (Target.FixedSize || selected)
+                return false;
+            var region = Target.Region;
+            if (!region.Contains(from.center) || !to.Overlaps(region))
+                return false;
+            var grown = Rect.MinMaxRect(
+                Mathf.Min(region.xMin, to.xMin - FitPadding), Mathf.Min(region.yMin, to.yMin - FitTitlePadding),
+                Mathf.Max(region.xMax, to.xMax + FitPadding), Mathf.Max(region.yMax, to.yMax + FitPadding));
+            if (grown == region)
+                return false;
+            // Set directly: SetPosition would treat a move as dragging the comment and carry the nodes along.
+            base.SetPosition(grown);
+            Target.Region = grown;
+            return true;
+        }
+
+        /// <summary>
+        /// Box-selecting picks a comment only when the box wraps all of it, not when it catches some of the nodes inside.
+        /// (<paramref name="rectangle"/> is in the comment's own space.)
+        /// </summary>
+        public override bool Overlaps(Rect rectangle)
+        {
+            var box = Rect.MinMaxRect(Mathf.Min(rectangle.xMin, rectangle.xMax), Mathf.Min(rectangle.yMin, rectangle.yMax),
+                Mathf.Max(rectangle.xMin, rectangle.xMax), Mathf.Max(rectangle.yMin, rectangle.yMax));
+            return box.xMin <= 0f && box.yMin <= 0f && box.xMax >= layout.width && box.yMax >= layout.height;
+        }
+
         public override void SetPosition(Rect newPos)
         {
             var previous = Target.Region;

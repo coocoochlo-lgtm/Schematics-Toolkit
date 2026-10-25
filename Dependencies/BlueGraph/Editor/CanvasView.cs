@@ -799,6 +799,19 @@ namespace BlueGraph.Editor
         private bool refitScheduled;
 
         /// <summary>
+        /// A node being dragged moved from one place to another: the comments it was in grow to keep it in as it's pushed
+        /// against their edges (while it's dragged, not once it's dropped).
+        /// </summary>
+        internal void NodeDragged(NodeView node, Rect from, Rect to)
+        {
+            bool grew = false;
+            foreach (var comment in commentViews)
+                grew |= comment.GrowFor(from, to);
+            if (grew && Graph != null)
+                EditorUtility.SetDirty(Graph);
+        }
+
+        /// <summary>
         /// Refits every auto-sizing comment around its nodes, once layout has caught up (node sizes are only known then).
         /// </summary>
         public void ScheduleCommentRefit()

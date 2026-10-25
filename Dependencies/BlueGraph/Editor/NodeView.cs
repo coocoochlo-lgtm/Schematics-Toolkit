@@ -300,8 +300,12 @@ namespace BlueGraph.Editor
 
         public override void SetPosition(Rect newPos)
         {
+            // (Dragged: the comments it's in grow as it's pushed against their edges.)
+            var from = selected ? GetPosition() : default;
             base.SetPosition(newPos);
             Target.Position = newPos.position;
+            if (selected)
+                GetFirstAncestorOfType<CanvasView>()?.NodeDragged(this, from, GetPosition());
         }
 
         private TextField renameField;
