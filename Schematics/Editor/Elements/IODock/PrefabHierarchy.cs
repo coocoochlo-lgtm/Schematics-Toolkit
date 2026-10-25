@@ -82,12 +82,14 @@ public class PrefabHierarchy : VisualElement
             _watch ??= schedule.Execute(Watch).Every(WatchMs);
             _watch.Resume();
             Selection.selectionChanged += UpdateHighlight;
+            EditorApplication.playModeStateChanged += OnPlayModeChanged;
             UpdateHighlight();
         });
         RegisterCallback<DetachFromPanelEvent>(_ =>
         {
             _watch?.Pause();
             Selection.selectionChanged -= UpdateHighlight;
+            EditorApplication.playModeStateChanged -= OnPlayModeChanged;
         });
     }
 
@@ -120,6 +122,13 @@ public class PrefabHierarchy : VisualElement
         Add(goFoldout);
 
         _signature = Signature();
+    }
+
+    // Into or out of Play Mode: drawn again, the Variables showing live values or starting ones.
+    private void OnPlayModeChanged(PlayModeStateChange change)
+    {
+        if (change == PlayModeStateChange.EnteredPlayMode || change == PlayModeStateChange.EnteredEditMode)
+            RebuildHierarchy();
     }
 
     #region Following changes made elsewhere
@@ -570,6 +579,18 @@ public class PrefabHierarchy : VisualElement
                     ScopeItemInspector.Show(item);
                 });
             var definition = variable;
+            // In Play Mode: the live value of the object the graph is on (edited live, as the Inspector's are).
+            if (Application.isPlaying)
+            {
+                IMGUIContainer live = null;
+                live = new IMGUIContainer(() => DrawLiveVariable(path, type, definition, live));
+                live.style.flexGrow = 1;
+                live.style.flexShrink = 1;
+                live.style.minWidth = 60;
+                row.Add(live);
+                section.Add(row);
+                continue;
+            }
             // Arrays, lists and classes: edited right under the row, at full width, with Unity's own drawers (a list's
             // add, remove and reorder; each item by its name).
             if (variable.Type.Type != null && SchematicValue.IsBoxable(variable.Type.Type))
@@ -803,6 +824,45 @@ public class PrefabHierarchy : VisualElement
         revert.SetEnabled(pending != null ? !pending.Revert : attachment.FindOverride(definition.Name) != null);
         holder.Add(revert);
         return holder;
+    }
+
+    // A Variable's live value on the object the graph is on (redrawn at the Inspector's Refresh Rate), or why there's none.
+    private void DrawLiveVariable(string path, Type behavior, VariableDefinition definition, IMGUIContainer container)
+    {
+        var (instance, index) = LiveVariable(path, behavior, definition.Name);
+        if (instance == null)
+        {
+            EditorGUILayout.LabelField(new GUIContent("(no live object)", "Select a spawned instance of this object to see its values."), EditorStyles.miniLabel);
+            return;
+        }
+        var runtime = instance.Runtime;
+        var valueType = runtime.Behavior.Variables[index].ValueType;
+        if (SchematicValueField.Draw(GUIContent.none, valueType, runtime.GetVariableBoxed(instance, index), out var value))
+            runtime.SetVariableBoxed(instance, index, value);
+        InspectorRefresh.Request(container);
+    }
+
+    // The live Behavior on the object the graph is on (at a path in it), and its Variable's index; (null, -1) if none.
+    private (BehaviorInstance instance, int index) LiveVariable(string path, Type behavior, string name)
+    {
+        var followed = _schematicWindow != null && _schematicWindow.FollowedInstance != null ? _schematicWindow.FollowedInstance
+                     : SchematicGraphEditorWindow.Follower != null ? SchematicGraphEditorWindow.Follower.FollowedInstance : null;
+        var root = followed != null ? followed.GetComponent<SchematicObject>() : null;
+        if (root == null || !root.IsSpawned)
+            return (null, -1);
+        var target = string.IsNullOrEmpty(path) ? root.transform : root.transform.Find(path);
+        if (target == null)
+            return (null, -1);
+        foreach (var instance in root.BehaviorInstances)
+        {
+            if (instance == null || !instance.IsSpawned || instance.GameObject != target.gameObject || instance.Behavior == null || instance.Behavior.GetType() != behavior)
+                continue;
+            var variables = instance.Runtime.Behavior.Variables;
+            for (int i = 0; i < variables.Count; i++)
+                if (variables[i].Name == name)
+                    return (instance, i);
+        }
+        return (null, -1);
     }
 
     // The field on a Variable's row: this object's value (or the default), with a button back to the default.

@@ -94,6 +94,8 @@ public static class DockRows
         }
 
         MakeDraggable(signal ? row : handle, item, click);
+        if (signal)
+            SignalFlash.Track(row, item.Signal);
         return row;
     }
 

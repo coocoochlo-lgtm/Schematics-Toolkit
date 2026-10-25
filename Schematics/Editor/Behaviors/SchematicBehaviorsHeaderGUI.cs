@@ -9,7 +9,9 @@ using UnityEngine;
 /// Adds a "Schematic Behaviors" section with an "Add Schematic Behavior" button under the GameObject header of any
 /// object that is (or is a child of) a <see cref="SchematicObject"/>. Unity's own Add Component button can't be
 /// replaced, so this sits alongside it.<br/>
-/// In Edit Mode it edits the defaults stored on the Schematic Object; in Play Mode it shows the live instances.
+/// In Edit Mode it edits the defaults stored on the Schematic Object; in Play Mode it shows the live instances.<br/>
+/// Off by default (the IO Dock shows and edits all this, live values included): one line points there instead. Turned
+/// back on in Preferences > Schematics > Inspector.
 /// </summary>
 [InitializeOnLoad]
 public static class SchematicBehaviorsHeaderGUI
@@ -22,6 +24,20 @@ public static class SchematicBehaviorsHeaderGUI
         Editor.finishedDefaultHeaderGUI += OnHeaderGUI;
     }
 
+    private const string ShowKey = "Remedy.Schematics.InspectorBehaviors";
+    private static bool? _show;
+
+    /// <summary>Whether the Inspector shows Schematic Behaviors (their Variables, Signals...) itself, rather than leaving them to the IO Dock.</summary>
+    public static bool ShowInInspector
+    {
+        get => _show ??= EditorPrefs.GetBool(ShowKey, false);
+        set
+        {
+            _show = value;
+            EditorPrefs.SetBool(ShowKey, value);
+        }
+    }
+
     private static void OnHeaderGUI(Editor editor)
     {
         if (editor.targets.Length != 1 || !(editor.target is GameObject gameObject))
@@ -30,6 +46,19 @@ public static class SchematicBehaviorsHeaderGUI
         var root = gameObject.GetComponentInParent<SchematicObject>(true);
         if (root == null)
             return;
+
+        if (!ShowInInspector)
+        {
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                EditorGUILayout.LabelField(new GUIContent("Schematic Behaviors: in the IO Dock",
+                    "Its Variables, Signals and Properties (live in Play Mode) are in the IO Dock, beside the Hierarchy. "
+                    + "Preferences > Schematics > Inspector shows them here too."), EditorStyles.miniLabel);
+                if (GUILayout.Button("Open IO Dock", EditorStyles.miniButton, GUILayout.Width(90)))
+                    EditorApplication.ExecuteMenuItem("Tools/Remedy/Schematics/IO Dock");
+            }
+            return;
+        }
 
         _revertStyle ??= new GUIStyle(EditorStyles.miniButton) { padding = new RectOffset(2, 2, 0, 0) };
 

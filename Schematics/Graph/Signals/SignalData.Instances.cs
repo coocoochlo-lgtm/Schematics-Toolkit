@@ -158,6 +158,31 @@ public partial class SignalData
 
     #region Invoking
 
+#if UNITY_EDITOR
+    /// <summary>
+    /// Editor only: a Signal was sent, to a UID (0: to everyone). The IO Dock flashes its rows. (Not in builds.)
+    /// </summary>
+    public static event Action<SignalData, int> EditorSent;
+#endif
+
+    [System.Diagnostics.Conditional("UNITY_EDITOR")]
+    private void ReportSent(int uid)
+    {
+#if UNITY_EDITOR
+        EditorSent?.Invoke(this, uid);
+#endif
+    }
+
+    // The same, for an old-style invoke aimed at an object (its UID worked out only when someone's listening).
+    [System.Diagnostics.Conditional("UNITY_EDITOR")]
+    internal void ReportSentTo(UnityEngine.Object target)
+    {
+#if UNITY_EDITOR
+        if (EditorSent != null)
+            EditorSent(this, ReferenceEquals(target, null) ? 0 : UIDResolver?.Invoke(target) ?? 0);
+#endif
+    }
+
     // A Signal marked Networked first goes through SignalNetwork (when the networking layer is installed), which passes
     // it on to the other players and says whether this peer hears it itself (see SignalNetworkSender).
 
@@ -165,6 +190,7 @@ public partial class SignalData
     {
         if (Remedy.Schematics.SignalNetwork.Wants(this) && !Remedy.Schematics.SignalNetwork.Dispatch(this, uid, Array.Empty<Union>()))
             return;
+        ReportSent(uid);
         ForEachListener(uid, l =>
         {
             if (l is SignalListener0 typed) typed.Action();
@@ -177,6 +203,7 @@ public partial class SignalData
     {
         if (Remedy.Schematics.SignalNetwork.Wants(this) && !Remedy.Schematics.SignalNetwork.Dispatch(this, uid, new[] { SignalArgs.ToUnion(a) }))
             return;
+        ReportSent(uid);
         _invokeDepth++;
         try
         {
@@ -195,6 +222,7 @@ public partial class SignalData
     {
         if (Remedy.Schematics.SignalNetwork.Wants(this) && !Remedy.Schematics.SignalNetwork.Dispatch(this, uid, new[] { SignalArgs.ToUnion(a), SignalArgs.ToUnion(b) }))
             return;
+        ReportSent(uid);
         _invokeDepth++;
         try
         {
@@ -213,6 +241,7 @@ public partial class SignalData
     {
         if (Remedy.Schematics.SignalNetwork.Wants(this) && !Remedy.Schematics.SignalNetwork.Dispatch(this, uid, new[] { SignalArgs.ToUnion(a), SignalArgs.ToUnion(b), SignalArgs.ToUnion(c) }))
             return;
+        ReportSent(uid);
         _invokeDepth++;
         try
         {
@@ -231,6 +260,7 @@ public partial class SignalData
     {
         if (Remedy.Schematics.SignalNetwork.Wants(this) && !Remedy.Schematics.SignalNetwork.Dispatch(this, uid, new[] { SignalArgs.ToUnion(a), SignalArgs.ToUnion(b), SignalArgs.ToUnion(c), SignalArgs.ToUnion(d) }))
             return;
+        ReportSent(uid);
         _invokeDepth++;
         try
         {
@@ -253,6 +283,7 @@ public partial class SignalData
         args ??= Array.Empty<Union>();
         if (Remedy.Schematics.SignalNetwork.Wants(this) && !Remedy.Schematics.SignalNetwork.Dispatch(this, uid, args))
             return;
+        ReportSent(uid);
         _invokeDepth++;
         try
         {

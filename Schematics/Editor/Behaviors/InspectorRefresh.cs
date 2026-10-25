@@ -91,7 +91,7 @@ public static class InspectorRefresh
     [SettingsProvider]
     private static SettingsProvider CreateProvider() => new("Preferences/Schematics/Inspector", SettingsScope.User)
     {
-        keywords = new HashSet<string> { "inspector", "refresh", "repaint", "lag", "play mode", "rate" },
+        keywords = new HashSet<string> { "inspector", "refresh", "repaint", "lag", "play mode", "rate", "behaviors", "variables" },
         guiHandler = _ =>
         {
             EditorGUIUtility.labelWidth = 200;
@@ -103,6 +103,10 @@ public static class InspectorRefresh
             int picked = EditorGUILayout.Popup(new GUIContent("Refresh Rate", "Redraws a second. Off: only when you touch it."), index, RateLabels);
             if (picked != index)
                 RatePerSecond = Rates[picked];
+            EditorGUILayout.Space(6);
+            SchematicBehaviorsHeaderGUI.ShowInInspector = EditorGUILayout.Toggle(new GUIContent("Schematic Behaviors In Inspector",
+                "Show a Schematic Object's Behaviors (Variables, Signals, Properties) in the Inspector too. Off: the IO Dock has them."),
+                SchematicBehaviorsHeaderGUI.ShowInInspector);
         },
     };
 }

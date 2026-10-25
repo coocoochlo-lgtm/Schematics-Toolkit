@@ -332,6 +332,7 @@ public partial class SignalData : ScriptableObject, Remedy.Schematics.ISchematic
         // A disabled MonoBehaviour doesn't send.
         if (target is MonoBehaviour mb && !mb.enabled)
             return;
+        ReportSentTo(target);
 
         // Indexed, so subscriptions added by a callback don't break the loop.
         for (int i = 0; i < _subs.Count; i++)

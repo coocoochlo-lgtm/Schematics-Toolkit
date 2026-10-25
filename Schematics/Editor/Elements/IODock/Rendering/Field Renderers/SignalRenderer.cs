@@ -263,6 +263,8 @@ public class SignalRenderer : FieldRenderer
 
         column.AddToClassList("event-container");
         column.AddToClassList("event-container-" + (signalType ? "output" : "input"));
+        // Flashes when it's sent in Play Mode.
+        SignalFlash.Track(column, signalData);
 
         var paramAttrs = _field.GetCustomAttributes().OfType<ParameterAttribute>();
 
