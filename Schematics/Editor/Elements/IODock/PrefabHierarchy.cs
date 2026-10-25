@@ -1060,7 +1060,9 @@ public class PrefabHierarchy : VisualElement
         if (_customEditors.TryGetValue(type, out var custom))
             return custom;
         var editor = Editor.CreateEditor(asset);
-        custom = editor != null && editor.GetType().Name != "GenericInspector";
+        // (NaughtyAttributes' Inspector is registered for every object: that's the default one too, not the asset's own.)
+        var editorName = editor != null ? editor.GetType().Name : null;
+        custom = editorName != null && editorName != "GenericInspector" && editorName != "NaughtyInspector";
         if (editor != null)
             UnityEngine.Object.DestroyImmediate(editor);
         _customEditors[type] = custom;
