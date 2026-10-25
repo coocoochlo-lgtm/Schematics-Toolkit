@@ -1191,6 +1191,8 @@ namespace Remedy.Audio
         public static Vector3? ListenerOverride;
         /// <summary>Which way <see cref="ListenerOverride"/> faces.</summary>
         public static Quaternion ListenerRotation = Quaternion.identity;
+        /// <summary>The editor's Scene view preview is silent (no Scene view showing): every bus muted.</summary>
+        public static bool EditorMuted;
 
         /// <summary>
         /// The spaces for the editor's Scene view preview (outside Play Mode): made hidden, unsaved, and run by the
@@ -1229,6 +1231,10 @@ namespace Remedy.Audio
             if (!ListenerOverride.HasValue)
                 return;
             var listener = ListenerOverride.Value;
+            foreach (var bus in _rooms) if (bus != null && bus.Source != null) bus.Source.mute = EditorMuted;
+            foreach (var bus in _echoes) if (bus != null && bus.Source != null) bus.Source.mute = EditorMuted;
+            if (_tails != null) foreach (var bus in _tails.Buses) if (bus != null && bus.Source != null) bus.Source.mute = EditorMuted;
+            if (_corners != null) foreach (var bus in _corners.Buses) if (bus != null && bus.Source != null) bus.Source.mute = EditorMuted;
             foreach (var bus in _rooms) if (bus != null && bus.Owner != null) bus.HearFlatFrom(listener, ListenerRotation);
             foreach (var bus in _echoes) if (bus != null && bus.Owner != null) bus.HearFlatFrom(listener, ListenerRotation);
             if (_tails != null) foreach (var bus in _tails.Buses) if (bus != null && bus.Owner != null) bus.HearFlatFrom(listener, ListenerRotation);

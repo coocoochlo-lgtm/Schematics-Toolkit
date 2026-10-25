@@ -132,8 +132,16 @@ namespace Remedy.Audio
                 SoundSpaces.ListenerOverride = camera.transform.position;
                 SoundSpaces.ListenerRotation = camera.transform.rotation;
             }
+            // Heard only while a Scene view is the tab showing in its window (another tab in front, the Graph or the
+            // Game view: silent, carrying on so it picks up where it is).
+            bool heard = SceneViewShowing();
             foreach (var pair in _loops)
+            {
                 Hear(pair.Key, pair.Value, camera);
+                if (pair.Value.Source != null)
+                    pair.Value.Source.mute = !heard;
+            }
+            SoundSpaces.EditorMuted = !heard;
             if (spaces != null)
                 spaces.EditorTick();
             // The echo walls' glow follows what's heard.
@@ -145,6 +153,15 @@ namespace Remedy.Audio
         }
 
         private static double _nextRepaint;
+
+        // Whether a Scene view is the tab showing in its window (Unity's hasFocus: its dock area's current tab).
+        private static bool SceneViewShowing()
+        {
+            foreach (var view in SceneView.sceneViews)
+                if (view is SceneView sceneView && sceneView != null && sceneView.hasFocus)
+                    return true;
+            return false;
+        }
 
         // Which objects should be looping, and start or stop them to match.
         private static void Scan()
