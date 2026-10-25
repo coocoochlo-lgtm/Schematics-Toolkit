@@ -116,6 +116,17 @@ namespace BlueGraph
 
         [SerializeField, HideInInspector]
         private List<Comment> comments = new List<Comment>();
+
+        /// <summary>
+        /// All notes to display in the editor for this Graph
+        /// </summary>
+        internal List<Note> Notes
+        {
+            get { return notes ??= new List<Note>(); }
+        }
+
+        [SerializeField, HideInInspector]
+        private List<Note> notes = new List<Note>();
         
         /// <summary>
         /// Graph serialization version for safely handling automatic upgrades.

@@ -152,6 +152,8 @@ public class SchematicMinimap : VisualElement
             bounds = Encapsulate(bounds, node.GetPosition());
         foreach (var comment in comments)
             bounds = Encapsulate(bounds, comment.GetPosition());
+        foreach (var note in _canvas.Query<NoteView>().ToList())
+            bounds = Encapsulate(bounds, note.GetPosition());
         bounds = Inflate(bounds, 40f);
         if (bounds.width <= 0f || bounds.height <= 0f)
             return;
@@ -185,7 +187,16 @@ public class SchematicMinimap : VisualElement
         string hover = null;
         var mouse = Event.current.mousePosition;
 
-        // The comments sit underneath, as UI Toolkit boxes (see CommentMark); their names are drawn on top.
+        // The comments sit underneath, as UI Toolkit boxes (see CommentMark); their names are drawn on top. Notes are
+        // solid boxes in their color, at their size.
+        foreach (var note in _canvas.Query<NoteView>().ToList())
+        {
+            var rect = ToMap(note.GetPosition());
+            EditorGUI.DrawRect(rect, _canvas.selection.Contains(note) ? new Color(0.3f, 0.6f, 0.9f, 1f) : note.Target.Color);
+            if (rect.Contains(mouse) && !string.IsNullOrEmpty(note.Target.Text))
+                hover = FirstLine(note.Target.Text);
+        }
+
         _nodeHits.Clear();
         foreach (var node in Nodes())
         {
@@ -198,6 +209,7 @@ public class SchematicMinimap : VisualElement
             // A mark for the nodes that use the IO Dock's items.
             Texture icon = null;
             Color tint = Color.white;
+            float size = 12f;
             switch (target)
             {
                 case SendSignalNode _: icon = OutputIcon; tint = new Color(1f, 0.75f, 0.35f); break;
@@ -205,21 +217,23 @@ public class SchematicMinimap : VisualElement
                 case GetBehaviorVariableNode get:
                     icon = PrefabHierarchy.VariableIcon;
                     tint = PrefabHierarchy.ColorOf(BehaviorReflection.Get(get.Target.Type)?.FindVariableType(get.Variable));
+                    size = 6f; // (Variables are many and small: half the others' marks.)
                     break;
                 case SetBehaviorVariableNode set:
                     icon = PrefabHierarchy.VariableIcon;
                     tint = PrefabHierarchy.ColorOf(BehaviorReflection.Get(set.Target.Type)?.FindVariableType(set.Variable));
+                    size = 6f;
                     break;
                 case GraphVariableNodeBase graphVariable:
                     icon = DockRows.GraphVariableIcon;
                     tint = DockRows.ColorOf(graphVariable.Definition?.ValueType);
+                    size = 6f;
                     break;
                 case BehaviorReferenceNode _: icon = BehaviorIcon; break;
             }
 
             if (icon != null)
             {
-                const float size = 12f;
                 var iconRect = new Rect(rect.center.x - size * 0.5f, rect.center.y - size * 0.5f, size, size);
                 var previous = GUI.color;
                 GUI.color = tint;
@@ -247,6 +261,14 @@ public class SchematicMinimap : VisualElement
     }
 
     // The comment under the mouse: the innermost one, when comments sit inside each other.
+    // A note's first line, short, for its name on hover.
+    private static string FirstLine(string text)
+    {
+        int end = text.IndexOf('\n');
+        var line = end >= 0 ? text.Substring(0, end) : text;
+        return line.Length > 40 ? line.Substring(0, 40) + "\u2026" : line;
+    }
+
     private CommentView CommentAt(Vector2 local)
     {
         CommentView best = null;

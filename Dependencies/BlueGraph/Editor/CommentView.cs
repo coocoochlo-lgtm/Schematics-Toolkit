@@ -465,6 +465,18 @@ namespace BlueGraph.Editor
                 moved = true;
             }
 
+            // Notes lying entirely inside come along too.
+            var notes = GetFirstAncestorOfType<CanvasView>()?.Query<NoteView>().ToList();
+            if (notes != null)
+                foreach (var note in notes)
+                {
+                    var rect = note.Target.Region;
+                    if (note.selected || !region.Contains(rect.min) || !region.Contains(rect.max))
+                        continue;
+                    note.SetPosition(new Rect(rect.position + delta, rect.size));
+                    moved = true;
+                }
+
             var canvas = GetFirstAncestorOfType<CanvasView>();
             if (moved && canvas != null && canvas.Graph != null)
                 EditorUtility.SetDirty(canvas.Graph);

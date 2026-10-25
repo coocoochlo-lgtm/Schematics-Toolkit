@@ -250,6 +250,10 @@ namespace BlueGraph.Editor
                     {
                         RemoveComment(comment);
                     }
+                    else if (element is NoteView note)
+                    {
+                        RemoveNote(note);
+                    }
 
                     if (element is ICanDirty canDirty)
                     {
@@ -358,6 +362,7 @@ namespace BlueGraph.Editor
 
             AddNodeViews(graph.Nodes);
             AddCommentViews(graph.Comments);
+            AddNoteViews(graph.Notes);
 
             // Reset the search to a new set of tags and providers
             searchWindow.ClearSearchProviders();
@@ -766,6 +771,53 @@ namespace BlueGraph.Editor
         }
 
         /// <summary>
+        /// Append views for notes from a Graph
+        /// </summary>
+        private void AddNoteViews(IEnumerable<Note> notes)
+        {
+            foreach (var note in notes)
+            {
+                var noteView = new NoteView(note);
+                AddElement(noteView);
+            }
+        }
+
+        /// <summary>
+        /// Adds a note at a point (in window coordinates, like a mouse event's position), its text being edited.
+        /// </summary>
+        public void AddNoteAt(Vector2 worldPosition)
+        {
+            if (Graph == null)
+                return;
+            Undo.RegisterCompleteObjectUndo(Graph, "Add Note");
+            var note = new Note
+            {
+                Text = "",
+                Region = new Rect(contentViewContainer.WorldToLocal(worldPosition), new Vector2(220, 120)),
+                Color = Note.DefaultColor,
+            };
+            Graph.Notes.Add(note);
+            serializedGraph?.Update();
+            EditorUtility.SetDirty(Graph);
+
+            var noteView = new NoteView(note);
+            AddElement(noteView);
+            noteView.schedule.Execute(noteView.EditText);
+        }
+
+        /// <summary>
+        /// Remove a note from both the canvas view and the graph model
+        /// </summary>
+        public void RemoveNote(NoteView note)
+        {
+            Undo.RegisterCompleteObjectUndo(Graph, "Delete Note");
+            Graph.Notes.Remove(note.Target);
+            serializedGraph?.Update();
+            EditorUtility.SetDirty(Graph);
+            RemoveElement(note);
+        }
+
+        /// <summary>
         /// Calculate the bounding box for a set of nodes
         /// </summary>
         private Rect GetBounds(IEnumerable<ISelectable> items)
@@ -845,6 +897,9 @@ namespace BlueGraph.Editor
             {
                 // Comments are only made while C is held; say how, where people look for it.
                 evt.menu.AppendAction("Add Comment: hold C and drag (or click to wrap the selection)", _ => { }, DropdownMenuAction.Status.Disabled);
+                // (The event is recycled once the menu shows, so keep where it was opened now.)
+                var notePoint = evt.mousePosition;
+                evt.menu.AppendAction("Add Note", _ => AddNoteAt(notePoint));
                 evt.menu.AppendSeparator();
                 if (ExtendContextMenu != null)
                 {
@@ -1049,6 +1104,11 @@ namespace BlueGraph.Editor
                 Graph.Comments.Add(comment);
             }
 
+            foreach (var note in cpg.Notes)
+            {
+                Graph.Notes.Add(note);
+            }
+
             serializedGraph.Update();
             EditorUtility.SetDirty(Graph);
 
@@ -1056,6 +1116,7 @@ namespace BlueGraph.Editor
             ClearSelection();
             AddNodeViews(cpg.Nodes, true, true);
             AddCommentViews(cpg.Comments);
+            AddNoteViews(cpg.Notes);
 
             ScriptableObject.DestroyImmediate(cpg);
         }

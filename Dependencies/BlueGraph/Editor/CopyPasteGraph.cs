@@ -27,6 +27,14 @@ namespace BlueGraph.Editor
 
         [SerializeField]
         private List<Comment> comments = new List<Comment>();
+
+        public List<Note> Notes
+        {
+            get { return notes; }
+        }
+
+        [SerializeField]
+        private List<Note> notes = new List<Note>();
         
         /// <summary>
         /// Serialize a set of graph elements (nodes, comments, etc) into a string.
@@ -44,6 +52,10 @@ namespace BlueGraph.Editor
                 else if (element is CommentView comment)
                 {
                     graph.comments.Add(comment.Target);
+                }
+                else if (element is NoteView note)
+                {
+                    graph.notes.Add(note.Target);
                 }
             }
 
