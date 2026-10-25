@@ -555,6 +555,7 @@ namespace Remedy.Schematics.Browsers
             card.AddManipulator(new ContextualMenuManipulator(evt =>
             {
                 evt.menu.AppendAction("Open", _ => AssetDatabase.OpenAsset(cue));
+                evt.menu.AppendAction("Open in New Window", _ => GraphWindows.OpenInNewWindow(cue));
                 evt.menu.AppendAction(IsPlayingCue(cue) ? "Stop Preview" : "Preview", _ => ToggleCuePreview(cue));
                 evt.menu.AppendAction("Rename", _ => BeginRenameCue(cue, name));
                 evt.menu.AppendSeparator();

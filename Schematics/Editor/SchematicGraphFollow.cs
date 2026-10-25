@@ -8,6 +8,10 @@ using UnityEngine.UIElements;
 using Object = UnityEngine.Object;
 
 /// <summary>
+/// Graph windows, one per graph type: opening a graph shows it in its type's window (an object's graph in the Graph tab,
+/// a Sound Cue in the Sound Cue window...), which moves to it, rather than opening a window per graph. Open in New Graph
+/// Window (the Project window's and the Project Manager's menus) opens one that stays on its graph.
+///
 /// The Graph tab: a graph window that follows the selection. It shows the Schematic Graph of whatever Schematic Object is
 /// selected (an instance in the scene, the prefab open in Prefab Mode, a prefab or graph in the Project window) and keeps
 /// showing the last one while something else is selected; its lock keeps it on one. Its dock (Global, Prefab and Graph
@@ -24,6 +28,8 @@ public partial class SchematicGraphEditorWindow
     [SerializeField] internal GameObject FollowedInstance;
     /// <summary>The prefab it follows (the graph's own when it came from an instance).</summary>
     [SerializeField] internal GameObject FollowedPrefab;
+    /// <summary>Opened with Open in New Graph Window: it stays on its graph (never reused for another).</summary>
+    [SerializeField] internal bool SeparateWindow;
 
     /// <summary>The dock's tabs (Global, Prefab, Graph): lent to the IO Dock while it's open.</summary>
     internal TabView DockTabs => _sidebarTabs;
@@ -40,8 +46,73 @@ public partial class SchematicGraphEditorWindow
     [MenuItem("Tools/Remedy/Schematics/Graph", false, 20)]
     private static void OpenFollower() => EnsureFollower(focus: true);
 
+    /// <summary>
+    /// Shows a graph in its type's window: an object's graph in the Graph tab, any other kind in the one window for that
+    /// kind (made beside the Scene view if there isn't one), which moves to it. <paramref name="newWindow"/>: a window
+    /// of its own instead, which stays on it. <paramref name="instance"/>: the instance it's for (the Graph tab's header
+    /// and flow).
+    /// </summary>
+    public static SchematicGraphEditorWindow OpenInTypeWindow(SchematicGraph graph, bool newWindow = false, bool focus = true, GameObject instance = null)
+    {
+        if (graph == null)
+            return null;
+        if (!newWindow)
+        {
+            if (IsObjectGraph(graph))
+            {
+                // (Asked for by name: it moves even when locked.)
+                var follower = EnsureFollower(focus, applySelection: false);
+                follower.Follow(graph, instance, graph.Prefab);
+                return follower;
+            }
+            var existing = TypeWindow(graph.GetType());
+            if (existing != null)
+            {
+                if (existing.SchematicGraph != graph || existing.Canvas == null)
+                    existing.ShowGraph(graph);
+                if (focus)
+                    existing.Focus();
+                return existing;
+            }
+        }
+        var before = focusedWindow;
+        var window = CreateWindow<SchematicGraphEditorWindow>(typeof(SceneView));
+        window.SeparateWindow = newWindow;
+        window.SchematicGraph = graph;
+        window.Load(graph);
+        if (focus)
+            window.Focus();
+        else if (before != null)
+            before.Focus();
+        return window;
+    }
+
+    /// <summary>An object's own graph (a Schematic Object's): the Graph tab's kind. Sound Cues, Timelines, Singletons... have their own windows.</summary>
+    internal static bool IsObjectGraph(SchematicGraph graph) => graph != null && graph.GetType() == typeof(SchematicGraph);
+
+    // The window for a kind of graph (not the Graph tab, nor one opened as a window of its own).
+    private static SchematicGraphEditorWindow TypeWindow(Type type)
+        => Resources.FindObjectsOfTypeAll<SchematicGraphEditorWindow>().FirstOrDefault(w => w != null && !w.FollowsSelection && !w.SeparateWindow
+            && w.SchematicGraph != null && w.SchematicGraph.GetType() == type);
+
+    [MenuItem("Assets/Open in New Graph Window", false, 21)]
+    private static void OpenSelectedInNewWindow()
+    {
+        var graph = GraphOfAsset(Selection.activeObject);
+        if (graph != null)
+            OpenInTypeWindow(graph, newWindow: true);
+    }
+
+    [MenuItem("Assets/Open in New Graph Window", true)]
+    private static bool OpenSelectedInNewWindowValidate() => GraphOfAsset(Selection.activeObject) != null;
+
+    // A graph asset, or a Schematic prefab's graph.
+    private static SchematicGraph GraphOfAsset(Object asset)
+        => asset is SchematicGraph graph ? graph
+            : asset is GameObject prefab && prefab.TryGetComponent(out SchematicObject schematic) ? schematic.SchematicGraph : null;
+
     /// <summary>The Graph tab: the open one, or a new one docked beside the Scene view (in front only with <paramref name="focus"/>).</summary>
-    internal static SchematicGraphEditorWindow EnsureFollower(bool focus)
+    internal static SchematicGraphEditorWindow EnsureFollower(bool focus, bool applySelection = true)
     {
         var follower = Follower;
         if (follower == null)
@@ -49,10 +120,11 @@ public partial class SchematicGraphEditorWindow
             var before = focusedWindow;
             follower = CreateWindow<SchematicGraphEditorWindow>("Graph", typeof(SceneView));
             follower.FollowsSelection = true;
-            follower.titleContent = new GUIContent("Graph");
+            follower.ApplyTitle();
             follower.ShowEmpty();
             var stage = PrefabStageUtility.GetCurrentPrefabStage();
-            SchematicFollow.Apply(Selection.activeObject != null ? Selection.activeObject : stage != null ? stage.prefabContentsRoot : null, follower);
+            if (applySelection)
+                SchematicFollow.Apply(Selection.activeObject != null ? Selection.activeObject : stage != null ? stage.prefabContentsRoot : null, follower);
             if (!focus && before != null)
                 before.Focus();
         }
@@ -74,7 +146,10 @@ public partial class SchematicGraphEditorWindow
         if (graph != SchematicGraph || Canvas == null)
             ShowGraph(graph);
         else
+        {
+            ApplyTitle();
             FollowerChanged?.Invoke(this);
+        }
         Repaint();
     }
 
@@ -122,16 +197,38 @@ public partial class SchematicGraphEditorWindow
         rootVisualElement.Add(hint);
     }
 
-    // The end of Load, for the Graph tab: the header over the canvas, and the dock lent to the IO Dock if it's open.
+    // The end of Load: its tab's name and icon; for the Graph tab, the header over the canvas, and the dock lent to the
+    // IO Dock if it's open.
     private void LoadedForFollow()
     {
+        ApplyTitle();
         if (!FollowsSelection)
             return;
-        titleContent = new GUIContent("Graph");
         rootVisualElement.Insert(0, new SchematicTargetHeader());
         if (SchematicIODockWindow.IsOpen)
             _sidebarAndContent?.SetSidebarShown(false);
         FollowerChanged?.Invoke(this);
+    }
+
+    /// <summary>
+    /// Its tab: the icon of its kind of graph, and the name of what it's on (the Graph tab: the object; the others: the
+    /// graph), with what it is in the tooltip.
+    /// </summary>
+    internal void ApplyTitle()
+    {
+        string name, tooltip;
+        if (FollowsSelection)
+        {
+            string followed = DescribeFollowed(out string detail, out _);
+            name = SchematicGraph != null ? followed : "Graph";
+            tooltip = SchematicGraph != null ? $"Graph of {name} ({detail}); follows the selection" : "Graph: follows the selected Schematic Object";
+        }
+        else
+        {
+            name = SchematicGraph != null ? SchematicGraph.name : "Graph";
+            tooltip = SchematicGraph != null ? $"{ObjectNames.NicifyVariableName(SchematicGraph.GetType().Name)}: {SchematicGraph.name}{(SeparateWindow ? " (its own window)" : "")}" : name;
+        }
+        titleContent = new GUIContent(name, SchematicTabIcons.ForGraph(FollowsSelection ? typeof(SchematicGraph) : SchematicGraph != null ? SchematicGraph.GetType() : null), tooltip);
     }
 
     /// <summary>The IO Dock is showing the dock: the canvas takes the whole tab.</summary>
@@ -329,8 +426,11 @@ namespace Remedy.Schematics
             graph = null;
             instance = null;
             prefab = null;
+            // (The Graph tab is for objects' graphs: other kinds open in their own windows.)
             if (selected is SchematicGraph asset)
             {
+                if (!SchematicGraphEditorWindow.IsObjectGraph(asset))
+                    return false;
                 graph = asset;
                 prefab = asset.Prefab;
                 return true;
@@ -343,6 +443,8 @@ namespace Remedy.Schematics
             {
                 if (!t.TryGetComponent(out SchematicObject schematic) || schematic.SchematicGraph == null)
                     continue;
+                if (!SchematicGraphEditorWindow.IsObjectGraph(schematic.SchematicGraph))
+                    return false;
                 graph = schematic.SchematicGraph;
                 if (EditorUtility.IsPersistent(schematic.gameObject))
                     prefab = schematic.gameObject;
@@ -393,7 +495,7 @@ namespace Remedy.Schematics
 
         private void CreateGUI()
         {
-            titleContent = new GUIContent("IO Dock");
+            titleContent = new GUIContent("IO Dock", SchematicTabIcons.Get("io-dock"), "IO Dock: the behaviors, Variables and Signals of what the Graph tab is on");
             var root = rootVisualElement;
             var sheet = Resources.Load<StyleSheet>("IODock");
             if (sheet != null)
@@ -439,5 +541,27 @@ namespace Remedy.Schematics
                 _holder.Add(tabs);
             }
         }
+    }
+
+    /// <summary>
+    /// Window tab icons: one per kind of graph, the IO Dock's and the State Machine window's. Drawn as SVGs in
+    /// Styling/Icons~ (make_icons.py), rendered into Resources/Textures in a grey for the dark skin and a dark grey for
+    /// the light one.
+    /// </summary>
+    public static class SchematicTabIcons
+    {
+        /// <summary>A tab icon by name (object, singleton, sound-cue, timeline, state-machine, io-dock), for the editor's skin.</summary>
+        public static Texture2D Get(string name)
+            => Resources.Load<Texture2D>($"Textures/tab-{name}{(EditorGUIUtility.isProSkin ? "" : "-light")}");
+
+        /// <summary>The icon for a kind of graph (by type, so the kinds needn't be known here); an object's graph's for any other.</summary>
+        public static Texture2D ForGraph(Type graphType)
+            => Get(graphType?.Name switch
+            {
+                "SoundCueGraph" => "sound-cue",
+                "TimelineGraph" => "timeline",
+                "SingletonGraph" => "singleton",
+                _ => "object",
+            });
     }
 }

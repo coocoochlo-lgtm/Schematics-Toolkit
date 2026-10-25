@@ -502,6 +502,7 @@ namespace Remedy.Schematics.Browsers
                 var asset = AssetOf(entry);
                 if (asset == null) return;
                 menu.AppendAction("Open Graph", _ => AssetDatabase.OpenAsset(asset));
+                menu.AppendAction("Open Graph in New Window", _ => GraphWindows.OpenInNewWindow(asset));
                 menu.AppendAction("Rename", _ => Grid?.BeginRename(entry));
                 menu.AppendAction("Show in Folder Tree", _ => Reveal(entry));
                 menu.AppendAction("Ping in Project", _ => Ping(asset));
@@ -513,6 +514,8 @@ namespace Remedy.Schematics.Browsers
 
             menu.AppendAction("Open Prefab", _ => OpenPrefab(prefab));
             menu.AppendAction("Open Schematic Graph", _ => SchematicObjectFactory.OpenGraph(prefab),
+                SchematicObjectFactory.GraphOf(prefab) != null ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
+            menu.AppendAction("Open Schematic Graph in New Window", _ => GraphWindows.OpenInNewWindow(prefab),
                 SchematicObjectFactory.GraphOf(prefab) != null ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
             menu.AppendAction("Rename", _ => Grid?.BeginRename(entry));
             menu.AppendAction("Show in Folder Tree", _ => Reveal(entry));

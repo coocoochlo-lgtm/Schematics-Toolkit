@@ -31,18 +31,70 @@ ICONS = {
   <circle cx="27" cy="16" r="4" fill="#ffffff"/>''',
 }
 
+# Window tab icons, one per graph type (and the IO Dock and the State Machine window): drawn in {c}, written twice,
+# grey for the dark editor skin ("tab-NAME") and dark grey for the light one ("tab-NAME-light"), rendered at 64 px.
+TAB_COLORS = {"": "#c8c8c8", "-light": "#3a3a3a"}
+TAB_ICONS = {
+    # An object's graph: two nodes, wired.
+    "object": '''
+  <rect x="2" y="4" width="12" height="10" rx="2.5" fill="{c}"/>
+  <rect x="18" y="18" width="12" height="10" rx="2.5" fill="{c}"/>
+  <path d="M14 9 C21 9, 11 23, 18 23" fill="none" stroke="{c}" stroke-width="2.5" stroke-linecap="round"/>''',
+    # A Singleton's graph: one node, inside the ring of the whole game.
+    "singleton": '''
+  <circle cx="16" cy="16" r="12.5" fill="none" stroke="{c}" stroke-width="2.5"/>
+  <rect x="10" y="11" width="12" height="10" rx="2.5" fill="{c}"/>''',
+    # A Sound Cue: a shaped wave between two nodes.
+    "sound-cue": '''
+  <path d="M7 16 C10 4, 14 4, 16 16 S22 28, 25 16" fill="none" stroke="{c}" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="5" cy="16" r="4" fill="{c}"/>
+  <circle cx="27" cy="16" r="4" fill="{c}"/>''',
+    # A Timeline Graph: clips on tracks, and the playhead.
+    "timeline": '''
+  <rect x="2" y="8" width="11" height="5" rx="1.5" fill="{c}"/>
+  <rect x="7" y="15" width="10" height="5" rx="1.5" fill="{c}"/>
+  <rect x="3" y="22" width="13" height="5" rx="1.5" fill="{c}"/>
+  <rect x="24" y="15" width="6" height="5" rx="1.5" fill="{c}"/>
+  <path d="M21 6 V30" stroke="{c}" stroke-width="2" stroke-linecap="round"/>
+  <path d="M17.5 2 H24.5 L21 6.5 Z" fill="{c}"/>''',
+    # A State Machine: states, one of them current, and the ways between them.
+    "state-machine": '''
+  <circle cx="8" cy="8" r="5" fill="{c}"/>
+  <circle cx="24" cy="8" r="4.5" fill="none" stroke="{c}" stroke-width="2.5"/>
+  <circle cx="16" cy="24" r="4.5" fill="none" stroke="{c}" stroke-width="2.5"/>
+  <path d="M13.5 8 H16.5" stroke="{c}" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M16 4.8 L19.5 8 L16 11.2 Z" fill="{c}"/>
+  <path d="M22 12.5 L19.5 17" stroke="{c}" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M16.6 15.6 L18.3 20 L21.8 17.4 Z" fill="{c}"/>
+  <path d="M12.5 20.5 L10.5 15.5" stroke="{c}" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M7.9 16.6 L9.7 12.2 L13.4 15 Z" fill="{c}"/>''',
+    # The IO Dock: an object's rows, each with its pin.
+    "io-dock": '''
+  <rect x="3" y="5" width="18" height="5" rx="2.5" fill="{c}"/>
+  <circle cx="26.5" cy="7.5" r="3" fill="{c}"/>
+  <rect x="3" y="13.5" width="18" height="5" rx="2.5" fill="{c}"/>
+  <circle cx="26.5" cy="16" r="3" fill="none" stroke="{c}" stroke-width="2"/>
+  <rect x="3" y="22" width="18" height="5" rx="2.5" fill="{c}"/>
+  <circle cx="26.5" cy="24.5" r="3" fill="{c}"/>''',
+}
+
 
 def main():
     if "--render" not in sys.argv:
         for name, body in ICONS.items():
             with open(os.path.join(HERE, name + ".svg"), "w") as f:
                 f.write(f'<svg xmlns="http://www.w3.org/2000/svg" width="{SIZE}" height="{SIZE}" viewBox="0 0 {SIZE} {SIZE}">{body}\n</svg>\n')
+        for name, body in TAB_ICONS.items():
+            for suffix, color in TAB_COLORS.items():
+                with open(os.path.join(HERE, f"tab-{name}{suffix}.svg"), "w") as f:
+                    f.write(f'<svg xmlns="http://www.w3.org/2000/svg" width="{SIZE}" height="{SIZE}" viewBox="0 0 {SIZE} {SIZE}">{body.replace("{c}", color)}\n</svg>\n')
     import cairosvg
     os.makedirs(OUT, exist_ok=True)
     for file in sorted(os.listdir(HERE)):
         if file.endswith(".svg"):
             cairosvg.svg2png(url=os.path.join(HERE, file), write_to=os.path.join(OUT, file[:-4] + ".png"),
-                             output_width=SIZE * SCALE, output_height=SIZE * SCALE)
+                             output_width=SIZE * (2 if file.startswith("tab-") else SCALE),
+                             output_height=SIZE * (2 if file.startswith("tab-") else SCALE))
             print("rendered", file)
 
 

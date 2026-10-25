@@ -31,7 +31,12 @@ public class StateMachineWindow : EditorWindow
     public string Selected => _selected;
 
     [MenuItem("Tools/Remedy/Schematics/State Machine")]
-    public static StateMachineWindow ShowWindow() => GetWindow<StateMachineWindow>("State Machine");
+    public static StateMachineWindow ShowWindow()
+    {
+        var window = GetWindow<StateMachineWindow>("State Machine");
+        window.titleContent = new GUIContent("State Machine", Remedy.Schematics.SchematicTabIcons.Get("state-machine"));
+        return window;
+    }
 
     public static void Open(StateMachineDefinition definition)
     {
