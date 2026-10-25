@@ -34,8 +34,29 @@ public partial class SchematicGraphEditorWindow
     /// <summary>The dock's tabs (Global, Prefab, Graph): lent to the IO Dock while it's open.</summary>
     internal TabView DockTabs => _sidebarTabs;
 
-    /// <summary>The Graph tab loaded a graph, or moved to another object of the same graph.</summary>
+    /// <summary>
+    /// A graph window loaded a graph, the Graph tab moved to another object, or another graph window became the one the
+    /// IO Dock shows (the last one used).
+    /// </summary>
     internal static event Action<SchematicGraphEditorWindow> FollowerChanged;
+
+    // The graph window the IO Dock shows the dock of: the last one used (focused, or opened).
+    private static SchematicGraphEditorWindow _activeDock;
+
+    /// <summary>The graph window whose dock the IO Dock shows: the last one used, else the Graph tab.</summary>
+    internal static SchematicGraphEditorWindow ActiveDock => _activeDock != null && _activeDock.Canvas != null ? _activeDock : Follower;
+
+    // This window is the one in use: the IO Dock shows its dock.
+    private void BecameActive()
+    {
+        if (_activeDock == this)
+            return;
+        _activeDock = this;
+        FollowerChanged?.Invoke(this);
+    }
+
+    // Maximized last frame (so the IO Dock, closed by maximizing, comes back when it's restored).
+    private bool _wasMaximized;
 
     private const string EmptyName = "schematic-follow-empty";
 
@@ -44,7 +65,7 @@ public partial class SchematicGraphEditorWindow
         => Resources.FindObjectsOfTypeAll<SchematicGraphEditorWindow>().FirstOrDefault(w => w != null && w.FollowsSelection);
 
     [MenuItem("Tools/Remedy/Schematics/Graph", false, 20)]
-    private static void OpenFollower() => EnsureFollower(focus: true);
+    private static void OpenFollower() => EnsureFollower(focus: true).Opened();
 
     /// <summary>
     /// Shows a graph in its type's window: an object's graph in the Graph tab, any other kind in the one window for that
@@ -63,6 +84,7 @@ public partial class SchematicGraphEditorWindow
                 // (Asked for by name: it moves even when locked.)
                 var follower = EnsureFollower(focus, applySelection: false);
                 follower.Follow(graph, instance, graph.Prefab);
+                follower.Opened();
                 return follower;
             }
             var existing = TypeWindow(graph.GetType());
@@ -72,6 +94,7 @@ public partial class SchematicGraphEditorWindow
                     existing.ShowGraph(graph);
                 if (focus)
                     existing.Focus();
+                existing.Opened();
                 return existing;
             }
         }
@@ -84,7 +107,15 @@ public partial class SchematicGraphEditorWindow
             window.Focus();
         else if (before != null)
             before.Focus();
+        window.Opened();
         return window;
+    }
+
+    // A graph was opened in this window: it's the one the IO Dock shows, and the IO Dock opens beside the Hierarchy.
+    private void Opened()
+    {
+        BecameActive();
+        SchematicIODockWindow.OpenBesideHierarchy(focus: false);
     }
 
     /// <summary>An object's own graph (a Schematic Object's): the Graph tab's kind. Sound Cues, Timelines, Singletons... have their own windows.</summary>
@@ -184,7 +215,7 @@ public partial class SchematicGraphEditorWindow
         if (rootVisualElement.Q(EmptyName) != null)
             return;
         rootVisualElement.Clear();
-        rootVisualElement.Add(new SchematicTargetHeader());
+        rootVisualElement.Add(new SchematicTargetHeader(forDock: false));
         var hint = new Label("Select a Schematic Object (in the scene, in Prefab Mode, or a prefab or graph in the Project window) to edit its graph here.")
         {
             name = EmptyName,
@@ -202,11 +233,11 @@ public partial class SchematicGraphEditorWindow
     private void LoadedForFollow()
     {
         ApplyTitle();
-        if (!FollowsSelection)
-            return;
-        rootVisualElement.Insert(0, new SchematicTargetHeader());
+        // (Every graph window's dock is the IO Dock's to show while it's open.)
         if (SchematicIODockWindow.IsOpen)
             _sidebarAndContent?.SetSidebarShown(false);
+        if (FollowsSelection)
+            rootVisualElement.Insert(0, new SchematicTargetHeader(forDock: false));
         FollowerChanged?.Invoke(this);
     }
 
@@ -246,6 +277,12 @@ public partial class SchematicGraphEditorWindow
 
     protected override void Update()
     {
+        // Restored from maximized: the IO Dock (closed when this was maximized) comes back.
+        bool maximizedNow = maximized;
+        if (_wasMaximized && !maximizedNow)
+            SchematicIODockWindow.ReopenAfterMaximize();
+        _wasMaximized = maximizedNow;
+
         // The Graph tab with nothing loaded (just opened, or after a script reload): its graph loaded again, or wait.
         if (FollowsSelection && Canvas == null)
         {
@@ -265,10 +302,22 @@ public partial class SchematicGraphEditorWindow
         base.Update();
     }
 
-    /// <summary>What the Graph tab is on, for its header (and the IO Dock's): a name, and what it is.</summary>
-    internal static string DescribeFollowed(out string detail, out Object target)
+    /// <summary>What the Graph tab is on, for its header: a name, and what it is.</summary>
+    internal static string DescribeFollowed(out string detail, out Object target) => Describe(Follower, out detail, out target);
+
+    /// <summary>
+    /// What a graph window is on, for a header: the Graph tab's object (the instance, or the prefab), or another
+    /// window's graph and its kind.
+    /// </summary>
+    internal static string Describe(SchematicGraphEditorWindow window, out string detail, out Object target)
     {
-        var follower = Follower;
+        if (window != null && !window.FollowsSelection)
+        {
+            target = window.SchematicGraph;
+            detail = window.SchematicGraph != null ? ObjectNames.NicifyVariableName(window.SchematicGraph.GetType().Name).ToLowerInvariant() : "";
+            return window.SchematicGraph != null ? window.SchematicGraph.name : "Nothing open";
+        }
+        var follower = window;
         target = null;
         detail = "select a Schematic Object";
         if (follower == null || follower.SchematicGraph == null)
@@ -299,16 +348,22 @@ namespace Remedy.Schematics
 {
     /// <summary>
     /// Along the top of the Graph tab and the IO Dock: what they're on (the instance, or the prefab or graph), click to
-    /// find it; and the lock that keeps them on it whatever is selected.
+    /// find it; and, for the Graph tab, the lock that keeps it on it whatever is selected. The IO Dock's describes the
+    /// graph window whose dock it's showing.
     /// </summary>
     internal sealed class SchematicTargetHeader : VisualElement
     {
         private readonly Image _icon;
         private readonly Label _title, _detail;
         private readonly Button _lock;
+        private readonly bool _forDock;
 
-        public SchematicTargetHeader()
+        // The window described: the IO Dock's, or the Graph tab.
+        private SchematicGraphEditorWindow Window => _forDock ? SchematicGraphEditorWindow.ActiveDock : SchematicGraphEditorWindow.Follower;
+
+        public SchematicTargetHeader(bool forDock)
         {
+            _forDock = forDock;
             style.flexDirection = FlexDirection.Row;
             style.alignItems = Align.Center;
             style.flexShrink = 0;
@@ -345,7 +400,7 @@ namespace Remedy.Schematics
             RegisterCallback<ClickEvent>(evt =>
             {
                 if (evt.target == _lock) return;
-                SchematicGraphEditorWindow.DescribeFollowed(out _, out var target);
+                SchematicGraphEditorWindow.Describe(Window, out _, out var target);
                 if (target != null) EditorGUIUtility.PingObject(target);
             });
             RegisterCallback<AttachToPanelEvent>(_ =>
@@ -360,8 +415,8 @@ namespace Remedy.Schematics
 
         private void ToggleLock()
         {
-            var follower = SchematicGraphEditorWindow.Follower;
-            if (follower == null) return;
+            var follower = Window;
+            if (follower == null || !follower.FollowsSelection) return;
             follower.FollowLocked = !follower.FollowLocked;
             // Unlocked: back to what's selected now.
             if (!follower.FollowLocked)
@@ -371,12 +426,14 @@ namespace Remedy.Schematics
 
         private void Refresh()
         {
-            _title.text = SchematicGraphEditorWindow.DescribeFollowed(out string detail, out var target);
+            var window = Window;
+            _title.text = SchematicGraphEditorWindow.Describe(window, out string detail, out var target);
             _detail.text = detail;
             var icon = target is GameObject go ? (Texture)AssetPreview.GetMiniThumbnail(go) : target != null ? AssetPreview.GetMiniThumbnail(target) : null;
             _icon.image = icon;
             _icon.style.display = icon != null ? DisplayStyle.Flex : DisplayStyle.None;
-            var follower = SchematicGraphEditorWindow.Follower;
+            var follower = window != null && window.FollowsSelection ? window : null;
+            _lock.style.display = follower != null ? DisplayStyle.Flex : DisplayStyle.None;
             bool locked = follower != null && follower.FollowLocked;
             var content = EditorGUIUtility.IconContent(locked ? "IN LockButton on" : "IN LockButton");
             _lock.text = content?.image == null ? (locked ? "L" : "U") : "";
@@ -459,10 +516,12 @@ namespace Remedy.Schematics
     }
 
     /// <summary>
-    /// The IO Dock as a window of its own (docked beside the Hierarchy): the Global, Prefab and Graph tabs of the object
-    /// the Graph tab is on, with room to breathe. It shows the Graph tab's own dock (opening the Graph tab, behind the
-    /// Scene view, if it isn't open), so dragging rows into the graph, finding their nodes and everything else works as
-    /// in the graph window. Tools > Remedy > Schematics > IO Dock.
+    /// The IO Dock as a window of its own (docked beside the Hierarchy): the Global, Prefab and Graph tabs of the graph
+    /// window last used (the Graph tab's object, a Sound Cue...), with room to breathe. It shows that window's own dock
+    /// (opening the Graph tab, behind the Scene view, if no graph window is open), so dragging rows into the graph,
+    /// finding their nodes and everything else works as in the graph window. It opens by itself when a graph is opened,
+    /// and comes back when a graph window that was maximized (taking the dock into its sidebar meanwhile) is restored.
+    /// Tools > Remedy > Schematics > IO Dock.
     /// </summary>
     public sealed class SchematicIODockWindow : EditorWindow
     {
@@ -473,13 +532,36 @@ namespace Remedy.Schematics
         internal static bool IsOpen => HasOpenInstances<SchematicIODockWindow>();
 
         [MenuItem("Tools/Remedy/Schematics/IO Dock", false, 21)]
-        private static void Open()
+        private static void Open() => OpenBesideHierarchy(focus: true);
+
+        /// <summary>
+        /// Opens the IO Dock as a tab beside the Hierarchy (if it isn't open), in front of it; <paramref name="focus"/>:
+        /// and focused (otherwise the window in use stays so).
+        /// </summary>
+        internal static void OpenBesideHierarchy(bool focus)
         {
-            // Beside the Hierarchy (Unity 6.3's is "HierarchyWindow", earlier versions' "SceneHierarchyWindow").
+            if (IsOpen && !focus)
+                return;
+            // Unity 6.3's Hierarchy is "HierarchyWindow", earlier versions' "SceneHierarchyWindow".
             var assembly = typeof(Editor).Assembly;
             var hierarchy = assembly.GetType("UnityEditor.HierarchyWindow") ?? assembly.GetType("UnityEditor.SceneHierarchyWindow");
-            var window = hierarchy != null ? GetWindow<SchematicIODockWindow>("IO Dock", true, hierarchy) : GetWindow<SchematicIODockWindow>("IO Dock");
+            var before = focusedWindow;
+            var window = hierarchy != null ? GetWindow<SchematicIODockWindow>("IO Dock", focus, hierarchy) : GetWindow<SchematicIODockWindow>("IO Dock", focus);
             window.Show();
+            if (!focus && before != null && before != window)
+                before.Focus();
+        }
+
+        // Closed by a graph window being maximized (it shares the dock with the graph meanwhile): reopened when that's restored.
+        private const string ReopenKey = "Remedy.Schematics.IODock.ReopenAfterMaximize";
+
+        internal static void ReopenAfterMaximize()
+        {
+            if (!SessionState.GetBool(ReopenKey, false))
+                return;
+            SessionState.SetBool(ReopenKey, false);
+            // (Once the layout is back.)
+            EditorApplication.delayCall += () => OpenBesideHierarchy(focus: false);
         }
 
         private void OnEnable() => SchematicGraphEditorWindow.FollowerChanged += OnFollowerChanged;
@@ -487,10 +569,15 @@ namespace Remedy.Schematics
         private void OnDisable()
         {
             SchematicGraphEditorWindow.FollowerChanged -= OnFollowerChanged;
-            // Closed: the dock goes back to the Graph tab's sidebar.
-            var follower = SchematicGraphEditorWindow.Follower;
-            if (follower != null)
-                follower.ReturnDock();
+            // Closed (or hidden by a maximized window): every graph window's dock goes back in its sidebar.
+            bool maximizing = false;
+            foreach (var graphWindow in Resources.FindObjectsOfTypeAll<SchematicGraphEditorWindow>())
+            {
+                if (graphWindow == null) continue;
+                graphWindow.ReturnDock();
+                maximizing |= graphWindow.maximized;
+            }
+            SessionState.SetBool(ReopenKey, maximizing);
         }
 
         private void CreateGUI()
@@ -500,7 +587,7 @@ namespace Remedy.Schematics
             var sheet = Resources.Load<StyleSheet>("IODock");
             if (sheet != null)
                 root.styleSheets.Add(sheet);
-            root.Add(new SchematicTargetHeader());
+            root.Add(new SchematicTargetHeader(forDock: true));
             var scroll = new ScrollView(ScrollViewMode.Vertical);
             scroll.style.flexGrow = 1;
             scroll.AddToClassList("iodock");
@@ -523,7 +610,10 @@ namespace Remedy.Schematics
         {
             if (this == null || _holder == null)
                 return;
-            var follower = SchematicGraphEditorWindow.EnsureFollower(focus: false);
+            // The graph window in use (else the Graph tab, opened behind the Scene view if it isn't open).
+            var follower = SchematicGraphEditorWindow.ActiveDock;
+            if (follower == null)
+                follower = SchematicGraphEditorWindow.EnsureFollower(focus: false);
             var tabs = follower != null ? follower.DockTabs : null;
             if (tabs == null)
             {

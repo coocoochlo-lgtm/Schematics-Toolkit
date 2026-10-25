@@ -187,6 +187,8 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
     {
         base.OnFocus();
         RedrawDockIfModeChanged();
+        if (Canvas != null)
+            BecameActive();
     }
     private void OnBecameVisible() => RedrawDockIfModeChanged();
 
