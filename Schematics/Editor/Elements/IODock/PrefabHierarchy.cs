@@ -852,7 +852,9 @@ public class PrefabHierarchy : VisualElement
         if (!_boxedEdits.TryGetValue(key, out var edit) || edit.holder == null)
         {
             var holder = ScriptableObject.CreateInstance<DockBoxedValue>();
-            holder.hideFlags = HideFlags.HideAndDontSave;
+            // Hidden and never saved, but editable: HideAndDontSave would also make it NotEditable, and every field drawn
+            // from it read-only.
+            holder.hideFlags = HideFlags.DontSave | HideFlags.HideInHierarchy;
             // (A copy made by Unity's serializer, so editing it never touches the prefab's own data in memory.)
             var source = ScriptableObject.CreateInstance<DockBoxedValue>();
             source.hideFlags = HideFlags.HideAndDontSave;
