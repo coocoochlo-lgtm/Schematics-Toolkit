@@ -163,6 +163,7 @@ namespace Remedy.Vehicles
         private static void ResetStatics()
         {
             _seated.Clear();
+            _drivenBy.Clear();
             OccupantEntered = null;
             OccupantExited = null;
             DriverChanged = null;
@@ -528,12 +529,37 @@ namespace Remedy.Vehicles
             OnOccupantEntered.Invoke(instance, occupant, index);
             if (driverChanged)
             {
+                HandOverControl(instance.GameObject, Driver[instance]);
                 OnDriverChanged.Invoke(instance, Driver[instance]);
                 DriverChanged?.Invoke(instance.GameObject, Driver[instance]);
             }
             if (!wasFull && OccupantCount[instance] == CountSeats(seats))
                 OnFull.Invoke(instance);
             OccupantEntered?.Invoke(instance.GameObject, occupant, index);
+        }
+
+        // Vehicles taken over by their driver's controller (see HandOverControl), so it's let go again when they leave.
+        private static readonly Dictionary<GameObject, Controller> _drivenBy = new();
+
+        /// <summary>
+        /// Controller Possession: whoever controls the driver controls the vehicle too (as well as the driver), so their
+        /// input reaches it; when the driver gets out (or someone else drives), it's let go again. A vehicle a
+        /// controller possessed directly (an AI driving it with no character) is left alone.
+        /// </summary>
+        private static void HandOverControl(GameObject vehicle, GameObject driver)
+        {
+            var schematic = Possession.SchematicOf(vehicle);
+            if (schematic == null)
+                return;
+            var driverController = driver != null ? Possession.PossessorOf(Possession.SchematicOf(driver)) : null;
+            if (_drivenBy.TryGetValue(vehicle, out var previous))
+            {
+                _drivenBy.Remove(vehicle);
+                if (previous != null && previous != driverController && Possession.PossessorOf(schematic) == previous)
+                    Possession.Unpossess(schematic);
+            }
+            if (driverController != null && driverController.Possess(vehicle))
+                _drivenBy[vehicle] = driverController;
         }
 
         private void Release(BehaviorInstance instance, Seat[] seats, int index, bool placeAtExit)
@@ -605,6 +631,7 @@ namespace Remedy.Vehicles
             OnOccupantExited.Invoke(instance, occupant, index);
             if (driverChanged)
             {
+                HandOverControl(instance.GameObject, Driver[instance]);
                 OnDriverChanged.Invoke(instance, Driver[instance]);
                 DriverChanged?.Invoke(instance.GameObject, Driver[instance]);
             }

@@ -104,6 +104,13 @@ TAB_ICONS = {
   <path d="M16.6 15.6 L18.3 20 L21.8 17.4 Z" fill="{c}"/>
   <path d="M12.5 20.5 L10.5 15.5" stroke="{c}" stroke-width="2.2" stroke-linecap="round"/>
   <path d="M7.9 16.6 L9.7 12.2 L13.4 15 Z" fill="{c}"/>''',
+    # An AI Controller Graph: a gamepad, with the spark of something thinking above it.
+    "ai-controller": '''
+  <path d="M8.5 12 H23.5 C28 12, 30.5 15.5, 30.2 21 C29.9 26.5, 26 28, 23.5 25.2 L21.2 22.6 H10.8 L8.5 25.2 C6 28, 2.1 26.5, 1.8 21 C1.5 15.5, 4 12, 8.5 12 Z" fill="none" stroke="{c}" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M9 15.6 V21.4 M6.1 18.5 H11.9" stroke="{c}" stroke-width="2.2" stroke-linecap="round"/>
+  <circle cx="21.6" cy="17" r="1.8" fill="{c}"/>
+  <circle cx="25" cy="20.2" r="1.8" fill="{c}"/>
+  <path d="M16 0.8 L17.4 4.4 L21 5.8 L17.4 7.2 L16 10.8 L14.6 7.2 L11 5.8 L14.6 4.4 Z" fill="{c}"/>''',
     # The IO Dock: an object's rows, each with its pin.
     "io-dock": '''
   <rect x="3" y="5" width="18" height="5" rx="2.5" fill="{c}"/>

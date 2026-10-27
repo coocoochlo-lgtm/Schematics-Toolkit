@@ -66,6 +66,9 @@ namespace Remedy.Vehicles
         /// </summary>
         public static bool AcceptsPlayerInput(GameObject vehicle, bool playerDriverOnly)
         {
+            // Possessed (by a player, or an AI driving it): input only arrives from that controller, so it's theirs.
+            if (Possession.PossessorOf(Possession.SchematicOf(vehicle)) != null)
+                return SchematicNetwork.IsLocallyControlled(vehicle);
             if (!VehicleSeats.HasSeats(vehicle))
                 return SchematicNetwork.IsLocallyControlled(vehicle);
             var driver = VehicleSeats.DriverOf(vehicle);

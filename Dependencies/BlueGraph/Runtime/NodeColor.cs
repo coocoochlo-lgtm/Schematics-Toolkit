@@ -54,6 +54,8 @@ namespace BlueGraph
         public const string Physics = "#8A6A3A";
         /// <summary>Sound and music.</summary>
         public const string Audio = "#C2508C";
+        /// <summary>Controllers and possession: players, their devices, AI controllers.</summary>
+        public const string Controller = "#B8902A";
         /// <summary>AI: brains and senses.</summary>
         public const string AI = "#2E9DB5";
         /// <summary>Schematic plumbing: Behaviors, variables, signals sent, prefab objects.</summary>

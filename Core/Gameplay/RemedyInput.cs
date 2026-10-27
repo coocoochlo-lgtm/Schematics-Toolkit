@@ -1,4 +1,5 @@
 using Remedy.Framework;
+using Remedy.Schematics;
 //using SaintsField;
 using System;
 using System.Collections.Generic;
@@ -35,9 +36,6 @@ public class RemedyInput : SingletonData<RemedyInput>
     /// </summary>
     public static UnityEvent<InputAction.CallbackContext> OnInputUp => Instance._onInputUp;
 
-    // The latest value of each held input, resent every frame by UpdateInputs.
-    private static readonly Dictionary<SignalData, object> _currentInput = new();
-
     [IdentityListRenderer(identifierType: ListIdentifierType.Name, identifierField: "Name", depth: 0, foldoutTitle: "Input Maps", itemLabel: "Map", renamable: true, AsTabs = true)]
     public InputActionMap[] InputMaps = new InputActionMap[0];
     // The map in use while the game runs: one of InputMaps itself, so never saved. Saved, it was a second copy of that
@@ -46,30 +44,60 @@ public class RemedyInput : SingletonData<RemedyInput>
     // recompile split them into separate copies, which is why that fixed it).
     [NonSerialized]
     private InputActionMap _currentActionMap;
-    private Dictionary<InputAction, List<InputActionEvent>> _actionsToUpdate = new();
 
-    // The handlers attached to each Input Action of the current map, kept so they can be removed again. Without this,
-    // every call to SetInputMap stacked another set of handlers and inputs fired once more each time.
-    private readonly Dictionary<InputAction, (Action<InputAction.CallbackContext> started, Action<InputAction.CallbackContext> performed, Action<InputAction.CallbackContext> canceled)> _boundHandlers = new();
+    // The default controller's input (every device; see Controller Possession): read from the Input Actions themselves.
+    // Once the game sets up its own players, each Player Controller reads its own copy of the map instead.
+    [NonSerialized]
+    private InputReader _defaultReader;
 
+    /// <summary>The name of the Input Map in use (each player can use another: Set Input Map).</summary>
+    public string CurrentMapName => _currentActionMap?.Name;
+
+    /// <summary>The Input Map with this name, or null.</summary>
+    public InputActionMap FindMap(string mapName)
+    {
+        if (InputMaps == null)
+            return null;
+        foreach (var candidate in InputMaps)
+            if (candidate != null && candidate.Name == mapName)
+                return candidate;
+        return null;
+    }
 
     public void InitializeInput()
     {
+        // The default controller: everything answers to it until the game sets up its own players.
+        var defaultController = PlayerController.EnsureDefault();
+        _defaultReader = new InputReader(defaultController);
+        Possession.SeparationStarted -= OnPlayersSeparated;
+        Possession.SeparationStarted += OnPlayersSeparated;
+
         if (InputMaps != null && InputMaps.Length > 0 && InputMaps[0] != null)
         {
             SetInputMap(InputMaps[0].Name);
         }
         else
             Debug.LogWarning("Remedy Input: there are no Input Maps, so no input is read. Add one in the Schematic window's Global tab (Input System).");
+
+        // A Singleton reacting to On Device Connected sets the players up itself: told about every device now.
+        PlayerDevices.Start();
     }
 
+    // The game set up its own players: the default controller stops reading (each player reads their own devices).
+    private void OnPlayersSeparated()
+    {
+        UnbindCurrentMap();
+        if (_currentActionMap != null)
+            PlayerController.RebuildAll();
+    }
+
+    /// <summary>
+    /// Switches every player to an Input Map (one that follows the game's map; see <see cref="PlayerController.SetInputMap"/>
+    /// for one player alone).
+    /// </summary>
     public void SetInputMap(string mapName)
     {
-        InputActionMap map = null;
-        foreach (var candidate in InputMaps)
-            if (candidate.Name == mapName)
-                map = candidate;
-
+        var map = FindMap(mapName);
         if (map == null)
         {
             Debug.LogError("The Requested Input Map does not exist: " + mapName);
@@ -80,8 +108,8 @@ public class RemedyInput : SingletonData<RemedyInput>
 
         foreach (var inputEventCollection in _currentActionMap.Inputs)
         {
-            var action = inputEventCollection.Input;
-            if (action == null || _boundHandlers.ContainsKey(action))
+            var action = inputEventCollection?.Input;
+            if (action == null)
                 continue;
 
             InputActionEvent.ForgetStaleBindings(action);
@@ -93,33 +121,15 @@ public class RemedyInput : SingletonData<RemedyInput>
             if (inputEventCollection.Output == null)
                 Debug.LogWarning($"Remedy Input: the input \"{inputEventCollection.Name}\" of map \"{map.Name}\" has no Signal, so nothing hears it. Open it in the Schematic window's Global tab (Input System) to create one.");
 
-            Action<InputAction.CallbackContext> started = context =>
-            {
-                Send(inputEventCollection, context);
-
-                if (!inputEventCollection.OneShot)
-                {
-                    if (!_actionsToUpdate.TryGetValue(action, out var held))
-                        _actionsToUpdate.Add(action, held = new());
-                    if (!held.Contains(inputEventCollection))
-                        held.Add(inputEventCollection);
-                }
-            };
-
-            Action<InputAction.CallbackContext> performed = context => Send(inputEventCollection, context);
-
-            Action<InputAction.CallbackContext> canceled = context =>
-            {
-                _actionsToUpdate.Remove(action);
-                Release(inputEventCollection);
-            };
-
-            action.started += started;
-            action.performed += performed;
-            action.canceled += canceled;
-            _boundHandlers[action] = (started, performed, canceled);
+            // Separated players read their own copies of the map (below), not these actions.
+            if (Possession.Separated || _defaultReader == null || _defaultReader.IsBound(action))
+                continue;
+            _defaultReader.Bind(action, inputEventCollection);
             action.Enable();
         }
+
+        if (Possession.Separated)
+            PlayerController.RebuildAll();
     }
 
     /// <summary>
@@ -179,7 +189,6 @@ public class RemedyInput : SingletonData<RemedyInput>
     private void ReleaseAllActions()
     {
         UnbindCurrentMap();
-        _currentInput.Clear();
         if (InputMaps == null)
             return;
         foreach (var map in InputMaps)
@@ -198,20 +207,9 @@ public class RemedyInput : SingletonData<RemedyInput>
 
     private void UnbindCurrentMap()
     {
-        foreach (var entry in _boundHandlers)
-        {
-            var action = entry.Key;
-            action.started -= entry.Value.started;
-            action.performed -= entry.Value.performed;
-            action.canceled -= entry.Value.canceled;
-            if (InputActionEvent.IsEnabled(action)) action.Disable(); // (Disable asks enabled, which throws on a map with no state)
-        }
-        _boundHandlers.Clear();
-
-        foreach (var held in _actionsToUpdate.Values)
-            foreach (var inputEvent in held)
-                Release(inputEvent);
-        _actionsToUpdate.Clear();
+        // Detaches the actions, turns them off and releases anything held (Disable asks enabled, which throws on a map
+        // with no state, so the reader checks first).
+        _defaultReader?.Unbind(disable: true);
     }
 
     // Analog input that arrives as all-or-nothing (a stick at 0.2 read as 1) is always the Input Action's own setup,
@@ -255,59 +253,6 @@ public class RemedyInput : SingletonData<RemedyInput>
         }
     }
 
-    private static void Release(InputActionEvent inputEvent)
-    {
-        var output = inputEvent.Output;
-        if (output == null) return;
-        _currentInput.Remove(output);
-        // A Signal with no value has nothing to say about a release (sent, it's just another press: a second Boost).
-        if (output.Parameters.Contents.Count == 0)
-            return;
-        // Released: every listener gets its parameter's default (false, 0, Vector2.zero...).
-        output.BroadcastDefault();
-    }
-
-    /// <summary>
-    /// Sends an input's value through its Signal, read as the Signal's parameter type. Signals carry any value, so
-    /// types without a case of their own are sent as whatever the Input System reads.
-    /// </summary>
-    private static void Send(InputActionEvent inputEvent, InputAction.CallbackContext context)
-    {
-        var output = inputEvent.Output;
-        if (output == null)
-            return;
-
-        if (output.Parameters.Contents.Count == 0)
-        {
-            output.Broadcast();
-            return;
-        }
-
-        object value;
-        try
-        {
-            value = output.Parameters[0].Type switch
-            {
-                Union.ValueType.Bool => context.ReadValueAsButton(),
-                Union.ValueType.Float => context.ReadValue<float>(),
-                Union.ValueType.Int => context.ReadValue<int>(),
-                Union.ValueType.Quaternion => context.ReadValue<Quaternion>(),
-                Union.ValueType.Vector2 => context.ReadValue<Vector2>(),
-                Union.ValueType.Vector3 => context.ReadValue<Vector3>(),
-                _ => context.ReadValueAsObject(),
-            };
-        }
-        catch (InvalidOperationException)
-        {
-            // The binding gives another type than the Signal's parameter (e.g. a stick into a float): send what it
-            // reads instead of throwing inside the Input System's callback, and listeners convert it.
-            value = context.ReadValueAsObject();
-        }
-
-        _currentInput[output] = value;
-        output.Broadcast(value);
-    }
-
 #if UNITY_EDITOR
     // Editing an input (its Input Action's control type, say) brings its Signal up to date. After the edit is applied:
     // renaming a Signal's file can't happen in the middle of OnValidate.
@@ -336,24 +281,9 @@ public class RemedyInput : SingletonData<RemedyInput>
     {
         if (_currentActionMap == null) return;
 
-        foreach (var entry in _actionsToUpdate.ToArray())
-        {
-            var action = entry.Key;
-            if (action.phase != InputActionPhase.Started && action.phase != InputActionPhase.Performed)
-            {
-                _actionsToUpdate.Remove(action);
-                foreach (var inputEvent in entry.Value)
-                    Release(inputEvent);
-                continue;
-            }
-
-            foreach (var inputEvent in entry.Value)
-            {
-                var output = inputEvent.Output;
-                if (output != null && _currentInput.TryGetValue(output, out var value))
-                    output.Broadcast(value);
-            }
-        }
+        // Held inputs are sent again every frame, by every controller reading them.
+        _defaultReader?.Update();
+        PlayerController.UpdateAll();
 
         if (ShowCursor)
         {
@@ -481,6 +411,9 @@ public class RemedyInput : SingletonData<RemedyInput>
         /// </summary>
         private static InputBinding[] SavedBindingsOf(InputAction action)
             => _savedBindings?.GetValue(action) as InputBinding[] ?? Array.Empty<InputBinding>();
+
+        /// <summary>An action's bindings as saved (for building each player's own copy of it).</summary>
+        internal static InputBinding[] SavedBindings(InputAction action) => SavedBindingsOf(action);
 
         private static readonly System.Reflection.FieldInfo _hiddenMap = typeof(InputAction).GetField("m_ActionMap",
             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);

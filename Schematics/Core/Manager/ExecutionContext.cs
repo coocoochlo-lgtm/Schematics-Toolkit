@@ -154,6 +154,8 @@ public static class ExecutionContext
         // Everything listening to this object (its graph, other objects' Behaviors) stops with it.
         SignalData.ReleaseUID(uid);
         VariableSync.Forget(schematicObject);
+        // Whoever possessed it lets go.
+        Possession.ForgetObject(uid);
 
         _objects.Remove(uid);
         schematicObject.UID = 0;

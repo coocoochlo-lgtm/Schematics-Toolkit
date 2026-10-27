@@ -85,6 +85,8 @@ public static class SingletonGraphSpawner
         _spawned.Add(schematic);
 
         gameObject.SetActive(true);
+        // The game itself: it hears every player's input, whoever possesses what.
+        Possession.HearEveryController(schematic);
         return schematic;
     }
 

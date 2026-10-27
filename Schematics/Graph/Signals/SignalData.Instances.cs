@@ -132,14 +132,7 @@ public partial class SignalData
     /// Sends the Signal to every listener with the default value of each parameter (false, 0, Vector2.zero, null...),
     /// e.g. when an input is released.
     /// </summary>
-    public void BroadcastDefault()
-    {
-        int count = Math.Max(1, Parameters.Contents.Count);
-        var args = new Union[count];
-        for (int i = 0; i < count; i++)
-            args[i] = i < Parameters.Contents.Count ? DefaultOf(Parameters[i].Type) : Union.Null;
-        InvokeFromGraph(0, args);
-    }
+    public void BroadcastDefault() => InvokeFromGraph(0, DefaultArguments());
 
     // A parameter type's default as a value of that type (0, false, Vector2.zero, Quaternion.identity...), not
     // nothing: a released stick used to send null, which listeners taking "any value" got as null instead of (0, 0).
@@ -152,6 +145,104 @@ public partial class SignalData
             && valueType != typeof(Union) && valueType != typeof(UnityEngine.SceneManagement.Scene))
             return SignalArgs.ToUnion(Activator.CreateInstance(valueType));
         return Union.Null;
+    }
+
+    /// <summary>
+    /// The default value of each parameter (false, 0, Vector2.zero, null...), as arguments: what a released input
+    /// sends.
+    /// </summary>
+    public Union[] DefaultArguments()
+    {
+        int count = Math.Max(1, Parameters.Contents.Count);
+        var args = new Union[count];
+        for (int i = 0; i < count; i++)
+            args[i] = i < Parameters.Contents.Count ? DefaultOf(Parameters[i].Type) : Union.Null;
+        return args;
+    }
+
+    #endregion
+
+    #region Sending to a group
+
+    // Used by Controller Possession: one press of a player's button reaches the objects that player possesses, not
+    // everyone, and listeners of "every object" hear it once however many objects that is.
+
+    /// <summary>
+    /// Sends the Signal to several objects at once: the listeners of each UID, and the listeners of every object (UID
+    /// 0) once.
+    /// </summary>
+    public void InvokeTo(IReadOnlyList<int> uids, Union[] args)
+    {
+        args ??= Array.Empty<Union>();
+        if (Remedy.Schematics.SignalNetwork.Wants(this))
+        {
+            // Networked: each send goes through the network as usual.
+            for (int i = 0; i < uids.Count; i++)
+                InvokeFromGraph(uids[i], args);
+            return;
+        }
+        for (int i = 0; i < uids.Count; i++)
+            ReportSent(uids[i]);
+        _invokeDepth++;
+        try
+        {
+            var listeners = Snapshot();
+            for (int i = 0; i < uids.Count; i++)
+                if (uids[i] != 0 && _listeners.TryGetValue(uids[i], out var own))
+                    listeners.AddRange(own);
+            if (_listeners.TryGetValue(0, out var any))
+                listeners.AddRange(any);
+            foreach (var l in listeners)
+                l.Receive(args);
+        }
+        finally { _invokeDepth--; }
+
+        if (HasComponentSubscribers)
+            for (int i = 0; i < uids.Count; i++)
+                if (uids[i] != 0)
+                    DeliverToComponents(uids[i], args);
+    }
+
+    /// <summary>Sends the Signal to every object except the given UIDs (and to the listeners of every object).</summary>
+    public void InvokeExcept(ICollection<int> excluded, Union[] args)
+    {
+        args ??= Array.Empty<Union>();
+        if (excluded == null || excluded.Count == 0 || Remedy.Schematics.SignalNetwork.Wants(this))
+        {
+            InvokeFromGraph(0, args);
+            return;
+        }
+        ReportSent(0);
+        _invokeDepth++;
+        try
+        {
+            var listeners = Snapshot();
+            foreach (var entry in _listeners)
+                if (entry.Key == 0 || !excluded.Contains(entry.Key))
+                    listeners.AddRange(entry.Value);
+            foreach (var l in listeners)
+                l.Receive(args);
+        }
+        finally { _invokeDepth--; }
+
+        if (_subs.Count > 0 && UIDResolver != null)
+            for (int i = 0; i < _subs.Count; i++)
+            {
+                var sub = _subs[i];
+                if (sub != null && !excluded.Contains(UIDResolver(sub.Parent)))
+                    sub.Invoke(args);
+            }
+    }
+
+    // The listener list for the current nesting level, emptied. Callers increment _invokeDepth first.
+    private List<SignalListener> Snapshot()
+    {
+        int level = _invokeDepth - 1;
+        while (_snapshots.Count <= level)
+            _snapshots.Add(new List<SignalListener>());
+        var result = _snapshots[level];
+        result.Clear();
+        return result;
     }
 
     #endregion

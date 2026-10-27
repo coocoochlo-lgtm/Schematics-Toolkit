@@ -104,6 +104,48 @@ public sealed class BehaviorRuntime
     public int IndexOfVariable(string name)
         => name != null && _variableIndices.TryGetValue(name, out int index) ? index : -1;
 
+    /// <summary>How many Variables this Behavior has (indices for <see cref="GetVariableBoxed"/>).</summary>
+    public int VariableCount => Columns.Length;
+
+    /// <summary>The type of a Variable's value.</summary>
+    public Type VariableType(int variableIndex) => Columns[variableIndex].ValueType;
+
+    /// <summary>
+    /// How many numbers a value of this type reads as with <see cref="ReadNumbers"/>: bool, int and float 1, Vector2 2,
+    /// Vector3 3; anything else 0.
+    /// </summary>
+    public static int NumbersIn(Type type)
+    {
+        if (type == typeof(bool) || type == typeof(int) || type == typeof(float)) return 1;
+        if (type == typeof(Vector2)) return 2;
+        if (type == typeof(Vector3)) return 3;
+        return 0;
+    }
+
+    /// <summary>
+    /// Reads a Variable as plain numbers, without boxing (true is 1, false 0; a Vector3 is 3 numbers): what an AI
+    /// learning from the game sees of it. Returns how many were written (see <see cref="NumbersIn"/>).
+    /// </summary>
+    public int ReadNumbers(BehaviorInstance instance, int variableIndex, Span<float> destination)
+    {
+        int row = instance.Row;
+        if (row < 0)
+            return 0;
+        switch (Columns[variableIndex])
+        {
+            case VariableColumn<float> f: destination[0] = f.Values[row]; return 1;
+            case VariableColumn<int> i: destination[0] = i.Values[row]; return 1;
+            case VariableColumn<bool> b: destination[0] = b.Values[row] ? 1f : 0f; return 1;
+            case VariableColumn<Vector2> v2:
+                destination[0] = v2.Values[row].x; destination[1] = v2.Values[row].y;
+                return 2;
+            case VariableColumn<Vector3> v3:
+                destination[0] = v3.Values[row].x; destination[1] = v3.Values[row].y; destination[2] = v3.Values[row].z;
+                return 3;
+            default: return 0;
+        }
+    }
+
     /// <summary>
     /// Boxed read of a Variable for a given instance. Meant for tools and debugging, not gameplay code.
     /// </summary>
