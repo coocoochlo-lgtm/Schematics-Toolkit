@@ -14,6 +14,7 @@ namespace Remedy.UI
     {
         private readonly Dictionary<GameObject, string> _elementByProxy = new();
         private readonly List<(Button button, EventCallback<ClickEvent> callback)> _clickBindings = new();
+        private SchematicUIPlayerInput _playerInput;
 
         public SchematicUIGraph UIGraph => SchematicGraph as SchematicUIGraph;
 
@@ -36,19 +37,69 @@ namespace Remedy.UI
                 document.visualTreeAsset = UIGraph.Layout;
             base.OnEnable();
             BindUIEvents();
+            Possession.Possessed += OnPossessed;
+            Possession.Unpossessed += OnUnpossessed;
+            if (Possession.PossessorOf(this) is { IsLocal: true })
+                PlayerInput.Begin();
         }
 
         protected override void OnDisable()
         {
+            Possession.Possessed -= OnPossessed;
+            Possession.Unpossessed -= OnUnpossessed;
+            _playerInput?.End();
             UnbindUIEvents();
             base.OnDisable();
         }
 
         protected override void OnDestroy()
         {
+            Possession.Possessed -= OnPossessed;
+            Possession.Unpossessed -= OnUnpossessed;
+            _playerInput?.End();
             UnbindUIEvents();
             base.OnDestroy();
         }
+
+        #region Possession
+
+        private SchematicUIPlayerInput PlayerInput => _playerInput ??= new SchematicUIPlayerInput(this);
+
+        /// <summary>
+        /// The element a possessing player has selected (with the graph's Navigate input), or null when no player drives
+        /// this UI.
+        /// </summary>
+        public VisualElement SelectedElement => _playerInput?.Selected;
+
+        // A controller on this machine took this UI: its input (routed to this object alone) drives the selection. One
+        // on another machine drives it there.
+        private void OnPossessed(SchematicObject schematic, Controller controller)
+        {
+            if (schematic != this)
+                return;
+            if (controller != null && controller.IsLocal)
+                PlayerInput.Begin();
+            else
+                _playerInput?.End();
+        }
+
+        private void OnUnpossessed(SchematicObject schematic, Controller controller)
+        {
+            if (schematic == this)
+                _playerInput?.End();
+        }
+
+        /// <summary>A possessing player pressed a button: the graph's On UI Button Clicked for it fire.</summary>
+        internal void ButtonPressed(string elementName)
+        {
+            if (UIGraph == null || string.IsNullOrEmpty(elementName))
+                return;
+            foreach (var node in UIGraph.Nodes)
+                if (node is OnUIButtonClicked onClick && onClick.ElementName == elementName)
+                    onClick.Trigger(gameObject, new Remedy.Framework.Union(elementName));
+        }
+
+        #endregion
 
         /// <summary>Gets the UI Builder element name associated with one of this UI's Behavior proxy objects.</summary>
         public string ElementNameFor(GameObject behaviorObject)

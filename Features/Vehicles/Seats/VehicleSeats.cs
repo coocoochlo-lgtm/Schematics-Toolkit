@@ -552,6 +552,10 @@ namespace Remedy.Vehicles
             if (schematic == null)
                 return;
             var driverController = driver != null ? Possession.PossessorOf(Possession.SchematicOf(driver)) : null;
+            // Online, seating changes on every machine: the driver's own machine makes the change, and possession
+            // sync tells the rest.
+            if (driverController != null && !driverController.IsLocal)
+                driverController = null;
             if (_drivenBy.TryGetValue(vehicle, out var previous))
             {
                 _drivenBy.Remove(vehicle);

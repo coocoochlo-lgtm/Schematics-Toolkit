@@ -37,6 +37,8 @@ public sealed class PlayerController : Controller
 
     public override string DisplayName => IsDefault ? "Player" : $"Player {Index + 1}";
 
+    public override string NetworkId => IsDefault ? "d" : "p" + Index;
+
     /// <summary>The devices this player holds.</summary>
     public IReadOnlyList<InputDevice> Devices => _devices;
 

@@ -118,7 +118,7 @@ public class SetInputMapNode : SchematicActionNode
     }
 }
 
-[SchematicDoc(@"{""name"": ""Create AI Controller"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Controllers"", ""description"": ""Makes an AI that controls objects through their input, like a player: Possess something with it. It runs AI Graph if one is given (Send Input presses its buttons), and learns from Teacher if one is given: it watches what the teacher's objects go through and how the teacher controls them, and (with no AI Graph) controls objects of the same kind that way itself."", ""inputs"": [{""name"": ""AI Graph"", ""type"": ""AIControllerGraph""}, {""name"": ""Teacher"", ""type"": ""Controller""}], ""outputs"": [{""name"": ""Controller"", ""type"": ""Controller""}], ""use_for"": [""bots that drive cars and characters with the same controls as players"", ""bots that learn to play like you"", ""filling empty player slots""], ""notes"": ""Runs when flow reaches it. Learning needs Remedy ManifoldNet in the project. What it learns lasts while the game runs.""}")]
+[SchematicDoc(@"{""name"": ""Create AI Controller"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Controllers"", ""description"": ""Makes an AI that controls objects through their input, like a player: Possess something with it. It runs AI Graph if one is given (Send Input presses its buttons), and learns from Teacher if one is given: it watches what the teacher's objects go through and how the teacher controls them, and (with no AI Graph) controls objects of the same kind that way itself."", ""inputs"": [{""name"": ""AI Graph"", ""type"": ""AIControllerGraph""}, {""name"": ""Teacher"", ""type"": ""Controller""}, {""name"": ""Skill"", ""type"": ""ControllerSkillData""}], ""outputs"": [{""name"": ""Controller"", ""type"": ""Controller""}], ""use_for"": [""bots that drive cars and characters with the same controls as players"", ""bots that learn to play like you"", ""filling empty player slots""], ""notes"": ""Runs when flow reaches it. Learning needs Remedy ManifoldNet in the project. Skill (a Learned Controls asset) is what it learned before: it starts out knowing it, and in the editor what it learns is saved back into it when Play Mode ends. Without one, what it learns lasts while the game runs (or use Save AI Skill with a file name).""}")]
 [Serializable]
 [NodeColor(NodeColors.Controller)]
 [Node(Name = "Create AI Controller", Path = "Controllers"), Tags("Object")]
@@ -126,11 +126,12 @@ public class CreateAIControllerNode : SchematicActionNode
 {
     [Input("AI Graph", Editable = true)] public AIControllerGraph AIGraph;
     [Input("Teacher")] public Controller Teacher;
+    [Input("Skill", Editable = true)] public ControllerSkillData Skill;
     [Output("Controller")] public Controller Controller;
 
     protected override void OnTrigger(GameObject instance, bool awaiting = false)
     {
-        var controller = AIController.Create(GetInputValue("AI Graph", AIGraph), GetInputValue<Controller>("Teacher", null));
+        var controller = AIController.Create(GetInputValue("AI Graph", AIGraph), GetInputValue<Controller>("Teacher", null), GetInputValue("Skill", Skill));
         SetOutputValue("Controller", controller);
     }
 }
@@ -163,5 +164,54 @@ public class SetAILearningNode : SchematicActionNode
         else if (teacher != null)
             ai.LearnFrom(teacher, act);
         ai.UseLearnedControls = act;
+    }
+}
+
+[SchematicDoc(@"{""name"": ""Save AI Skill"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Controllers"", ""description"": ""Keeps what an AI Controller has learned: into a file in the player's save folder when File Name is given (works in builds: a bot trained by the player stays trained next time), otherwise into its Learned Controls asset (in the editor, saved to disk)."", ""inputs"": [{""name"": ""AI"", ""type"": ""Controller""}, {""name"": ""File Name"", ""type"": ""string""}], ""outputs"": [{""name"": ""Saved"", ""type"": ""bool""}], ""use_for"": [""keeping a bot the player trained"", ""checkpoints while training""], ""notes"": ""Runs when flow reaches it. AI unwired: the AI Controller running this graph.""}")]
+[Serializable]
+[NodeColor(NodeColors.Controller)]
+[Node(Name = "Save AI Skill", Path = "Controllers"), Tags("Object")]
+public class SaveAISkillNode : SchematicActionNode
+{
+    [Input("AI")] public Controller AI;
+    [Input("File Name", Editable = true)] public string FileName;
+    [Output("Saved")] public bool Saved;
+
+    protected override void OnTrigger(GameObject instance, bool awaiting = false)
+    {
+        var ai = AINodes.Resolve(GetInputValue<Controller>("AI", null), instance);
+        SetOutputValue("Saved", ai != null && ai.SaveSkill(GetInputValue("File Name", FileName)) != null);
+    }
+}
+
+[SchematicDoc(@"{""name"": ""Load AI Skill"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Controllers"", ""description"": ""Gives an AI Controller something learned before: a Learned Controls asset, or a file Save AI Skill wrote. With no AI Graph, it plays with it straight away."", ""inputs"": [{""name"": ""AI"", ""type"": ""Controller""}, {""name"": ""Skill"", ""type"": ""ControllerSkillData""}, {""name"": ""File Name"", ""type"": ""string""}], ""outputs"": [{""name"": ""Loaded"", ""type"": ""bool""}], ""use_for"": [""bringing back a bot the player trained"", ""picking a difficulty (one asset per skill level)""], ""notes"": ""Runs when flow reaches it. Only objects of the kinds it learned on can be controlled with it, and only while the Input Maps' inputs are the same.""}")]
+[Serializable]
+[NodeColor(NodeColors.Controller)]
+[Node(Name = "Load AI Skill", Path = "Controllers"), Tags("Object")]
+public class LoadAISkillNode : SchematicActionNode
+{
+    [Input("AI")] public Controller AI;
+    [Input("Skill", Editable = true)] public ControllerSkillData Skill;
+    [Input("File Name", Editable = true)] public string FileName;
+    [Output("Loaded")] public bool Loaded;
+
+    protected override void OnTrigger(GameObject instance, bool awaiting = false)
+    {
+        var ai = AINodes.Resolve(GetInputValue<Controller>("AI", null), instance);
+        SetOutputValue("Loaded", ai != null && ai.LoadSkill(GetInputValue("Skill", Skill), GetInputValue("File Name", FileName)));
+    }
+}
+
+internal static class AINodes
+{
+    /// <summary>The AI Controller wired in, else the one running the graph (with a warning if there's neither).</summary>
+    public static AIController Resolve(Controller wired, GameObject instance)
+    {
+        var ai = wired as AIController;
+        if (ai == null && instance != null)
+            ai = instance.GetComponentInParent<AIController>();
+        if (ai == null)
+            Debug.LogWarning("No AI Controller: wire one into AI, or use this in an AI Controller Graph.", instance);
+        return ai;
     }
 }

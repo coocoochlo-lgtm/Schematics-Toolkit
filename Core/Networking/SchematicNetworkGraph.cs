@@ -130,6 +130,114 @@ namespace Remedy.Networking
 
         #endregion
 
+        #region Possession
+
+        // Who possesses which object (Controller Possession) is the same for every player. A change goes to the object's
+        // authority, which applies it, hands the object's ownership to the possessing machine (so it simulates what it
+        // controls, without input lag) and tells everyone else. Late joiners get it with the rest of the state.
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void InstallPossession()
+        {
+            Possession.PossessionChangedHook = OnPossessionChanged;
+            Possession.LocalPeerHook = LocalPeer;
+        }
+
+        private static string LocalPeer()
+        {
+            var manager = NetworkManager.Singleton;
+            return manager != null && manager.IsListening ? manager.LocalClientId.ToString() : "local";
+        }
+
+        private static void OnPossessionChanged(SchematicObject schematic, Controller controller)
+        {
+            var graph = schematic != null ? CarrierOf(schematic.gameObject) : null;
+            if (graph == null)
+                return;
+            var payload = graph.PackPossession(schematic.gameObject, controller);
+            if (graph.HasAuthority)
+            {
+                graph.HandOwnership(schematic.gameObject, Possession.KeyOf(controller));
+                graph.PossessionRpc(payload);
+            }
+            else
+                graph.PossessionToAuthorityRpc(payload);
+        }
+
+        private byte[] PackPossession(GameObject target, Controller controller)
+            => UnionNetworkSerializer.Pack(PathTo(target), new[] { Possession.KeyOf(controller) },
+                new[] { new Union(controller != null ? controller.DisplayName : "") });
+
+        [Rpc(SendTo.NotMe)]
+        private void PossessionRpc(byte[] payload) => ApplyPossession(payload);
+
+        [Rpc(SendTo.SpecifiedInParams)]
+        private void PossessionRelayRpc(byte[] payload, RpcParams rpcParams) => ApplyPossession(payload);
+
+        // From another machine: the authority applies it, takes ownership decisions, and passes it on.
+        [Rpc(SendTo.Authority)]
+        private void PossessionToAuthorityRpc(byte[] payload, RpcParams rpcParams = default)
+        {
+            var target = ApplyPossession(payload);
+            if (target == null)
+                return;
+            UnionNetworkSerializer.Unpack(payload, out _, out string[] keys, out _);
+            HandOwnership(target, keys.Length > 0 ? keys[0] : "");
+            ulong sender = rpcParams.Receive.SenderClientId;
+            var others = new[] { sender, NetworkManager.LocalClientId };
+            PossessionRelayRpc(payload, RpcTarget.Not(others, RpcTargetUse.Temp));
+        }
+
+        // Returns the object it applied to (null if it isn't here).
+        private GameObject ApplyPossession(byte[] payload)
+        {
+            UnionNetworkSerializer.Unpack(payload, out string path, out string[] keys, out Union[] values);
+            var target = FindBelow(path);
+            var schematicObject = target != null ? target.GetComponent<SchematicObject>() : null;
+            if (schematicObject == null || !schematicObject.IsSpawned)
+                return null;
+            string name = values.Length > 0 && values[0].Type == Union.ValueType.String ? values[0].GetValue<string>() : null;
+            Possession.ApplyRemote(schematicObject, keys.Length > 0 ? keys[0] : "", name);
+            return target;
+        }
+
+        // The possessing machine owns the object, so it simulates what it controls. Only for the object this graph
+        // carries (not ones nested in it), and only by whoever may change ownership.
+        private void HandOwnership(GameObject target, string controllerKey)
+        {
+            if (target != gameObject || string.IsNullOrEmpty(controllerKey))
+                return;
+            int split = controllerKey.IndexOf(':');
+            if (split <= 0 || !ulong.TryParse(controllerKey.Substring(0, split), out ulong client))
+                return;
+            var networkObject = NetworkObject;
+            var manager = NetworkManager;
+            if (networkObject == null || manager == null || !manager.IsListening || networkObject.OwnerClientId == client)
+                return;
+            if (!manager.DistributedAuthorityMode)
+            {
+                if (manager.IsServer)
+                    networkObject.ChangeOwnership(client);
+            }
+            else if (HasAuthority && networkObject.IsOwnershipTransferable)
+                networkObject.ChangeOwnership(client);
+        }
+
+        // Late joiners: who possesses this object and the objects nested in it.
+        private void SendAllPossession(ulong clientId)
+        {
+            foreach (var schematicObject in GetComponentsInChildren<SchematicObject>(true))
+            {
+                if (!schematicObject.IsSpawned || CarrierOf(schematicObject.gameObject) != this)
+                    continue;
+                var possessor = Possession.PossessorOf(schematicObject);
+                if (possessor != null)
+                    PossessionRelayRpc(PackPossession(schematicObject.gameObject, possessor), RpcTarget.Single(clientId, RpcTargetUse.Temp));
+            }
+        }
+
+        #endregion
+
         #region Behavior state
 
         /// <summary>Sends a Behavior instance's <see cref="INetworkStateBehavior"/> state, if this peer is its authority.</summary>
@@ -254,6 +362,7 @@ namespace Remedy.Networking
             if (_changes.Count > 0)
                 AllVariablesRpc(Pack(_changes), RpcTarget.Single(rpcParams.Receive.SenderClientId, RpcTargetUse.Temp));
             SendAllStates(rpcParams.Receive.SenderClientId);
+            SendAllPossession(rpcParams.Receive.SenderClientId);
         }
 
         [Rpc(SendTo.SpecifiedInParams)]

@@ -15,6 +15,23 @@ namespace Remedy.UI
         [Tooltip("The UI Toolkit document displayed while this graph is running.")]
         public VisualTreeAsset Layout;
 
+        // Controller Possession: a UI a controller possesses is driven by that controller's own input (its stick moves
+        // the selection, its buttons press), so each player in split-screen works their own menu. Pick the Input
+        // Signals here (from the Input Maps). A UI nobody possesses uses UI Toolkit's own input as usual.
+        [Header("Player Input (when possessed)")]
+        [Tooltip("A Vector2 Input Signal (a stick or the arrow keys) that moves the selection between buttons and fields.")]
+        public SignalData Navigate;
+        [Tooltip("A button Input Signal that presses the selected element (clicks a button, flips a toggle).")]
+        public SignalData Submit;
+        [Tooltip("A button Input Signal for going back: fires On UI Cancel.")]
+        public SignalData Cancel;
+        [Tooltip("The element selected first (its name in UI Builder). Empty: the first one that can be selected.")]
+        public string FirstSelected;
+        [Tooltip("The USS class the selected element gets, to style it in UI Builder.")]
+        public string SelectedClass = "schematic-ui-selected";
+        [Tooltip("Also outline the selected element (handy before it's styled).")]
+        public bool OutlineSelected = true;
+
         [SerializeField] private List<UIElementBehaviorList> _uiBehaviors = new();
         public List<UIElementBehaviorList> UIBehaviors => _uiBehaviors ??= new();
 

@@ -45,6 +45,9 @@ namespace Remedy.Schematics
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void ResetStatics()
         {
+            // (Not the hooks: the networking layer installs them at the same moment.)
+            _remote.Clear();
+            _applyingRemote = 0;
             _byUID.Clear();
             _claimed.Clear();
             _hearAll.Clear();
@@ -138,6 +141,8 @@ namespace Remedy.Schematics
                 _claimed.Add(uid);
             controller.Add(schematic);
             Possessed?.Invoke(schematic, controller);
+            if (!IsApplyingRemote)
+                PossessionChangedHook?.Invoke(schematic, controller);
             schematic.SchematicGraph?.TriggerEvent<OnPossessed>(schematic.gameObject, new Union((Component)controller));
             return true;
         }
@@ -148,6 +153,8 @@ namespace Remedy.Schematics
             if (schematic == null || schematic.UID == 0 || !_byUID.TryGetValue(schematic.UID, out var entry) || entry.schematic != schematic)
                 return;
             Release(schematic.UID, entry);
+            if (!IsApplyingRemote)
+                PossessionChangedHook?.Invoke(schematic, null);
             schematic.SchematicGraph?.TriggerEvent<OnUnpossessed>(schematic.gameObject, new Union((Component)entry.controller));
         }
 
@@ -168,6 +175,87 @@ namespace Remedy.Schematics
             Unpossessed?.Invoke(entry.schematic, entry.controller);
         }
 
+        #region Networking
+
+        // Possession is the same for every player: when it changes here, the networking layer (Remedy.Networking) tells
+        // everyone else, and the possessing machine takes ownership of the object so it simulates what it controls.
+        // Other machines' controllers appear here as RemoteController stand-ins.
+
+        private static readonly Dictionary<string, RemoteController> _remote = new();
+        private static int _applyingRemote;
+
+        /// <summary>Hook (the networking layer): this machine's id on the network ("local" offline).</summary>
+        public static Func<string> LocalPeerHook;
+
+        /// <summary>Hook (the networking layer): possession of an object changed on this machine (null: let go).</summary>
+        public static Action<SchematicObject, Controller> PossessionChangedHook;
+
+        /// <summary>This machine's id on the network, or "local" offline.</summary>
+        public static string LocalPeer => LocalPeerHook?.Invoke() ?? "local";
+
+        /// <summary>True while a change that came from another machine is being applied (it isn't sent back).</summary>
+        public static bool IsApplyingRemote => _applyingRemote > 0;
+
+        /// <summary>A controller's name across the network: its machine and who it is there ("3:p0"). Empty for none.</summary>
+        public static string KeyOf(Controller controller)
+        {
+            if (controller == null)
+                return "";
+            if (controller is RemoteController remote)
+                return remote.Key;
+            return LocalPeer + ":" + controller.NetworkId;
+        }
+
+        /// <summary>
+        /// The controller a network key names: one of this machine's own, or the stand-in for another machine's (made the
+        /// first time it's needed). Null for an empty key, or one of this machine's controllers that's gone.
+        /// </summary>
+        public static Controller FromKey(string key, string displayName = null)
+        {
+            if (string.IsNullOrEmpty(key))
+                return null;
+            int split = key.IndexOf(':');
+            string peer = split >= 0 ? key.Substring(0, split) : "";
+            string id = split >= 0 ? key.Substring(split + 1) : key;
+            if (peer == LocalPeer)
+            {
+                foreach (var controller in _controllers)
+                    if (controller != null && controller.IsLocal && controller.NetworkId == id)
+                        return controller;
+                return null;
+            }
+            if (!_remote.TryGetValue(key, out var stand) || stand == null)
+                _remote[key] = stand = RemoteController.Create(key, peer, id, displayName);
+            else if (!string.IsNullOrEmpty(displayName))
+                stand.Rename(displayName);
+            return stand;
+        }
+
+        /// <summary>
+        /// Applies a possession change that came from another machine: <paramref name="controllerKey"/> (see
+        /// <see cref="KeyOf"/>) possesses the object, or nobody does when it's empty.
+        /// </summary>
+        public static void ApplyRemote(SchematicObject schematic, string controllerKey, string displayName = null)
+        {
+            if (schematic == null || schematic.UID == 0)
+                return;
+            _applyingRemote++;
+            try
+            {
+                var controller = FromKey(controllerKey, displayName);
+                if (controller != null)
+                    Possess(controller, schematic.gameObject);
+                else
+                    Unpossess(schematic);
+            }
+            finally
+            {
+                _applyingRemote--;
+            }
+        }
+
+        #endregion
+
         /// <summary>
         /// Delivers a controller's input: to everything not possessed by someone else (the default controller, in
         /// default mode), or else to what it possesses (and, for players, to the objects that hear every player).
@@ -176,8 +264,9 @@ namespace Remedy.Schematics
         {
             if (controller == null || signal == null)
                 return;
-            // The default controller is off once players are separated.
-            if (Separated && controller == Default)
+            // The default controller is off once players are separated, and a remote controller's input happens on its
+            // own machine.
+            if ((Separated && controller == Default) || !controller.IsLocal)
                 return;
 
             var previous = Current;

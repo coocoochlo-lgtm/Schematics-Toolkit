@@ -26,6 +26,18 @@ namespace Remedy.Schematics
         /// <summary>True for a player's controller (their devices give the input), false for an AI's.</summary>
         public abstract bool IsPlayer { get; }
 
+        /// <summary>
+        /// Who it is on this peer, for telling other players' machines ("p0" for Player 1, "a2" for AI 3, "d" for the
+        /// default player). Online, the peer's id goes in front (see <see cref="Possession.KeyOf"/>).
+        /// </summary>
+        public virtual string NetworkId => (IsPlayer ? "p" : "a") + Index;
+
+        /// <summary>
+        /// False for a stand-in for a controller on another player's machine (<see cref="RemoteController"/>): its input
+        /// happens there, and reaches everyone through the objects' networked Signals and Variables.
+        /// </summary>
+        public virtual bool IsLocal => true;
+
         /// <summary>The objects it possesses right now, in the order it took them (the first is its main one).</summary>
         public IReadOnlyList<SchematicObject> Possessed => _possessed;
 

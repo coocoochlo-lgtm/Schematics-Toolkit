@@ -12,7 +12,9 @@ namespace Remedy.ManifoldNetwork.Schematics
     /// is going through: its Behaviors' Variables (speed, grounded, health...) and how it's moving. When the AI
     /// possesses an object of a kind it has learned, it presses what the teacher would have, through the same Input
     /// Signals a player's devices send, so the object can't tell the difference.
-    /// <para>What it learns lasts while the game runs.</para>
+    /// <para>What it learns can be kept in a <see cref="LearnedControls"/> asset (saved when Play Mode ends, in the
+    /// editor) or in a file (Save AI Skill), and loaded again: kinds of objects it learned are picked up the first
+    /// time it sees (or controls) one.</para>
     /// </summary>
     public sealed class ControllerImitation : IControllerSkill
     {
@@ -40,8 +42,42 @@ namespace Remedy.ManifoldNetwork.Schematics
         private readonly HashSet<SignalData> _pulses = new();
 
         private static List<Slot> _layout;
+        private static string _layoutSignature;
 
-        public ControllerImitation(AIController ai) => _ai = ai;
+        // Kinds learned before (loaded from an asset or a file), built into networks when one turns up.
+        private readonly Dictionary<int, LearnedKind> _saved = new();
+
+        // Every one still running, so the editor can keep what they learned when Play Mode ends.
+        private static readonly List<ControllerImitation> _live = new();
+
+        public ControllerImitation(AIController ai)
+        {
+            _ai = ai;
+            _live.Add(this);
+        }
+
+#if UNITY_EDITOR
+        [UnityEditor.InitializeOnLoadMethod]
+        private static void SaveWhenPlayModeEnds()
+        {
+            UnityEditor.EditorApplication.playModeStateChanged += state =>
+            {
+                if (state != UnityEditor.PlayModeStateChange.ExitingPlayMode)
+                    return;
+                foreach (var imitation in _live.ToArray())
+                    imitation.AutoSave();
+            };
+        }
+#endif
+
+        // In the editor: into the AI's Learned Controls, if it has one that wants it.
+        private void AutoSave()
+        {
+#if UNITY_EDITOR
+            if (_ai != null && _ai.SkillData is LearnedControls asset && asset.SaveOnExitPlayMode && _kinds.Count > 0)
+                SaveTo(asset);
+#endif
+        }
 
         public Controller Teacher
         {
@@ -110,7 +146,26 @@ namespace Remedy.ManifoldNetwork.Schematics
         }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-        private static void ResetLayout() => _layout = null;
+        private static void ResetLayout()
+        {
+            _layout = null;
+            _layoutSignature = null;
+            _live.Clear();
+        }
+
+        /// <summary>The Input Signals the outputs press, in order: learned controls only fit while this is the same.</summary>
+        private static string LayoutSignature
+        {
+            get
+            {
+                if (_layoutSignature != null)
+                    return _layoutSignature;
+                var parts = new List<string>();
+                foreach (var slot in Layout)
+                    parts.Add(slot.Signal.Uid + "/" + slot.Width);
+                return _layoutSignature = string.Join("|", parts);
+            }
+        }
 
         private static Slot SlotFor(SignalData signal)
         {
@@ -213,8 +268,13 @@ namespace Remedy.ManifoldNetwork.Schematics
 
             foreach (var entry in byKind)
                 KindFor(entry.Key, entry.Value[0], layout).Step(entry.Value, own != null && own.ObjectID == entry.Key ? own : null, this, layout, step);
-            if (own != null && !byKind.ContainsKey(own.ObjectID) && _kinds.TryGetValue(own.ObjectID, out var known))
-                known.Step(null, own, this, layout, step);
+            if (own != null && !byKind.ContainsKey(own.ObjectID))
+            {
+                // Something it learned before (loaded) is built the first time it controls one.
+                if (!_kinds.TryGetValue(own.ObjectID, out var known) && _saved.ContainsKey(own.ObjectID))
+                    known = KindFor(own.ObjectID, own, layout);
+                known?.Step(null, own, this, layout, step);
+            }
 
             _pulses.Clear();
         }
@@ -222,9 +282,18 @@ namespace Remedy.ManifoldNetwork.Schematics
         private Kind KindFor(int objectId, SchematicObject example, List<Slot> layout)
         {
             if (!_kinds.TryGetValue(objectId, out var kind))
-                _kinds[objectId] = kind = new Kind(_ai, example, layout);
+            {
+                _saved.TryGetValue(objectId, out var saved);
+                if (saved != null && saved.InputLayout != LayoutSignature)
+                {
+                    Debug.LogWarning($"{_ai.DisplayName}: what it learned about {saved.ObjectName} was for other inputs (the Input Maps changed), so it starts that over.", _ai);
+                    saved = null;
+                }
+                _kinds[objectId] = kind = new Kind(_ai, example, layout, saved);
+            }
             return kind;
         }
+
 
         // Pressing what the network decided, as the teacher would have.
         private void Act(Kind kind, List<Slot> layout, float[] outputs, int at)
@@ -293,22 +362,48 @@ namespace Remedy.ManifoldNetwork.Schematics
             private readonly SchematicObject[] _rowObjects = new SchematicObject[Rows];
             private readonly Dictionary<SchematicObject, (Vector3 position, float yaw)> _lastPose = new();
             private readonly float[] _scratch = new float[MaxObservations];
+            private readonly string _objectName;
 
-            public Kind(AIController ai, SchematicObject example, List<Slot> layout)
+            public Kind(AIController ai, SchematicObject example, List<Slot> layout, LearnedKind saved)
             {
+                _objectName = example.name;
                 _inputs = Mathf.Clamp(Observe(example, _scratch, 0f, record: false), 1, MaxObservations);
                 _outputs = OutputWidth(layout);
-                var settings = new MnnSettings
+                if (saved != null && (saved.Observations != _inputs || saved.Mean == null || saved.Mean.Length != _inputs))
                 {
-                    inputCount = _inputs,
-                    outputCount = _outputs,
-                    hiddenWidth = 24,
-                    headCount = 8,
-                    tickRate = TickRate,
-                    trainingMode = TrainingMode.Supervised,
-                };
-                settings.Clamp();
-                Net = new ManifoldNet(settings, Rows) { Name = $"{ai.DisplayName} learning {example.name}" };
+                    Debug.LogWarning($"{ai.DisplayName}: what it learned about {saved.ObjectName} doesn't fit it any more (its Behaviors' Variables changed), so it starts that over.", ai);
+                    saved = null;
+                }
+
+                MnnSettings settings;
+                MnnBrain brain = null;
+                if (saved != null)
+                {
+                    settings = saved.Settings.Clone();
+                    brain = MnnBrain.Create(settings, saved.Parameters, saved.Updates, saved.Memory, saved.Identities);
+                    if (!brain.Fits(settings))
+                    {
+                        UnityEngine.Object.DestroyImmediate(brain);
+                        brain = null;
+                    }
+                }
+                else
+                {
+                    settings = new MnnSettings
+                    {
+                        inputCount = _inputs,
+                        outputCount = _outputs,
+                        hiddenWidth = 24,
+                        headCount = 8,
+                        tickRate = TickRate,
+                        trainingMode = TrainingMode.Supervised,
+                    };
+                    settings.Clamp();
+                }
+                Net = new ManifoldNet(settings, Rows, brain) { Name = $"{ai.DisplayName} learning {example.name}" };
+                if (brain != null)
+                    UnityEngine.Object.DestroyImmediate(brain);
+
                 Pressed = new bool[layout.Count];
                 _in = new float[Rows * _inputs];
                 _targets = new float[Rows * _outputs];
@@ -317,6 +412,36 @@ namespace Remedy.ManifoldNetwork.Schematics
                 _mean = new float[_inputs];
                 _variance = new float[_inputs];
                 for (int i = 0; i < _inputs; i++) _variance[i] = 1f;
+                if (saved != null)
+                {
+                    Array.Copy(saved.Mean, _mean, _inputs);
+                    if (saved.Variance != null && saved.Variance.Length == _inputs)
+                        Array.Copy(saved.Variance, _variance, _inputs);
+                }
+            }
+
+            /// <summary>What it has learned, to keep (null if its network is already gone).</summary>
+            public LearnedKind Snapshot(int objectId, string layoutSignature)
+            {
+                if (Net == null || Net.Disposed)
+                    return null;
+                var brain = Net.SaveBrain();
+                var kind = new LearnedKind
+                {
+                    ObjectId = objectId,
+                    ObjectName = _objectName,
+                    InputLayout = layoutSignature,
+                    Observations = _inputs,
+                    Mean = (float[])_mean.Clone(),
+                    Variance = (float[])_variance.Clone(),
+                    Settings = brain.Settings.Clone(),
+                    Parameters = brain.Parameters,
+                    Memory = brain.MemorySlots,
+                    Identities = brain.IdentityMasks,
+                    Updates = brain.Updates,
+                };
+                UnityEngine.Object.DestroyImmediate(brain);
+                return kind;
             }
 
             public void Step(List<SchematicObject> teacherObjects, SchematicObject own, ControllerImitation owner, List<Slot> layout, float deltaTime)
@@ -418,8 +543,124 @@ namespace Remedy.ManifoldNetwork.Schematics
 
         #endregion
 
+        #region Keeping what it learned
+
+        public bool LoadFrom(ControllerSkillData data)
+        {
+            if (data is not LearnedControls asset)
+                return false;
+            return Take(asset.Kinds);
+        }
+
+        public void SaveTo(ControllerSkillData data)
+        {
+            if (data is not LearnedControls asset)
+            {
+                Debug.LogWarning($"{_ai.DisplayName} can only keep what it learned in a Learned Controls asset.", _ai);
+                return;
+            }
+            foreach (var kind in Snapshot())
+                asset.Put(kind);
+#if UNITY_EDITOR
+            if (UnityEditor.EditorUtility.IsPersistent(asset))
+            {
+                UnityEditor.EditorUtility.SetDirty(asset);
+                UnityEditor.AssetDatabase.SaveAssetIfDirty(asset);
+            }
+#endif
+        }
+
+        public string SaveToFile(string fileName)
+        {
+            string path = FilePath(fileName);
+            try
+            {
+                var file = new LearnedControlsFile();
+                var kinds = Snapshot();
+                file.Kinds.AddRange(kinds);
+                // Kinds it was given but hasn't met this time are kept too.
+                foreach (var saved in _saved.Values)
+                    if (!kinds.Exists(kind => kind.ObjectId == saved.ObjectId))
+                        file.Kinds.Add(saved);
+                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path));
+                System.IO.File.WriteAllText(path, JsonUtility.ToJson(file));
+                return path;
+            }
+            catch (Exception exception)
+            {
+                Debug.LogError($"{_ai.DisplayName} couldn't save what it learned to {path}: {exception.Message}", _ai);
+                return null;
+            }
+        }
+
+        public bool LoadFromFile(string fileName)
+        {
+            string path = FilePath(fileName);
+            if (!System.IO.File.Exists(path))
+                return false;
+            try
+            {
+                var file = JsonUtility.FromJson<LearnedControlsFile>(System.IO.File.ReadAllText(path));
+                return file != null && Take(file.Kinds);
+            }
+            catch (Exception exception)
+            {
+                Debug.LogError($"{_ai.DisplayName} couldn't read {path}: {exception.Message}", _ai);
+                return false;
+            }
+        }
+
+        /// <summary>Where a skill file lives: the player's save folder, under "AI Skills".</summary>
+        public static string FilePath(string fileName)
+        {
+            string name = string.IsNullOrWhiteSpace(fileName) ? "AI Skill" : fileName.Trim();
+            foreach (char bad in System.IO.Path.GetInvalidFileNameChars())
+                name = name.Replace(bad, '_');
+            return System.IO.Path.Combine(Application.persistentDataPath, "AI Skills", name + ".json");
+        }
+
+        // Takes kinds learned before; any that are running now start again from them.
+        private bool Take(List<LearnedKind> kinds)
+        {
+            bool any = false;
+            if (kinds == null)
+                return false;
+            foreach (var kind in kinds)
+            {
+                if (kind == null || kind.Parameters == null || kind.Parameters.Length == 0 || kind.Settings == null)
+                    continue;
+                _saved[kind.ObjectId] = kind;
+                if (_kinds.TryGetValue(kind.ObjectId, out var running))
+                {
+                    running.Dispose();
+                    _kinds.Remove(kind.ObjectId);
+                }
+                any = true;
+            }
+            return any;
+        }
+
+        private List<LearnedKind> Snapshot()
+        {
+            var kinds = new List<LearnedKind>();
+            foreach (var entry in _kinds)
+            {
+                var kind = entry.Value.Snapshot(entry.Key, LayoutSignature);
+                if (kind != null)
+                {
+                    kinds.Add(kind);
+                    _saved[entry.Key] = kind;
+                }
+            }
+            return kinds;
+        }
+
+        #endregion
+
         public void Dispose()
         {
+            AutoSave();
+            _live.Remove(this);
             Teacher = null;
             foreach (var kind in _kinds.Values)
                 kind.Dispose();
