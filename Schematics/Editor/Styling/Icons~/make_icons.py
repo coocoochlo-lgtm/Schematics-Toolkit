@@ -111,6 +111,11 @@ TAB_ICONS = {
   <circle cx="21.6" cy="17" r="1.8" fill="{c}"/>
   <circle cx="25" cy="20.2" r="1.8" fill="{c}"/>
   <path d="M16 0.8 L17.4 4.4 L21 5.8 L17.4 7.2 L16 10.8 L14.6 7.2 L11 5.8 L14.6 4.4 Z" fill="{c}"/>''',
+    # A Mesh Graph: a wireframe cube, one corner a node.
+    "mesh": '''
+  <path d="M16 3 L28 9.5 L28 22.5 L16 29 L4 22.5 L4 9.5 Z" fill="none" stroke="{c}" stroke-width="2.3" stroke-linejoin="round"/>
+  <path d="M4 9.5 L16 16 L28 9.5 M16 16 V29" fill="none" stroke="{c}" stroke-width="2" stroke-linejoin="round"/>
+  <circle cx="16" cy="16" r="3.2" fill="{c}"/>''',
     # The IO Dock: an object's rows, each with its pin.
     "io-dock": '''
   <rect x="3" y="5" width="18" height="5" rx="2.5" fill="{c}"/>

@@ -1,0 +1,21 @@
+{
+    "name": "Remedy.Meshes",
+    "rootNamespace": "Remedy.Meshes",
+    "references": [
+        "GUID:9cef1c0784dad074282847b193c0d47b",
+        "GUID:f51ebe6a0ceec4240a699833d6309b23",
+        "GUID:0a22d72520a82174ab746de6d8876564",
+        "GUID:6082862122ef11a49bf208ee4ec62519",
+        "GUID:46b677238cf420e4e907fafa51cfa04e",
+        "GUID:c61f7966d20e38f45989bde55b098f00"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
