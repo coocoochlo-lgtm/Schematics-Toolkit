@@ -71,6 +71,20 @@ TAB_ICONS = {
   <path d="M7 16 C10 4, 14 4, 16 16 S22 28, 25 16" fill="none" stroke="{c}" stroke-width="3" stroke-linecap="round"/>
   <circle cx="5" cy="16" r="4" fill="{c}"/>
   <circle cx="27" cy="16" r="4" fill="{c}"/>''',
+    # An Audio graph: an audio signal flowing through a processing node.
+    "audio": '''
+  <rect x="2" y="11" width="7" height="10" rx="2" fill="{c}"/>
+  <rect x="23" y="11" width="7" height="10" rx="2" fill="{c}"/>
+  <path d="M9 16 H12 M20 16 H23" stroke="{c}" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M12 16 C13 16, 13 7, 16 7 S19 25, 20 16" fill="none" stroke="{c}" stroke-width="2.5" stroke-linecap="round"/>''',
+    # A UI graph: a UI Toolkit panel connected to a compact graph node.
+    "ui": '''
+  <rect x="2.5" y="3" width="19" height="26" rx="2.5" fill="none" stroke="{c}" stroke-width="2.3"/>
+  <path d="M3 9 H21" stroke="{c}" stroke-width="2.3"/>
+  <rect x="6" y="13" width="11" height="5" rx="1.3" fill="{c}"/>
+  <path d="M6 22 H16" stroke="{c}" stroke-width="2" stroke-linecap="round"/>
+  <rect x="22" y="11" width="8" height="8" rx="2" fill="{c}"/>
+  <path d="M21.5 15 H22" stroke="{c}" stroke-width="2.3"/>''',
     # A Timeline Graph: clips on tracks, and the playhead.
     "timeline": '''
   <rect x="2" y="8" width="11" height="5" rx="1.5" fill="{c}"/>

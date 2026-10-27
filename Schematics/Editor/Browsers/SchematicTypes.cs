@@ -106,8 +106,8 @@ namespace Remedy.Schematics.Browsers
         }
 
         /// <summary>
-        /// Makes a new Schematic of a kind in a folder: an empty Schematic Object prefab for prefab kinds, the kind's
-        /// creator method when it has one, else an empty graph asset. Returns the new asset (null if it failed).
+        /// Makes a new Schematic of a kind in a folder: the kind's creator method when available, an empty Schematic
+        /// Object prefab for generic prefab kinds, else an empty graph asset. Returns the new asset (null if it failed).
         /// </summary>
         public static UnityEngine.Object Create(Info info, string folder)
         {
@@ -116,11 +116,6 @@ namespace Remedy.Schematics.Browsers
             folder = string.IsNullOrEmpty(folder) ? info.DefaultFolder : folder.TrimEnd('/');
             ProjectFolderTree.CreateFolderPath(folder);
 
-            if (info.ListsPrefabs)
-            {
-                string prefabPath = AssetDatabase.GenerateUniqueAssetPath($"{folder}/{info.NewAssetName}.prefab");
-                return SchematicObjectFactory.CreateEmptySchematicPrefab(prefabPath);
-            }
             if (info.Creator != null)
             {
                 try
@@ -132,6 +127,11 @@ namespace Remedy.Schematics.Browsers
                     Debug.LogError($"[Project Manager] Couldn't make a new {info.Name} item: {exception.GetBaseException().Message}");
                     return null;
                 }
+            }
+            if (info.ListsPrefabs)
+            {
+                string prefabPath = AssetDatabase.GenerateUniqueAssetPath($"{folder}/{info.NewAssetName}.prefab");
+                return SchematicObjectFactory.CreateEmptySchematicPrefab(prefabPath);
             }
 
             string path = AssetDatabase.GenerateUniqueAssetPath($"{folder}/{info.NewAssetName}.asset");

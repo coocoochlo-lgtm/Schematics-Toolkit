@@ -20,6 +20,7 @@ namespace Remedy.Audio
         {
             // Sound Cue nodes only show in Sound Cues (not in every other graph's node search).
             DefaultSearchProvider.ExclusiveTags.Add(SoundNode.Tag);
+            DefaultSearchProvider.ExclusiveTags.Add(SoundCueGraph.OutputOnlyTag);
 
             SchematicGraphEditorWindow.CanvasLoaded += (window, canvas) =>
             {

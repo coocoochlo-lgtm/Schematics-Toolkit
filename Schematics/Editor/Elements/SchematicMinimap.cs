@@ -2,7 +2,9 @@
 using BlueGraph.Editor;
 using Remedy.Schematics;
 using System.Collections.Generic;
+using System.Reflection;
 using UnityEditor;
+using UnityEditor.Experimental.GraphView;
 using UnityEngine;
 using UnityEngine.UIElements;
 
@@ -35,6 +37,214 @@ public class SchematicMinimap : VisualElement
 
     private const string VisibleKey = "SchematicMinimap.Visible";
     private const float Margin = 8f;
+
+    // Read-only graph tiles use the minimap's own rendering and hit-test rules. The live CanvasView path below keeps
+    // its own viewport-aware map, while both paths use the same layers: comments, orthogonal wires, notes, nodes.
+    public readonly struct OverviewHit
+    {
+        public readonly string Label;
+        public readonly Rect Bounds;
+        public OverviewHit(string label, Rect bounds) { Label = label; Bounds = bounds; }
+    }
+
+    public static Texture2D RenderOverview(SchematicGraph graph, int size = 128)
+    {
+        var bg = EditorGUIUtility.isProSkin ? new Color32(25, 28, 34, 255) : new Color32(232, 235, 240, 255);
+        var pixels = new Color32[size * size];
+        for (int i = 0; i < pixels.Length; i++) pixels[i] = bg;
+        var nodes = graph?.Nodes;
+        if (nodes == null || nodes.Count == 0) return MakeOverviewTexture(pixels, size);
+        var bounds = PreviewBounds(graph, nodes);
+        var area = new Rect(size * 0.09f, size * 0.09f, size * 0.82f, size * 0.82f);
+        FitPreview(bounds, area, out float scale, out Vector2 offset);
+        Rect Map(Rect rect) => MapPreviewRect(rect, bounds, scale, offset);
+
+        foreach (var comment in graph.EditorComments)
+            BlendPreviewRect(pixels, size, Map(comment.Region), comment.Color, 0.22f);
+
+        var byId = new Dictionary<string, BlueGraph.Node>();
+        foreach (var node in nodes) byId[node.ID] = node;
+        foreach (var source in nodes)
+            foreach (var port in source.Ports.Values)
+                foreach (var connection in port.Connections)
+                    if (connection != null && byId.TryGetValue(connection.NodeID, out var target))
+                    {
+                        var a = Map(new Rect(source.Position, new Vector2(180, 90))).center;
+                        var b = Map(new Rect(target.Position, new Vector2(180, 90))).center;
+                        int ax = Mathf.RoundToInt(a.x), ay = Mathf.RoundToInt(a.y), bx = Mathf.RoundToInt(b.x), by = Mathf.RoundToInt(b.y);
+                        int mid = (ax + bx) / 2;
+                        var wire = new Color32(158, 184, 214, 184);
+                        DrawPreviewLine(pixels, size, ax, ay, mid, ay, wire);
+                        DrawPreviewLine(pixels, size, mid, ay, mid, by, wire);
+                        DrawPreviewLine(pixels, size, mid, by, bx, by, wire);
+                    }
+        foreach (var note in graph.EditorNotes)
+            FillPreviewRect(pixels, size, Map(note.Region), note.Color);
+        foreach (var node in nodes)
+        {
+            var rect = Map(new Rect(node.Position, new Vector2(180, 90)));
+            GetNodeMark(node, out var icon, out _, out _);
+            if (icon == null)
+                BlendPreviewRect(pixels, size, rect, HeaderColor(node), 0.75f);
+        }
+        return MakeOverviewTexture(pixels, size);
+    }
+
+    public static OverviewHit? OverviewHitAt(SchematicGraph graph, Vector2 point, int size = 128)
+    {
+        var nodes = graph?.Nodes;
+        if (nodes == null || nodes.Count == 0) return null;
+        var bounds = PreviewBounds(graph, nodes);
+        var area = new Rect(size * 0.09f, size * 0.09f, size * 0.82f, size * 0.82f);
+        FitPreview(bounds, area, out float scale, out Vector2 offset);
+        var p = new Vector2(point.x, size - point.y);
+        foreach (var node in nodes)
+        {
+            var rect = MapPreviewRect(new Rect(node.Position, new Vector2(180, 90)), bounds, scale, offset);
+            if (Inflate(rect, 4f).Contains(p)) return new OverviewHit($"{node.DisplayName} · {node.GetType().Name}", rect);
+        }
+        foreach (var note in graph.EditorNotes)
+        {
+            var rect = MapPreviewRect(note.Region, bounds, scale, offset);
+            if (rect.Contains(p)) return new OverviewHit(FirstWords(note.Text, 3), rect);
+        }
+        foreach (var comment in graph.EditorComments)
+        {
+            var rect = MapPreviewRect(comment.Region, bounds, scale, offset);
+            if (rect.Contains(p)) return new OverviewHit(FirstWords(comment.Text, 3), rect);
+        }
+        return null;
+    }
+
+    /// <summary>Returns a zoom factor that gives nodes a consistent relative width in the preview viewport.</summary>
+    public static float RecommendedPreviewZoom(SchematicGraph graph, int size = 256)
+    {
+        var nodes = graph?.Nodes;
+        if (nodes == null || nodes.Count == 0) return 2.5f;
+        var bounds = PreviewBounds(graph, nodes);
+        var area = new Rect(size * 0.09f, size * 0.09f, size * 0.82f, size * 0.82f);
+        FitPreview(bounds, area, out float scale, out _);
+        float nodeWidth = 180f * scale;
+        return Mathf.Clamp(size * 0.24f / Mathf.Max(1f, nodeWidth), 1f, 8f);
+    }
+
+    /// <summary>Draws the same semantic node marks as the live minimap over a zoomed graph preview.</summary>
+    public static void DrawOverviewMarks(SchematicGraph graph, Rect viewport, Vector2 zoomCenter, float zoom, int size = 256)
+    {
+        var nodes = graph?.Nodes;
+        if (nodes == null || nodes.Count == 0 || viewport.width <= 0 || viewport.height <= 0) return;
+        var bounds = PreviewBounds(graph, nodes);
+        var area = new Rect(size * 0.09f, size * 0.09f, size * 0.82f, size * 0.82f);
+        FitPreview(bounds, area, out float mapScale, out Vector2 offset);
+        foreach (var node in nodes)
+        {
+            GetNodeMark(node, out var icon, out var tint, out float iconSize);
+            if (icon == null) continue;
+            var mapRect = MapPreviewRect(new Rect(node.Position, new Vector2(180, 90)), bounds, mapScale, offset);
+            var center = mapRect.center;
+            float x = viewport.center.x + (center.x / size - zoomCenter.x) * zoom * viewport.width;
+            float y = viewport.center.y + (1f - center.y / size - zoomCenter.y) * zoom * viewport.height;
+            float pixels = Mathf.Clamp(iconSize * viewport.width / Width * zoom, 3f, 16f);
+            var rect = new Rect(x - pixels * 0.5f, y - pixels * 0.5f, pixels, pixels);
+            if (rect.xMin < viewport.xMin || rect.xMax > viewport.xMax || rect.yMin < viewport.yMin || rect.yMax > viewport.yMax)
+                continue;
+            var old = GUI.color;
+            GUI.color = tint;
+            GUI.DrawTexture(rect, icon, ScaleMode.ScaleToFit);
+            GUI.color = old;
+        }
+    }
+
+    private static void GetNodeMark(BlueGraph.Node target, out Texture icon, out Color tint, out float size)
+    {
+        icon = null;
+        tint = Color.white;
+        size = 12f;
+        switch (target)
+        {
+            case SendSignalNode _: icon = DockRows.SignalIcon; tint = DockRows.SignalColor(output: false); break;
+            case OnSignalReceivedNode _: icon = DockRows.SignalInIcon; tint = DockRows.SignalColor(output: true); break;
+            case GetBehaviorVariableNode get:
+                icon = PrefabHierarchy.VariableIcon;
+                tint = PrefabHierarchy.ColorOf(BehaviorReflection.Get(get.Target.Type)?.FindVariableType(get.Variable));
+                size = 6f; break;
+            case SetBehaviorVariableNode set:
+                icon = PrefabHierarchy.VariableIcon;
+                tint = PrefabHierarchy.ColorOf(BehaviorReflection.Get(set.Target.Type)?.FindVariableType(set.Variable));
+                size = 6f; break;
+            case GraphVariableNodeBase graphVariable:
+                icon = DockRows.GraphVariableIcon;
+                tint = DockRows.ColorOf(graphVariable.Definition?.ValueType);
+                size = 6f; break;
+            case BehaviorReferenceNode _: icon = BehaviorIcon; break;
+        }
+    }
+
+    private static Color HeaderColor(BlueGraph.Node node)
+        => node?.GetType().GetCustomAttribute<NodeColorAttribute>(true)?.Color ?? new Color32(119, 170, 255, 255);
+
+    private static Rect PreviewBounds(SchematicGraph graph, IReadOnlyList<BlueGraph.Node> nodes)
+    {
+        var bounds = new Rect(nodes[0].Position, new Vector2(180, 90));
+        foreach (var node in nodes) bounds = Encapsulate(bounds, new Rect(node.Position, new Vector2(180, 90)));
+        foreach (var comment in graph.EditorComments) bounds = Encapsulate(bounds, comment.Region);
+        foreach (var note in graph.EditorNotes) bounds = Encapsulate(bounds, note.Region);
+        return Inflate(bounds, 40f);
+    }
+
+    private static void FitPreview(Rect bounds, Rect area, out float scale, out Vector2 offset)
+    {
+        scale = Mathf.Min(area.width / Mathf.Max(1f, bounds.width), area.height / Mathf.Max(1f, bounds.height));
+        offset = new Vector2(area.x + (area.width - bounds.width * scale) * 0.5f, area.y + (area.height - bounds.height * scale) * 0.5f);
+    }
+
+    private static Rect MapPreviewRect(Rect rect, Rect bounds, float scale, Vector2 offset)
+        => new Rect(offset + (rect.position - bounds.position) * scale, rect.size * scale);
+
+    private static Texture2D MakeOverviewTexture(Color32[] pixels, int size)
+    {
+        var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+        { name = "Schematic Minimap Preview", hideFlags = HideFlags.HideAndDontSave, filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
+        texture.SetPixels32(pixels); texture.Apply(false, true); return texture;
+    }
+
+    private static void FillPreviewRect(Color32[] pixels, int size, Rect rect, Color color)
+    {
+        int x0 = Mathf.FloorToInt(rect.xMin), x1 = Mathf.CeilToInt(rect.xMax);
+        int y0 = Mathf.FloorToInt(rect.yMin), y1 = Mathf.CeilToInt(rect.yMax);
+        for (int y = y0; y < y1; y++) for (int x = x0; x < x1; x++)
+            if ((uint)x < size && (uint)y < size) pixels[y * size + x] = color;
+    }
+
+    private static void BlendPreviewRect(Color32[] pixels, int size, Rect rect, Color color, float alpha)
+    {
+        int x0 = Mathf.FloorToInt(rect.xMin), x1 = Mathf.CeilToInt(rect.xMax);
+        int y0 = Mathf.FloorToInt(rect.yMin), y1 = Mathf.CeilToInt(rect.yMax);
+        for (int y = y0; y < y1; y++) for (int x = x0; x < x1; x++)
+            if ((uint)x < size && (uint)y < size)
+            {
+                int i = y * size + x;
+                pixels[i] = Color32.Lerp(pixels[i], color, alpha);
+            }
+    }
+
+    private static void DrawPreviewLine(Color32[] pixels, int size, int x0, int y0, int x1, int y1, Color32 color)
+    {
+        int dx = Mathf.Abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+        int dy = -Mathf.Abs(y1 - y0), sy = y0 < y1 ? 1 : -1, error = dx + dy;
+        while (true)
+        {
+            if ((uint)x0 < size && (uint)y0 < size)
+            {
+                int i = y0 * size + x0;
+                pixels[i] = Color32.Lerp(pixels[i], color, color.a / 255f);
+            }
+            if (x0 == x1 && y0 == y1) break;
+            int twice = 2 * error;
+            if (twice >= dy) { error += dy; x0 += sx; }
+            if (twice <= dx) { error += dx; y0 += sy; }
+        }
+    }
 
     /// <summary>The row of buttons above the map (Map, and any the window adds in front of it).</summary>
     public VisualElement Buttons { get; }
@@ -133,7 +343,7 @@ public class SchematicMinimap : VisualElement
 
     private List<NodeView> Nodes() => _canvas.Query<NodeView>().ToList();
 
-    private Rect ToMap(Rect r) => new Rect(_mapOffset + (r.position - _contentBounds.position) * _mapScale, r.size * _mapScale);
+    private Rect ToMap(Rect r) => MapPreviewRect(r, _contentBounds, _mapScale, _mapOffset);
 
     /// <summary>
     /// Fits every node, comment and the current view into the map, and lays the comment boxes and names out to match.
@@ -156,8 +366,7 @@ public class SchematicMinimap : VisualElement
             return;
         _contentBounds = bounds;
 
-        _mapScale = Mathf.Min(area.width / bounds.width, area.height / bounds.height);
-        _mapOffset = new Vector2(area.x + (area.width - bounds.width * _mapScale) * 0.5f, area.y + (area.height - bounds.height * _mapScale) * 0.5f);
+        FitPreview(bounds, area, out _mapScale, out _mapOffset);
 
         _commentHits.Clear();
         for (int i = 0; i < comments.Count; i++)
@@ -186,6 +395,16 @@ public class SchematicMinimap : VisualElement
 
         // The comments sit underneath, as UI Toolkit boxes (see CommentMark); their names are drawn on top. Notes are
         // solid boxes in their color, at their size.
+        // Draw connected ports before nodes so wires sit behind the node marks, as they do on the graph canvas.
+        Handles.color = new Color(0.62f, 0.72f, 0.84f, 0.72f);
+        foreach (var edge in _canvas.edges)
+        {
+            if (edge?.output?.node is not NodeView source || edge.input?.node is not NodeView target)
+                continue;
+            var from = ToMap(source.GetPosition()).center;
+            var to = ToMap(target.GetPosition()).center;
+            Handles.DrawAAPolyLine(1.25f, from, new Vector2((from.x + to.x) * 0.5f, from.y), new Vector2((from.x + to.x) * 0.5f, to.y), to);
+        }
         foreach (var note in _canvas.Query<NoteView>().ToList())
         {
             var rect = ToMap(note.GetPosition());
@@ -200,33 +419,13 @@ public class SchematicMinimap : VisualElement
             var rect = ToMap(node.GetPosition());
             _nodeHits.Add((rect, node.GetPosition()));
             bool selected = _canvas.selection.Contains(node);
-            EditorGUI.DrawRect(rect, selected ? new Color(0.3f, 0.6f, 0.9f, 0.9f) : new Color(0.45f, 0.45f, 0.45f, 0.75f));
-
-            // A mark for the nodes that use the IO Dock's items.
-            Texture icon = null;
-            Color tint = Color.white;
-            float size = 12f;
-            switch (target)
+            GetNodeMark(target, out var icon, out var tint, out float size);
+            if (selected)
+                EditorGUI.DrawRect(rect, new Color(0.3f, 0.6f, 0.9f, 0.9f));
+            else if (icon == null)
             {
-                // (As on the nodes: sending, blue, as the Behavior receives it; reacting, red, as it sent it.)
-                case SendSignalNode _: icon = DockRows.SignalIcon; tint = DockRows.SignalColor(output: false); break;
-                case OnSignalReceivedNode _: icon = DockRows.SignalInIcon; tint = DockRows.SignalColor(output: true); break;
-                case GetBehaviorVariableNode get:
-                    icon = PrefabHierarchy.VariableIcon;
-                    tint = PrefabHierarchy.ColorOf(BehaviorReflection.Get(get.Target.Type)?.FindVariableType(get.Variable));
-                    size = 6f; // (Variables are many and small: half the others' marks.)
-                    break;
-                case SetBehaviorVariableNode set:
-                    icon = PrefabHierarchy.VariableIcon;
-                    tint = PrefabHierarchy.ColorOf(BehaviorReflection.Get(set.Target.Type)?.FindVariableType(set.Variable));
-                    size = 6f;
-                    break;
-                case GraphVariableNodeBase graphVariable:
-                    icon = DockRows.GraphVariableIcon;
-                    tint = DockRows.ColorOf(graphVariable.Definition?.ValueType);
-                    size = 6f;
-                    break;
-                case BehaviorReferenceNode _: icon = BehaviorIcon; break;
+                var header = HeaderColor(target);
+                EditorGUI.DrawRect(rect, new Color(header.r, header.g, header.b, 0.75f));
             }
 
             if (icon != null)

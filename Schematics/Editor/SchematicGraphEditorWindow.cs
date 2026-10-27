@@ -2,6 +2,7 @@
 using BlueGraph.Editor;
 using Remedy.Framework;
 using Remedy.Schematics;
+using Remedy.UI;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -149,6 +150,7 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
 
     /// <summary>The Prefab tab's dock, for revealing rows from the graph.</summary>
     private PrefabHierarchy _dock;
+    private string _hierarchyTab = "Prefab";
     private SchematicMinimap _minimap;
     private CanvasMotion _motion;
 
@@ -304,8 +306,8 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
         }
     }
 
-    private static VisualElement _dg;
-    private static VisualElement _cachedGlobalDraw
+    private VisualElement _dg;
+    private VisualElement _cachedGlobalDraw
     {
         get
         {
@@ -318,7 +320,7 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
             foreach (var instance in _globals)
             {
                 var path = AssetDatabase.GetAssetPath(SchematicEditorData.Instance) + "/Global Events/" + instance.name + "/";
-                (bool draw, VisualElement dock) = IODockRegistry.RenderObjectDock(instance.type, _currentWindow, instance.data, null, path);
+                (bool draw, VisualElement dock) = IODockRegistry.RenderObjectDock(instance.type, this, instance.data, null, path);
 
                 if (draw && dock != null)
                 {
@@ -336,8 +338,6 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
         }
     }
 
-    private static SchematicGraphEditorWindow _currentWindow;
-
     #endregion
 
     private bool _updatedPortParams = false;
@@ -354,8 +354,6 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
     /// <param name="graph">The graph to load and display in the editor</param>
     public override void Load(Graph graph)
     {
-        _currentWindow = this;
-
         const string loadProcess = "Load Graph";
         Profiler.StartTracking(loadProcess);
 
@@ -379,7 +377,8 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
         _sidebarTabs = new("scope");
 
         _sidebarTabs.AddTab("Global");
-        _sidebarTabs.AddTab("Prefab");
+        _hierarchyTab = SchematicGraph is SchematicUIGraph ? "UI Tree" : "Prefab";
+        _sidebarTabs.AddTab(_hierarchyTab);
         _sidebarTabs.AddTab("Graph");
 
         _sidebarAndContent.SidebarContainer.Add(_sidebarTabs);
@@ -544,17 +543,22 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
 
     private void RedrawPrefabIO()
     {
-        _sidebarTabs["Prefab"].Clear();
+        _sidebarTabs[_hierarchyTab].Clear();
         _dock = null;
+        if (SchematicGraph is SchematicUIGraph uiGraph)
+        {
+            _sidebarTabs[_hierarchyTab].Set(new UIHierarchy(uiGraph, this));
+            return;
+        }
         if (SchematicGraph is SingletonGraph singleton)
         {
-            _sidebarTabs["Prefab"].Set(new IMGUIContainer(() => DrawSingletonPanel(singleton)));
+            _sidebarTabs[_hierarchyTab].Set(new IMGUIContainer(() => DrawSingletonPanel(singleton)));
             return;
         }
         if (Prefab != null)
         {
             _dock = new PrefabHierarchy(Prefab, this);
-            _sidebarTabs["Prefab"].Set(_dock);
+            _sidebarTabs[_hierarchyTab].Set(_dock);
         }
     }
 
@@ -665,7 +669,7 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
             }).StartingIn(30);
         }
         else if (_dock != null && _dock.Reveal(key))
-            _sidebarTabs.SelectTab("Prefab");
+            _sidebarTabs.SelectTab(_hierarchyTab);
     }
 
     /// <summary>A graph's Variables or Signals changed (here or in the Inspector): redraw, and re-pin nodes if needed.</summary>
@@ -689,6 +693,11 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
         SetBehaviorVariableNode set => "Variable: " + set.Variable + " (" + set.Target.Describe() + ")",
         BehaviorReferenceNode behavior => "Behavior: " + behavior.Target.Describe(),
         PrefabObjectNode obj => "Object: " + (string.IsNullOrEmpty(obj.Path) ? "(root)" : obj.Path),
+        UIElementReferenceNode element => "UI Element: " + element.ElementName,
+        OnUIButtonClicked click => "UI Button: " + click.ElementName,
+        SetUIText text => "UI Text: " + text.ElementName,
+        SetUIVisible visible => "UI Visibility: " + visible.ElementName,
+        SetUIEnabled enabled => "UI Enabled: " + enabled.ElementName,
         GraphVariableNodeBase variable => "Graph Variable: " + (variable.Definition?.Name ?? "(missing)") + (variable.Owner != null ? " (" + variable.Owner.name + ")" : ""),
         _ => null,
     };
@@ -704,6 +713,11 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
         SetBehaviorVariableNode set => DockItem.VariableKey(set.Target.Type, set.Target.Path, set.Variable),
         BehaviorReferenceNode behavior => DockItem.BehaviorKey(behavior.Target.Type, behavior.Target.Path),
         PrefabObjectNode obj => DockItem.ObjectKey(obj.Path),
+        UIElementReferenceNode element => DockItem.UIElementKey(element.ElementName),
+        OnUIButtonClicked click => DockItem.UIElementKey(click.ElementName),
+        SetUIText text => DockItem.UIElementKey(text.ElementName),
+        SetUIVisible visible => DockItem.UIElementKey(visible.ElementName),
+        SetUIEnabled enabled => DockItem.UIElementKey(enabled.ElementName),
         GraphVariableNodeBase variable => DockItem.GraphVariableKey(variable.DeclaringGraph, variable.VariableId),
         _ => null,
     };
@@ -784,9 +798,9 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
                 }).StartingIn(30);
                 return;
             }
+            _sidebarTabs.SelectTab(_hierarchyTab);
             if (_dock == null)
                 return;
-            _sidebarTabs.SelectTab("Prefab");
             _dock.Reveal(key);
         });
     }
@@ -1045,6 +1059,7 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
                 case DockItem.ItemKind.GraphVariable: ShowGraphVariableDropMenu(item, dropPosition); break;
                 case DockItem.ItemKind.Behavior: CreateBehaviorNode(item, dropPosition); break;
                 case DockItem.ItemKind.GameObject: CreatePrefabObjectNode(item, dropPosition); break;
+                case DockItem.ItemKind.UIElement: CreateUIElementNode(item, dropPosition); break;
             }
             return;
         }
@@ -1272,6 +1287,74 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
         Canvas.AddNodeFromSearch(node, this.position.position + position, null);
         RedrawGraphIO();
         return node;
+    }
+
+    private Node CreateUIElementNode(DockItem item, Vector2 position)
+    {
+        var node = NewNode<UIElementReferenceNode>();
+        node.ElementName = item.ElementName;
+        node.Name = item.ElementName;
+        Canvas.AddNodeFromSearch(node, this.position.position + position, null);
+        RedrawGraphIO();
+        return node;
+    }
+
+    internal void CreateUINode(DockItem item, Type nodeType)
+    {
+        Node node = nodeType == typeof(OnUIButtonClicked) ? NewNode<OnUIButtonClicked>()
+            : nodeType == typeof(SetUIText) ? NewNode<SetUIText>()
+            : nodeType == typeof(SetUIVisible) ? NewNode<SetUIVisible>()
+            : nodeType == typeof(SetUIEnabled) ? NewNode<SetUIEnabled>()
+            : NewNode<UIElementReferenceNode>();
+        switch (node)
+        {
+            case OnUIButtonClicked clicked: clicked.ElementName = item.ElementName; break;
+            case SetUIText setText: setText.ElementName = item.ElementName; break;
+            case SetUIVisible setVisible: setVisible.ElementName = item.ElementName; break;
+            case SetUIEnabled setEnabled: setEnabled.ElementName = item.ElementName; break;
+            case UIElementReferenceNode reference: reference.ElementName = item.ElementName; break;
+        }
+        node.Name = nodeType == typeof(OnUIButtonClicked) ? "On " + item.ElementName + " Clicked"
+            : nodeType == typeof(SetUIText) ? "Set " + item.ElementName + " Text"
+            : nodeType == typeof(SetUIVisible) ? "Set " + item.ElementName + " Visible"
+            : nodeType == typeof(SetUIEnabled) ? "Set " + item.ElementName + " Enabled"
+            : item.ElementName;
+        var canvasCenter = Canvas.WorldToLocal(Canvas.worldBound.center);
+        Canvas.AddNodeFromSearch(node, this.position.position + canvasCenter, null);
+        RedrawGraphIO();
+    }
+
+    internal void AttachUIBehavior(string elementName, Type behaviorType)
+    {
+        if (!(SchematicGraph is SchematicUIGraph graph) || string.IsNullOrEmpty(elementName) || behaviorType == null)
+            return;
+        var metadata = BehaviorMetadataGenerator.GetOrCreate(behaviorType);
+        if (metadata == null)
+            return;
+        var list = graph.FindBehaviors(elementName);
+        if (list?.Items?.Any(item => item?.Metadata?.BehaviorType.Type == behaviorType) == true)
+            return;
+        Undo.RecordObject(graph, "Attach UI Behavior");
+        list = graph.GetOrCreateBehaviors(elementName);
+        list.Items ??= new List<BehaviorAttachment>();
+        list.Items.Add(new BehaviorAttachment { Metadata = metadata });
+        EditorUtility.SetDirty(graph);
+        RedrawIODock();
+    }
+
+    internal void RemoveUIBehavior(string elementName, BehaviorAttachment attachment)
+    {
+        if (!(SchematicGraph is SchematicUIGraph graph) || attachment == null)
+            return;
+        var list = graph.FindBehaviors(elementName);
+        if (list?.Items == null || !list.Items.Contains(attachment))
+            return;
+        Undo.RecordObject(graph, "Remove UI Behavior");
+        list.Items.Remove(attachment);
+        if (list.Items.Count == 0)
+            graph.UIBehaviors.Remove(list);
+        EditorUtility.SetDirty(graph);
+        RedrawIODock();
     }
 
     #region Port syncing

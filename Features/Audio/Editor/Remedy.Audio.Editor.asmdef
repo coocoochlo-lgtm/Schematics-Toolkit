@@ -9,7 +9,8 @@
         "GUID:6082862122ef11a49bf208ee4ec62519",
         "GUID:0a22d72520a82174ab746de6d8876564",
         "GUID:9cef1c0784dad074282847b193c0d47b",
-        "Remedy.Surfaces"
+        "GUID:7b3dde3ffd7f1625a8e86af39c20b9e0",
+        "GUID:b0bc71c846aa4593b307f667d9e4e05e"
     ],
     "includePlatforms": [
         "Editor"

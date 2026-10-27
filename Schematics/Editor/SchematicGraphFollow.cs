@@ -549,7 +549,7 @@ namespace Remedy.Schematics
     /// </summary>
     public static class SchematicTabIcons
     {
-        /// <summary>A tab icon by name (object, singleton, sound-cue, timeline, state-machine, io-dock), for the editor's skin.</summary>
+        /// <summary>A tab icon by name (object, singleton, audio, ui, sound-cue, timeline, state-machine, io-dock), for the editor's skin.</summary>
         public static Texture2D Get(string name)
             => Resources.Load<Texture2D>($"Textures/tab-{name}{(EditorGUIUtility.isProSkin ? "" : "-light")}");
 
@@ -557,7 +557,8 @@ namespace Remedy.Schematics
         public static Texture2D ForGraph(Type graphType)
             => Get(graphType?.Name switch
             {
-                "SoundCueGraph" => "sound-cue",
+                "SoundCueGraph" => "audio",
+                "SchematicUIGraph" => "ui",
                 "TimelineGraph" => "timeline",
                 "SingletonGraph" => "singleton",
                 _ => "object",

@@ -22,7 +22,7 @@ namespace Remedy.Schematics
         /// <summary>Groups are listed lowest first.</summary>
         public int Order { get; set; }
 
-        /// <summary>A built-in editor icon name for the group (optional).</summary>
+        /// <summary>A built-in editor icon name, or SchematicTab:&lt;name&gt; for a Schematic graph type icon (optional).</summary>
         public string Icon { get; set; }
 
         /// <summary>

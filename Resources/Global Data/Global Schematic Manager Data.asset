@@ -14,5 +14,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _schematicPrefabs:
     items: []
-  _prefabIOBases:
-    items: []
+  Singletons: []
+  _singletonGraphs:
+  - {fileID: 11400000, guid: b3082e14819150979a552d69e55d797b, type: 2}

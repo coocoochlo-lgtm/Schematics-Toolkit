@@ -298,7 +298,7 @@ LazyFoldout #unity-checkmark
 
 .components-tabbar
 {
-	background-color: rgba(0,0,0,0.2);
+	background-color: rgba(0,0,0,0.34);
 }
 
 .components-tab-content
@@ -848,10 +848,162 @@ TextElement
 }
 
 /* ---- Tab rows that fold like dropdowns: Behaviors > sections (Variables, Signals, Properties) > Properties headers ---- */
+.hierarchy-tree
+{
+    flex-grow: 1;
+}
+
+.hierarchy-tree-header
+{
+    flex-grow: 1;
+    min-width: 0;
+}
+
+.hierarchy-tree-row
+{
+    width: 100%;
+    min-height: 22px;
+    background-color: rgba(0, 0, 0, 0);
+}
+
+/* GameObject and UI Toolkit hierarchy rows share the same compact, alternating tree treatment. */
+.hierarchy-tree .dock-object
+{
+    background-color: #232326;
+    margin: 0;
+    padding: 0;
+}
+
+.hierarchy-tree .dock-object.dock-object--odd
+{
+    background-color: #2b2b2f;
+}
+
+.hierarchy-tree .dock-object-header
+{
+    flex-grow: 1;
+    min-width: 0;
+    min-height: 22px;
+    margin: 0;
+    padding: 1px 4px 1px 2px;
+    background-color: rgba(0, 0, 0, 0);
+    background-image: none;
+    border-width: 0;
+    border-radius: 0;
+}
+
+.hierarchy-tree .dock-object-header:hover
+{
+    background-color: rgba(255, 255, 255, 0.07);
+}
+
+.hierarchy-tree .dock-object-header.dock-object-header--selected,
+.hierarchy-tree .dock-object-header.dock-object-selected
+{
+    background-color: #2c5d87;
+}
+
+.hierarchy-tree .dock-object-header.dock-object-header--selected:hover,
+.hierarchy-tree .dock-object-header.dock-object-selected:hover
+{
+    background-color: #36699a;
+}
+
+.hierarchy-tree .dock-object-header.dock-object-header--selected Label,
+.hierarchy-tree .dock-object-header.dock-object-selected Label
+{
+    color: #ffffff;
+}
+
+.ui-hierarchy-icon
+{
+    width: 16px;
+    height: 16px;
+    min-width: 16px;
+    margin-right: 4px;
+    flex-shrink: 0;
+}
+
+.hierarchy-tree-children
+{
+    margin-left: 8px;
+    padding-left: 5px;
+    border-left-width: 0;
+}
+
+.hierarchy-tree-node
+{
+    position: relative;
+}
+
+.hierarchy-tree-guide
+{
+    position: absolute;
+    left: 7px;
+    top: 11px;
+    width: 1px;
+    height: 0;
+    background-color: rgba(255, 255, 255, 0.18);
+}
+
+.hierarchy-tree-branch
+{
+    position: absolute;
+    left: -5px;
+    top: 11px;
+    width: 5px;
+    height: 1px;
+    background-color: rgba(255, 255, 255, 0.18);
+}
+
+.hierarchy-tree-toggle
+{
+    width: 16px;
+    min-width: 16px;
+    height: 22px;
+    min-height: 22px;
+    flex-shrink: 0;
+    margin: 0px;
+    margin-top: 1px;
+    padding: 0px;
+    border-width: 0px;
+    background-color: rgba(0, 0, 0, 0);
+}
+
+.hierarchy-tree-toggle .unity-toggle__input
+{
+    border-width: 0px;
+    background-color: rgba(0, 0, 0, 0);
+}
+
+.hierarchy-tree-toggle #unity-checkmark
+{
+    background-image: url("Textures/list-foldout-toggle-2.png");
+    background-size: 100% 100%;
+    margin-right: 0px;
+    max-width: 16px;
+    max-height: 16px;
+    -unity-slice-left: 0;
+    -unity-slice-top: 0;
+}
+
+.hierarchy-remove-button
+{
+    width: 20px;
+    min-width: 20px;
+    margin-left: 2px;
+    color: #d88;
+}
+
 .component-tabs
 {
 	margin: 2px;
 	margin-left: 8px;
+	padding-top: 4px;
+	padding-bottom: 4px;
+	padding-left: 4px;
+	padding-right: 4px;
+	background-color: #1c1c1e;
 }
 
 .components-tab-action

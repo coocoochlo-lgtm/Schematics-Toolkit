@@ -100,6 +100,9 @@ namespace Remedy.Schematics.Browsers
         internal static Texture2D Icon(string name)
         {
             if (string.IsNullOrEmpty(name)) return null;
+            const string schematicTabPrefix = "SchematicTab:";
+            if (name.StartsWith(schematicTabPrefix, StringComparison.Ordinal))
+                return SchematicTabIcons.Get(name.Substring(schematicTabPrefix.Length).ToLowerInvariant());
             var texture = EditorGUIUtility.FindTexture(name);
             if (texture == null && EditorGUIUtility.isProSkin)
                 texture = EditorGUIUtility.FindTexture("d_" + name);

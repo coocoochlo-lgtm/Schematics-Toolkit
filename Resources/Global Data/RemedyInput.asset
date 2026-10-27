@@ -20,12 +20,12 @@ MonoBehaviour:
       Input:
         m_Name: Input
         m_Type: 0
-        m_ExpectedControlType: 
+        m_ExpectedControlType: Vector2
         m_Id: 1210c32f-8ee0-4b70-a70f-9f16ef7ac637
         m_Processors: 
         m_Interactions: 
         m_SingletonActionBindings:
-        - m_Name: move
+        - m_Name: Keyboard
           m_Id: 6c90bb29-e31e-40fc-96da-c92f91382780
           m_Path: 2DVector
           m_Interactions: 
@@ -65,70 +65,41 @@ MonoBehaviour:
           m_Groups: 
           m_Action: Input
           m_Flags: 8
-        m_Flags: 0
-        m_Priority: 0
-      Output: {fileID: 11400000, guid: 26020b3ad1f9a1b4ab96c4984099add2, type: 2}
-      OneShot: 0
-    - Name: Jump
-      Input:
-        m_Name: Input
-        m_Type: 0
-        m_ExpectedControlType: 
-        m_Id: e89a7e8d-f4a5-4234-8d4a-564ccb5f386a
-        m_Processors: 
-        m_Interactions: 
-        m_SingletonActionBindings: []
-        m_Flags: 0
-        m_Priority: 0
-      Output: {fileID: 11400000, guid: ccc69d691ce005a4db77f3d58ccc7051, type: 2}
-      OneShot: 0
-  _currentActionMap:
-    Name: Character Controller
-    Inputs:
-    - Name: Move
-      Input:
-        m_Name: Input
-        m_Type: 0
-        m_ExpectedControlType: 
-        m_Id: 1210c32f-8ee0-4b70-a70f-9f16ef7ac637
-        m_Processors: 
-        m_Interactions: 
-        m_SingletonActionBindings:
-        - m_Name: move
-          m_Id: 6c90bb29-e31e-40fc-96da-c92f91382780
-          m_Path: 2DVector
+        - m_Name: Gamepad
+          m_Id: c090f473-292c-404d-98fd-9574afa013b2
+          m_Path: 2DVector(mode=2)
           m_Interactions: 
           m_Processors: 
           m_Groups: 
           m_Action: Input
           m_Flags: 4
         - m_Name: up
-          m_Id: 0ec1fc2e-396b-4e53-9421-02af84bfe202
-          m_Path: <Keyboard>/w
+          m_Id: 333cdc9c-f892-4629-8c08-ed532b4ef097
+          m_Path: <Gamepad>/rightTrigger
           m_Interactions: 
           m_Processors: 
           m_Groups: 
           m_Action: Input
           m_Flags: 8
         - m_Name: down
-          m_Id: 1181978b-707b-48ba-9bac-68767ec04a0b
-          m_Path: <Keyboard>/s
+          m_Id: f03955cf-416b-4cce-b25f-a9f9a050b91c
+          m_Path: <Gamepad>/leftTrigger
           m_Interactions: 
           m_Processors: 
           m_Groups: 
           m_Action: Input
           m_Flags: 8
         - m_Name: left
-          m_Id: e2240a5f-166e-49a5-bd45-a49a0ada12f6
-          m_Path: <Keyboard>/a
+          m_Id: e9a49b25-4242-4bec-8cb2-069194ebdc6a
+          m_Path: <Gamepad>/leftStick/left
           m_Interactions: 
           m_Processors: 
           m_Groups: 
           m_Action: Input
           m_Flags: 8
         - m_Name: right
-          m_Id: dd5b7764-2beb-4914-bfa9-9449a0e22ab0
-          m_Path: <Keyboard>/d
+          m_Id: 9854c3f8-98a7-4ad7-9271-4cc41822a124
+          m_Path: <Gamepad>/leftStick/right
           m_Interactions: 
           m_Processors: 
           m_Groups: 
@@ -136,18 +107,116 @@ MonoBehaviour:
           m_Flags: 8
         m_Flags: 0
         m_Priority: 0
-      Output: {fileID: 11400000, guid: 26020b3ad1f9a1b4ab96c4984099add2, type: 2}
+      Output: {fileID: 11400000, guid: 87e2847fa27fb032c980a416e91c37dd, type: 2}
       OneShot: 0
     - Name: Jump
       Input:
         m_Name: Input
         m_Type: 0
-        m_ExpectedControlType: 
+        m_ExpectedControlType: Axis
         m_Id: e89a7e8d-f4a5-4234-8d4a-564ccb5f386a
         m_Processors: 
         m_Interactions: 
-        m_SingletonActionBindings: []
+        m_SingletonActionBindings:
+        - m_Name: 
+          m_Id: f7620f5e-31ad-4988-b1ba-ffe13d9944a3
+          m_Path: <Keyboard>/space
+          m_Interactions: 
+          m_Processors: 
+          m_Groups: 
+          m_Action: Input
+          m_Flags: 0
+        - m_Name: 
+          m_Id: 388ef562-9a11-44ee-a2a4-23aea11adf69
+          m_Path: <Gamepad>/buttonSouth
+          m_Interactions: 
+          m_Processors: 
+          m_Groups: 
+          m_Action: Input
+          m_Flags: 0
         m_Flags: 0
         m_Priority: 0
-      Output: {fileID: 11400000, guid: ccc69d691ce005a4db77f3d58ccc7051, type: 2}
+      Output: {fileID: 11400000, guid: 2e83214a7aa6e58768699c07448bf7ba, type: 2}
+      OneShot: 1
+    - Name: Handbrake
+      Input:
+        m_Name: Input
+        m_Type: 1
+        m_ExpectedControlType: Button
+        m_Id: 64cb45f6-f588-4f6c-bd53-3c3fdc9d1e30
+        m_Processors: 
+        m_Interactions: 
+        m_SingletonActionBindings:
+        - m_Name: 
+          m_Id: ef83d518-7191-4000-a809-96de09d4f8dc
+          m_Path: <Keyboard>/shift
+          m_Interactions: 
+          m_Processors: 
+          m_Groups: 
+          m_Action: Input
+          m_Flags: 0
+        - m_Name: 
+          m_Id: 88a979f2-617f-4d73-8ae9-934bf4b185d5
+          m_Path: <Gamepad>/buttonEast
+          m_Interactions: 
+          m_Processors: 
+          m_Groups: 
+          m_Action: Input
+          m_Flags: 0
+        m_Flags: 0
+        m_Priority: 0
+      Output: {fileID: 11400000, guid: 53cf4457fda1314d19bb1a8f2f3daa5c, type: 2}
+      OneShot: 0
+    - Name: Tilt
+      Input:
+        m_Name: Input
+        m_Type: 0
+        m_ExpectedControlType: Vector2
+        m_Id: 8936be23-3e96-4757-96fb-b497b8c1ece0
+        m_Processors: 
+        m_Interactions: 
+        m_SingletonActionBindings:
+        - m_Name: 2D Vector
+          m_Id: 71b41d8f-233f-40e2-b541-0bf372738ac1
+          m_Path: 2DVector(mode=2)
+          m_Interactions: 
+          m_Processors: 
+          m_Groups: 
+          m_Action: Input
+          m_Flags: 4
+        - m_Name: up
+          m_Id: dd6ea33c-db9f-4743-aacc-2d945d852b1f
+          m_Path: <Gamepad>/leftStick/up
+          m_Interactions: 
+          m_Processors: 
+          m_Groups: 
+          m_Action: Input
+          m_Flags: 8
+        - m_Name: down
+          m_Id: fef1b319-7024-4472-a8b1-810b98f99947
+          m_Path: <Gamepad>/leftStick/down
+          m_Interactions: 
+          m_Processors: 
+          m_Groups: 
+          m_Action: Input
+          m_Flags: 8
+        - m_Name: left
+          m_Id: 577bb423-c0f2-47bd-8232-5b589f420dc1
+          m_Path: <Gamepad>/leftStick/left
+          m_Interactions: 
+          m_Processors: 
+          m_Groups: 
+          m_Action: Input
+          m_Flags: 8
+        - m_Name: right
+          m_Id: b61262f3-650c-4f9c-85fd-f43c01968960
+          m_Path: <Gamepad>/leftStick/right
+          m_Interactions: 
+          m_Processors: 
+          m_Groups: 
+          m_Action: Input
+          m_Flags: 8
+        m_Flags: 0
+        m_Priority: 0
+      Output: {fileID: 11400000, guid: b61846e555af808f59ce6db816f2f42d, type: 2}
       OneShot: 0

@@ -13,7 +13,8 @@
         "GUID:75469ad4d38634e559750d17036d5f7c",
         "GUID:46b677238cf420e4e907fafa51cfa04e",
         "GUID:a14bcfccbf414ef7b91c8a36f5ca8795",
-        "GUID:776d03a35f1b52c4a9aed9f56d7b4229"
+        "GUID:776d03a35f1b52c4a9aed9f56d7b4229",
+        "GUID:32e9366afccba9245ad2c9ea731828e5"
     ],
     "includePlatforms": [
         "Editor"

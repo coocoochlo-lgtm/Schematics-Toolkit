@@ -69,6 +69,13 @@ namespace Remedy.Schematics
         }
     }
 
+    /// <summary>Implemented by a graph runner that exposes a UI Toolkit hierarchy to Schematic UI nodes.</summary>
+    public interface ISchematicUIRunner
+    {
+        /// <summary>Finds a named UI element. Returns null when no matching element exists.</summary>
+        object QueryElement(string name);
+    }
+
     /// <summary>A node that hands out a running graph from an output (Play Sound Cue's Player): which graph that is.</summary>
     public interface IGraphSource
     {

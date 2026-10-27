@@ -46,11 +46,7 @@ public class PrefabHierarchy : VisualElement
     // Behavior has no icon of its own.
     private const bool HideTabLabels = true;
 
-    // Lazy loading tracking
     private SchematicGraphEditorWindow _schematicWindow;
-    private EditorWindow _editorWindow;
-    private bool _includeSelf;
-    private List<LazyListFoldout> _foldouts = new();
 
     /// <summary>
     /// Creates a new prefab hierarchy view.
@@ -64,9 +60,6 @@ public class PrefabHierarchy : VisualElement
         _prefab = prefab;
         _assetPath = AssetDatabase.GetAssetPath(prefab);
 
-        // Initialize caching structures
-        var container = new VisualElement();
-
         if (editorWindow is SchematicGraphEditorWindow asSchematicWindow)
         {
             _schematicWindow = asSchematicWindow;
@@ -75,8 +68,6 @@ public class PrefabHierarchy : VisualElement
         // No reimport here: a forced reimport throws away whatever of the prefab is only in memory (e.g. the graph link the
         // window sets), and resetting the Prefab Mode stage discards its unsaved changes.
         RebuildHierarchy(_prefab.transform);
-
-        Add(container);
 
         RegisterCallback<AttachToPanelEvent>(_ =>
         {
@@ -98,7 +89,6 @@ public class PrefabHierarchy : VisualElement
     public void RebuildHierarchy(Transform transform = null)
     {
         Clear();
-        _foldouts.Clear();
         _objectHeaders.Clear();
         // Copies of list and class Variables are made again from the prefab (but those with an edit still waiting).
         foreach (var key in _boxedEdits.Keys.ToList())
@@ -116,11 +106,11 @@ public class PrefabHierarchy : VisualElement
         if (_shown == null)
             return;
 
-        var goFoldout = CreateGameObjectFoldout(_shown.transform, _schematicWindow, _editorWindow, _includeSelf);
-        // The root object's Behaviors get the same tab row as its children's.
-        AddComponentRow(goFoldout, _shown.transform, _schematicWindow);
-        RestoreExpanded(goFoldout, _shown.transform);
-        Add(goFoldout);
+        Add(new HierarchyTreeView<Transform>(new[] { _shown.transform },
+            tf => tf.GetComponentsInImmediateChildren<Transform>(),
+            PathOf,
+            tf => CreateGameObjectHeader(tf, _schematicWindow),
+            _assetPath + "|Prefab Tree"));
 
         _signature = Signature();
     }
@@ -140,9 +130,6 @@ public class PrefabHierarchy : VisualElement
     private const long WatchMs = 500;
     private IVisualElementScheduledItem _watch;
     private int _signature;
-
-    // Expanded objects (by path), so a rebuild doesn't fold everything up.
-    private readonly HashSet<string> _expanded = new();
 
     // The tab open in each row of tabs (by prefab, object, Behavior and level), so a rebuild doesn't fold them up.
     private static readonly Dictionary<string, string> _openTabs = new();
@@ -208,202 +195,125 @@ public class PrefabHierarchy : VisualElement
         }
     }
 
-    // Re-expands what was expanded before a rebuild, and keeps track of what the user expands.
-    private void RestoreExpanded(VisualElement objectContainer, Transform tf)
-    {
-        var path = PathOf(tf);
-
-        if (objectContainer.Q<LazyListFoldout>() is LazyListFoldout objectFoldout)
-        {
-            objectFoldout.RegisterValueChangedCallback(evt =>
-            {
-                if (evt.target != objectFoldout) return;
-                if (evt.newValue) _expanded.Add(path); else _expanded.Remove(path);
-            });
-            if (_expanded.Contains(path))
-            {
-                objectFoldout.RenderContent(true);
-                objectFoldout.SetValueWithoutNotify(true);
-            }
-        }
-    }
-
     #endregion
 
-    /// <summary>
-    /// Puts an object's Behavior tab row ("components") under its foldout's header.
-    /// </summary>
-    private void AddComponentRow(VisualElement objectContainer, Transform tf, SchematicGraphEditorWindow schematicWindow)
+    /// <summary>Creates the caller-specific header for one node in the shared hierarchy tree.</summary>
+    private VisualElement CreateGameObjectHeader(Transform tf, SchematicGraphEditorWindow schematicWindow)
     {
-        var toggle = objectContainer.Q<Toggle>();
-        if (toggle == null)
-            return;
-
-        var headerContainer = new VisualElement()
+        if (tf == null)
+            return null;
+        var itemContainer = new VisualElement();
+        itemContainer.style.flexDirection = FlexDirection.Column;
+        itemContainer.style.width = Length.Percent(100);
+        var objectHeader = new VisualElement();
+        objectHeader.AddToClassList("list-toggle-container");
+        objectHeader.AddToClassList("dock-object-header");
+        objectHeader.style.flexDirection = FlexDirection.Row;
+        objectHeader.style.alignItems = Align.Center;
+        objectHeader.style.width = Length.Percent(100);
+        var icon = new Image
         {
-            style =
-            {
-                flexDirection = FlexDirection.Column,
-                width =  Length.Percent(100)
-            }
+            image = EditorGUIUtility.IconContent("GameObject Icon").image as Texture2D,
+            scaleMode = ScaleMode.ScaleToFit,
         };
-        headerContainer.AddToClassList("child-header");
+        icon.style.width = icon.style.height = 16;
+        icon.style.marginRight = 4;
+        objectHeader.Add(icon);
+        var label = new Label(tf.name);
+        label.AddToClassList("list-label");
+        label.style.flexGrow = 1;
+        objectHeader.Add(label);
 
-        var newToggle = new VisualElement()
+        var objectPath = PathOf(tf);
+        var objectItem = new DockItem { Kind = DockItem.ItemKind.GameObject, Path = objectPath, GameObject = tf.gameObject };
+        foreach (var handle in new VisualElement[] { label, icon })
+            DockRows.MakeDragSource(handle, objectItem, () => SelectObject(objectPath), stopPress: true);
+        icon.RegisterCallback<ClickEvent>(evt => evt.StopPropagation());
+        label.RegisterCallback<PointerDownEvent>(evt =>
         {
-            style =
-            {
-                flexDirection = FlexDirection.Row
-            }
-        };
-        var componentRow = new VisualElement()
+            if (evt.button != 0 || evt.clickCount != 2)
+                return;
+            evt.StopPropagation();
+            RenameObject(tf, label);
+        });
+        label.RegisterCallback<ClickEvent>(evt => evt.StopPropagation());
+        if (_renamePath != null && objectPath == _renamePath)
         {
-            style =
-            {
-                flexDirection = FlexDirection.Row
-            }
-        };
-
-        componentRow.Add(CreateFoldoutContent(tf, schematicWindow));
-
-        componentRow.Children().ElementAt(0).style.width = Length.Percent(100);
-
-        foreach (var child in toggle.Children().ToList())
-        {
-            newToggle.Add(child);
+            _renamePath = null;
+            label.schedule.Execute(() => RenameObject(tf, label)).ExecuteLater(1);
         }
 
-        headerContainer.Add(newToggle);
-        headerContainer.Add(componentRow);
+        var addChild = new Button(() => AddChildObject(tf)) { text = "+", tooltip = "Add a child GameObject" };
+        addChild.AddToClassList("list-button-add");
+        addChild.RegisterCallback<PointerDownEvent>(evt => evt.StopPropagation());
+        addChild.RegisterCallback<ClickEvent>(evt => evt.StopPropagation());
+        objectHeader.Add(addChild);
+        if (tf != _shown.transform)
+        {
+            var removeObject = new Button(() => DeleteObject(tf)) { text = "×", tooltip = "Delete this GameObject" };
+            removeObject.AddToClassList("hierarchy-remove-button");
+            removeObject.RegisterCallback<PointerDownEvent>(evt => evt.StopPropagation());
+            removeObject.RegisterCallback<ClickEvent>(evt => evt.StopPropagation());
+            objectHeader.Add(removeObject);
+        }
+        objectHeader.RegisterCallback<ContextualMenuPopulateEvent>(evt =>
+        {
+            evt.menu.AppendAction("Add Child", _ => AddChildObject(tf));
+            evt.menu.AppendAction("Rename", _ => RenameObject(tf, label));
+            if (tf != _shown.transform)
+                evt.menu.AppendAction("Delete Object", _ => DeleteObject(tf));
+        });
 
-        toggle.Add(headerContainer);
+        _objectHeaders.Add((objectHeader, objectPath));
+        objectHeader.EnableInClassList("dock-object-selected", SelectedPath() == objectPath);
+        objectHeader.EnableInClassList("dock-object-header--selected", SelectedPath() == objectPath);
+        itemContainer.Add(objectHeader);
+        var componentRow = new VisualElement();
+        componentRow.AddToClassList("component-row");
+        componentRow.Add(CreateFoldoutContent(tf, schematicWindow));
+        itemContainer.Add(componentRow);
+        return itemContainer;
     }
 
-    /// <summary>
-    /// Creates a GameObjectFoldout with buttons for a given Transform.
-    /// </summary>
-    private VisualElement CreateGameObjectFoldout(Transform tf, SchematicGraphEditorWindow schematicWindow, EditorWindow editorWindow, bool includeSelf)
+    private void AddChildObject(Transform parentTransform)
     {
-        if (tf == null) return null;
-
-        var childListContainer = new VisualElement();
-
-        var childListFoldout = new LazyListFoldout(collection: tf.GetComponentsInImmediateChildren<Transform>(),
-                                                    className: "game-object",
-                                                    title: tf.name,
-
-                                                    onItemAdded: (object item) =>
-                                                    {
-                                                    },
-
-                                                    onItemRemoved: (object item) =>
-                                                    {
-                                                        var tfPath = PathOf((Transform)item);
-                                                        EditPrefab("Delete Object", (root, live) =>
-                                                        {
-                                                            var target = FindInCopy(root, tfPath);
-                                                            if (target == null || target == root.transform)
-                                                                return;
-
-                                                            // Its Behaviors (and its children's) go with it.
-                                                            var schematic = root.GetComponent<SchematicObject>();
-                                                            if (schematic != null)
-                                                            {
-                                                                if (live) Undo.RecordObject(schematic, "Delete Object");
-                                                                foreach (var t in target.GetComponentsInChildren<Transform>(true))
-                                                                    schematic.Behaviors.Remove(t.gameObject);
-                                                            }
-
-                                                            if (live) Undo.DestroyObjectImmediate(target.gameObject);
-                                                            else GameObject.DestroyImmediate(target.gameObject);
-                                                        });
-                                                    },
-
-                                                    // Setup Item/VisualElements
-                                                    createItemInstance: (Action<object> onCreationFinished) =>
-                                                    {
-                                                        // Made at once as "GameObject" (or "GameObject 2"...), then its name is typed in
-                                                        // place in its row once the dock is drawn again.
-                                                        var parentPath = PathOf(tf);
-                                                        string name = "GameObject";
-                                                        for (int n = 2; tf.Find(name) != null; n++)
-                                                            name = "GameObject " + n;
-                                                        _renamePath = string.IsNullOrEmpty(parentPath) ? name : parentPath + "/" + name;
-                                                        EditorApplication.delayCall += () => EditPrefab("Add Child", (root, live) =>
-                                                        {
-                                                            var parent = FindInCopy(root, parentPath);
-                                                            if (parent == null)
-                                                                return;
-                                                            var child = new GameObject(name);
-                                                            child.transform.SetParent(parent, false);
-                                                            if (live) Undo.RegisterCreatedObjectUndo(child, "Add Child");
-                                                        });
-                                                    },
-
-                                                    createItemContent: (int index, object item) =>
-                                                    {
-                                                        var childTf = (Transform)item;
-                                                        var objectContainer = CreateGameObjectFoldout(childTf, schematicWindow, editorWindow, includeSelf);
-
-                                                        // Double-click the object's name to rename it.
-                                                        var nameLabel = objectContainer.Q<Label>(className: "list-label");
-                                                        nameLabel?.RegisterCallback<PointerDownEvent>(evt =>
-                                                        {
-                                                            if (evt.button != 0 || evt.clickCount != 2)
-                                                                return;
-                                                            evt.StopPropagation();
-                                                            RenameObject(childTf, nameLabel);
-                                                        });
-                                                        // Just added: its name typed in place right away.
-                                                        if (nameLabel != null && _renamePath != null && PathOf(childTf) == _renamePath)
-                                                        {
-                                                            _renamePath = null;
-                                                            nameLabel.schedule.Execute(() => RenameObject(childTf, nameLabel)).ExecuteLater(1);
-                                                        }
-
-                                                        AddComponentRow(objectContainer, childTf, schematicWindow);
-                                                        RestoreExpanded(objectContainer, childTf);
-
-                                                        return objectContainer;
-                                                    },
-
-                                                    getItemName: (object item) =>
-                                                    {
-                                                        return ((Transform)item) == null ? "" : ((Transform)item).name;
-                                                    },
-
-                                                    itemLabelClicked: (MouseDownEvent evt, object item, Action onItemEditted) =>
-                                                    {
-                                                        if (evt.clickCount == 2 && evt.button == 0)
-                                                            RenameObject((Transform)item, childListContainer);
-                                                    },
-                                                    getListIcon: () => { return EditorGUIUtility.IconContent("GameObject Icon").image as Texture2D; },
-                                                    // Deleting an object takes its children and Behaviors with it: asked first.
-                                                    confirmRemove: (object item) => item is Transform child && child != null
-                                                        && EditorUtility.DisplayDialog("Delete Object",
-                                                            $"Delete {child.name}{(child.childCount > 0 ? " and everything under it" : "")}, with its Schematic Behaviors?",
-                                                            "Delete", "Cancel"));
-
-
-        _foldouts.Add(childListFoldout);
-
-        // The object's icon and name: click to select it (in the scene, Prefab Mode or the Project window, whichever
-        // the graph is on), press and move to drag it into the graph; the selected one is highlighted.
-        var objectPath = PathOf(tf);
-        var objectHeader = childListFoldout.Q(className: "list-toggle-container");
-        var objectItem = new DockItem { Kind = DockItem.ItemKind.GameObject, Path = objectPath, GameObject = tf.gameObject };
-        foreach (var handle in new VisualElement[] { childListFoldout.Q<Label>(className: "list-label"), objectHeader?.Q<Image>() })
-            if (handle != null)
-                DockRows.MakeDragSource(handle, objectItem, () => SelectObject(objectPath), stopPress: true);
-        if (objectHeader != null)
+        if (parentTransform == null)
+            return;
+        var parentPath = PathOf(parentTransform);
+        string name = "GameObject";
+        for (int n = 2; parentTransform.Find(name) != null; n++)
+            name = "GameObject " + n;
+        _renamePath = string.IsNullOrEmpty(parentPath) ? name : parentPath + "/" + name;
+        EditorApplication.delayCall += () => EditPrefab("Add Child", (root, _) =>
         {
-            _objectHeaders.Add((objectHeader, objectPath));
-            objectHeader.EnableInClassList("dock-object-selected", SelectedPath() == objectPath);
-        }
+            var parent = FindInCopy(root, parentPath);
+            if (parent == null)
+                return;
+            var child = new GameObject(name);
+            child.transform.SetParent(parent, false);
+        });
+    }
 
-        childListContainer.Add(childListFoldout);
-
-        return childListContainer;
+    private void DeleteObject(Transform transform)
+    {
+        if (transform == null || transform == _shown.transform)
+            return;
+        if (!EditorUtility.DisplayDialog("Delete Object",
+            $"Delete {transform.name}{(transform.childCount > 0 ? " and everything under it" : "")}, with its Schematic Behaviors?",
+            "Delete", "Cancel"))
+            return;
+        var path = PathOf(transform);
+        EditPrefab("Delete Object", (root, _) =>
+        {
+            var target = FindInCopy(root, path);
+            if (target == null || target == root.transform)
+                return;
+            var schematic = root.GetComponent<SchematicObject>();
+            if (schematic != null)
+                foreach (var child in target.GetComponentsInChildren<Transform>(true))
+                    schematic.Behaviors.Remove(child.gameObject);
+            GameObject.DestroyImmediate(target.gameObject);
+        });
     }
 
     // An object's Behaviors, as a row of tabs (each with its script's icon) that open like a dropdown: click one to show
@@ -1655,7 +1565,11 @@ public class PrefabHierarchy : VisualElement
     {
         var selected = SelectedPath();
         foreach (var (header, path) in _objectHeaders)
-            header.EnableInClassList("dock-object-selected", selected != null && path == selected);
+        {
+            var isSelected = selected != null && path == selected;
+            header.EnableInClassList("dock-object-selected", isSelected);
+            header.EnableInClassList("dock-object-header--selected", isSelected);
+        }
     }
 
     #endregion

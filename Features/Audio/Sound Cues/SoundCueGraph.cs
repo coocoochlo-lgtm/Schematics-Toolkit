@@ -20,11 +20,14 @@ namespace Remedy.Audio
     /// <see cref="SoundCueVoice"/>, which renders blocks of samples on the audio thread: per block, every node runs once
     /// over the whole block, so the graph costs a little per block rather than per sample.
     /// </remarks>
-    [SchematicType("Audio", Order = 30, Icon = "AudioSource Icon", NewAssetName = "New Sound Cue", DefaultFolder = SoundCueGraph.Folder)]
+    [SchematicType("Audio", Order = 30, Icon = "SchematicTab:audio", NewAssetName = "New Sound Cue", DefaultFolder = SoundCueGraph.Folder)]
     [IncludeTags(SoundNode.Tag)]
     [RequireNode(typeof(SoundCueOutput), "Output", 400, 0)]
     public partial class SoundCueGraph : SchematicGraph
     {
+        /// <summary>Exclusive search tag for the required Output node; it is not offered as a user-creatable node.</summary>
+        public const string OutputOnlyTag = "Sound Cue Required Output";
+
         /// <summary>Where new Sound Cues go: shown by the Audio page (Sound Cues) and the Schematics page (Audio).</summary>
         public const string Folder = "Assets/Content/Audio/Sound Cues";
 
@@ -63,7 +66,7 @@ namespace Remedy.Audio
             }
         }
 
-        /// <summary>The cue's Output node (the first one, if there are several).</summary>
+        /// <summary>The cue's required Output node.</summary>
         public SoundCueOutput Output
         {
             get
@@ -73,6 +76,19 @@ namespace Remedy.Audio
                         return output;
                 return null;
             }
+        }
+
+        public override void OnGraphValidate()
+        {
+            base.OnGraphValidate();
+            bool removedDuplicate = false;
+            foreach (var duplicate in Nodes.OfType<SoundCueOutput>().Skip(1).ToArray())
+            {
+                RemoveNode(duplicate);
+                removedDuplicate = true;
+            }
+            if (removedDuplicate)
+                CacheNodesByType();
         }
     }
 

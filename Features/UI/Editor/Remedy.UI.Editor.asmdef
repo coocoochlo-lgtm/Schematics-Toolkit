@@ -1,0 +1,20 @@
+{
+    "name": "Remedy.UI.Editor",
+    "rootNamespace": "Remedy.UI.Editor",
+    "references": [
+        "GUID:32e9366afccba9245ad2c9ea731828e5",
+        "GUID:34ab7552608995045bf7108d3c6dd27b",
+        "GUID:6082862122ef11a49bf208ee4ec62519",
+        "GUID:c61f7966d20e38f45989bde55b098f00",
+        "GUID:0a22d72520a82174ab746de6d8876564"
+    ],
+    "includePlatforms": ["Editor"],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

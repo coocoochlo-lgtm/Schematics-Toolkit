@@ -114,6 +114,9 @@ namespace BlueGraph
             get { return comments; }
         }
 
+        /// <summary>Read-only comments for editor graph overviews.</summary>
+        public IReadOnlyList<Comment> EditorComments => comments;
+
         [SerializeField, HideInInspector]
         private List<Comment> comments = new List<Comment>();
 
@@ -124,6 +127,9 @@ namespace BlueGraph
         {
             get { return notes ??= new List<Note>(); }
         }
+
+        /// <summary>Read-only notes for editor graph overviews.</summary>
+        public IReadOnlyList<Note> EditorNotes => notes ??= new List<Note>();
 
         [SerializeField, HideInInspector]
         private List<Note> notes = new List<Note>();

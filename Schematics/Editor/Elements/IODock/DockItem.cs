@@ -8,7 +8,7 @@ using UnityEngine;
 /// </summary>
 public sealed class DockItem
 {
-    public enum ItemKind { Behavior, Variable, Signal, GameObject, GraphVariable }
+    public enum ItemKind { Behavior, Variable, Signal, GameObject, GraphVariable, UIElement }
 
     public const string DragKey = "SchematicDockItem";
 
@@ -48,6 +48,8 @@ public sealed class DockItem
     /// <summary>Work <see cref="Direction"/> out from the graph it's dropped into (for graph Signals).</summary>
     public bool DirectionFromDropTarget;
     public GameObject GameObject;
+    /// <summary>The UI Toolkit element name used by a UI graph.</summary>
+    public string ElementName;
     /// <summary>For graph Variables and Signals: the graph that declares them.</summary>
     public SchematicGraph Graph;
     /// <summary>For graph Variables: the Variable's id.</summary>
@@ -60,6 +62,7 @@ public sealed class DockItem
         ItemKind.Variable => VariableKey(Behavior, Path, Name),
         ItemKind.GraphVariable => GraphVariableKey(Graph, VariableId),
         ItemKind.Behavior => BehaviorKey(Behavior, Path),
+        ItemKind.UIElement => UIElementKey(ElementName),
         _ => ObjectKey(Path),
     };
 
@@ -67,6 +70,7 @@ public sealed class DockItem
     {
         ItemKind.Behavior => Behavior != null ? Behavior.Name : "Behavior",
         ItemKind.GameObject => GameObject != null ? GameObject.name : Path,
+        ItemKind.UIElement => ElementName,
         _ => Name,
     };
 
@@ -74,6 +78,7 @@ public sealed class DockItem
     public static string VariableKey(Type behavior, string path, string name) => $"var:{behavior?.FullName}|{path}|{name}";
     public static string BehaviorKey(Type behavior, string path) => $"behavior:{behavior?.FullName}|{path}";
     public static string ObjectKey(string path) => "object:" + path;
+    public static string UIElementKey(string name) => "ui-element:" + name;
     public static string GraphVariableKey(SchematicGraph graph, string id)
         => $"gvar:{(graph != null ? graph.Uid : "")}|{id}";
 }

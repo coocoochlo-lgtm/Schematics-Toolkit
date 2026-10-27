@@ -162,15 +162,16 @@ namespace Remedy.Schematics.Browsers
             // Tags are shown by the tag bar (and as dots on the tiles); the names still count for search.
             grid.ShowCategories = false;
             grid.CategoriesOf = entry => AssetTags.Of(AssetOf(entry), TagSection).Select(t => t.TagName);
-            grid.TileBadge = entry =>
-            {
-                var tags = AssetTags.Of(AssetOf(entry), TagSection);
-                return tags.Count > 0 ? AssetTags.Dots(tags) : null;
-            };
+            grid.TileBadge = entry => SchematicCardPreviews.Badge(entry, AssetTags.Of(AssetOf(entry), TagSection));
+            grid.HoverThumbnailOf = SchematicCardPreviews.Overview;
+            grid.HoverZoomOf = SchematicCardPreviews.OverviewZoom;
+            grid.HoverInfoOf = SchematicCardPreviews.OverviewInfo;
+            grid.DrawHoverOverlayOf = SchematicCardPreviews.DrawOverviewMarks;
             _tagBar = new TagBar(TagSection) { FilterEnabled = FilterByTag };
             _tagBar.FilterChanged += () => { ApplyFilter(); Grid?.Refresh(); };
             grid.InsertBelowToolbar(_tagBar);
-            grid.ThumbnailOf = entry => entry.Prefab != null ? null : ThumbnailOf(entry);
+            grid.ThumbnailOf = entry => SchematicCardPreviews.Thumbnail(entry)
+                ?? (entry.Prefab != null ? null : ThumbnailOf(entry));
             grid.DragAssetOf = entry => entry.Prefab != null ? null : AssetOf(entry);
             grid.Rename = RenameEntry;
             grid.ShareTileSize = true; // the same tile size as the Audio page
@@ -203,9 +204,11 @@ namespace Remedy.Schematics.Browsers
             var kind = Kind;
             if (Grid == null || kind == null)
                 return;
-            Grid.CreateTileLabel = kind.ListsPrefabs ? "New Schematic Object…" : $"{kind.NewAssetName}…";
-            Grid.CreateTileTooltip = kind.ListsPrefabs
+            Grid.CreateTileLabel = kind.ListsPrefabs && kind.Creator == null ? "New Schematic Object…" : $"{kind.NewAssetName}…";
+            Grid.CreateTileTooltip = kind.ListsPrefabs && kind.Creator == null
                 ? "A new Schematic Object prefab: empty, or from a template."
+                : kind.ListsPrefabs
+                    ? $"A new {kind.Name} Schematic prefab with its own UI Builder document."
                 : $"A new {kind.Name} graph in the selected folder.";
             Grid.EmptyMessage = $"No {kind.Name} here yet.\nUse the + tile to make one.";
             if (_levelDesignOnly != null)
@@ -299,7 +302,7 @@ namespace Remedy.Schematics.Browsers
             if (kind == null)
                 return;
             string folder = _tree?.TargetFolder ?? kind.DefaultFolder;
-            if (!kind.ListsPrefabs)
+            if (!kind.ListsPrefabs || kind.Creator != null)
             {
                 CreateIn(kind, folder);
                 return;
@@ -474,12 +477,12 @@ namespace Remedy.Schematics.Browsers
             if (kind == null)
                 return;
             string target = folder ?? kind.DefaultFolder;
-            menu.AddItem(new GUIContent(kind.ListsPrefabs ? "New Empty Schematic Object" : $"New {kind.NewAssetName.Replace("New ", "")}"), false, () =>
+            menu.AddItem(new GUIContent(kind.ListsPrefabs && kind.Creator == null ? "New Empty Schematic Object" : kind.NewAssetName), false, () =>
             {
                 _tree.Select(group.Key, folder);
                 CreateIn(kind, target);
             });
-            if (kind.ListsPrefabs)
+            if (kind.ListsPrefabs && kind.Creator == null)
                 menu.AddItem(new GUIContent("New Schematic Object From Template…"), false, () => CreateFromTemplate(target));
         }
 

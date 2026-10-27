@@ -14,7 +14,7 @@ using UnityEngine;
 /// and, if one is assigned, its own State Machine (the definition lives on this asset, the state on the object).
 /// </summary>
 [CreateAssetMenu(fileName = "New Singleton Graph", menuName = "Remedy Toolkit/Schematics/Singleton Schematic"), IncludeTags("Default", "Runtime", "Object", "State")]
-[SchematicType("Singletons", Order = 10, Icon = "GameManager Icon", NewAssetName = "New Singleton Graph")]
+[SchematicType("Singletons", Order = 10, Icon = "SchematicTab:singleton", NewAssetName = "New Singleton Graph")]
 public class SingletonGraph : SchematicGraph
 {
     public override string Title => "Singleton: " + name;

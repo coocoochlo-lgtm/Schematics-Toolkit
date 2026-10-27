@@ -14,7 +14,7 @@ namespace Remedy.Audio
     [SchematicDoc(@"{""name"": ""Output"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue"", ""description"": ""The finished sound: its Audio, times its Volume. Length: Auto plays as long as the longest Sound Wave or Generator in the cue; Fixed plays for Duration seconds; Endless plays until it's stopped. Heard By AI: how far away AI can hear it in the open, in meters (0: AI never hear it); walls, corners and doorways between change that as they would the sound. Echo Delay: how late its Spatial echoes and slapback come back, as a multiple of real sound (1 as sound travels, 2 twice as late, 0.5 half)."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Volume"", ""type"": ""float""}]}")]
     [Serializable]
     [NodeColor(NodeColors.Event)]
-    [Node(Name = "Output", Path = "Output", Deletable = false), Tags(SoundNode.Tag)]
+    [Node(Name = "Output", Path = "Output", Deletable = false), Tags(SoundCueGraph.OutputOnlyTag)]
     public class SoundCueOutput : SoundNode
     {
         public const string AudioPort = "Audio";

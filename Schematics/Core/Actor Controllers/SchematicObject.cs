@@ -153,7 +153,7 @@ namespace Remedy.Schematics
         /// </summary>
         public IReadOnlyList<BehaviorInstance> BehaviorInstances => (IReadOnlyList<BehaviorInstance>)_behaviorInstances ?? Array.Empty<BehaviorInstance>();
 
-        private void Awake()
+        protected virtual void Awake()
         {
             // Pooled objects are registered by their pool. Anything else (placed in a scene, or instantiated
             // without the pool) registers itself here.
@@ -161,7 +161,7 @@ namespace Remedy.Schematics
                 ExecutionContext.Register(this);
         }
 
-        private void OnEnable()
+        protected virtual void OnEnable()
         {
             IntTagRegistry.SyncSource(this, Tags, _registeredTags, true);
 
@@ -178,7 +178,7 @@ namespace Remedy.Schematics
                 oninvokeNode.UpdateCaches();
         }
 
-        private void OnDisable()
+        protected virtual void OnDisable()
         {
             UnsubscribeTagEvents();
             IntTagRegistry.SyncSource(this, Tags, _registeredTags, false);
@@ -227,7 +227,7 @@ namespace Remedy.Schematics
             GraphStoreCreated = null;
         }
 
-        private void Start()
+        protected virtual void Start()
         {
             if (SchematicGraph != null)
             {
@@ -238,13 +238,13 @@ namespace Remedy.Schematics
             Started?.Invoke(this);
         }
 
-        private void Update()
+        protected virtual void Update()
         {
             if (SchematicGraph != null)
                 SchematicGraph.TriggerEvent<OnUpdate>(gameObject);
         }
 
-        private void OnDestroy()
+        protected virtual void OnDestroy()
         {
             if (SchematicGraph != null)
                 SchematicGraph.TriggerEvent<OnDestroy>(gameObject);

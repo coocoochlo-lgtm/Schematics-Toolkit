@@ -29,6 +29,17 @@ namespace Remedy.Schematics.Templates
     /// </remarks>
     public class SchematicTemplateGrid : VisualElement
     {
+        public readonly struct HoverInfo
+        {
+            public readonly string Text;
+            public readonly Rect Bounds;
+
+            public HoverInfo(string text, Rect bounds)
+            {
+                Text = text;
+                Bounds = bounds;
+            }
+        }
         /// <summary>The DragAndDrop generic-data key a dragged tile carries (its <see cref="SchematicTemplate"/>).</summary>
         public const string DragDataKey = "Remedy.SchematicTemplate";
 
@@ -259,6 +270,18 @@ namespace Remedy.Schematics.Templates
 
         /// <summary>A tile's picture, for tiles that aren't prefabs (graph assets). Null: the prefab's thumbnail.</summary>
         public Func<SchematicTemplate, Texture> ThumbnailOf { get; set; }
+
+        /// <summary>A graph overview shown while hovering a tile, in place of its regular thumbnail.</summary>
+        public Func<SchematicTemplate, Texture> HoverThumbnailOf { get; set; }
+
+        /// <summary>Magnification for the cursor-centered hover peek of a graph overview.</summary>
+        public Func<SchematicTemplate, float> HoverZoomOf { get; set; }
+
+        /// <summary>Draws graph-specific marks over the zoomed hover preview.</summary>
+        public Action<SchematicTemplate, Rect, Vector2, float> DrawHoverOverlayOf { get; set; }
+
+        /// <summary>Information for the graph item under the pointer on a hover overview.</summary>
+        public Func<SchematicTemplate, Vector2, HoverInfo?> HoverInfoOf { get; set; }
 
         /// <summary>
         /// The asset a tile drags as (into fields and other windows). Null, or null for a tile: it drags as a template,
@@ -927,6 +950,11 @@ namespace Remedy.Schematics.Templates
             public readonly SchematicTemplate Template;
             private readonly SchematicTemplateGrid _grid;
             private readonly Image _image;
+            private readonly Label _hoverInfo;
+            private readonly IMGUIContainer _magnifier;
+            private Texture _thumbnail;
+            private Vector2 _zoomCenter = new(0.5f, 0.5f);
+            private float _hoverZoom = 2.5f;
             private readonly Label _label;
             private bool _selected, _hovered, _flash;
             private Vector2 _pressPosition;
@@ -952,6 +980,27 @@ namespace Remedy.Schematics.Templates
                 _image.AddToClassList("schematic-grid__thumbnail");
                 SetRadius(_image.style, 3);
                 Add(_image);
+
+                _hoverInfo = new Label { pickingMode = PickingMode.Ignore };
+                _hoverInfo.style.position = Position.Absolute;
+                _hoverInfo.style.width = 120;
+                _hoverInfo.style.height = 18;
+                _hoverInfo.style.paddingLeft = _hoverInfo.style.paddingRight = 4;
+                _hoverInfo.style.paddingTop = _hoverInfo.style.paddingBottom = 2;
+                _hoverInfo.style.fontSize = 9;
+                _hoverInfo.style.whiteSpace = WhiteSpace.NoWrap;
+                _hoverInfo.style.textOverflow = TextOverflow.Ellipsis;
+                _hoverInfo.style.overflow = Overflow.Hidden;
+                _hoverInfo.style.backgroundColor = new Color(0.05f, 0.06f, 0.08f, 0.88f);
+                _hoverInfo.style.color = Color.white;
+                _hoverInfo.style.display = DisplayStyle.None;
+                _image.Add(_hoverInfo);
+
+                _magnifier = new IMGUIContainer(DrawMagnifier) { pickingMode = PickingMode.Ignore };
+                _magnifier.style.position = Position.Absolute;
+                _magnifier.style.left = _magnifier.style.top = _magnifier.style.right = _magnifier.style.bottom = 0;
+                _magnifier.style.display = DisplayStyle.None;
+                _image.Add(_magnifier);
 
                 _label = new Label { pickingMode = PickingMode.Ignore };
                 _label.AddToClassList("schematic-grid__label");
@@ -1010,8 +1059,8 @@ namespace Remedy.Schematics.Templates
                     this.AddManipulator(new ContextualMenuManipulator(evt => _grid.BuildTileMenu(evt, Template)));
                 }
 
-                RegisterCallback<PointerEnterEvent>(_ => { _hovered = true; Paint(); });
-                RegisterCallback<PointerLeaveEvent>(_ => { _hovered = false; _pressed = false; Paint(); });
+                RegisterCallback<PointerEnterEvent>(_ => { _hovered = true; Paint(); UpdateDisplayedThumbnail(); });
+                RegisterCallback<PointerLeaveEvent>(_ => { _hovered = false; _pressed = false; _hoverInfo.style.display = DisplayStyle.None; _magnifier.style.display = DisplayStyle.None; Paint(); UpdateDisplayedThumbnail(); });
             }
 
             // A longer flash than a click's, to draw the eye to something just made.
@@ -1032,7 +1081,17 @@ namespace Remedy.Schematics.Templates
                 if (Template == null)
                     return;
                 var custom = _grid.ThumbnailOf?.Invoke(Template);
-                _image.image = custom != null ? custom : SchematicTemplates.Thumbnail(Template.Prefab);
+                _thumbnail = custom != null ? custom : SchematicTemplates.Thumbnail(Template.Prefab);
+                UpdateDisplayedThumbnail();
+            }
+
+            private void UpdateDisplayedThumbnail()
+            {
+                var overview = _hovered ? _grid.HoverThumbnailOf?.Invoke(Template) : null;
+                _image.image = overview ?? _thumbnail;
+                if (overview != null) _hoverZoom = _grid.HoverZoomOf?.Invoke(Template) ?? 2.5f;
+                _magnifier.style.display = overview != null ? DisplayStyle.Flex : DisplayStyle.None;
+                _magnifier.MarkDirtyRepaint();
             }
 
             private bool _isRenaming;
@@ -1127,6 +1186,7 @@ namespace Remedy.Schematics.Templates
             // Dragging a tile into the Scene view places it there (handled by CreateSchematicObjectWindow's Scene hook).
             private void OnPointerMove(PointerMoveEvent evt)
             {
+                UpdateHoverInfo(evt.position);
                 if (!_pressed || (evt.pressedButtons & 1) == 0)
                     return;
                 if (((Vector2)evt.position - _pressPosition).sqrMagnitude < 36f)
@@ -1147,6 +1207,47 @@ namespace Remedy.Schematics.Templates
                 DragAndDrop.SetGenericData(DragDataKey, Template);
                 DragAndDrop.StartDrag(Template.DisplayName);
                 evt.StopPropagation();
+            }
+
+            private void UpdateHoverInfo(Vector2 worldPosition)
+            {
+                if (!_hovered || _grid.HoverInfoOf == null || _image.image != _grid.HoverThumbnailOf?.Invoke(Template))
+                {
+                    _hoverInfo.style.display = DisplayStyle.None;
+                    return;
+                }
+                var local = _image.WorldToLocal(worldPosition);
+                var size = _image.layout.size;
+                _zoomCenter = new Vector2(Mathf.Clamp01(local.x / Mathf.Max(1f, size.x)), Mathf.Clamp01(local.y / Mathf.Max(1f, size.y)));
+                _magnifier.MarkDirtyRepaint();
+                var info = _grid.HoverInfoOf(Template, new Vector2(local.x / Mathf.Max(1f, size.x) * 128f, local.y / Mathf.Max(1f, size.y) * 128f));
+                if (info == null || string.IsNullOrEmpty(info.Value.Text))
+                {
+                    _hoverInfo.style.display = DisplayStyle.None;
+                    return;
+                }
+                _hoverInfo.text = info.Value.Text;
+                float centerX = info.Value.Bounds.center.x / 128f;
+                float nodeTop = (128f - info.Value.Bounds.yMax) / 128f;
+                float zoomedCenterX = (centerX - _zoomCenter.x) * _hoverZoom * size.x + size.x * 0.5f;
+                float zoomedNodeTop = (nodeTop - _zoomCenter.y) * _hoverZoom * size.y + size.y * 0.5f;
+                _hoverInfo.style.left = Mathf.Clamp(zoomedCenterX - 60f, 0f, Mathf.Max(0f, size.x - 120f));
+                _hoverInfo.style.top = Mathf.Clamp(zoomedNodeTop - 20f, 1f, Mathf.Max(1f, size.y - 18f));
+                _hoverInfo.style.display = DisplayStyle.Flex;
+                _hoverInfo.BringToFront();
+            }
+
+            private void DrawMagnifier()
+            {
+                if (!_hovered || _image.image == null) return;
+                float zoom = _hoverZoom;
+                float crop = 1f / zoom;
+                float centerV = 1f - _zoomCenter.y;
+                var uv = new Rect(Mathf.Clamp(_zoomCenter.x - crop * 0.5f, 0f, 1f - crop),
+                    Mathf.Clamp(centerV - crop * 0.5f, 0f, 1f - crop), crop, crop);
+                var viewport = new Rect(0, 0, _magnifier.contentRect.width, _magnifier.contentRect.height);
+                GUI.DrawTextureWithTexCoords(viewport, _image.image, uv, true);
+                _grid.DrawHoverOverlayOf?.Invoke(Template, viewport, _zoomCenter, zoom);
             }
         }
     }
