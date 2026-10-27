@@ -36,6 +36,24 @@ namespace Remedy.Meshes
             return Basis(x * scale.x, y * scale.y, z * scale.z, position);
         }
 
+        /// <summary>
+        /// The Euler angles (degrees, Unity's order) of a rotation given by where it points forward (Z) and up (Y):
+        /// the inverse of <see cref="TRS"/>'s turning. Safe anywhere.
+        /// </summary>
+        public static Vector3 EulerFromAxes(Vector3 forward, Vector3 up)
+        {
+            var y = up.sqrMagnitude > 1e-12f ? up.normalized : Vector3.up;
+            var z = forward - y * Vector3.Dot(forward, y);
+            if (z.sqrMagnitude < 1e-10f)
+                z = Mathf.Abs(y.z) < 0.9f ? Vector3.forward - y * y.z : Vector3.right;
+            z = z.normalized;
+            var x = Vector3.Cross(y, z);
+            float pitch = Mathf.Asin(Mathf.Clamp(-z.y, -1f, 1f));
+            float yaw = Mathf.Atan2(z.x, z.z);
+            float roll = Mathf.Atan2(x.y, y.y);
+            return new Vector3(pitch, yaw, roll) * Mathf.Rad2Deg;
+        }
+
         /// <summary>A matrix from its axes and position.</summary>
         public static Matrix4x4 Basis(Vector3 x, Vector3 y, Vector3 z, Vector3 position)
             => new(new Vector4(x.x, x.y, x.z, 0f), new Vector4(y.x, y.y, y.z, 0f), new Vector4(z.x, z.y, z.z, 0f), new Vector4(position.x, position.y, position.z, 1f));

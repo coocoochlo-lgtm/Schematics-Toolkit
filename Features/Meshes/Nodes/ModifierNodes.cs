@@ -15,7 +15,7 @@ namespace Remedy.Meshes
 
     public enum MeshAxis { X, Y, Z }
 
-    [SchematicDoc(@"{""name"": ""Transform"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Mesh/Modify"", ""description"": ""Moves, turns (degrees) and scales a mesh. A negative scale mirrors it (its faces are turned to stay outward)."", ""inputs"": [{""name"": ""Mesh"", ""type"": ""MeshData""}, {""name"": ""Position"", ""type"": ""Vector3""}, {""name"": ""Rotation"", ""type"": ""Vector3""}, {""name"": ""Scale"", ""type"": ""Vector3""}], ""outputs"": [{""name"": ""Mesh"", ""type"": ""MeshData""}]}")]
+    [SchematicDoc(@"{""name"": ""Transform"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Mesh/Modify"", ""description"": ""Moves, turns (degrees) and scales a mesh (by Scale, times Uniform Scale: wire a Parameter in to size it). A negative scale mirrors it (its faces are turned to stay outward)."", ""inputs"": [{""name"": ""In"", ""type"": ""MeshData""}, {""name"": ""Position"", ""type"": ""Vector3""}, {""name"": ""Rotation"", ""type"": ""Vector3""}, {""name"": ""Scale"", ""type"": ""Vector3""}, {""name"": ""Uniform Scale"", ""type"": ""float""}], ""outputs"": [{""name"": ""Mesh"", ""type"": ""MeshData""}]}")]
     [Serializable]
     [Node(Name = "Transform", Path = "Modify"), Tags(MeshNode.Tag)]
     public sealed class MeshTransformNode : MeshNode
@@ -24,12 +24,14 @@ namespace Remedy.Meshes
         [Input("Position", Editable = true)] public Vector3 Position;
         [Input("Rotation", Editable = true)] public Vector3 Rotation;
         [Input("Scale", Editable = true)] public Vector3 Scale = Vector3.one;
+        [Input("Uniform Scale", Editable = true)] public float UniformScale = 1f;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 
         public override MeshOp Compile(MeshCompiler c)
         {
             var input = c.Mesh(this, "In");
-            var matrix = MeshModifiers.TRS(c.Vector(this, "Position", Position), c.Vector(this, "Rotation", Rotation), c.Vector(this, "Scale", Scale));
+            var scale = c.Vector(this, "Scale", Scale) * c.Number(this, "Uniform Scale", UniformScale);
+            var matrix = MeshModifiers.TRS(c.Vector(this, "Position", Position), c.Vector(this, "Rotation", Rotation), scale);
             return new MeshOp(() => { var mesh = input.Copy(); mesh.Transform(matrix); return mesh; });
         }
     }

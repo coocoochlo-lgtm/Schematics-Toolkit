@@ -71,6 +71,8 @@ namespace Remedy.Meshes
 
         private readonly IReadOnlyDictionary<string, float> _parameters;
         private readonly Dictionary<MeshNode, MeshOp> _ops = new();
+        private readonly Dictionary<MeshPointsNode, PointOp> _pointOps = new();
+        private readonly Dictionary<string, float> _constants = new(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<MeshNode> _building = new();
 
         /// <summary>Problems found while reading the graph (shown in the graph window).</summary>
@@ -90,6 +92,9 @@ namespace Remedy.Meshes
                 return plan;
             }
             var compiler = new MeshCompiler(parameters ?? new Dictionary<string, float>());
+            // The graph's Parameters, as formulas see them (set values, or defaults).
+            foreach (var (name, value) in graph.ParameterList)
+                compiler._constants[name] = compiler.Parameter(name, value);
             var previous = _current;
             _current = compiler;
             try
@@ -143,6 +148,67 @@ namespace Remedy.Meshes
             }
             _building.Remove(node);
             _ops[node] = op;
+            return op;
+        }
+
+        /// <summary>The graph's Parameters by name, with this object's values (for formulas).</summary>
+        public IReadOnlyDictionary<string, float> Constants => _constants;
+
+        /// <summary>
+        /// Reads a formula typed on a node, which can use <paramref name="variables"/> (given per point or vertex) and the
+        /// graph's Parameters. Null (with a warning naming the node) if it can't be read.
+        /// </summary>
+        public MeshExpression Expression(SchematicGraphNode node, string text, params string[] variables)
+        {
+            var expression = MeshExpression.Parse(text, variables, _constants, out string error);
+            if (expression == null)
+                Warnings.Add($"\"{node.Name}\": {error}");
+            return expression;
+        }
+
+        /// <summary>The points wired into an input (none, if nothing is).</summary>
+        public PointOp Points(MeshNode node, string port)
+        {
+            var input = node.GetPort(port);
+            if (input != null)
+                foreach (var source in input.ConnectedPorts)
+                    if (source?.Node is MeshPointsNode sourceNode)
+                        return StepPoints(sourceNode);
+            return PointOp.Empty;
+        }
+
+        /// <summary>Every set of points wired into an input.</summary>
+        public List<PointOp> AllPoints(MeshNode node, string port)
+        {
+            var found = new List<PointOp>();
+            var input = node.GetPort(port);
+            if (input != null)
+                foreach (var source in input.ConnectedPorts)
+                    if (source?.Node is MeshPointsNode sourceNode)
+                        found.Add(StepPoints(sourceNode));
+            return found;
+        }
+
+        private PointOp StepPoints(MeshPointsNode node)
+        {
+            if (_pointOps.TryGetValue(node, out var op))
+                return op;
+            if (!_building.Add(node))
+            {
+                Warnings.Add($"\"{node.Name}\" feeds into itself, which can't be made.");
+                return PointOp.Empty;
+            }
+            try
+            {
+                op = node.CompilePoints(this) ?? PointOp.Empty;
+            }
+            catch (Exception exception)
+            {
+                Warnings.Add($"\"{node.Name}\": {exception.Message}");
+                op = PointOp.Empty;
+            }
+            _building.Remove(node);
+            _pointOps[node] = op;
             return op;
         }
 
@@ -201,7 +267,7 @@ namespace Remedy.Meshes
             foreach (var source in input.ConnectedPorts)
             {
                 // A value (not a mesh): a Parameter, a Random, or any value node (Float Value...), read once now.
-                if (source?.Node is SchematicGraphNode valueNode && source.Type != typeof(MeshData))
+                if (source?.Node is SchematicGraphNode valueNode && source.Type != typeof(MeshData) && source.Type != typeof(PointData))
                 {
                     try
                     {

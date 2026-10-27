@@ -7,7 +7,25 @@ Create → Schematics → Mesh Graph, or from the Project Manager's Meshes page.
 - **Modify:** Transform, Merge, Array, Radial Array, Mirror, Scatter, Shading (hard or smooth edges), Simplify, Weld.
 - **Deform:** Twist, Bend, Taper, Noise.
 - **Surface:** Material Slot, UV Project (box or planar), UV Transform, Vertex Color.
-- **Values:** Parameter (a number each object sets for itself), Random (seeded), and any Float / Integer / Vector value node.
+- **Model:** Boolean (union, subtract and intersect for closed meshes), Subdivide (smooth Loop subdivision, or
+  linear), Spherize (an Amount from 0 to 1), Loop Cut (rings of edges across an axis), and Extrude. Extrude pulls out
+  faces picked by facing, all of them, or a material slot, builds walls joining them to where they were, and can
+  shrink the moved faces with Cap Scale.
+- **Points (loops over space):** Point Grid, Point Line, Point Circle and Points On Mesh make points.
+  - **Point Function** reshapes them with formulas per point: position, rotation, scale, and a Keep filter.
+  - **Point Jitter** randomises them, and **Merge Points** combines sets.
+  - **Stamp** puts a mesh on every point.
+  - **Vertex Function** moves a mesh's own vertices by a formula.
+- **Formulas** can use `+ - * / % ^`, comparisons, `&& || !`, `a ? b : c`, `.x .y .z`, sin cos tan asin acos atan
+  atan2 sqrt abs floor ceil round frac sign min max clamp lerp pow exp log step smoothstep radians degrees vec length
+  normalize dot cross distance noise fbm rand, pi, tau, and the graph's Parameters by name. Point Function's variables
+  are p, r, s, x, y, z, i, n and t. Vertex Function's are p, x, y, z, nrm, uv, i and n.
+- **Values:** Parameter (a number each object sets for itself), Random (seeded), Math (a formula of A–D), Make Vector,
+  and any Float or Integer value node.
+
+**Macros** (right-click in a Mesh Graph → Macros): **Characters/Humanoid (mannequin)**. It builds a humanoid from
+editable nodes (a shape and a placement per part, the right arm and leg mirrored), with Height, Build and Head Size
+Parameters. Its body plan is `HumanoidRecipe`, which can also build the mesh directly from code.
 - **Output:** the model, plus its LODs: LOD1 and LOD2 at the share of triangles you pick, and when each one shows.
 
 The graph window shows a live preview in its corner, rebuilt in the background a moment after each edit. It has
