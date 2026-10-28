@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace Remedy.Audio
 {
-    [SchematicDoc(@"{""name"": ""Around Corners"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Effects"", ""description"": ""Sound that bends round corners. When walls block the straight line to the listener but there's a way round (a doorway, the end of a corridor), the sound is heard both ways at once. From the last corner it comes round (fading in as it slips behind the corner, fully round by Fade Angle degrees past the edge, seen from the listener): quieter for the longer way and the sharper it has to bend (Bend Loss at a right angle), a little later, and duller the sharper the bend (Bend Cutoff at a right angle). And straight through the walls: Through Walls loud, muffled to Through Cutoff (Hz), and fading exponentially with the distance between them (to about a third every Through Falloff meters), so a wall right beside you lets more through than a building's worth of them. Fully closed in, only the through-walls sound is heard. In the game the ways round come from the Sound Field baked there; in the preview from its surroundings (try Doorway or Corner). Put it last, so everything before it goes round the corner."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Through Walls"", ""type"": ""float""}, {""name"": ""Through Cutoff"", ""type"": ""float""}], ""outputs"": [{""name"": ""Out"", ""type"": ""audio""}], ""use_for"": [""a sound in the next room heard through the doorway"", ""footsteps coming round a corridor corner""], ""notes"": ""Only for 3D (Stereo) cues. Sound Fields baked before this was added need baking again.""}")]
+    [SchematicDoc(@"{""name"": ""Around Corners"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Effects"", ""description"": ""Sound that bends round corners. When walls block the straight line to the listener but there's a way round (a doorway, the end of a corridor), the sound is heard both ways at once. From the last corner it comes round (fading in as it slips behind the corner, fully round by Fade Angle degrees past the edge, seen from the listener): quieter for the longer way and the sharper it has to bend (Bend Loss at a right angle), a little later, and duller the sharper the bend (Bend Cutoff at a right angle). And straight through the walls: Through Walls loud, muffled to Through Cutoff (Hz) (steeply by default: Wall Slope), duller still the further apart they are (Distance Dulling), with a little low rumble lifted (Rumble Boost dB around Rumble Frequency Hz), and fading exponentially with the distance between them (to about a third every Through Falloff meters), so a wall right beside you lets more through than a building's worth of them. Fully closed in, only the through-walls sound is heard. In the game the ways round come from the Sound Field baked there; in the preview from its surroundings (try Doorway or Corner). Put it last, so everything before it goes round the corner."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Through Walls"", ""type"": ""float""}, {""name"": ""Through Cutoff"", ""type"": ""float""}], ""outputs"": [{""name"": ""Out"", ""type"": ""audio""}], ""use_for"": [""a sound in the next room heard through the doorway"", ""footsteps coming round a corridor corner""], ""notes"": ""Only for 3D (Stereo) cues. Sound Fields baked before this was added need baking again.""}")]
     [Serializable]
     [Node(Name = "Around Corners", Path = "Effects"), Tags(SoundNode.Tag)]
     public class SoundCornersNode : SoundNode
@@ -20,11 +20,22 @@ namespace Remedy.Audio
         public float BendLoss = 0.5f;
         [Editable, Tooltip("Through walls: the distance (meters) over which what gets through drops to about a third, and to a third of that again over the next, and so on (on top of the sound's own fading with distance).")]
         public float ThroughFalloff = 10f;
+        [Editable, Tooltip("Through walls: how hard the highs are cut above Through Cutoff. Walls let lows through far more easily than highs, so steeper sounds more like the next room.")]
+        public WallFilter WallSlope = WallFilter.Steepest;
+        [Editable, Tooltip("Through walls: how much duller it gets the further apart they are (0: not at all; 1: the cutoff falls as fast as the volume does). At 0.5, one Through Falloff away the cutoff is about 60% of Through Cutoff.")]
+        public float DistanceDulling = 0.5f;
+        [Editable, Tooltip("Through walls: how much the low rumble is lifted (dB; 0 for none), the way walls and floors carry bass.")]
+        public float RumbleBoost = 4f;
+        [Editable, Tooltip("Through walls: the low frequency (Hz) the rumble is lifted around.")]
+        public float RumbleFrequency = 90f;
         [Editable, Tooltip("How far the sound must slip behind the corner (in degrees, seen from the listener: the angle between the corner and the sound) before it's heard fully round it. Closer to the edge, it fades between heard straight and heard round.")]
         public float FadeAngle = 35f;
         [Editable, Tooltip("Seconds to glide between heard straight and heard round a corner.")]
         public float Smoothing = 0.15f;
         [Output("Out")] public float Out;
+
+        /// <summary>How hard the through-walls sound's highs are cut: 6, 12 or 24 dB an octave above Through Cutoff.</summary>
+        public enum WallFilter { Gentle, Steep, Steepest }
 
         public override SoundProcessor CreateProcessor(SoundCueBuilder builder)
         {
@@ -44,6 +55,10 @@ namespace Remedy.Audio
                 Blocked = blocked.Output("Blocked"),
                 Through = blocked.Output("Through"),
                 Place = probe,
+                Slope = WallSlope,
+                Dulling = Mathf.Clamp01(DistanceDulling),
+                RumbleBoost = RumbleBoost,
+                RumbleFrequency = RumbleFrequency,
             };
         }
 
@@ -193,16 +208,62 @@ namespace Remedy.Audio
         {
             public float[] In, ThroughWalls, ThroughCutoff, Blocked, Through;
             public Probe Place;
+            public WallFilter Slope;
+            public float Dulling, RumbleBoost, RumbleFrequency;
             private readonly SpatialSender _sender;
             SpatialSender ISpatialSends.Sender => _sender;
-            private float _muffled;
+            private float _muffled, _cutoff = -1f;
+            private int _rate;
+            private Biquad _low1 = Biquad.Flat, _low2 = Biquad.Flat, _rumble = Biquad.Flat;
 
             public Processor(int sampleRate) => _sender = new SpatialSender(sampleRate);
 
             public override void Reset(SoundContext context)
             {
                 _muffled = 0f;
+                _low1.Clear();
+                _low2.Clear();
+                _rumble.Clear();
                 _sender.Reset();
+            }
+
+            // The filters for this block: the cutoff lower the further apart they are (by Distance Dulling).
+            private void Tune(SoundContext context, int count)
+            {
+                int rate = Mathf.Max(8000, context.SampleRate);
+                float through = Mathf.Clamp(Through[count - 1], 1e-4f, 1f);
+                float cutoff = Mathf.Clamp(ThroughCutoff[0] * Mathf.Pow(through, Dulling), 40f, 20000f);
+                if (rate != _rate)
+                {
+                    _rate = rate;
+                    _cutoff = -1f;
+                    if (RumbleBoost != 0f)
+                        _rumble.SetPeak(Mathf.Clamp(RumbleFrequency, 20f, 400f), 0.8f, Mathf.Clamp(RumbleBoost, -12f, 12f), rate);
+                }
+                if (Mathf.Abs(cutoff - _cutoff) < _cutoff * 0.01f)
+                    return;
+                _cutoff = cutoff;
+                // (Two in a row: a Butterworth pair, flat up to the cutoff then 24 dB an octave.)
+                _low1.SetLowPass(cutoff, Slope == WallFilter.Steepest ? 0.541f : 0.707f, rate);
+                _low2.SetLowPass(cutoff, 1.307f, rate);
+            }
+
+            private float Muffle(float x, float onePole)
+            {
+                switch (Slope)
+                {
+                    case WallFilter.Gentle:
+                        _muffled += (x - _muffled) * onePole;
+                        x = _muffled;
+                        break;
+                    case WallFilter.Steep:
+                        x = _low1.Process(x);
+                        break;
+                    default:
+                        x = _low2.Process(_low1.Process(x));
+                        break;
+                }
+                return RumbleBoost != 0f ? _rumble.Process(x) : x;
             }
 
             public override void Process(SoundContext context, int count)
@@ -210,15 +271,15 @@ namespace Remedy.Audio
                 var o = Output("Out");
                 if (count <= 0)
                     return;
-                // What gets through the walls: muffled (a one-pole low pass), turned down.
-                float cutoff = Mathf.Clamp(ThroughCutoff[0], 20f, 20000f);
-                float amount = 1f - Mathf.Exp(-2f * Mathf.PI * cutoff / Mathf.Max(8000, context.SampleRate));
+                // What gets through the walls: muffled (duller the further apart), its rumble lifted, turned down.
+                Tune(context, count);
+                float onePole = 1f - Mathf.Exp(-2f * Mathf.PI * _cutoff / _rate);
                 for (int i = 0; i < count; i++)
                 {
                     float x = In[i];
-                    _muffled += (x - _muffled) * amount;
+                    float muffled = Muffle(x, onePole);
                     float blocked = Mathf.Clamp01(Blocked[i]);
-                    o[i] = x * (1f - blocked) + _muffled * Mathf.Max(0f, ThroughWalls[i]) * Through[i] * blocked;
+                    o[i] = x * (1f - blocked) + muffled * Mathf.Max(0f, ThroughWalls[i]) * Through[i] * blocked;
                 }
                 Volatile.Write(ref Place.Sending, context.HeardStart >= 0 ? 1 : 0);
                 _sender.Send(Volatile.Read(ref Place.Sends), context, In, count, 1f);
