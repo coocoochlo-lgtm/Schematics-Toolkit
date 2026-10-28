@@ -59,13 +59,6 @@ namespace Remedy.Schematics
                 border.style.borderBottomColor = Color.Lerp(color, Color.black, 0.45f);
                 NodeGloss.Apply(border, 8f);
             }
-            // (Nodes' body gradient would darken the colour under the shine.)
-            var body = this.Q("contents");
-            if (body != null)
-            {
-                body.style.backgroundImage = StyleKeyword.None;
-                body.style.backgroundColor = Color.clear;
-            }
             var selection = this.Q("selection-border");
             if (selection != null)
                 selection.style.borderTopLeftRadius = selection.style.borderTopRightRadius =

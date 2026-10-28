@@ -2,8 +2,8 @@ using UnityEngine;
 using UnityEngine.UIElements;
 
 /// <summary>
-/// The nodes' gloss: a crisp shine over the upper part of a surface and a soft shade along its bottom, drawn behind
-/// what's on it. Math nodes' squares and every node's body wear it.
+/// The nodes' gloss: a crisp shine over the upper part of a surface and a soft shade along its bottom, laid over it
+/// (over the body gradient that gives the colour its depth). Math nodes' squares and every node's body wear it.
 /// </summary>
 internal static class NodeGloss
 {
@@ -12,9 +12,6 @@ internal static class NodeGloss
 
     /// <summary>On a dark node body: a little softer, so its fields stay easy to read.</summary>
     public const float BodyShine = 0.10f, BodyShade = 0.14f;
-
-    /// <summary>The body's own colour under the gloss (what its old gradient averaged out to).</summary>
-    public static readonly Color BodyColor = new(0.11f, 0.115f, 0.13f, 0.62f);
 
     /// <summary>
     /// Puts the gloss on a surface (again, if it's already on: replaced). <paramref name="radius"/> is the surface's
@@ -43,8 +40,8 @@ internal static class NodeGloss
         bottom.style.borderBottomLeftRadius = bottom.style.borderBottomRightRadius = Mathf.Max(0f, radius - 1f);
         bottom.style.backgroundColor = new Color(0f, 0f, 0f, shade);
 
-        // Behind everything on the surface.
-        surface.Insert(0, bottom);
-        surface.Insert(0, top);
+        // Over everything on the surface (they take no clicks).
+        surface.Add(top);
+        surface.Add(bottom);
     }
 }

@@ -64,14 +64,8 @@ internal static class NodeLook
             color = nodeColor != null ? nodeColor.Color : new Color(0.78f, 0.78f, 0.78f);
         }
 
-        // The body: flat, with the same gloss as the math squares (in place of its old gradient).
-        var body = view.Q("contents");
-        if (body != null)
-        {
-            body.style.backgroundImage = StyleKeyword.None;
-            body.style.backgroundColor = NodeGloss.BodyColor;
-            NodeGloss.Apply(body, 6f, NodeGloss.BodyShine, NodeGloss.BodyShade);
-        }
+        // The body: its gradient, with the math squares' gloss over it.
+        NodeGloss.Apply(view.Q("contents"), 6f, NodeGloss.BodyShine, NodeGloss.BodyShade);
 
         // The border in the node's colour (its title bar keeps its own).
         var border = view.Q("node-border");
