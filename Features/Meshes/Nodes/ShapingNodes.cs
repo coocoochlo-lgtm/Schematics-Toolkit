@@ -32,7 +32,7 @@ namespace Remedy.Meshes
         }
     }
 
-    [SchematicDoc(@"{""name"": ""Subdivide"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Mesh/Model"", ""description"": ""Splits every triangle into four, Levels times (each level is 4x the triangles). Smooth rounds it off as it goes (a cube becomes a smooth blob, a low-poly sketch an organic shape); off keeps the shape exactly, just with more triangles for Bend, Twist and Noise."", ""inputs"": [{""name"": ""In"", ""type"": ""MeshData""}, {""name"": ""Levels"", ""type"": ""int""}], ""outputs"": [{""name"": ""Mesh"", ""type"": ""MeshData""}]}")]
+    [SchematicDoc(@"{""name"": ""Subdivide"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Mesh/Model"", ""description"": ""Splits every face into four, Levels times (each level is 4x the triangles). Smooth rounds it off as it goes (a cube becomes a smooth blob, a low-poly sketch an organic shape); off keeps the shape exactly, just with more triangles for Bend, Twist and Noise. Method Catmull-Clark is for quads (boxes and loop-cut cubes: box modelling), keeping edge loops even; Loop is for triangle meshes."", ""inputs"": [{""name"": ""In"", ""type"": ""MeshData""}, {""name"": ""Levels"", ""type"": ""int""}], ""outputs"": [{""name"": ""Mesh"", ""type"": ""MeshData""}]}")]
     [Serializable]
     [Node(Name = "Subdivide", Path = "Model"), Tags(MeshNode.Tag)]
     public sealed class MeshSubdivideNode : MeshNode
@@ -40,6 +40,7 @@ namespace Remedy.Meshes
         [Input("In", Editable = false)] [NonSerialized] public MeshData In;
         [Input("Levels", Editable = true)] public int Levels = 1;
         [Editable] public bool Smooth = true;
+        [Editable, Tooltip("Catmull-Clark: for quads (boxes, loop-cut cubes, box modelling). Loop: for triangle meshes.")] public MeshOperations.SubdivideMethod Method = MeshOperations.SubdivideMethod.CatmullClark;
         [Editable, Tooltip("Normals are worked out again afterwards: edges sharper than this stay hard (-1: keep them).")] public float SmoothAngle = 60f;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 
@@ -48,10 +49,13 @@ namespace Remedy.Meshes
             var input = c.Mesh(this, "In");
             int levels = Mathf.Clamp(c.Integer(this, "Levels", Levels), 0, 5);
             bool smooth = Smooth;
+            var method = Method;
             float angle = SmoothAngle;
             return new MeshOp(() =>
             {
-                var mesh = MeshOperations.Subdivide(input.Get(), levels, smooth);
+                var mesh = smooth && method == MeshOperations.SubdivideMethod.CatmullClark
+                    ? MeshOperations.SubdivideQuads(input.Get(), levels)
+                    : MeshOperations.Subdivide(input.Get(), levels, smooth);
                 if (angle >= 0f && smooth)
                     mesh.RecalculateNormals(angle);
                 return mesh;
@@ -59,7 +63,7 @@ namespace Remedy.Meshes
         }
     }
 
-    [SchematicDoc(@"{""name"": ""Spherize"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Mesh/Model"", ""description"": ""Pulls a mesh towards a sphere around its middle by Amount: 0 leaves it, 1 makes it a perfect sphere, between rounds it off (a subdivided box at 0.3 is a pillow, at 0.7 a pebble). Radius 0 uses its average size. Needs enough triangles to round smoothly."", ""inputs"": [{""name"": ""In"", ""type"": ""MeshData""}, {""name"": ""Amount"", ""type"": ""float""}, {""name"": ""Radius"", ""type"": ""float""}], ""outputs"": [{""name"": ""Mesh"", ""type"": ""MeshData""}]}")]
+    [SchematicDoc(@"{""name"": ""Spherize"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Mesh/Model"", ""description"": ""Pulls a mesh towards a sphere around its middle by Amount: 0 leaves it, 1 makes it a perfect sphere, between rounds it off (a subdivided box at 0.3 is a pillow, at 0.7 a pebble). Radius 0 uses its average size. With a selection, only what's selected moves, towards a sphere round the selection (round a head on a whole body). Needs enough triangles to round smoothly."", ""inputs"": [{""name"": ""In"", ""type"": ""MeshData""}, {""name"": ""Amount"", ""type"": ""float""}, {""name"": ""Radius"", ""type"": ""float""}], ""outputs"": [{""name"": ""Mesh"", ""type"": ""MeshData""}]}")]
     [Serializable]
     [Node(Name = "Spherize", Path = "Model"), Tags(MeshNode.Tag)]
     public sealed class MeshSpherizeNode : MeshNode

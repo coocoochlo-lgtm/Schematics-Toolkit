@@ -329,6 +329,147 @@ namespace Remedy.Meshes
         }
 
         /// <summary>
+        /// Relax: each point eases towards the middle of its neighbours, <paramref name="iterations"/> times by
+        /// <paramref name="strength"/> (0 to 1), rounding off corners and evening out lumps; a box's square sections
+        /// become rounded ones. Each pass is followed by a slight push back out (Taubin smoothing) so the shape doesn't
+        /// shrink. Hard edges and seams move together (they're one point). With a selection, only what's selected
+        /// relaxes, by how selected it is. Open edges relax along themselves only.
+        /// </summary>
+        public static MeshData Relax(MeshData source, int iterations, float strength = 0.5f)
+        {
+            var mesh = source.Clone();
+            if (mesh.VertexCount == 0 || iterations <= 0)
+                return mesh;
+            var welded = new Dictionary<Vector3, int>(new MeshData.PositionComparer());
+            var of = new int[mesh.VertexCount];
+            var points = new List<Vector3>();
+            for (int i = 0; i < mesh.VertexCount; i++)
+            {
+                if (!welded.TryGetValue(mesh.Positions[i], out int index))
+                {
+                    welded[mesh.Positions[i]] = index = points.Count;
+                    points.Add(mesh.Positions[i]);
+                }
+                of[i] = index;
+            }
+            int count = points.Count;
+            var weight = new float[count];
+            for (int i = 0; i < mesh.VertexCount; i++)
+                weight[of[i]] = Mathf.Max(weight[of[i]], mesh.HasSelection ? mesh.Selection[i] : 1f);
+
+            // Neighbours, and which edges are open (used by one triangle): open-edge points only follow their rim.
+            var neighbours = new List<HashSet<int>>(count);
+            for (int i = 0; i < count; i++)
+                neighbours.Add(new HashSet<int>());
+            var edgeUse = new Dictionary<(int, int), int>();
+            foreach (var slot in mesh.Slots)
+                for (int t = 0; t + 2 < slot.Count; t += 3)
+                    for (int k = 0; k < 3; k++)
+                    {
+                        int a = of[slot[t + k]], b = of[slot[t + (k + 1) % 3]];
+                        if (a == b) continue;
+                        neighbours[a].Add(b);
+                        neighbours[b].Add(a);
+                        var key = a < b ? (a, b) : (b, a);
+                        edgeUse[key] = edgeUse.TryGetValue(key, out int n) ? n + 1 : 1;
+                    }
+            var rim = new List<int>[count];
+            foreach (var entry in edgeUse)
+                if (entry.Value == 1)
+                {
+                    (rim[entry.Key.Item1] ??= new List<int>()).Add(entry.Key.Item2);
+                    (rim[entry.Key.Item2] ??= new List<int>()).Add(entry.Key.Item1);
+                }
+
+            float lambda = Mathf.Clamp01(strength);
+            float mu = -lambda * 1.04f;
+            var current = points.ToArray();
+            var nextPoints = new Vector3[count];
+            void Step(float factor)
+            {
+                for (int v = 0; v < count; v++)
+                {
+                    var around = rim[v] != null ? (IEnumerable<int>)rim[v] : neighbours[v];
+                    var sum = Vector3.zero;
+                    int n = 0;
+                    foreach (int w in around)
+                    {
+                        sum += current[w];
+                        n++;
+                    }
+                    nextPoints[v] = n == 0 ? current[v] : current[v] + (sum / n - current[v]) * (factor * weight[v]);
+                }
+                (current, nextPoints) = (nextPoints, current);
+            }
+            for (int i = 0; i < iterations; i++)
+            {
+                Step(lambda);
+                Step(mu);
+            }
+            for (int i = 0; i < mesh.VertexCount; i++)
+                mesh.Positions[i] = current[of[i]];
+            return mesh;
+        }
+
+        /// <summary>
+        /// Grab: moves part of a mesh with a soft edge. The part is a box given in the mesh's own bounds, 0 to 1 on each
+        /// axis (X 0.8 to 1: the right-hand fifth; Y 0 to 0.2: the bottom), fading out over <paramref name="falloff"/>
+        /// (also 0 to 1 of the bounds) beyond it. What's grabbed is scaled, then turned (degrees), about
+        /// <paramref name="pivot"/> (0 to 1 within the box: 0.5 its middle), then moved. With
+        /// <paramref name="mirrorX"/>, the other side of the mesh (across the middle of its bounds in X) gets the mirror
+        /// image of the same grab, like symmetry in a sculpting tool: one grab swings both arms. A selection, if there
+        /// is one, limits it further.
+        /// </summary>
+        public static MeshData Grab(MeshData source, Vector3 min, Vector3 max, float falloff, Vector3 pivot, Vector3 move, Vector3 rotate, Vector3 scale, bool mirrorX = false)
+        {
+            var mesh = source.Clone();
+            if (mesh.VertexCount == 0)
+                return mesh;
+            var bounds = mesh.Bounds;
+            var lo = Vector3.Min(min, max);
+            var hi = Vector3.Max(min, max);
+            var weights = MeshSelection.BoundsWeights(mesh, lo, hi, falloff);
+            var centre = bounds.min + Vector3.Scale(bounds.size, lo + Vector3.Scale(hi - lo, pivot));
+            var turn = TRS(Vector3.zero, rotate, Vector3.one);
+
+            // The mirror image: the box flipped across the middle, turns and moves flipped with it.
+            float[] mirrorWeights = null;
+            Vector3 mirrorCentre = default;
+            Matrix4x4 mirrorTurn = default;
+            Vector3 mirrorMove = default;
+            bool regionOnRight = (lo.x + hi.x) * 0.5f >= 0.5f;
+            if (mirrorX)
+            {
+                var mlo = new Vector3(1f - hi.x, lo.y, lo.z);
+                var mhi = new Vector3(1f - lo.x, hi.y, hi.z);
+                mirrorWeights = MeshSelection.BoundsWeights(mesh, mlo, mhi, falloff);
+                var mpivot = new Vector3(1f - pivot.x, pivot.y, pivot.z);
+                mirrorCentre = bounds.min + Vector3.Scale(bounds.size, mlo + Vector3.Scale(mhi - mlo, mpivot));
+                mirrorTurn = TRS(Vector3.zero, new Vector3(rotate.x, -rotate.y, -rotate.z), Vector3.one);
+                mirrorMove = new Vector3(-move.x, move.y, move.z);
+            }
+            float middle = bounds.center.x;
+
+            for (int i = 0; i < mesh.VertexCount; i++)
+            {
+                var p = mesh.Positions[i];
+                // With the mirror, the box's own side gets the grab and the other side its mirror image.
+                bool mirrored = mirrorX && (p.x >= middle) != regionOnRight && Mathf.Abs(p.x - middle) > 1e-6f;
+                float w = mirrored ? mirrorWeights[i] : weights[i];
+                if (w <= 0f)
+                    continue;
+                var c = mirrored ? mirrorCentre : centre;
+                var t = mirrored ? mirrorTurn : turn;
+                var to = c + t.MultiplyVector(Vector3.Scale(p - c, scale)) + (mirrored ? mirrorMove : move);
+                mesh.Positions[i] = Vector3.Lerp(p, to, w);
+                var normal = Vector3.Lerp(mesh.Normals[i], t.MultiplyVector(mesh.Normals[i]), w);
+                if (normal.sqrMagnitude > 1e-12f)
+                    mesh.Normals[i] = normal.normalized;
+            }
+            return mesh;
+        }
+
+        /// <summary>
         /// Merge by distance: vertices closer than <paramref name="distance"/> become one point, and triangles that
         /// shrink to nothing are removed. Cleans up the slivers and near-duplicate points a Boolean leaves along its
         /// cut, and closes hairline cracks. With <paramref name="selectedOnly"/> and a selection, only selected

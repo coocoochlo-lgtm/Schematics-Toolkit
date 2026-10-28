@@ -366,4 +366,70 @@ namespace Remedy.Meshes
             return new MeshOp(() => { var mesh = input.Copy(); MeshModifiers.Weld(mesh); return mesh; });
         }
     }
+
+    [SchematicDoc(@"{""name"": ""Grab"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Mesh/Deform"", ""description"": ""Grabs part of a mesh and moves it with a soft edge, like a sculpting brush. The part is a box in the mesh's own bounds, 0 to 1 on each axis (Min X 0.8, Max X 1: the right-hand fifth; Y 0 to 0.2: the bottom), fading out over Falloff (also 0 to 1) beyond it. It's scaled, then turned (degrees), about Pivot (0 to 1 within the box: 0.5 its middle, X 0 its left side), then moved by Move. Taper an end, bulge a calf, swing an arm down at the shoulder. Mirror X does the same to the other side (one grab, both arms). A selection limits it further."", ""inputs"": [{""name"": ""In"", ""type"": ""MeshData""}, {""name"": ""Min"", ""type"": ""Vector3""}, {""name"": ""Max"", ""type"": ""Vector3""}, {""name"": ""Falloff"", ""type"": ""float""}, {""name"": ""Pivot"", ""type"": ""Vector3""}, {""name"": ""Move"", ""type"": ""Vector3""}, {""name"": ""Rotate"", ""type"": ""Vector3""}, {""name"": ""Scale"", ""type"": ""Vector3""}], ""outputs"": [{""name"": ""Mesh"", ""type"": ""MeshData""}]}")]
+    [Serializable]
+    [Node(Name = "Grab", Path = "Deform"), Tags(MeshNode.Tag)]
+    public sealed class MeshGrabNode : MeshNode
+    {
+        [Input("In", Editable = false)] [NonSerialized] public MeshData In;
+        [Input("Min", Editable = true), Tooltip("The box's low corner, 0 to 1 across the mesh's bounds.")] public Vector3 Min = new(0f, 0.8f, 0f);
+        [Input("Max", Editable = true), Tooltip("The box's high corner, 0 to 1 across the mesh's bounds.")] public Vector3 Max = Vector3.one;
+        [Input("Falloff", Editable = true), Tooltip("How far beyond the box the grab fades out, 0 to 1 of the bounds.")] public float Falloff = 0.2f;
+        [Input("Pivot", Editable = true), Tooltip("What it scales and turns about, 0 to 1 within the box.")] public Vector3 Pivot = new(0.5f, 0.5f, 0.5f);
+        [Input("Move", Editable = true)] public Vector3 Move;
+        [Input("Rotate", Editable = true)] public Vector3 Rotate;
+        [Input("Scale", Editable = true)] public Vector3 Scale = Vector3.one;
+        [Editable, Tooltip("The other side (across the middle in X) gets the mirror image of the grab, like sculpting symmetry.")] public bool MirrorX;
+        [Editable, Tooltip("Normals are worked out again afterwards: edges sharper than this stay hard (-1: keep them).")] public float SmoothAngle = 60f;
+        [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
+
+        public override MeshOp Compile(MeshCompiler c)
+        {
+            var input = c.Mesh(this, "In");
+            bool mirror = MirrorX;
+            var min = c.Vector(this, "Min", Min);
+            var max = c.Vector(this, "Max", Max);
+            float falloff = Mathf.Max(0f, c.Number(this, "Falloff", Falloff));
+            var pivot = c.Vector(this, "Pivot", Pivot);
+            var move = c.Vector(this, "Move", Move);
+            var rotate = c.Vector(this, "Rotate", Rotate);
+            var scale = c.Vector(this, "Scale", Scale);
+            float smooth = SmoothAngle;
+            return new MeshOp(() =>
+            {
+                var mesh = MeshModifiers.Grab(input.Get(), min, max, falloff, pivot, move, rotate, scale, mirror);
+                if (smooth >= 0f)
+                    mesh.RecalculateNormals(smooth);
+                return mesh;
+            });
+        }
+    }
+
+    [SchematicDoc(@"{""name"": ""Relax"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Mesh/Deform"", ""description"": ""Eases every point towards the middle of its neighbours, Iterations times by Strength (0 to 1), like a sculpting smooth brush: corners round off and lumps even out (a loop-cut box becomes a rounded block, ready for Subdivide), without the shape shrinking. With a selection, only what's selected relaxes."", ""inputs"": [{""name"": ""In"", ""type"": ""MeshData""}, {""name"": ""Iterations"", ""type"": ""int""}, {""name"": ""Strength"", ""type"": ""float""}], ""outputs"": [{""name"": ""Mesh"", ""type"": ""MeshData""}]}")]
+    [Serializable]
+    [Node(Name = "Relax", Path = "Deform"), Tags(MeshNode.Tag)]
+    public sealed class MeshRelaxNode : MeshNode
+    {
+        [Input("In", Editable = false)] [NonSerialized] public MeshData In;
+        [Input("Iterations", Editable = true)] public int Iterations = 4;
+        [Input("Strength", Editable = true)] public float Strength = 0.5f;
+        [Editable, Tooltip("Normals are worked out again afterwards: edges sharper than this stay hard (-1: keep them).")] public float SmoothAngle = 60f;
+        [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
+
+        public override MeshOp Compile(MeshCompiler c)
+        {
+            var input = c.Mesh(this, "In");
+            int iterations = Mathf.Clamp(c.Integer(this, "Iterations", Iterations), 0, 200);
+            float strength = c.Number(this, "Strength", Strength);
+            float smooth = SmoothAngle;
+            return new MeshOp(() =>
+            {
+                var mesh = MeshModifiers.Relax(input.Get(), iterations, strength);
+                if (smooth >= 0f)
+                    mesh.RecalculateNormals(smooth);
+                return mesh;
+            });
+        }
+    }
 }

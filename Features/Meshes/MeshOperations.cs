@@ -81,6 +81,146 @@ namespace Remedy.Meshes
             return result == mesh ? mesh.Clone() : result;
         }
 
+        /// <summary>
+        /// Catmull-Clark subdivision, the box modeller's kind: works on quads (pairs of triangles making one, as boxes,
+        /// grids and loop cuts give), splitting each into four and rounding the shape off, so a cut-up cube becomes a
+        /// smooth, even body with its edge loops kept. Triangles that aren't half of a quad split into three quads.
+        /// </summary>
+        /// <summary>How Subdivide rounds: Loop (for triangle meshes) or Catmull-Clark (for quads: boxes, cut-up cubes).</summary>
+        public enum SubdivideMethod { Loop, CatmullClark }
+
+        public static MeshData SubdivideQuads(MeshData mesh, int levels)
+        {
+            levels = Mathf.Clamp(levels, 0, 5);
+            if (levels == 0 || mesh.VertexCount == 0)
+                return mesh.Clone();
+
+            // Kept as polygons between levels (so the next level finds the same quads), made triangles at the end.
+            var vertices = mesh.Clone();
+            var polygons = new List<(int[] corners, int slot)>();
+            for (int s = 0; s < mesh.Slots.Count; s++)
+                // Quads bent a little (by Relax, Grab, Noise) are still quads to subdivide.
+                foreach (var polygon in Polygons(mesh, mesh.Slots[s], 0.7f))
+                    polygons.Add((polygon, s));
+            for (int level = 0; level < levels; level++)
+                (vertices, polygons) = CatmullClark(vertices, polygons);
+
+            var result = vertices;
+            foreach (var slot in result.Slots)
+                slot.Clear();
+            foreach (var (corners, slot) in polygons)
+                Fan(corners, result.Slot(slot));
+            // The same point made once per face it's on: one vertex each again (where they match).
+            MeshModifiers.Weld(result);
+            return result;
+        }
+
+        private static (MeshData, List<(int[] corners, int slot)>) CatmullClark(MeshData mesh, List<(int[] corners, int slot)> polygons)
+        {
+            var positionOf = Weld(mesh, out var positions);
+            int count = positions.Count;
+
+            // Each face's middle, and each edge's faces.
+            var facePoints = new Vector3[polygons.Count];
+            var edgeFaces = new Dictionary<(int, int), List<int>>();
+            for (int f = 0; f < polygons.Count; f++)
+            {
+                var corners = polygons[f].corners;
+                var sum = Vector3.zero;
+                foreach (int v in corners)
+                    sum += positions[positionOf[v]];
+                facePoints[f] = sum / corners.Length;
+                for (int k = 0; k < corners.Length; k++)
+                {
+                    var key = EdgeKey(positionOf[corners[k]], positionOf[corners[(k + 1) % corners.Length]]);
+                    if (key.Item1 == key.Item2)
+                        continue;
+                    if (!edgeFaces.TryGetValue(key, out var list))
+                        edgeFaces[key] = list = new List<int>(2);
+                    list.Add(f);
+                }
+            }
+
+            // Edge points: between the ends and the two faces' middles; on an open edge, its middle.
+            var edgePoints = new Dictionary<(int, int), Vector3>(edgeFaces.Count);
+            var faceSum = new Vector3[count];
+            var faceCount = new int[count];
+            var edgeSum = new Vector3[count];
+            var edgeCount = new int[count];
+            var boundarySum = new Vector3[count];
+            var boundaryCount = new int[count];
+            foreach (var entry in edgeFaces)
+            {
+                var (a, b) = entry.Key;
+                var middle = (positions[a] + positions[b]) * 0.5f;
+                bool open = entry.Value.Count != 2;
+                edgePoints[entry.Key] = open ? middle : (positions[a] + positions[b] + facePoints[entry.Value[0]] + facePoints[entry.Value[1]]) * 0.25f;
+                edgeSum[a] += middle; edgeCount[a]++;
+                edgeSum[b] += middle; edgeCount[b]++;
+                if (open)
+                {
+                    boundarySum[a] += positions[b]; boundaryCount[a]++;
+                    boundarySum[b] += positions[a]; boundaryCount[b]++;
+                }
+            }
+            for (int f = 0; f < polygons.Count; f++)
+            {
+                var seen = new HashSet<int>();
+                foreach (int v in polygons[f].corners)
+                    if (seen.Add(positionOf[v]))
+                    {
+                        faceSum[positionOf[v]] += facePoints[f];
+                        faceCount[positionOf[v]]++;
+                    }
+            }
+
+            // Corners move towards the average of their faces and edges (open edges stay along themselves).
+            var moved = new Vector3[count];
+            for (int v = 0; v < count; v++)
+            {
+                if (boundaryCount[v] == 2)
+                    moved[v] = positions[v] * 0.75f + boundarySum[v] * 0.125f;
+                else if (boundaryCount[v] > 0 || edgeCount[v] < 3 || faceCount[v] == 0)
+                    moved[v] = positions[v];
+                else
+                {
+                    float n = edgeCount[v];
+                    var F = faceSum[v] / faceCount[v];
+                    var R = edgeSum[v] / edgeCount[v];
+                    moved[v] = (F + 2f * R + (n - 3f) * positions[v]) / n;
+                }
+            }
+
+            // Each face becomes a quad per corner: the corner, its next edge's point, the face's middle, its last
+            // edge's point. Corners and edge points are shared across a face (UVs and colours blended from its corners).
+            var result = new MeshData();
+            result.Slots.Clear();
+            var next = new List<(int[] corners, int slot)>(polygons.Count * 4);
+            var cornerCopies = new Dictionary<int, int>();
+            for (int f = 0; f < polygons.Count; f++)
+            {
+                var (corners, slot) = polygons[f];
+                int n = corners.Length;
+                var mids = new int[n];
+                for (int k = 0; k < n; k++)
+                {
+                    int a = corners[k], b = corners[(k + 1) % n];
+                    var key = EdgeKey(positionOf[a], positionOf[b]);
+                    var point = edgePoints.TryGetValue(key, out var p) ? p : (mesh.Positions[a] + mesh.Positions[b]) * 0.5f;
+                    mids[k] = Blend(mesh, result, a, b, 0.5f, point);
+                }
+                int centre = Blend(mesh, result, corners[0], corners[n / 2], 0.5f, facePoints[f]);
+                for (int k = 0; k < n; k++)
+                {
+                    int v = corners[k];
+                    if (!cornerCopies.TryGetValue(v, out int copy))
+                        cornerCopies[v] = copy = CopyVertex(mesh, result, v, moved[positionOf[v]]);
+                    next.Add((new[] { copy, mids[k], centre, mids[(k + n - 1) % n] }, slot));
+                }
+            }
+            return (result, next);
+        }
+
         private static MeshData SubdivideOnce(MeshData mesh, bool smooth)
         {
             var positionOf = Weld(mesh, out var positions);
@@ -200,19 +340,38 @@ namespace Remedy.Meshes
         /// <summary>
         /// Pulls the mesh towards a sphere around its middle: <paramref name="amount"/> 0 leaves it, 1 is a perfect
         /// sphere, in between rounds it off (a box at 0.3 is a pillow). <paramref name="radius"/> 0: its average size.
+        /// With a selection, the sphere is around the selection's middle and its size (the node then moves only what's
+        /// selected): a head rounded on a whole body.
         /// </summary>
         public static MeshData Spherize(MeshData mesh, float amount, float radius = 0f)
         {
             var result = mesh.Clone();
             if (result.VertexCount == 0)
                 return result;
+            // Around the middle of the selection, if there is one (a head on a body), else of the whole mesh.
             var center = result.Bounds.center;
+            float total = 0f;
+            if (result.HasSelection)
+            {
+                var sum = Vector3.zero;
+                for (int i = 0; i < result.VertexCount; i++)
+                {
+                    sum += result.Positions[i] * result.Selection[i];
+                    total += result.Selection[i];
+                }
+                if (total > 1e-5f)
+                    center = sum / total;
+            }
             if (radius <= 0f)
             {
-                float sum = 0f;
-                foreach (var p in result.Positions)
-                    sum += (p - center).magnitude;
-                radius = sum / result.VertexCount;
+                float sum = 0f, weights = 0f;
+                for (int i = 0; i < result.VertexCount; i++)
+                {
+                    float w = total > 1e-5f ? result.Selection[i] : 1f;
+                    sum += (result.Positions[i] - center).magnitude * w;
+                    weights += w;
+                }
+                radius = sum / Mathf.Max(1e-5f, weights);
             }
             for (int i = 0; i < result.VertexCount; i++)
             {
@@ -288,31 +447,37 @@ namespace Remedy.Meshes
 
             for (int s = 0; s < mesh.Slots.Count; s++)
             {
-                var slot = mesh.Slots[s];
                 var target = result.Slot(s);
-                var front = new List<int>(4);
-                var back = new List<int>(4);
-                for (int t = 0; t + 2 < slot.Count; t += 3)
+                var front = new List<int>(6);
+                var back = new List<int>(6);
+                // Cut as quads where two triangles make one (a box's faces, a grid): cutting the triangles alone would
+                // also cut each quad's hidden diagonal, leaving stray points along the new loop.
+                foreach (var polygon in Polygons(mesh, mesh.Slots[s]))
                 {
-                    int[] tri = { slot[t], slot[t + 1], slot[t + 2] };
-                    float[] d = { Side(tri[0]), Side(tri[1]), Side(tri[2]) };
-                    bool crosses = (d[0] > 0 || d[1] > 0 || d[2] > 0) && (d[0] < 0 || d[1] < 0 || d[2] < 0);
-                    if (!crosses)
+                    int n = polygon.Length;
+                    bool above = false, below = false;
+                    for (int k = 0; k < n; k++)
                     {
-                        target.AddRange(tri);
+                        float dk = Side(polygon[k]);
+                        above |= dk > 0f;
+                        below |= dk < 0f;
+                    }
+                    if (!(above && below))
+                    {
+                        Fan(polygon, target);
                         continue;
                     }
                     front.Clear();
                     back.Clear();
-                    for (int k = 0; k < 3; k++)
+                    for (int k = 0; k < n; k++)
                     {
-                        int a = tri[k], b = tri[(k + 1) % 3];
-                        float da = d[k], db = d[(k + 1) % 3];
-                        if (da >= 0) front.Add(a);
-                        if (da <= 0) back.Add(a);
+                        int va = polygon[k], vb = polygon[(k + 1) % n];
+                        float da = Side(va), db = Side(vb);
+                        if (da >= 0) front.Add(va);
+                        if (da <= 0) back.Add(va);
                         if ((da > 0 && db < 0) || (da < 0 && db > 0))
                         {
-                            int cut = Cut(a, b);
+                            int cut = Cut(va, vb);
                             front.Add(cut);
                             back.Add(cut);
                         }
@@ -324,6 +489,67 @@ namespace Remedy.Meshes
             return result;
         }
 
+        /// <summary>
+        /// A slot's triangles as polygons: pairs of triangles sharing their longest edge, facing within
+        /// <paramref name="flatness"/> (the dot of their normals) of each other, become quads (in order round the edge);
+        /// the rest stay triangles.
+        /// </summary>
+        private static List<int[]> Polygons(MeshData mesh, List<int> slot, float flatness = 0.9999f)
+        {
+            int count = slot.Count / 3;
+            var longest = new (int a, int b)[count];
+            var byEdge = new Dictionary<(int, int), int>();
+            for (int t = 0; t < count; t++)
+            {
+                float best = -1f;
+                for (int k = 0; k < 3; k++)
+                {
+                    int a = slot[t * 3 + k], b = slot[t * 3 + (k + 1) % 3];
+                    float length = (mesh.Positions[a] - mesh.Positions[b]).sqrMagnitude;
+                    if (length > best)
+                    {
+                        best = length;
+                        longest[t] = (a, b);
+                    }
+                }
+                byEdge[longest[t]] = t;
+            }
+            Vector3 FaceNormal(int t)
+            {
+                var p0 = mesh.Positions[slot[t * 3]];
+                return Vector3.Cross(mesh.Positions[slot[t * 3 + 1]] - p0, mesh.Positions[slot[t * 3 + 2]] - p0).normalized;
+            }
+            int Opposite(int t, int a, int b)
+            {
+                for (int k = 0; k < 3; k++)
+                {
+                    int v = slot[t * 3 + k];
+                    if (v != a && v != b) return v;
+                }
+                return a;
+            }
+
+            var paired = new bool[count];
+            var polygons = new List<int[]>(count);
+            for (int t = 0; t < count; t++)
+            {
+                if (paired[t])
+                    continue;
+                var (a, b) = longest[t];
+                if (byEdge.TryGetValue((b, a), out int other) && other != t && !paired[other]
+                    && Vector3.Dot(FaceNormal(t), FaceNormal(other)) > flatness)
+                {
+                    paired[t] = paired[other] = true;
+                    // Triangle a, b, c and its partner b, a, d: round the quad, a, d, b, c.
+                    polygons.Add(new[] { a, Opposite(other, a, b), b, Opposite(t, a, b) });
+                    continue;
+                }
+                paired[t] = true;
+                polygons.Add(new[] { slot[t * 3], slot[t * 3 + 1], slot[t * 3 + 2] });
+            }
+            return polygons;
+        }
+
         private static int Compare(Vector3 a, Vector3 b)
         {
             int c = a.x.CompareTo(b.x);
@@ -332,7 +558,7 @@ namespace Remedy.Meshes
             return c != 0 ? c : a.z.CompareTo(b.z);
         }
 
-        private static void Fan(List<int> polygon, List<int> into)
+        private static void Fan(IReadOnlyList<int> polygon, List<int> into)
         {
             for (int i = 1; i + 1 < polygon.Count; i++)
             {

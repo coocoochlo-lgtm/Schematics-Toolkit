@@ -101,6 +101,38 @@ namespace Remedy.Meshes
         }
     }
 
+    [SchematicDoc(@"{""name"": ""Select Bounds"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Mesh/Select"", ""description"": ""Selects the vertices in a box given in the mesh's own bounds, 0 to 1 on each axis (Y 0.8 to 1: the top fifth, whatever its size), fading out over Falloff (0 to 1 of the bounds) beyond it. The same box Grab uses."", ""inputs"": [{""name"": ""In"", ""type"": ""MeshData""}, {""name"": ""Min"", ""type"": ""Vector3""}, {""name"": ""Max"", ""type"": ""Vector3""}, {""name"": ""Falloff"", ""type"": ""float""}], ""outputs"": [{""name"": ""Mesh"", ""type"": ""MeshData""}]}")]
+    [Serializable]
+    [Node(Name = "Select Bounds", Path = "Select"), Tags(MeshNode.Tag)]
+    public sealed class MeshSelectBoundsNode : MeshNode
+    {
+        [Input("In", Editable = false)] [NonSerialized] public MeshData In;
+        [Input("Min", Editable = true)] public Vector3 Min = new(0f, 0.8f, 0f);
+        [Input("Max", Editable = true)] public Vector3 Max = Vector3.one;
+        [Input("Falloff", Editable = true)] public float Falloff;
+        [Editable] public MeshSelection.Mode Mode = MeshSelection.Mode.Replace;
+        [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
+
+        public override MeshOp Compile(MeshCompiler c)
+        {
+            var input = c.Mesh(this, "In");
+            var min = c.Vector(this, "Min", Min);
+            var max = c.Vector(this, "Max", Max);
+            float falloff = Mathf.Max(0f, c.Number(this, "Falloff", Falloff));
+            var mode = Mode;
+            return new MeshOp(() =>
+            {
+                var mesh = input.Copy();
+                // Measured without the selection already there, so Mode can mix them.
+                var plain = mesh.Clone();
+                plain.Selection.Clear();
+                var weights = MeshSelection.BoundsWeights(plain, min, max, falloff);
+                MeshSelection.Apply(mesh, i => weights[i], mode);
+                return mesh;
+            });
+        }
+    }
+
     [SchematicDoc(@"{""name"": ""Select Facing"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Mesh/Select"", ""description"": ""Selects the vertices whose normals face within Angle degrees of Direction (fading out over Falloff degrees more): the tops of things, the underside, the front of a face."", ""inputs"": [{""name"": ""In"", ""type"": ""MeshData""}, {""name"": ""Direction"", ""type"": ""Vector3""}, {""name"": ""Angle"", ""type"": ""float""}, {""name"": ""Falloff"", ""type"": ""float""}], ""outputs"": [{""name"": ""Mesh"", ""type"": ""MeshData""}]}")]
     [Serializable]
     [Node(Name = "Select Facing", Path = "Select"), Tags(MeshNode.Tag)]
@@ -269,13 +301,14 @@ namespace Remedy.Meshes
         }
     }
 
-    [SchematicDoc(@"{""name"": ""Join"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Mesh/Select"", ""description"": ""Joins separate parts where they meet: each cut edge (left by Delete Selected) within Distance of another part snaps onto that part's surface, so the parts end exactly on each other with no gap and nothing poking through, and edges that land together weld. Only selected vertices move, if any are selected. Normals are worked out again with Smooth Angle (-1: keep them). The humanoid: Merge, Select Inside, Delete Selected (All Corners), Join."", ""inputs"": [{""name"": ""In"", ""type"": ""MeshData""}, {""name"": ""Distance"", ""type"": ""float""}], ""outputs"": [{""name"": ""Mesh"", ""type"": ""MeshData""}]}")]
+    [SchematicDoc(@"{""name"": ""Join"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Mesh/Select"", ""description"": ""Joins separate parts where they meet: each cut edge (left by Delete Selected) within Distance of another part snaps onto that part's surface, so the parts end exactly on each other with no gap and nothing poking through, and edges that land together weld. Only selected vertices move, if any are selected. Mode Weld instead pairs up matching rings of cut edges (a limb's open end and the hole cut for it) and welds them, so edge loops run straight through the joint. Normals are worked out again with Smooth Angle (-1: keep them)."", ""inputs"": [{""name"": ""In"", ""type"": ""MeshData""}, {""name"": ""Distance"", ""type"": ""float""}], ""outputs"": [{""name"": ""Mesh"", ""type"": ""MeshData""}]}")]
     [Serializable]
     [Node(Name = "Join", Path = "Select"), Tags(MeshNode.Tag)]
     public sealed class MeshJoinNode : MeshNode
     {
         [Input("In", Editable = false)] [NonSerialized] public MeshData In;
         [Input("Distance", Editable = true)] public float Distance = 0.05f;
+        [Editable, Tooltip("Surface: cut edges snap onto the other part. Weld: matching rings of cut edges weld into one surface.")] public MeshSelection.JoinMode Mode = MeshSelection.JoinMode.Surface;
         [Editable, Tooltip("Normals are worked out again afterwards: edges sharper than this stay hard (-1: keep them).")] public float SmoothAngle = 50f;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 
@@ -284,7 +317,8 @@ namespace Remedy.Meshes
             var input = c.Mesh(this, "In");
             float distance = Mathf.Max(0f, c.Number(this, "Distance", Distance));
             float smooth = SmoothAngle;
-            return new MeshOp(() => MeshSelection.Join(input.Get(), distance, smooth));
+            var mode = Mode;
+            return new MeshOp(() => MeshSelection.Join(input.Get(), distance, smooth, mode));
         }
     }
 

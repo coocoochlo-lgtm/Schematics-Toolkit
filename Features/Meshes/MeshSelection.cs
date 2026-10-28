@@ -91,6 +91,37 @@ namespace Remedy.Meshes
             }
         }
 
+        /// <summary>
+        /// For each vertex, how far it's inside a box given in the mesh's bounds (0 to 1 on each axis): 1 inside,
+        /// easing to 0 by <paramref name="falloff"/> (0 to 1 of the bounds) beyond it. Times the selection, if there is
+        /// one.
+        /// </summary>
+        public static float[] BoundsWeights(MeshData mesh, Vector3 min, Vector3 max, float falloff)
+        {
+            var weights = new float[mesh.VertexCount];
+            if (mesh.VertexCount == 0)
+                return weights;
+            var bounds = mesh.Bounds;
+            var lo = Vector3.Min(min, max);
+            var hi = Vector3.Max(min, max);
+            for (int i = 0; i < mesh.VertexCount; i++)
+            {
+                var p = mesh.Positions[i];
+                var outside = Vector3.zero;
+                for (int axis = 0; axis < 3; axis++)
+                {
+                    // Where it is across the bounds (a flat mesh is in the middle of its flat side).
+                    float size = bounds.size[axis];
+                    float t = size > 1e-6f ? (p[axis] - bounds.min[axis]) / size : 0.5f;
+                    outside[axis] = Mathf.Max(0f, Mathf.Max(lo[axis] - t, t - hi[axis]));
+                }
+                float d = outside.magnitude;
+                float w = d <= 1e-6f ? 1f : falloff > 0f ? 1f - Mathf.SmoothStep(0f, 1f, d / falloff) : 0f;
+                weights[i] = w * (mesh.HasSelection ? mesh.Selection[i] : 1f);
+            }
+            return weights;
+        }
+
         /// <summary>Runs a deformer on a copy of <paramref name="before"/>, then keeps it to the selection.</summary>
         public static MeshData Deform(MeshData before, Action<MeshData> deform)
         {
@@ -375,9 +406,15 @@ namespace Remedy.Meshes
         /// neighbour with no gap and nothing poking through. Rims that land on the same spot weld together. Only
         /// selected vertices move, if there's a selection. Then normals are worked out again
         /// (<paramref name="smoothAngle"/>; -1 keeps them), so the seam shades smoothly. Best after Delete Selected with
-        /// All Corners, which leaves the rims just inside the neighbour.
+        /// All Corners, which leaves the rims just inside the neighbour. <see cref="JoinMode.Weld"/> instead pairs each cut
+        /// edge's corners with the nearest cut-edge corners of another part and welds them where they meet: two holes
+        /// with matching rings of corners (a limb's open end and the socket cut for it) become one seamless surface,
+        /// edge loops running straight through.
         /// </summary>
-        public static MeshData Join(MeshData source, float distance, float smoothAngle = 50f)
+        /// <summary>How Join closes seams: snapping onto the other part's surface, or welding matching rims together.</summary>
+        public enum JoinMode { Surface, Weld }
+
+        public static MeshData Join(MeshData source, float distance, float smoothAngle = 50f, JoinMode mode = JoinMode.Surface)
         {
             var mesh = source.Clone();
             if (mesh.VertexCount == 0 || distance <= 0f)
@@ -418,6 +455,14 @@ namespace Remedy.Meshes
             for (int i = 0; i < mesh.VertexCount; i++)
                 if (onRim[positionOf[i]] && (!mesh.HasSelection || mesh.Selection[i] >= 0.5f))
                     movable[positionOf[i]] = true;
+
+            if (mode == JoinMode.Weld)
+            {
+                WeldRims(mesh, positionOf, positions, onRim, movable, pieceOf, distance);
+                if (smoothAngle >= 0f)
+                    mesh.RecalculateNormals(smoothAngle);
+                return mesh;
+            }
 
             // Other pieces' triangles in a grid, to find the nearest surface. (Rims left by deleting only fully hidden
             // triangles poke just inside the neighbour; pulling them onto its surface closes the seam without a gap or
@@ -522,6 +567,73 @@ namespace Remedy.Meshes
             if (smoothAngle >= 0f)
                 mesh.RecalculateNormals(smoothAngle);
             return mesh;
+        }
+
+        // Each movable rim corner pairs with the nearest rim corner of another piece; paired corners meet in the middle.
+        private static void WeldRims(MeshData mesh, int[] positionOf, Vector3[] positions, bool[] onRim, bool[] movable, int[] pieceOf, float distance)
+        {
+            int count = positions.Length;
+            float cellSize = Mathf.Max(1e-4f, distance);
+            (int, int, int) Cell(Vector3 p) => (Mathf.FloorToInt(p.x / cellSize), Mathf.FloorToInt(p.y / cellSize), Mathf.FloorToInt(p.z / cellSize));
+            var grid = new Dictionary<(int, int, int), List<int>>();
+            for (int v = 0; v < count; v++)
+                if (onRim[v])
+                {
+                    var key = Cell(positions[v]);
+                    if (!grid.TryGetValue(key, out var list))
+                        grid[key] = list = new List<int>();
+                    list.Add(v);
+                }
+
+            var parent = new int[count];
+            for (int v = 0; v < count; v++)
+                parent[v] = v;
+            int Root(int v)
+            {
+                while (parent[v] != v)
+                    v = parent[v] = parent[parent[v]];
+                return v;
+            }
+            for (int v = 0; v < count; v++)
+            {
+                if (!movable[v])
+                    continue;
+                var (cx, cy, cz) = Cell(positions[v]);
+                float best = distance * distance;
+                int nearest = -1;
+                for (int x = cx - 1; x <= cx + 1; x++)
+                    for (int y = cy - 1; y <= cy + 1; y++)
+                        for (int z = cz - 1; z <= cz + 1; z++)
+                            if (grid.TryGetValue((x, y, z), out var list))
+                                foreach (int u in list)
+                                {
+                                    if (pieceOf[u] == pieceOf[v])
+                                        continue;
+                                    float d = (positions[u] - positions[v]).sqrMagnitude;
+                                    if (d <= best)
+                                    {
+                                        best = d;
+                                        nearest = u;
+                                    }
+                                }
+                if (nearest >= 0)
+                    parent[Root(v)] = Root(nearest);
+            }
+
+            var sum = new Vector3[count];
+            var members = new int[count];
+            for (int v = 0; v < count; v++)
+            {
+                int r = Root(v);
+                sum[r] += positions[v];
+                members[r]++;
+            }
+            for (int i = 0; i < mesh.VertexCount; i++)
+            {
+                int r = Root(positionOf[i]);
+                if (members[r] > 1)
+                    mesh.Positions[i] = sum[r] / members[r];
+            }
         }
 
         // Closest point on a triangle (Ericson, Real-Time Collision Detection 5.1.5).
