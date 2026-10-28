@@ -323,7 +323,7 @@ namespace Remedy.Materials
             }
             if (source is MeshGraph graph)
             {
-                string key = $"graph|{graph.GetInstanceID()}|{graph.Version}|{size}";
+                string key = $"graph|{graph.GetEntityId()}|{graph.Version}|{size}";
                 lock (_surfaces)
                     if (_surfaces.TryGetValue(key, out var ready))
                         return () => ready;
@@ -361,7 +361,7 @@ namespace Remedy.Materials
                 foreach (var skinned in go.GetComponentsInChildren<SkinnedMeshRenderer>(true))
                     if (skinned.sharedMesh != null) vertices = vertices * 31 + skinned.sharedMesh.vertexCount;
             }
-            key = $"mesh|{source.GetInstanceID()}|{vertices}";
+            key = $"mesh|{source.GetEntityId()}|{vertices}";
             lock (_meshes)
                 if (_meshes.TryGetValue(key, out var known))
                     return known;
