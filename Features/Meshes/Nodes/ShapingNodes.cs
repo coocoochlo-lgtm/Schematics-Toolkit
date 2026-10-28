@@ -18,7 +18,9 @@ namespace Remedy.Meshes
     {
         [Input("A", Editable = false)] [NonSerialized] public MeshData A;
         [Input("B", Editable = false)] [NonSerialized] public MeshData B;
+        [Tooltip("Points closer than this (meters) are joined, so the result has no tiny cracks.")]
         [Input("Merge Distance", Editable = true)] public float MergeDistance = 0.001f;
+        [Tooltip("Union joins them into one shell; Subtract carves B out of A; Intersect keeps only where they overlap.")]
         [Editable] public MeshBoolean.Operation Operation = MeshBoolean.Operation.Subtract;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 
@@ -38,7 +40,9 @@ namespace Remedy.Meshes
     public sealed class MeshSubdivideNode : MeshNode
     {
         [Input("In", Editable = false)] [NonSerialized] public MeshData In;
+        [Tooltip("How many times to split every face in four (each level is 4x the triangles; 2 or 3 is usually plenty).")]
         [Input("Levels", Editable = true)] public int Levels = 1;
+        [Tooltip("Round it off as it splits (a cube becomes a blob). Off: same shape, just more triangles.")]
         [Editable] public bool Smooth = true;
         [Editable, Tooltip("Catmull-Clark: for quads (boxes, loop-cut cubes, box modelling). Loop: for triangle meshes.")] public MeshOperations.SubdivideMethod Method = MeshOperations.SubdivideMethod.CatmullClark;
         [Editable, Tooltip("Normals are worked out again afterwards: edges sharper than this stay hard (-1: keep them).")] public float SmoothAngle = 60f;
@@ -93,7 +97,9 @@ namespace Remedy.Meshes
     public sealed class MeshLoopCutNode : MeshNode
     {
         [Input("In", Editable = false)] [NonSerialized] public MeshData In;
+        [Tooltip("The axis the rings go around: Y cuts horizontal rings up its height.")]
         [Editable] public MeshAxis Axis = MeshAxis.Y;
+        [Tooltip("How many evenly spaced rings to cut.")]
         [Input("Cuts", Editable = true)] public int Cuts = 4;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 
@@ -112,10 +118,13 @@ namespace Remedy.Meshes
     public sealed class MeshExtrudeNode : MeshNode
     {
         [Input("In", Editable = false)] [NonSerialized] public MeshData In;
+        [Tooltip("Which faces are pulled: Facing Direction (within Angle of Direction), All, a Material Slot, or the Selected ones.")]
         [Editable] public MeshOperations.ExtrudeSelection Select = MeshOperations.ExtrudeSelection.FacingDirection;
         [Input("Direction", Editable = true)] public Vector3 Direction = Vector3.up;
         [Input("Distance", Editable = true)] public float Distance = 0.5f;
+        [Tooltip("How big the pulled-out faces are compared with where they started: 1 straight out, under 1 tapers in, over 1 flares.")]
         [Input("Cap Scale", Editable = true)] public float CapScale = 1f;
+        [Tooltip("With Select Facing Direction: how far a face can point from Direction and still be pulled (degrees).")]
         [Input("Angle", Editable = true)] public float Angle = 30f;
         [Editable, Tooltip("With Select: Material Slot, the slot whose faces are pulled.")] public int Slot;
         [Editable, Tooltip("Move along the faces' own normals (puffs a shape out) instead of Direction.")] public bool AlongNormals;

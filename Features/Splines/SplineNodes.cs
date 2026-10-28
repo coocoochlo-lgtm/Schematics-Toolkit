@@ -13,12 +13,15 @@ namespace Remedy.Splines
     [Node(Name = "Closest Point On Spline", Path = "Splines"), Tags("Default")]
     public class ClosestPointOnSplineNode : SchematicActionNode
     {
+        [Tooltip("The spline (a Spline Computer) to measure along.")]
         [Input("Spline")] public SplineComputer Spline;
         [Input("Position")] public Vector3 Position;
 
         [Output("Point")] public Vector3 Point;
+        [Tooltip("How far along the spline the closest point is: 0 the start, 1 the end.")]
         [Output("Percent")] public float Percent;
         [Output("Distance")] public float Distance;
+        [Tooltip("Which way the spline runs at that point.")]
         [Output("Forward")] public Vector3 Forward;
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
@@ -43,11 +46,15 @@ namespace Remedy.Splines
     [Node(Name = "Evaluate Spline", Path = "Splines"), Tags("Default")]
     public class EvaluateSplineNode : SchematicActionNode
     {
+        [Tooltip("The spline (a Spline Computer) to read.")]
         [Input("Spline")] public SplineComputer Spline;
+        [Tooltip("How far along: 0 the start, 1 the end, 0.5 halfway.")]
         [Input("Percent")] public float Percent;
 
         [Output("Point")] public Vector3 Point;
+        [Tooltip("Which way the spline runs there.")]
         [Output("Forward")] public Vector3 Forward;
+        [Tooltip("Which way is up on the spline there (its twist).")]
         [Output("Up")] public Vector3 Up;
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
@@ -72,7 +79,9 @@ namespace Remedy.Splines
     [Node(Name = "Jump To Spline", Path = "Splines"), Tags("Default")]
     public class JumpToSplineNode : SchematicActionNode
     {
+        [Tooltip("The object with the Spline Agent to move (the one running this graph if nothing's wired in).")]
         [Input("Agent")] public GameObject Agent;
+        [Tooltip("The spline to jump to (empty: the nearest other spline in the scene).")]
         [Input("Spline")] public SplineComputer Spline;
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)

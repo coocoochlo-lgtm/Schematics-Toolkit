@@ -31,6 +31,7 @@ namespace Remedy.Schematics.TimelineGraphs
     [Node(Name = "On Timeline Finished", Path = "Timeline/Events"), Tags("Timeline")]
     public class OnTimelineFinished : SchematicEventNode
     {
+        [Tooltip("True if it reached the end; false if something stopped it early.")]
         [Output("Completed")] public bool Completed;
     }
 
@@ -129,6 +130,7 @@ namespace Remedy.Schematics.TimelineGraphs
     public class SeekTimeline : TimelineControlNode
     {
         [Input("Time", Editable = true)] public float Time;
+        [Tooltip("The Event marker to jump to, by name (empty: jump to Time instead).")]
         [Input("Marker", Editable = true)] public string Marker = "";
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
@@ -163,6 +165,7 @@ namespace Remedy.Schematics.TimelineGraphs
     [Node(Name = "Bind Timeline Track", Path = "Timeline"), Tags("Timeline")]
     public class BindTimelineTrack : TimelineControlNode
     {
+        [Tooltip("The track's name in the Timeline.")]
         [Input("Track", Editable = true)] public string Track = "";
         [Input("Object")] public GameObject Object;
 
@@ -185,6 +188,7 @@ namespace Remedy.Schematics.TimelineGraphs
         [Output("Time")] public float Time;
         [Output("Duration")] public float Duration;
         [Output("Progress")] public float Progress;
+        [Tooltip("True while it's playing.")]
         [Output("Playing")] public bool Playing;
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)

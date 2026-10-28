@@ -60,6 +60,7 @@ namespace Remedy.Schematics
     [Node(Name = "Random", Path = "Flow"), Tags("Default")]
     public class RandomBranch : DynamicFlowNode
     {
+        [Tooltip("Never pick the same output twice in a row.")]
         [Editable]
         public bool NoRepeat;
 
@@ -130,6 +131,7 @@ namespace Remedy.Schematics
         public const string APort = "A";
         public const string BPort = "B";
 
+        [Tooltip("True if it just went out A (false: B).")]
         [Output("Is A")]
         public bool IsA;
 
@@ -155,9 +157,11 @@ namespace Remedy.Schematics
     {
         public const string BlockedPort = "Blocked";
 
+        [Tooltip("How long it stays closed after letting the flow through (seconds of game time).")]
         [Input("Seconds", Editable = true)]
         public float Seconds = 1f;
 
+        [Tooltip("Seconds left before it lets the flow through again (0 when ready).")]
         [Output("Remaining")]
         public float Remaining;
 

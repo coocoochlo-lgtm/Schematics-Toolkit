@@ -18,12 +18,16 @@ namespace Remedy.Audio
     [AssetNode(typeof(SoundCueGraph), Title = "Play Sound Cue: {0}")]
     public class PlaySoundCueNode : SchematicActionNode, IDynamicPorts, IGraphSource
     {
+        [Tooltip("The Sound Cue to play (drop one on the graph to make this node).")]
         [Input("Cue", Editable = true)] public SoundCueGraph Cue;
         [Input("Target")] public GameObject Target;
         [Input("Volume", Editable = true)] public float Volume = 1f;
+        [Tooltip("How 3D it sounds: 1 placed in the world (panned and fading with distance), 0 flat and centred like UI sound.")]
         [Input("Spatial Blend", Editable = true)] public float SpatialBlend = 1f;
         /// <summary>Moves with the target (a car's engine) rather than staying where it started (an impact).</summary>
+        [Tooltip("Follow the object as it moves. Off: plays where it started.")]
         [Editable] public bool Follow = true;
+        [Tooltip("What's playing it: give it to Stop Sound Cue or Set Graph Parameters.")]
         [Output("Player")] public SoundCuePlayer Player;
         [Output("Object")] public GameObject PlayingObject;
 
@@ -84,8 +88,10 @@ namespace Remedy.Audio
     [Node(Name = "Stop Sound Cue", Path = "Audio"), Tags("Default")]
     public class StopSoundCueNode : SchematicActionNode
     {
+        [Tooltip("The player to stop (from Play Sound Cue). Empty: stops every player of Cue on Target.")]
         [Input("Player")] public SoundCuePlayer Player;
         [Input("Target")] public GameObject Target;
+        [Tooltip("Stop every player of this cue on Target (when no Player is wired).")]
         [Input("Cue", Editable = true)] public SoundCueGraph Cue;
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
@@ -121,8 +127,10 @@ namespace Remedy.Audio
     [Node(Name = "Preload Sound Cue", Path = "Audio"), Tags("Default")]
     public class PreloadSoundCueNode : SchematicActionNode
     {
+        [Tooltip("The Sound Cue to get ready.")]
         [Input("Cue", Editable = true)] public SoundCueGraph Cue;
         /// <summary>How many plays at once to get ready for (a rapid-fire weapon might want 4 or more).</summary>
+        [Tooltip("How many copies to have ready to play at once (for sounds played often, like footsteps or gunshots).")]
         [Input("Voices", Editable = true)] public int Voices = 2;
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)

@@ -16,9 +16,13 @@ namespace Remedy.Audio
 
         [Input("Strength", Editable = true)] public float Strength = 1f;
         [Input("Size", Editable = true)] public float Size = 0.5f;
+        [Tooltip("How hard the surface is, 0 to 1: harder rings higher and brighter (metal, stone); softer thuds (wood, earth).")]
         [Input("Hardness", Editable = true)] public float Hardness = 0.5f;
+        [Tooltip("How much it soaks up, 0 to 1: higher deadens the ring quickly (cloth, carpet).")]
         [Input("Absorption", Editable = true)] public float Absorption = 0.3f;
+        [Tooltip("How long it rings on, 0 to 1: 0 a dull thud, 1 a bell.")]
         [Input("Ring", Editable = true)] public float Ring = 0.3f;
+        [Tooltip("How wet it is, 0 to 1: adds a splashy, slappy edge.")]
         [Input("Wetness", Editable = true)] public float Wetness;
         [Input("Hit", Editable = true)] public float Hit;
         [Editable, Tooltip("A Surface Material to sound like: its Hardness, Absorption, Wetness (and Ring, if it has that property) are used for the inputs that aren't wired.")]

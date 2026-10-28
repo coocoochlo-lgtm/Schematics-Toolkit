@@ -17,13 +17,18 @@ namespace Remedy.LevelStreaming
     [Node(Name = "Load Level", Path = "Levels"), Tags("Default")]
     public class LoadLevelNode : SchematicActionNode
     {
+        [Tooltip("The scene to load, by name or path (leave empty to load a Prefab instead).")]
         [Input("Scene")] public string SceneName = "";
+        [Tooltip("A level prefab to load instead of a scene.")]
         [Input("Prefab")] public GameObject Prefab;
         [Input("Position")] public Vector3 Position;
+        [Tooltip("Wait until everything in the level has woken before running what's next. Off: carries straight on while it streams in.")]
         [Input("Wait")] public bool Wait = true;
 
+        [Tooltip("The level's name, to unload it later.")]
         [Output("Level Name")] public string LevelName;
         [Output("Progress")] public float Progress;
+        [Tooltip("The level's top object, once it's in.")]
         [Output("Root")] public GameObject Root;
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
@@ -73,11 +78,16 @@ namespace Remedy.LevelStreaming
     [Node(Name = "Unload Level", Path = "Levels"), Tags("Default")]
     public class UnloadLevelNode : SchematicActionNode
     {
+        [Tooltip("The scene to unload, by name or path (or leave empty and give the Prefab).")]
         [Input("Scene")] public string SceneName = "";
+        [Tooltip("The level prefab to unload.")]
         [Input("Prefab")] public GameObject Prefab;
+        [Tooltip("Unload it even if it's still streaming in.")]
         [Input("Force")] public bool Force;
+        [Tooltip("Wait until it's gone before running what's next. Off: carries straight on.")]
         [Input("Wait")] public bool Wait = true;
 
+        [Tooltip("The name of the level that was unloaded.")]
         [Output("Level Name")] public string LevelName;
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)

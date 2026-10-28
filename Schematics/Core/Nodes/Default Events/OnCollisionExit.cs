@@ -14,18 +14,25 @@ namespace Remedy.Schematics
     [Node(Path = "Events/Collision"), Tags("Object")]
     public class OnCollisionExit : SchematicEventNode
     {
+        [Tooltip("The other object's collider.")]
         [Output]
         public Collider OtherCollider;
+        [Tooltip("How hard the hit was: the total push the contact gave (its length; bigger is harder).")]
         [Output]
         public Vector3 Impulse;
+        [Tooltip("How fast the two were moving into each other.")]
         [Output]
         public Vector3 RelativeVelocity;
+        [Tooltip("The other object's Rigidbody (empty if it has none).")]
         [Output]
         public Rigidbody OtherRigidbody;
+        [Tooltip("The other object's Articulation Body (empty if it has none).")]
         [Output]
         public ArticulationBody OtherArticulationBody;
+        [Tooltip("The other object's Transform.")]
         [Output]
         public Transform OtherTransform;
+        [Tooltip("The other object.")]
         [Output]
         public GameObject OtherGameObject;
     }

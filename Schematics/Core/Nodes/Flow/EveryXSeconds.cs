@@ -20,11 +20,14 @@ namespace Remedy.Schematics
         public const string TickPort = "Tick";
         public const string DonePort = "Done";
 
+        [Tooltip("How long between ticks (seconds of game time).")]
         [Input("Seconds", Editable = true)]
         public float Seconds = 1f;
+        [Tooltip("How many ticks before it's done (0: forever).")]
         [Input("Times", Editable = true)]
         public int Times;
         /// <summary>Tick as soon as the timer starts, rather than after the first wait.</summary>
+        [Tooltip("Tick as soon as the timer starts, rather than after the first wait.")]
         [Editable]
         public bool TickRightAway;
 

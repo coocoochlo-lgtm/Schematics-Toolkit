@@ -12,6 +12,7 @@ namespace Remedy.Audio
     [Serializable]
     public abstract class PlayClipNode : SchematicActionNode
     {
+        [Tooltip("The audio file to play.")]
         [Input("Clip")]
         public AudioClip Clip;
 
@@ -22,14 +23,17 @@ namespace Remedy.Audio
         [Range(0f, 1f)]
         public float Volume = 1f;
 
+        [Tooltip("How high it plays: 1 as recorded, 2 an octave up (and faster), 0.5 an octave down.")]
         [Input("Pitch", Editable = true)]
         [Range(0.1f, 3f)]
         public float Pitch = 1f;
 
+        [Tooltip("How 3D it sounds: 1 placed in the world (panned and fading with distance), 0 flat and centred.")]
         [Input("Spatial Blend", Editable = true)]
         [Range(0f, 1f)]
         public float SpatialBlend = 1f;
 
+        [Tooltip("Repeat it until it's stopped.")]
         [Editable]
         public bool Loop;
 
@@ -95,9 +99,11 @@ namespace Remedy.Audio
     [Node(Name = "Play Sound", Path = "Audio"), Tags("Default")]
     public class PlaySound : PlayClipNode
     {
+        [Tooltip("Use the kind the clip is tagged as (Audio browser). Off: use Type.")]
         [Editable]
         public bool UseClipTagType = true;
 
+        [Tooltip("What kind of sound it is: decides its mixer group and volume setting (effects, music, voice...).")]
         [Editable]
         public AudioType Type = AudioType.SoundEffect;
 
@@ -109,6 +115,7 @@ namespace Remedy.Audio
     [Node(Name = "Stop Sound", Path = "Audio"), Tags("Default")]
     public class StopSound : SchematicActionNode
     {
+        [Tooltip("The clip to stop.")]
         [Input("Clip")]
         public AudioClip Clip;
 
