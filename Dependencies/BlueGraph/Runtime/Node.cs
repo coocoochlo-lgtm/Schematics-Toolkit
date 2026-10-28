@@ -228,6 +228,45 @@ namespace BlueGraph
         }
 
         /// <summary>
+        /// Makes the node's pins from its [Input] and [Output] attributes (on the class and its fields), the way the
+        /// editor does when a node is created from the search; pins it has already are left as they are. For nodes made
+        /// in code outside the editor (an old node's replacement, say).
+        /// </summary>
+        public void AddPortsFromAttributes()
+        {
+            void Add(string name, Type type, PortDirection direction, bool multiple, bool casting)
+            {
+                if (string.IsNullOrEmpty(name) || type == null || GetPort(name) != null)
+                    return;
+                AddPort(new Port
+                {
+                    Name = name,
+                    Type = type,
+                    Direction = direction,
+                    Capacity = multiple ? PortCapacity.Multiple : PortCapacity.Single,
+                    EnableCasting = casting,
+                });
+            }
+
+            var attributes = GetType().GetCustomAttributes(true);
+            for (int i = attributes.Length - 1; i >= 0; i--)
+            {
+                if (attributes[i] is OutputAttribute output)
+                    Add(output.Name, output.Type, PortDirection.Output, output.Multiple, output.EnableCasting);
+                else if (attributes[i] is InputAttribute input)
+                    Add(input.Name, input.Type, PortDirection.Input, input.Multiple, input.EnableCasting);
+            }
+            foreach (var field in GetType().GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance))
+                foreach (var attribute in field.GetCustomAttributes(true))
+                {
+                    if (attribute is InputAttribute input)
+                        Add(input.Name ?? field.Name, input.Type ?? field.FieldType, PortDirection.Input, input.Multiple, input.EnableCasting);
+                    else if (attribute is OutputAttribute output)
+                        Add(output.Name ?? field.Name, field.FieldType, PortDirection.Output, output.Multiple, output.EnableCasting);
+                }
+        }
+
+        /// <summary>
         /// Add a new port to this node.
         /// </summary>
         public void AddPort(Port port)

@@ -366,9 +366,15 @@ namespace BlueGraph
             hasLoadedConnections = false;
         }
 
-        /// <summary>Finds its linked ports again (a node at the other end was swapped for another).</summary>
-        internal void ReloadConnections()
+        /// <summary>
+        /// Finds its linked ports again (a node at the other end was swapped for another, whose pin may have a new name).
+        /// </summary>
+        internal void ReloadConnections(string nodeId = null, string oldName = null, string newName = null)
         {
+            if (nodeId != null && oldName != null && newName != null && oldName != newName)
+                foreach (var edge in connections)
+                    if (edge != null && edge.NodeID == nodeId && edge.PortName == oldName)
+                        edge.PortName = newName;
             hasLoadedConnections = false;
             UpdateConnections();
         }

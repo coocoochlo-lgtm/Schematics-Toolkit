@@ -14,8 +14,8 @@ namespace Remedy.Audio
 
     /// <summary>A Sound Cue math node: what its icon shows, and the operation itself (for its processor and its icon's plot).</summary>
     [Serializable]
-    [NodeColor(NodeColors.Math)]
-    public abstract class SoundMathOpNode : SoundNode
+    [NodeColor("#29A84D")]
+    public abstract class SoundMathOpNode : SoundNode, Remedy.Schematics.ISquareIconNode
     {
         /// <summary>The symbol drawn as its icon (+, ×, 1−x...), or null to plot its curve.</summary>
         public virtual string Symbol => null;
@@ -26,6 +26,9 @@ namespace Remedy.Audio
         /// <summary>For a plotted icon of an operation on two values: B, while A runs along the plot.</summary>
         public virtual float PlotB => 1f;
 
+        /// <summary>A function of one value (drawn yellow) rather than an operator on two (drawn green).</summary>
+        public virtual bool IsFunction => false;
+
         /// <summary>
         /// The operation on the first <paramref name="count"/> samples (B ignored by operations on one value). Runs on
         /// the audio thread, so it reads nothing but its arguments.
@@ -35,10 +38,13 @@ namespace Remedy.Audio
 
     /// <summary>An operation on one value (In), out of Out.</summary>
     [Serializable]
+    [NodeColor("#EDB51A")]
     public abstract class SoundUnaryMathNode : SoundMathOpNode
     {
         [Input("In", Editable = true)] public float In;
         [Output("Out")] public float Out;
+
+        public override bool IsFunction => true;
 
         public override SoundProcessor CreateProcessor(SoundCueBuilder builder)
             => new Processor { Node = this, In = builder.Input(this, "In", In) };
@@ -148,8 +154,7 @@ namespace Remedy.Audio
     public class SoundPowerNode : SoundBinaryMathNode
     {
         public SoundPowerNode() => B = 2f;
-        public override Vector2 PlotRange => new(0f, 1f);
-        public override float PlotB => 2f;
+        public override string Symbol => "xʸ";
         public override void Evaluate(float[] a, float[] b, float[] r, int count) { for (int i = 0; i < count; i++) r[i] = Mathf.Pow(a[i], b[i]); }
     }
 
@@ -158,7 +163,7 @@ namespace Remedy.Audio
     [Node(Name = "Min", Path = "Math"), Tags(SoundNode.Tag)]
     public class SoundMinNode : SoundBinaryMathNode
     {
-        public override float PlotB => 0.3f;
+        public override string Symbol => "min";
         public override void Evaluate(float[] a, float[] b, float[] r, int count) { for (int i = 0; i < count; i++) r[i] = Mathf.Min(a[i], b[i]); }
     }
 
@@ -168,7 +173,7 @@ namespace Remedy.Audio
     public class SoundMaxNode : SoundBinaryMathNode
     {
         public SoundMaxNode() => B = 0f;
-        public override float PlotB => -0.3f;
+        public override string Symbol => "max";
         public override void Evaluate(float[] a, float[] b, float[] r, int count) { for (int i = 0; i < count; i++) r[i] = Mathf.Max(a[i], b[i]); }
     }
 
@@ -350,20 +355,5 @@ namespace Remedy.Audio
 
         private static string NameOf(Type type)
             => Attribute.GetCustomAttribute(type, typeof(NodeAttribute)) is NodeAttribute node && !string.IsNullOrEmpty(node.Name) ? node.Name : type.Name;
-
-        /// <summary>Replaces a cue's old Math and Function nodes; true if there were any.</summary>
-        public static bool Upgrade(SoundCueGraph cue)
-        {
-            bool any = false;
-            foreach (var node in new System.Collections.Generic.List<Node>(cue.Nodes))
-            {
-                var replacement = For(node);
-                if (replacement == null)
-                    continue;
-                cue.ReplaceNode(node, replacement);
-                any = true;
-            }
-            return any;
-        }
     }
 }

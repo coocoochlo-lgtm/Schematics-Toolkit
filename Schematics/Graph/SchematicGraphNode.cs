@@ -33,6 +33,15 @@ namespace Remedy.Schematics
         /// </summary>
         public GameObject RunningInstance => Flow.Current?.Instance;
 
+        /// <summary>
+        /// For a node kept only so old graphs load: the node that replaces it (same pins, same wires), swapped in when
+        /// the graph is next validated (opened or edited in the editor). Null: it isn't replaced.
+        /// </summary>
+        public virtual SchematicGraphNode Replacement() => null;
+
+        /// <summary>The replacement's pin taking the links of one of this node's pins, where they're named differently.</summary>
+        public virtual string OldPortFor(string newPort) => newPort;
+
         private Rigidbody _rigidBody;
         public Rigidbody RigidBody
         {

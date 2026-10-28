@@ -323,8 +323,15 @@ Sound Cues can be called from other Sound Cues too, with a **Function** node (un
 - A **Sound Input** node is sound the cue takes when it's called. It becomes a pin on the Function node, and can carry sound or any control (a curve, a parameter). When the cue plays on its own, its Preview pin stands in.
 - Its **Parameters** become pins too, with the control set on each Parameter node in the Inspector (slider, toggle, dropdown...), set right on the Function node when nothing's wired in.
 - This is different from the **Sound Cue** node, which plays another cue as its own sound (with its own length, delay and looping). A Function is part of the cue, so it can change the sound it's given: a radio-voice filter chain, a muffled-through-a-wall pass, an engine layer.
-- Sound Cue math is one small node per operation: Add, Subtract, Multiply, Divide, Modulo, Power, Min, Max, and Sine Wave, Sin, Cos, Abs, Floor, Fraction, Square Root, Negate, One Minus, Clamp 0 to 1, Sign, Decibels To Volume and Volume To Decibels. Each is a flat square with no title bar. Its icon in the middle is its symbol (+, ×, 1−x…) or a plot of its own curve. Numbers for unwired pins are typed in beside them, outside the square, and the node's name shows on hover. Cues saved with the old all-in-one Math and Function nodes are switched to these when opened, keeping their wires and values.
+- Sound Cue math is one small node per operation, like every graph's math (see **Math nodes** below), plus Sine Wave, Decibels To Volume and Volume To Decibels for sound.
 - **Collapse to Function** works in Sound Cues as well. Wires coming in become Sound Inputs, and the cue's Parameters stay Parameters. The one sound going out goes to the new cue's Output. The new cue is Mono, since the cue calling it decides how it's heard.
+
+**Math nodes**, in logic, mesh and Sound Cue graphs alike, are one small node per operation:
+- **Operators:** Add, Subtract, Multiply, Divide, Modulo, Power, Min, Max, and in logic graphs the gates And, Or, Xor, Not.
+- **Functions** of one value: Sin, Cos, Abs, Floor, Ceil, Round, Fraction, Square Root, Negate, One Minus, Clamp 0 to 1, Sign.
+- **The look:** each is a flat glossy square with no title bar and a white icon in the middle. Operators are green and show their symbol (+, −, ×, ÷, %, xʸ, min, max, and, or…). Functions are yellow and show a plot of their own curve (Sin a wave, Abs a V, Floor a staircase). Numbers for unwired pins are typed in beside them, outside the square, and the node's name shows on hover.
+- **Old graphs:** the old all-in-one Math Operation and Boolean Operation nodes (and Sound Cues' Math and Function) are switched to these when a graph is opened, keeping their wires and values. Modulo now always gives 0 up to B (also for negative A), and dividing by 0 gives 0.
+- Mesh Graphs keep their formula **Math** node for anything longer.
 
 **Macros** (right-click the canvas → Macros) are ready-made groups of nodes. A macro's nodes splash in from where you clicked: they burst out one after another to their places, then spread a little further so none overlap. A comment then wraps them, titled with the macro's name and coloured after the kind of node there's most of.
 

@@ -479,9 +479,10 @@ namespace BlueGraph
 
         /// <summary>
         /// Swaps a node for another in place: the new one takes its ID, position and links (on pins of the same name),
-        /// so everything wired to it stays wired. For upgrading a node to a newer kind.
+        /// so everything wired to it stays wired. For upgrading a node to a newer kind. <paramref name="oldPortFor"/> names
+        /// the old pin a new one takes the links of, where they're named differently.
         /// </summary>
-        public void ReplaceNode(Node old, Node replacement)
+        public void ReplaceNode(Node old, Node replacement, Func<string, string> oldPortFor = null)
         {
             int index = nodes.IndexOf(old);
             if (index < 0 || replacement == null)
@@ -491,7 +492,7 @@ namespace BlueGraph
             replacement.Graph = this;
             foreach (var port in replacement.Ports.Values)
             {
-                var was = old.GetPort(port.Name);
+                var was = old.GetPort(oldPortFor?.Invoke(port.Name) ?? port.Name);
                 if (was != null)
                     port.CopyConnectionsFrom(was);
             }
@@ -507,10 +508,13 @@ namespace BlueGraph
             nodes[index] = replacement;
             replacement.OnAddedToGraph();
             replacement.Enable();
-            // The nodes at the other ends still hold the old node's pins: they look them up again.
+            // The nodes at the other ends still hold the old node's pins (and maybe their old names): they look them up again.
             foreach (var port in replacement.Ports.Values)
+            {
+                string oldName = oldPortFor?.Invoke(port.Name) ?? port.Name;
                 foreach (var edge in port.Connections)
-                    GetNodeById(edge.NodeID)?.GetPort(edge.PortName)?.ReloadConnections();
+                    GetNodeById(edge.NodeID)?.GetPort(edge.PortName)?.ReloadConnections(replacement.ID, oldName, port.Name);
+            }
             CacheNodesByType();
         }
 

@@ -14,6 +14,37 @@ namespace Remedy.Schematics
     [SchematicType("Objects", Order = 0, ListsPrefabs = true, Icon = "SchematicTab:object", NewAssetName = "New Schematic Object")]
     public class SchematicGraph : Graph, ISchematicAsset
     {
+        /// <summary>Swaps outdated nodes for the ones replacing them (see <see cref="SchematicGraphNode.Replacement"/>).</summary>
+        public override void OnGraphValidate()
+        {
+            base.OnGraphValidate();
+            bool replaced = false;
+            foreach (var node in new System.Collections.Generic.List<BlueGraph.Node>(Nodes))
+            {
+                if (node is not SchematicGraphNode old)
+                    continue;
+                SchematicGraphNode replacement;
+                try
+                {
+                    replacement = old.Replacement();
+                }
+                catch (Exception exception)
+                {
+                    Debug.LogException(exception);
+                    continue;
+                }
+                if (replacement == null)
+                    continue;
+                replacement.CustomName = old.CustomName;
+                ReplaceNode(old, replacement, old.OldPortFor);
+                replaced = true;
+            }
+#if UNITY_EDITOR
+            if (replaced)
+                UnityEditor.EditorApplication.delayCall += () => { if (this != null) UnityEditor.EditorUtility.SetDirty(this); };
+#endif
+        }
+
         [SerializeField, HideInInspector]
         private string _uid;
 

@@ -6,9 +6,40 @@ namespace Remedy.Schematics
 {
     [Serializable]
     [NodeColor(NodeColors.Math)]
-    [Node(Path = "Math"), Tags("Default")]
+    // Replaced by a node per operation (MathNodes.cs): kept so graphs saved with it still load and run, and swapped
+    // for its operation's node when the graph is next opened.
+    [Node(Name = "Math Operation (Old)", Path = "Math"), Tags(LegacyTag)]
     public class MathOperation : SchematicGraphNode
     {
+        /// <summary>The tag of nodes kept only so old graphs load: no graph offers it, so they aren't in the node search.</summary>
+        public const string LegacyTag = "Legacy";
+
+        public override void OnValidate()
+        {
+            base.OnValidate();
+            Warning = "Old: each operation is its own node now (Add, Multiply...). This one is replaced by it when the graph is opened.";
+        }
+
+        public override SchematicGraphNode Replacement()
+        {
+            BinaryMathNode node = Operator switch
+            {
+                Operation.Subtract => new MathSubtractNode(),
+                Operation.Multiply => new MathMultiplyNode(),
+                Operation.Divide => new MathDivideNode(),
+                Operation.Modulo => new MathModuloNode(),
+                Operation.Minimum => new MathMinNode(),
+                Operation.Maximum => new MathMaxNode(),
+                Operation.Power => new MathPowerNode(),
+                _ => new MathAddNode(),
+            };
+            node.A = A;
+            node.B = B;
+            node.Name = node.Op.ToString();
+            node.AddPortsFromAttributes();
+            return node;
+        }
+
         public enum Operation
         {
             Add,

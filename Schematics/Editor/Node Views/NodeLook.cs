@@ -19,7 +19,8 @@ internal static class NodeLook
     private static void Style(NodeView view)
     {
         var node = view?.Target;
-        if (node == null || node is SendSignalNode || node is OnSignalReceivedNode)
+        // (Signal nodes, and math nodes' glossy squares, are styled by their own views.)
+        if (node == null || node is SendSignalNode || node is OnSignalReceivedNode || node is ISquareIconNode)
             return;
 
         bool variable = node is GetBehaviorVariableNode || node is SetBehaviorVariableNode || node is GraphVariableNodeBase;

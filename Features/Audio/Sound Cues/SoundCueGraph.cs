@@ -124,13 +124,6 @@ namespace Remedy.Audio
             }
             if (removedDuplicate)
                 CacheNodesByType();
-            // Cues saved with the old all-in-one Math and Function nodes get the node for each one's operation.
-            if (SoundMathUpgrade.Upgrade(this))
-            {
-#if UNITY_EDITOR
-                UnityEditor.EditorApplication.delayCall += () => { if (this != null) UnityEditor.EditorUtility.SetDirty(this); };
-#endif
-            }
         }
     }
 

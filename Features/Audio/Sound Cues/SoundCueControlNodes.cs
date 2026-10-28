@@ -472,6 +472,8 @@ namespace Remedy.Audio
             Warning = "Old: each operation is its own node now (Add, Multiply...). This one is replaced by it when the cue is opened.";
         }
 
+        public override Remedy.Schematics.SchematicGraphNode Replacement() => SoundMathUpgrade.For(this);
+
         public enum Operation { Add, Subtract, Multiply, Divide, Modulo, Power, Min, Max }
 
         [Input("A", Editable = true)] public float A;
@@ -517,6 +519,8 @@ namespace Remedy.Audio
             base.OnValidate();
             Warning = "Old: each function is its own node now (Sine Wave, Abs...). This one is replaced by it when the cue is opened.";
         }
+
+        public override Remedy.Schematics.SchematicGraphNode Replacement() => SoundMathUpgrade.For(this);
 
         public enum Function { SineWave, Sin, Cos, Abs, Floor, Fraction, Sqrt, Negate, OneMinus, Clamp01, Sign, DecibelsToVolume, VolumeToDecibels }
 
