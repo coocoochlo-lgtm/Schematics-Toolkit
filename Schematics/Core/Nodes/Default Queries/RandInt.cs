@@ -14,12 +14,15 @@ namespace Remedy.Schematics
     [Node(Path = "Random"), Tags("Default")]
     public class RandInt : SchematicGraphNode
     {
+        [Tooltip("The lowest number it can pick.")]
         [Input("LowerBound", Editable = true)]
         public int LowerBound;
+        [Tooltip("The number it picks below (unless Include Upper is on).")]
         [Input("UpperBound", Editable = true)]
         public int UpperBound;
 
         /// <summary>Upper Bound can come up too (0 and 1 both, for Lower 0 and Upper 1).</summary>
+        [Tooltip("Allow Upper Bound itself to be picked too.")]
         [Editable]
         public bool IncludeUpper;
 

@@ -14,6 +14,7 @@ namespace Remedy.Schematics
     [Node(Path = ""), Tags("Object")]
     public class This : SchematicGraphNode
     {
+        [Tooltip("The object running this graph.")]
         [Output(" ")]
         public object Value;
 

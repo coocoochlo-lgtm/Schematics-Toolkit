@@ -19,10 +19,12 @@ namespace Remedy.Schematics
     [Node(Path = "Loops"), Tags("Default")] 
     public class ForEach : SchematicActionNode
     {
+        [Tooltip("The list to go through.")]
         [Input("Items")]
         public List<Union> Items;
         [Output("Index")]
         public int Index;
+        [Tooltip("The current item, while the nodes after it run.")]
         [Output("This")]
         public object CurrentItem;
 

@@ -11,6 +11,7 @@ using UnityEngine;
 [Node(Path = "Events"), Tags("Runtime")]
 public class OnLevelExit : SchematicEventNode
 {
+    [Tooltip("The level's name (its scene or prefab name).")]
     [Output]
     public string LevelName;
     

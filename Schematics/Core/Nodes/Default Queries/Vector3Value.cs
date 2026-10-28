@@ -14,12 +14,15 @@ namespace Remedy.Schematics
     [Node(Path = "Values"), Tags("Default")]
     public class Vector3Value : SchematicGraphNode
     {
+        [Tooltip("The X part (left/right).")]
         [Input("x", Editable = true)]
         public float X;
 
+        [Tooltip("The Y part (up/down).")]
         [Input("y", Editable = true)]
         public float Y;
 
+        [Tooltip("The Z part (forward/back).")]
         [Input("z", Editable = true)]
         public float Z;
 

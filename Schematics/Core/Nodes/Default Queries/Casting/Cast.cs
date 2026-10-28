@@ -14,6 +14,7 @@ namespace Remedy.Schematics
         [Input("Value")]
         public object Value;
 
+        [Tooltip("The value as the chosen type (empty if it isn't one).")]
         [Output("Casted")]
         public T CastedValue;
 

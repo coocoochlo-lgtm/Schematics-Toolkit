@@ -227,6 +227,7 @@ namespace Remedy.Schematics
 
         [ThreadStatic] private static int _depth;
 
+        [Tooltip("The Function Graph to call (drop one on the graph to make this node). Double-click the title to open it.")]
         [Editable("Function")] public FunctionGraph Calls;
         [SerializeField, HideInInspector] private List<FunctionArgument> _arguments = new();
 

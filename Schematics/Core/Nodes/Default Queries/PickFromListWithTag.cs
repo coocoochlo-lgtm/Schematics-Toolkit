@@ -19,11 +19,13 @@ namespace Remedy.Schematics
     [Node(Path = "Collections"), Tags("Object")]
     public class PickFromListWithTag : SchematicGraphNode
     {
+        [Tooltip("The list to pick from.")]
         [Input("List")]
         public List<object> List;
         [Input("Tag", Editable = true)]
         public IntTag ObjectTag = IntTags.Untagged;
 
+        [Tooltip("The ones that have the tag.")]
         [Output("Objects With Tag")]
         public List<object> WithTag;
 

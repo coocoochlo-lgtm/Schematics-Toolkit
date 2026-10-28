@@ -16,6 +16,7 @@ namespace Remedy.Schematics
     {
         [Output("Position")]
         public Vector3 TransformPosition;
+        [Tooltip("Its rotation, in degrees around X, Y and Z.")]
         [Output("EulerAngles")]
         public Vector3 EulerAngles;
         public override object OnRequestValue(Port port)

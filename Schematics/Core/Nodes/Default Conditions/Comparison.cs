@@ -25,11 +25,14 @@ namespace Remedy.Schematics
         }
 
         // The ports take any value (int, long, double, Union outputs...); the fields are what's typed in.
+        [Tooltip("The number on the left of the comparison.")]
         [Input("First Value", typeof(object), Editable = true)]
         public float FirstValue;
+        [Tooltip("The number on the right of the comparison.")]
         [Input("Second Value", typeof(object), Editable = true)]
         public float SecondValue;
 
+        [Tooltip("How to compare them: equal, not equal, less than, greater than, and so on.")]
         [Editable]
         public ComparisonOperator Operator;
 

@@ -24,6 +24,7 @@ namespace Remedy.Schematics
         [Input("Tag", Editable = true)]
         public IntTag ObjectTag = IntTags.Untagged;
 
+        [Tooltip("Every active object with the tag, as a list.")]
         [Output("Objects")]
         public List<object> Objects;
 

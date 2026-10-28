@@ -25,6 +25,7 @@ namespace Remedy.Meshes
     [Node(Name = "Mesh Input", Path = "Functions"), Tags(MeshNode.Tag)]
     public sealed class MeshInputNode : MeshNode
     {
+        [Tooltip("The name of the pin this input gets on Function nodes calling this graph.")]
         [Editable] public string InputName = "Mesh";
         [Tooltip("What it should be given, for whoever (or whatever AI) calls the graph.")]
         [TextArea(1, 3)]
@@ -48,6 +49,7 @@ namespace Remedy.Meshes
     [AssetNode(typeof(MeshGraph), Title = "{0}", Field = nameof(Calls))]
     public sealed class MeshFunctionNode : MeshNode, IDynamicPorts
     {
+        [Tooltip("The Mesh Graph to call (drop one on the graph to make this node). Double-click the title to open it.")]
         [Editable("Graph")] public MeshGraph Calls;
         [SerializeField, HideInInspector] private List<FunctionArgument> _arguments = new();
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;

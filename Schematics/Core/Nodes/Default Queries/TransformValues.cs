@@ -15,12 +15,14 @@ namespace Remedy.Schematics
         [Output("Position")]
         public Vector3 Position;
 
+        [Tooltip("Its rotation, in degrees around X, Y and Z.")]
         [Output("Euler Angles")]
         public Vector3 EulerAngles;
 
         [Output("Scale")]
         public Vector3 Scale;
 
+        [Tooltip("The direction it faces (its blue Z axis).")]
         [Output("Forward")]
         public Vector3 Forward;
 

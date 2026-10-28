@@ -15,9 +15,11 @@ namespace Remedy.Schematics
         public Vector3 InitPosition;
         [Input("Rotation")]
         public Vector3 Rotation;
+        [Tooltip("What to make a copy of (a prefab or any object).")]
         [Input("Prefab")]
         public GameObject Prefab;
 
+        [Tooltip("The new copy.")]
         [Output("Instanced Object")]
         public GameObject InstancedObject;
         

@@ -15,6 +15,7 @@ namespace Remedy.Schematics
         public GameObject Target;
         [Input("Position")]
         public Vector3 NewPosition;
+        [Tooltip("Set it relative to its parent. Off: in world space.")]
         [Editable]
         public bool Local;
 

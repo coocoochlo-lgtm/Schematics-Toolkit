@@ -15,6 +15,7 @@ namespace Remedy.Audio
         public const float MaxBend = 0.5f;
 
         [Input("Audio", Editable = false)] public float AudioIn;
+        [Tooltip("How much the pitch bends as it comes and goes (Doppler): 1 real, 0 none, 2 exaggerated.")]
         [Input("Doppler", Editable = true)] public float Doppler = 1f;
         [Editable, Tooltip("The farthest away it allows for, in meters (farther is heard as if this far).")]
         public float MaxDistance = 300f;

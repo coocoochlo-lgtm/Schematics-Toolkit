@@ -18,8 +18,10 @@ namespace Remedy.Schematics
     [Node(Path = "Events"), Tags("Object")]
     public class OnFunction : SchematicEventNode
     {
+        [Tooltip("The function name Call Function must use to start this.")]
         [Editable]
         public string FunctionName;
+        [Tooltip("The parameters the call passed along.")]
         [Output]
         public List<FunctionParameter> FunctionParameters;
 

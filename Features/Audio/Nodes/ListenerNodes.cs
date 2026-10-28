@@ -11,8 +11,10 @@ namespace Remedy.Audio
     [Node(Name = "Set Listener Chain", Path = "Audio"), Tags("Default")]
     public class SetListenerChainNode : SchematicActionNode, IGraphSource
     {
+        [Tooltip("The Sound Cue to run everything the player hears through (it takes the mix in with a Listener Input node). None: no chain.")]
         [Input("Cue", Editable = true)] public SoundCueGraph Cue;
         [Input("Mix", Editable = true)] public float Mix = 1f;
+        [Tooltip("The running chain: wire it into Set Graph Parameters to change the cue's Parameters live.")]
         [Output("Chain")] public SoundListenerChain Chain;
 
         /// <summary>Chain runs its cue: Set Graph Parameters wired from it gets the cue's Parameters.</summary>

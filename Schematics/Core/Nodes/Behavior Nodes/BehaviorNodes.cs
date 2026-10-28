@@ -371,6 +371,7 @@ namespace Remedy.Schematics
         public string Path = "";
 
         [Output(ObjectPort)] public GameObject Object;
+        [Tooltip("Its Transform (position, rotation, scale).")]
         [Output(TransformPort)] public Transform Transform_;
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)

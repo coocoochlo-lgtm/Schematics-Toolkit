@@ -12,7 +12,9 @@ namespace Remedy.Audio
     public class SoundCornersNode : SoundNode
     {
         [Input("Audio", Editable = false)] public float AudioIn;
+        [Tooltip("How loud what gets straight through the walls is, 0 to 1 (before it fades with distance).")]
         [Input("Through Walls", Editable = true)] public float ThroughWalls = 0.2f;
+        [Tooltip("How muffled what gets through the walls is: the low-pass cutoff (Hz). Lower is more muffled.")]
         [Input("Through Cutoff", Editable = true)] public float ThroughCutoff = 700f;
         [Editable, Tooltip("How dull (Hz) the sound is when it bends a right angle round a corner (sharper bends are duller).")]
         public float BendCutoff = 2500f;

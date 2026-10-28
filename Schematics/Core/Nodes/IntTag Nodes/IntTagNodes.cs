@@ -54,8 +54,10 @@ namespace Remedy.Schematics
         [Input(TagPort, Editable = true)]
         public IntTag Tag = IntTags.Player;
 
+        [Tooltip("Every active object with the tag.")]
         [Output("Objects")]
         public List<Union> Objects;
+        [Tooltip("The first of them (empty if there are none).")]
         [Output("First")]
         public GameObject First;
         [Output("Count")]
@@ -91,6 +93,7 @@ namespace Remedy.Schematics
         [Editable("Stop If Missing")]
         public bool StopIfMissing;
 
+        [Tooltip("True if the object has the tag.")]
         [Output("Has Tag")]
         public bool Result;
 

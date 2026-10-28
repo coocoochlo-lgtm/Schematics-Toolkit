@@ -17,11 +17,13 @@ namespace Remedy.Schematics
     [Node(Path = "Collections"), Tags("Default")]
     public class PickNthItem : SchematicGraphNode
     {
+        [Tooltip("The list to pick from.")]
         [Input("List")]
         public List<object> List;
         [Input("Index")]
         public int Index;
 
+        [Tooltip("The item at Index (empty if there isn't one).")]
         [Output("Item")]
         public object Item;
 

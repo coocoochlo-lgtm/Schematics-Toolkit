@@ -18,9 +18,11 @@ namespace Remedy.Schematics
     [Node(Path = "Collections"), Tags("Default")]
     public class CreateList : SchematicGraphNode
     {
+        [Tooltip("The values to put in the list (wire as many as you like; lists wired in are merged).")]
         [Input("Items", Multiple = true)]
         public object Items;
 
+        [Tooltip("The list.")]
         [Output(" ")]
         public List<object> NewCollection;
 

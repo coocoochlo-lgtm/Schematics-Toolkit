@@ -29,6 +29,7 @@ namespace Remedy.Schematics
         /// <summary>Any value to show after the Text (or where it says {0}): a number, a vector, an object, a list...</summary>
         [Input("Value", Editable = false)]
         public object Value;
+        [Tooltip("How it shows in the Console: a normal message, a yellow warning, or a red error.")]
         [Editable]
         public DebugType Type = DebugType.Normal;
 

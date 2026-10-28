@@ -18,6 +18,7 @@ namespace Remedy.Schematics
         public GameObject Target;
         [Input("Name")]
         public string MethodName;
+        [Tooltip("The values passed to the method, in order.")]
         [Input("Arguments")]
         public List<object> MethodArguments;
 

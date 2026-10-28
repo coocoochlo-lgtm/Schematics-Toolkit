@@ -14,6 +14,7 @@ namespace Remedy.Schematics
     [Node(Path = "Schematic"), Tags("Default")]
     public class GetChild : SchematicGraphNode
     {
+        [Tooltip("The child's Transform.")]
         [Output]
         public Transform Child;
 

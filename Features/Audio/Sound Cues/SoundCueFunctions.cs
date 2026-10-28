@@ -58,6 +58,7 @@ namespace Remedy.Audio
         public const string AudioPort = "Audio";
         private const int MaxDepth = 16;
 
+        [Tooltip("The Sound Cue to call (its nodes become part of this one). Double-click the title to open it.")]
         [Editable("Cue")] public SoundCueGraph Calls;
         [SerializeField, HideInInspector] private List<FunctionArgument> _arguments = new();
         [Output(AudioPort)] public float Audio;

@@ -17,6 +17,7 @@ namespace Remedy.UI
     [Node(Name = "On UI Cancel", Path = "Events/UI"), Tags("UI")]
     public sealed class OnUICancel : SchematicEventNode
     {
+        [Tooltip("The player who pressed Cancel.")]
         [Output("Controller")] public Controller Controller;
     }
 
@@ -26,6 +27,7 @@ namespace Remedy.UI
     [Node(Name = "On UI Selection Changed", Path = "Events/UI"), Tags("UI")]
     public sealed class OnUISelectionChanged : SchematicEventNode
     {
+        [Tooltip("The name of the element now selected (as named in UI Builder).")]
         [Output("Element Name")] public string ElementName;
     }
 }

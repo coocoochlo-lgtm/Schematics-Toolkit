@@ -13,6 +13,7 @@ namespace Remedy.Audio
     [AssetNode(typeof(SignalData), Title = "Trigger: {0}")]
     public class SoundTriggerNode : SoundNode
     {
+        [Tooltip("Fires when this rises past 0.5 (wire a Parameter in), as well as on its Signal.")]
         [Input("Fire", Editable = true)] public float Fire;
         [Editable, Tooltip("The Signal that fires it, sent to the object the cue plays on (or to every object).")]
         public SignalData Signal;

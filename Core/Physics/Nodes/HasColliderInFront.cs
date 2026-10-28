@@ -27,6 +27,7 @@ namespace Remedy.Schematics
 
         [Input("Object")]
         public GameObject Object;
+        [Tooltip("Only count objects with this tag (Untagged: anything).")]
         [Input("Other Tag", Editable = true)]
         public IntTag OtherTag = IntTags.Untagged;
         [Input("Distance", Editable = true)]
@@ -34,6 +35,7 @@ namespace Remedy.Schematics
         [Input("Radius", Editable = true)]
         public float Radius = 1.0f;
 
+        [Tooltip("What it hit (empty if nothing).")]
         [Output(OtherPort)]
         public GameObject OtherGameObject;
 

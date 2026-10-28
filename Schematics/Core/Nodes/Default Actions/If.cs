@@ -21,8 +21,10 @@ namespace Remedy.Schematics
         // Editable: unconnected, the checkbox on the node is the condition (it had no checkbox, so it was always false).
         [Input("Condition", Editable = true)]
         public bool Condition;
+        [Tooltip("Flip it: go out ▶ when Condition is false.")]
         [Editable]
         public bool Not;
+        [Tooltip("Only let the flow through the first time (for each object); after that it always goes to Else.")]
         [Editable]
         public bool TriggerOnce;
 

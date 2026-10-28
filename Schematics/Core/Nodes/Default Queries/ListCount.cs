@@ -16,6 +16,7 @@ namespace Remedy.Schematics
     [Node(Path = "Collections"), Tags("Default")]
     public class ListCount : SchematicGraphNode
     {
+        [Tooltip("The list to count.")]
         [Input("List")]
         public List<object> List;
 

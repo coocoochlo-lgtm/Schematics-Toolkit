@@ -193,7 +193,9 @@ namespace Remedy.Meshes
     [Node(Name = "Parameter", Path = "Values"), Tags(MeshNode.Tag)]
     public sealed class MeshParameterNode : MeshNode
     {
+        [Tooltip("The name it's set by (on the Mesh Graph Renderer, or Set Graph Parameters), and its pin's name on Function nodes calling this graph.")]
         [Editable] public string ParameterName = "Size";
+        [Tooltip("Its value until something sets it.")]
         [Editable] public float Default = 1f;
         [Tooltip("How it's shown on Function nodes calling this graph: its control, range, group and description.")]
         public ParameterUI UI = new();
