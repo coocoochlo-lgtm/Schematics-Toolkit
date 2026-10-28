@@ -32,8 +32,8 @@ namespace Remedy.Audio
         }
 
 #if UNITY_EDITOR
-        // The cue's edits and those of the cues played inside it (Sound Cue nodes), so editing an inner cue rebuilds
-        // the voices of cues that play it.
+        // The cue's edits and those of the cues played inside it (Sound Cue and Call nodes), so editing an inner
+        // cue rebuilds the voices of cues that play it.
         private static int Version(SoundCueGraph cue, int depth)
         {
             if (cue == null || depth > 8)
@@ -42,6 +42,8 @@ namespace Remedy.Audio
             foreach (var node in cue.Nodes)
                 if (node is SoundCueSourceNode inner && inner.Cue != null && inner.Cue != cue)
                     version = version * 31 + Version(inner.Cue, depth + 1);
+                else if (node is SoundCueCallNode function && function.Calls != null && function.Calls != cue)
+                    version = version * 31 + Version(function.Calls, depth + 1);
             return version;
         }
 #endif

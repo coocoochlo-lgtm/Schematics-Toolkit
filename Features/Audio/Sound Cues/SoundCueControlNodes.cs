@@ -239,10 +239,19 @@ namespace Remedy.Audio
         [Editable] public float Default;
         [Editable, Tooltip("How long a new value takes to glide in (seconds; most of the way there by then), so values set once a frame (an engine's RPM) sweep smoothly instead of stepping. 0 = jumps straight there.")]
         public float Glide = 0.05f;
+        [Tooltip("How it's shown on Call nodes calling this cue: its control, range, group and description.")]
+        public Remedy.Schematics.ParameterUI UI = new();
         [Output("Value")] public float Value;
 
         public override SoundProcessor CreateProcessor(SoundCueBuilder builder)
         {
+            // Called as a function: the value the Call node gives (wired in, or set on it).
+            if (builder.CallParameter(ParameterName, out var given))
+            {
+                var passed = new StaticProcessor();
+                passed.Outputs["Value"] = given;
+                return passed;
+            }
             // What the game sets is heard as it changes: the cue is rendered as it's heard (Output's Rendering, Auto).
             builder.Context.HasParameters = true;
             return new Processor

@@ -318,6 +318,13 @@ A Function Graph is a routine any logic graph can call like a node. Create one w
 
 Mesh Graphs can be called the same way, from other Mesh Graphs (see Features/Meshes/README.md).
 
+Sound Cues can be called from other Sound Cues too, with a **Call** node (under Functions in a Sound Cue's node search, for cues marked In Library):
+- The called cue's nodes become part of the calling cue's sound, on its time, so the call costs the same as having the nodes there. What reaches its Output, at its Volume, comes out of the Call node's Audio pin.
+- A **Sound Input** node is sound the cue takes when it's called. It becomes a pin on the Call node, and can carry sound or any control (a curve, a parameter). When the cue plays on its own, its Preview pin stands in.
+- Its **Parameters** become pins too, with the control set on each Parameter node in the Inspector (slider, toggle, dropdown...), set right on the Call node when nothing's wired in.
+- This is different from the **Sound Cue** node, which plays another cue as its own sound (with its own length, delay and looping). A Call is part of the cue, so it can change the sound it's given: a radio-voice filter chain, a muffled-through-a-wall pass, an engine layer.
+- **Collapse to Function** works in Sound Cues as well. Wires coming in become Sound Inputs, and the cue's Parameters stay Parameters. The one sound going out goes to the new cue's Output. The new cue is Mono, since the cue calling it decides how it's heard.
+
 The old **Call Function** and **On Function** nodes still work, but show a warning badge suggesting a Function Graph instead. Any node can show a warning: a yellow wavy outline and a **!** badge, with the warning shown when you hover over the badge. A Call node with no function set gets one too.
 
 

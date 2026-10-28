@@ -48,9 +48,44 @@ namespace Remedy.Audio
         /// <summary>Whether the cue is heard placed in the world (Stereo) rather than flat (Mono).</summary>
         public bool IsSpatial => Channels == SoundCueChannels.Stereo;
 
-        /// <summary>Its Parameters, for Set Graph Parameters (and Play Sound Cue's pins).</summary>
+        /// <summary>Its Parameters, for Set Graph Parameters, Play Sound Cue's pins and Call nodes calling it (with their controls).</summary>
         public override IReadOnlyList<GraphParameter> GraphParameters
-            => ParameterList.Select(p => new GraphParameter(p.name, typeof(float), p.value)).ToList();
+            => ParameterNodes.Select(p => new GraphParameter(p.ParameterName.Trim(), typeof(float), p.Default, p.UI)).ToList();
+
+        /// <summary>The Parameter node declaring each of its Parameters (the first, where two share a name).</summary>
+        public List<SoundParameterNode> ParameterNodes
+        {
+            get
+            {
+                var found = new List<SoundParameterNode>();
+                var names = new HashSet<string>();
+                foreach (var node in Nodes)
+                    if (node is SoundParameterNode parameter && !string.IsNullOrWhiteSpace(parameter.ParameterName) && names.Add(parameter.ParameterName.Trim()))
+                        found.Add(parameter);
+                return found;
+            }
+        }
+
+        /// <summary>Sound Cues can be called from other Sound Cues with a Call node: their nodes become part of the caller's sound.</summary>
+        public override bool CallableAsFunction => true;
+
+        /// <summary>The sound it takes when called as a function: its Sound Input nodes (each name once).</summary>
+        public override IReadOnlyList<GraphPinInfo> FunctionInputs
+        {
+            get
+            {
+                var found = new List<GraphPinInfo>();
+                var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var node in Nodes)
+                    if (node is SoundInputNode input && !string.IsNullOrWhiteSpace(input.InputName) && names.Add(input.InputName.Trim()))
+                        found.Add(new GraphPinInfo(input.InputName.Trim(), typeof(float), input.Description));
+                return found;
+            }
+        }
+
+        /// <summary>What it gives back when called as a function: its Output's sound (at its Volume).</summary>
+        public override IReadOnlyList<GraphPinInfo> FunctionOutputs
+            => new[] { new GraphPinInfo(SoundCueOutput.AudioPort, typeof(float), "The sound wired into its Output, at the Output's Volume.") };
 
         /// <summary>The cue's Parameters (each name once), with their defaults: what a node that plays it can set.</summary>
         public List<(string name, float value)> ParameterList
@@ -304,8 +339,77 @@ namespace Remedy.Audio
         /// <summary>Problems found while building (shown in the graph window).</summary>
         public readonly List<string> Warnings = new();
 
-        private readonly Dictionary<SoundNode, SoundProcessor> _built = new();
-        private readonly HashSet<SoundNode> _building = new();
+        // Each node's processor, per call of a function it's in (null: the cue itself), so a function used twice is
+        // built twice.
+        private readonly Dictionary<(Call, SoundNode), SoundProcessor> _built = new();
+        private readonly HashSet<(Call, SoundNode)> _building = new();
+
+        /// <summary>A Sound Cue being called as a function while its nodes are built: what it was given.</summary>
+        private sealed class Call
+        {
+            public SoundCueGraph Graph;
+            public Call Parent;
+            public Dictionary<string, float[]> Inputs;
+            public Dictionary<string, float[]> Parameters;
+        }
+
+        private Call _call;
+
+        /// <summary>Whether a function's nodes are being built (rather than the cue's own).</summary>
+        public bool InCall => _call != null;
+
+        /// <summary>Whether a cue is being called as a function right now, at any depth (calling it again would never end).</summary>
+        public bool IsCalling(SoundCueGraph graph)
+        {
+            for (var call = _call; call != null; call = call.Parent)
+                if (call.Graph == graph)
+                    return true;
+            return false;
+        }
+
+        /// <summary>How many functions deep the build is.</summary>
+        public int CallDepth
+        {
+            get
+            {
+                int depth = 0;
+                for (var call = _call; call != null; call = call.Parent)
+                    depth++;
+                return depth;
+            }
+        }
+
+        /// <summary>The sound given to the function being built for one of its Sound Inputs (false outside a call, or not given).</summary>
+        public bool CallInput(string name, out float[] block)
+        {
+            block = null;
+            return _call?.Inputs != null && _call.Inputs.TryGetValue((name ?? "").Trim(), out block) && block != null;
+        }
+
+        /// <summary>The value given to the function being built for one of its Parameters (false outside a call).</summary>
+        public bool CallParameter(string name, out float[] block)
+        {
+            block = null;
+            return _call?.Parameters != null && _call.Parameters.TryGetValue((name ?? "").Trim(), out block) && block != null;
+        }
+
+        /// <summary>
+        /// Builds part of another Sound Cue as a function of this one: inside <paramref name="build"/>, its nodes are
+        /// built for this call (its Sound Inputs and Parameters reading what's given here), into this voice.
+        /// </summary>
+        public T BuildCall<T>(SoundCueGraph graph, Dictionary<string, float[]> inputs, Dictionary<string, float[]> parameters, Func<T> build)
+        {
+            var previous = _call;
+            _call = new Call { Graph = graph, Parent = previous, Inputs = inputs, Parameters = parameters };
+            try
+            {
+                return build();
+            }
+            finally
+            {
+                _call = previous;
+            }
+        }
         private readonly Dictionary<string, int> _parameters = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<float> _parameterDefaults = new();
 
@@ -461,9 +565,10 @@ namespace Remedy.Audio
         /// <summary>A node's processor for this voice (built the first time it's asked for).</summary>
         public SoundProcessor Build(SoundNode node)
         {
-            if (_built.TryGetValue(node, out var built))
+            var key = (_call, node);
+            if (_built.TryGetValue(key, out var built))
                 return built;
-            if (!_building.Add(node))
+            if (!_building.Add(key))
             {
                 Warnings.Add($"\"{node.Name}\" is wired into a loop (it ends up reading its own output): that wire reads silence.");
                 return null;
@@ -479,8 +584,8 @@ namespace Remedy.Audio
                 Debug.LogException(exception);
                 processor = new StaticProcessor();
             }
-            _building.Remove(node);
-            _built[node] = processor;
+            _building.Remove(key);
+            _built[key] = processor;
             Order.Add(processor);
             return processor;
         }
