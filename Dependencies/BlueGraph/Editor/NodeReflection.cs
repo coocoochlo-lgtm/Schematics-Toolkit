@@ -240,8 +240,10 @@ namespace BlueGraph.Editor
 
                 var hasBlockAttr = type.CustomAttributes.Any(attr => attr.AttributeType == typeof(BlockCastAttribute)) || port.Type.CustomAttributes.Any(attr => attr.AttributeType == typeof(BlockCastAttribute));
 
-                // Cast direction port input -> type
-                if (port.Type == type || (port.Type.IsCastableTo(type, true) && (port.EnableCasting && !hasBlockAttr)))
+                // A value of the dragged type goes into this input: it's that type, takes anything (object), or the
+                // dragged type converts to it. (This used to test the cast the wrong way round, so an input that takes
+                // anything, or a wider type, was never offered when dropping a wire on empty space.)
+                if (port.Type == type || port.Type == typeof(object) || (type.IsCastableTo(port.Type, true) && (port.EnableCasting && !hasBlockAttr)))
                 {
                     return true;
                 }
@@ -258,8 +260,9 @@ namespace BlueGraph.Editor
 
                 var hasBlockAttr = type.CustomAttributes.Any(attr => attr.AttributeType == typeof(BlockCastAttribute)) || port.Type.CustomAttributes.Any(attr => attr.AttributeType == typeof(BlockCastAttribute));
 
-                // Cast direction port output -> type
-                if (port.Type == type || (port.Type.IsCastableTo(type, true) && (port.EnableCasting && !hasBlockAttr)))
+                // This output's value goes into the dragged input. An output declared as object is one whose type
+                // follows what's wired into its node (a math node's Result), so it can be made to fit anything.
+                if (port.Type == type || port.Type == typeof(object) || (port.Type.IsCastableTo(type, true) && (port.EnableCasting && !hasBlockAttr)))
                 {
                     return true;
                 }
