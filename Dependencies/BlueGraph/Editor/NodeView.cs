@@ -463,8 +463,23 @@ namespace BlueGraph.Editor
                 EditorUtility.SetDirty(Target.Graph);
         }
 
+        /// <summary>
+        /// More items for a node's right-click menu: editor tools add theirs here (Collapse to Function, for one, acting
+        /// on the selection).
+        /// </summary>
+        public static event System.Action<NodeView, ContextualMenuPopulateEvent> ExtendContextMenu;
+
         public override void BuildContextualMenu(ContextualMenuPopulateEvent evt)
         {
+            if (ExtendContextMenu != null)
+            {
+                foreach (System.Action<NodeView, ContextualMenuPopulateEvent> extend in ExtendContextMenu.GetInvocationList())
+                {
+                    try { extend(this, evt); }
+                    catch (System.Exception e) { Debug.LogException(e); }
+                }
+                evt.menu.AppendSeparator();
+            }
             evt.menu.AppendAction("Rename", (e) => BeginRename());
             evt.menu.AppendAction("Clear Custom Name", (e) => SetCustomName(""),
                 string.IsNullOrEmpty(Target.CustomName) ? DropdownMenuAction.Status.Disabled : DropdownMenuAction.Status.Normal);

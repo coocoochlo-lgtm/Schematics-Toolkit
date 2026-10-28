@@ -47,6 +47,9 @@ Create → Schematics → Mesh Graph, or from the Project Manager's Meshes page.
   - Each Parameter shows on the Function node with the control set on its Parameter node in the Inspector: Number,
     Slider, Whole Number, Toggle or Dropdown, with Min, Max, Options, Group and Description. Wire something into a pin
     instead to drive it (a Parameter of the calling graph, to set it per object).
+  - **Collapse to Function** (right-click a selection) moves the selected nodes into a new Mesh Graph and puts a
+    Function node calling it in their place. Meshes wired in become its Mesh Inputs, numbers its Parameters, and the
+    one mesh the rest of the graph uses goes to its Output.
   - A **Mesh Input** node is a mesh the graph takes when called. Its Preview pin stands in when the graph is opened
     on its own.
   - In the IO Dock's Graph tab, the **Function** section puts a graph **In Library**: it's listed in the node search
