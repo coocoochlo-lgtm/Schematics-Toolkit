@@ -443,6 +443,8 @@ namespace Remedy.Meshes
                             output.UVs.Add(a < source.UVs.Count ? source.UVs[a] : Vector2.zero);
                             if (colors)
                                 output.Colors.Add(source.Colors[a]);
+                            if (source.HasSelection)
+                                output.Selection.Add(source.Selection[a]);
                             made[key] = index;
                         }
                         output.Slots[triangle.Slot].Add(index);

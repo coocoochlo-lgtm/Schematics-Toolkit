@@ -18,14 +18,15 @@ namespace Remedy.Meshes
             SchematicMacros.Register(new BuiltInMacro
             {
                 Path = "Characters/Humanoid (mannequin)",
-                Description = "A 1.8 m humanoid mannequin, a node pair per part (shape and placement), the right arm and leg mirrored to the left. Parameters: Height, Build (broadness, 1 = average) and Head Size.",
+                Description = "A 1.8 m humanoid mannequin, a node pair per part (shape and placement), the right arm and leg mirrored to the left, then sealed into one skin (Select Inside, Delete Selected, Join). Parameters: Height, Build (broadness, 1 = average) and Head Size.",
                 GraphType = typeof(MeshGraph),
                 Build = Humanoid,
             });
         }
 
         // Parameters on the left; a column of shapes, a column of their Transforms; the limbs merged and mirrored; the
-        // body merged, sized by the Parameters and wired into the Output (if it's free).
+        // body merged, sealed (hidden insides cut away, the cut edges joined onto their neighbours), sized by the
+        // Parameters and wired into the Output (if it's free).
         private static void Humanoid(MacroBuilder b)
         {
             var height = b.Add<MeshParameterNode>(0f, 0f, n => { n.ParameterName = "Height"; n.Default = HumanoidRecipe.BaseHeight; n.Name = "Height"; });
@@ -73,13 +74,21 @@ namespace Remedy.Meshes
             }
 
             // Sized: Height / 1.8 all over, Build across (X and Z).
-            var heightScale = b.Add<MeshMathNode>(Column * 5f, Row * 5f, n => { n.Name = "Height Scale"; n.Formula = "a / " + HumanoidRecipe.BaseHeight.ToString(System.Globalization.CultureInfo.InvariantCulture); });
+            var heightScale = b.Add<MeshMathNode>(Column * 8f, Row * 5f, n => { n.Name = "Height Scale"; n.Formula = "a / " + HumanoidRecipe.BaseHeight.ToString(System.Globalization.CultureInfo.InvariantCulture); });
             b.Link(height, "Value", heightScale, "A");
-            var broadness = b.Add<MeshMakeVectorNode>(Column * 5f, Row * 6.5f, n => { n.Name = "Broadness"; n.Y = 1f; });
+            var broadness = b.Add<MeshMakeVectorNode>(Column * 8f, Row * 6.5f, n => { n.Name = "Broadness"; n.Y = 1f; });
             b.Link(build, "Value", broadness, "X");
             b.Link(build, "Value", broadness, "Z");
-            var size = b.Add<MeshTransformNode>(Column * 6f, Row * 3f, n => n.Name = "Size");
-            b.Link(body, MeshNode.MeshPort, size, "In");
+            // Sealed: one skin instead of overlapping parts.
+            var hidden = b.Add<MeshSelectInsideNode>(Column * 6f, Row * 3f, n => n.Name = "Hidden Insides");
+            b.Link(body, MeshNode.MeshPort, hidden, "In");
+            var cut = b.Add<MeshDeleteSelectedNode>(Column * 7f, Row * 3f, n => { n.Name = "Cut Away"; n.AllCorners = true; });
+            b.Link(hidden, MeshNode.MeshPort, cut, "In");
+            var join = b.Add<MeshJoinNode>(Column * 8f, Row * 3f, n => { n.Name = "Join Seams"; n.Distance = HumanoidRecipe.JoinDistance; });
+            b.Link(cut, MeshNode.MeshPort, join, "In");
+
+            var size = b.Add<MeshTransformNode>(Column * 9f, Row * 3f, n => n.Name = "Size");
+            b.Link(join, MeshNode.MeshPort, size, "In");
             b.Link(broadness, "Vector", size, "Scale");
             b.Link(heightScale, "Result", size, "Uniform Scale");
 

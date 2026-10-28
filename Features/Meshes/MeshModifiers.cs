@@ -301,7 +301,8 @@ namespace Remedy.Meshes
         public static void Weld(MeshData mesh)
         {
             var source = mesh.Clone();
-            mesh.Positions.Clear(); mesh.Normals.Clear(); mesh.UVs.Clear(); mesh.Colors.Clear();
+            mesh.Positions.Clear(); mesh.Normals.Clear(); mesh.UVs.Clear(); mesh.Colors.Clear(); mesh.Selection.Clear();
+            bool selection = source.HasSelection;
             var made = new Dictionary<(Vector3, Vector3, Vector2, Color), int>();
             var remap = new int[source.VertexCount];
             bool colors = source.HasColors;
@@ -315,13 +316,106 @@ namespace Remedy.Meshes
                     mesh.Normals.Add(source.Normals[i]);
                     mesh.UVs.Add(source.UVs[i]);
                     if (colors) mesh.Colors.Add(source.Colors[i]);
+                    if (selection) mesh.Selection.Add(source.Selection[i]);
                     made[key] = index;
                 }
+                else if (selection)
+                    mesh.Selection[index] = Mathf.Max(mesh.Selection[index], source.Selection[i]);
                 remap[i] = index;
             }
             for (int s = 0; s < mesh.Slots.Count; s++)
                 for (int t = 0; t < mesh.Slots[s].Count; t++)
                     mesh.Slots[s][t] = remap[mesh.Slots[s][t]];
+        }
+
+        /// <summary>
+        /// Merge by distance: vertices closer than <paramref name="distance"/> become one point, and triangles that
+        /// shrink to nothing are removed. Cleans up the slivers and near-duplicate points a Boolean leaves along its
+        /// cut, and closes hairline cracks. With <paramref name="selectedOnly"/> and a selection, only selected
+        /// vertices merge.
+        /// </summary>
+        public static void MergeByDistance(MeshData mesh, float distance, bool selectedOnly = true)
+        {
+            int n = mesh.VertexCount;
+            if (distance <= 0f || n == 0)
+                return;
+            bool restrict = selectedOnly && mesh.HasSelection;
+            float cellSize = distance;
+            (int, int, int) Cell(Vector3 p) => (Mathf.FloorToInt(p.x / cellSize), Mathf.FloorToInt(p.y / cellSize), Mathf.FloorToInt(p.z / cellSize));
+
+            // Each vertex snaps to the first kept point within reach (points are kept in order, so the result
+            // doesn't depend on hashing).
+            var kept = new Dictionary<(int, int, int), List<int>>();
+            var into = new int[n];
+            float reach = distance * distance;
+            for (int i = 0; i < n; i++)
+            {
+                into[i] = i;
+                if (restrict && mesh.Selection[i] < 0.5f)
+                    continue;
+                var p = mesh.Positions[i];
+                var (cx, cy, cz) = Cell(p);
+                int found = -1;
+                for (int x = cx - 1; x <= cx + 1 && found < 0; x++)
+                    for (int y = cy - 1; y <= cy + 1 && found < 0; y++)
+                        for (int z = cz - 1; z <= cz + 1 && found < 0; z++)
+                            if (kept.TryGetValue((x, y, z), out var list))
+                                foreach (int other in list)
+                                    if ((mesh.Positions[other] - p).sqrMagnitude <= reach)
+                                    {
+                                        found = other;
+                                        break;
+                                    }
+                if (found >= 0)
+                    into[i] = found;
+                else
+                {
+                    if (!kept.TryGetValue((cx, cy, cz), out var list))
+                        kept[(cx, cy, cz)] = list = new List<int>();
+                    list.Add(i);
+                }
+            }
+            for (int i = 0; i < n; i++)
+                mesh.Positions[i] = mesh.Positions[into[i]];
+
+            // Triangles with two corners now in one place are gone; so are vertices nothing uses.
+            var used = new int[n];
+            for (int i = 0; i < n; i++)
+                used[i] = -1;
+            var source = mesh.Clone();
+            mesh.Positions.Clear(); mesh.Normals.Clear(); mesh.UVs.Clear(); mesh.Colors.Clear(); mesh.Selection.Clear();
+            bool colors = source.HasColors, selection = source.HasSelection;
+            int Use(int i)
+            {
+                if (used[i] < 0)
+                {
+                    used[i] = mesh.Positions.Count;
+                    mesh.Positions.Add(source.Positions[i]);
+                    mesh.Normals.Add(source.Normals[i]);
+                    mesh.UVs.Add(source.UVs[i]);
+                    if (colors) mesh.Colors.Add(source.Colors[i]);
+                    if (selection) mesh.Selection.Add(source.Selection[i]);
+                }
+                return used[i];
+            }
+            for (int s = 0; s < source.Slots.Count; s++)
+            {
+                var from = source.Slots[s];
+                var to = mesh.Slot(s);
+                to.Clear();
+                for (int t = 0; t + 2 < from.Count; t += 3)
+                {
+                    int a = from[t], b = from[t + 1], c = from[t + 2];
+                    var pa = source.Positions[a];
+                    var pb = source.Positions[b];
+                    var pc = source.Positions[c];
+                    if (pa == pb || pb == pc || pc == pa)
+                        continue;
+                    to.Add(Use(a));
+                    to.Add(Use(b));
+                    to.Add(Use(c));
+                }
+            }
         }
 
         private static Vector3 Q(Vector3 v, float f) => new(Mathf.Round(v.x * f), Mathf.Round(v.y * f), Mathf.Round(v.z * f));

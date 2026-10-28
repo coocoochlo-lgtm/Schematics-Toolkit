@@ -16,8 +16,12 @@ namespace Remedy.Meshes
 
         private const float Epsilon = 1e-5f;
 
-        /// <summary>A combined with B. Each part keeps its material slots; the carved surfaces get B's.</summary>
-        public static MeshData Apply(MeshData a, MeshData b, Operation operation)
+        /// <summary>
+        /// A combined with B. Each part keeps its material slots; the carved surfaces get B's. Afterwards, points
+        /// closer than <paramref name="mergeDistance"/> merge (0: off), clearing the slivers and near-duplicate points
+        /// left along the cut.
+        /// </summary>
+        public static MeshData Apply(MeshData a, MeshData b, Operation operation, float mergeDistance = 0f)
         {
             if (a == null || a.TriangleCount == 0)
                 return operation == Operation.Union && b != null ? b.Clone() : new MeshData();
@@ -26,38 +30,45 @@ namespace Remedy.Meshes
 
             var na = BspNode.Build(Polygons(a));
             var nb = BspNode.Build(Polygons(b));
+            var ba = a.Bounds;
+            var bb = b.Bounds;
             switch (operation)
             {
                 case Operation.Union:
-                    na.ClipTo(nb);
-                    nb.ClipTo(na);
+                    na.ClipTo(nb, bb);
+                    nb.ClipTo(na, ba);
                     nb.Invert();
-                    nb.ClipTo(na);
+                    nb.ClipTo(na, ba);
                     nb.Invert();
                     na.AddPolygons(nb.AllPolygons());
                     break;
                 case Operation.Subtract:
                     na.Invert();
-                    na.ClipTo(nb);
-                    nb.ClipTo(na);
+                    na.ClipTo(nb, bb);
+                    nb.ClipTo(na, ba);
                     nb.Invert();
-                    nb.ClipTo(na);
+                    nb.ClipTo(na, ba);
                     nb.Invert();
                     na.AddPolygons(nb.AllPolygons());
                     na.Invert();
                     break;
                 default:
                     na.Invert();
-                    nb.ClipTo(na);
+                    nb.ClipTo(na, ba);
                     nb.Invert();
-                    na.ClipTo(nb);
-                    nb.ClipTo(na);
+                    na.ClipTo(nb, bb);
+                    nb.ClipTo(na, ba);
                     na.AddPolygons(nb.AllPolygons());
                     na.Invert();
                     break;
             }
-            var result = ToMesh(na.AllPolygons(), a.HasColors || b.HasColors);
+            var result = ToMesh(na.AllPolygons(), a.HasColors || b.HasColors, a.HasSelection || b.HasSelection);
             MeshModifiers.Weld(result);
+            if (mergeDistance > 0f)
+            {
+                MeshModifiers.MergeByDistance(result, mergeDistance, false);
+                MeshModifiers.Weld(result);
+            }
             return result;
         }
 
@@ -68,9 +79,11 @@ namespace Remedy.Meshes
             public Vector3 Position, Normal;
             public Vector2 UV;
             public Color Color;
+            public float Selected;
 
             public Vertex Lerp(Vertex other, float t) => new()
             {
+                Selected = Mathf.Lerp(Selected, other.Selected, t),
                 Position = Vector3.Lerp(Position, other.Position, t),
                 Normal = Vector3.Lerp(Normal, other.Normal, t),
                 UV = UV + (other.UV - UV) * t,
@@ -87,7 +100,10 @@ namespace Remedy.Meshes
             {
                 var n = Vector3.Cross(b - a, c - a);
                 plane = default;
-                if (n.sqrMagnitude < 1e-20f)
+                // Slivers (three points nearly in a line) have no trustworthy facing; one pointing the wrong way
+                // would make the tree think everything behind it is inside. They cover no area, so they're dropped.
+                float longest = Mathf.Max((b - a).sqrMagnitude, Mathf.Max((c - b).sqrMagnitude, (a - c).sqrMagnitude));
+                if (n.magnitude <= longest * 1e-4f || n.sqrMagnitude < 1e-20f)
                     return false;
                 n = n.normalized;
                 plane = new Plane { Normal = n, W = Vector3.Dot(n, a) };
@@ -114,6 +130,31 @@ namespace Remedy.Meshes
                 }
                 Plane = Plane.Flipped();
             }
+
+            public Vector3 Centre
+            {
+                get
+                {
+                    var sum = Vector3.zero;
+                    foreach (var v in Vertices)
+                        sum += v.Position;
+                    return sum / Vertices.Count;
+                }
+            }
+
+            public bool Overlaps(Bounds bounds)
+            {
+                var min = Vertices[0].Position;
+                var max = min;
+                for (int i = 1; i < Vertices.Count; i++)
+                {
+                    min = Vector3.Min(min, Vertices[i].Position);
+                    max = Vector3.Max(max, Vertices[i].Position);
+                }
+                var bmin = bounds.min;
+                var bmax = bounds.max;
+                return min.x <= bmax.x && max.x >= bmin.x && min.y <= bmax.y && max.y >= bmin.y && min.z <= bmax.z && max.z >= bmin.z;
+            }
         }
 
         private static List<Polygon> Polygons(MeshData mesh)
@@ -129,7 +170,7 @@ namespace Remedy.Meshes
                     for (int k = 0; k < 3; k++)
                     {
                         int i = slot[t + k];
-                        verts.Add(new Vertex { Position = mesh.Positions[i], Normal = mesh.Normals[i], UV = mesh.UVs[i], Color = colors ? mesh.Colors[i] : Color.white });
+                        verts.Add(new Vertex { Position = mesh.Positions[i], Normal = mesh.Normals[i], UV = mesh.UVs[i], Color = colors ? mesh.Colors[i] : Color.white, Selected = mesh.Selected(i) });
                     }
                     if (Plane.TryFromPoints(verts[0].Position, verts[1].Position, verts[2].Position, out var plane))
                         list.Add(new Polygon { Vertices = verts, Plane = plane, Slot = s });
@@ -138,7 +179,7 @@ namespace Remedy.Meshes
             return list;
         }
 
-        private static MeshData ToMesh(List<Polygon> polygons, bool colors)
+        private static MeshData ToMesh(List<Polygon> polygons, bool colors, bool selection)
         {
             RepairTJunctions(polygons);
             var mesh = new MeshData();
@@ -152,6 +193,11 @@ namespace Remedy.Meshes
                     {
                         mesh.FillColors();
                         mesh.Colors[index] = v.Color;
+                    }
+                    if (selection)
+                    {
+                        mesh.FillSelection();
+                        mesh.Selection[index] = v.Selected;
                     }
                 }
                 int count = polygon.Vertices.Count;
@@ -181,6 +227,11 @@ namespace Remedy.Meshes
                 {
                     mesh.FillColors();
                     mesh.Colors[center] = middle.Color;
+                }
+                if (selection)
+                {
+                    mesh.FillSelection();
+                    mesh.Selection[center] = middle.Selected;
                 }
                 for (int i = 0; i < count; i++)
                 {
@@ -402,14 +453,61 @@ namespace Remedy.Meshes
                 return kept;
             }
 
-            /// <summary>Removes the parts of this tree's polygons inside <paramref name="other"/>.</summary>
-            public void ClipTo(BspNode other)
+            /// <summary>
+            /// Removes the parts of this tree's polygons inside <paramref name="other"/>. Polygons nowhere near
+            /// <paramref name="otherBounds"/> are wholly in or out, so they're kept or dropped whole: cutting them by
+            /// every plane of the other solid (planes run on forever) would only chop the far side of the mesh into
+            /// slivers for nothing.
+            /// </summary>
+            public void ClipTo(BspNode other, Bounds otherBounds)
             {
+                otherBounds.Expand(Epsilon * 20f);
                 foreach (var node in Nodes())
                 {
-                    var clipped = other.Clip(node.Polygons);
+                    var near = new List<Polygon>();
+                    var whole = new List<Polygon>();
+                    foreach (var polygon in node.Polygons)
+                    {
+                        if (!polygon.Overlaps(otherBounds) && other.Outside(polygon.Centre, out bool outside))
+                        {
+                            if (outside)
+                                whole.Add(polygon);
+                            continue;
+                        }
+                        near.Add(polygon);
+                    }
+                    var clipped = near.Count > 0 ? other.Clip(near) : near;
                     node.Polygons.Clear();
+                    node.Polygons.AddRange(whole);
                     node.Polygons.AddRange(clipped);
+                }
+            }
+
+            // Whether a point is outside this tree's solid: false when it lies on a plane and can't be told cheaply.
+            private bool Outside(Vector3 point, out bool outside)
+            {
+                var node = this;
+                while (true)
+                {
+                    if (!node.HasPlane)
+                    {
+                        outside = true;
+                        return true;
+                    }
+                    float d = Vector3.Dot(node.Plane.Normal, point) - node.Plane.W;
+                    if (Mathf.Abs(d) <= Epsilon * 10f)
+                    {
+                        outside = false;
+                        return false;
+                    }
+                    var next = d > 0f ? node.FrontNode : node.BackNode;
+                    if (next == null)
+                    {
+                        // Past a leaf: in front is outside, behind is inside.
+                        outside = d > 0f;
+                        return true;
+                    }
+                    node = next;
                 }
             }
 

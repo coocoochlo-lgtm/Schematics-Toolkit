@@ -11,13 +11,14 @@ namespace Remedy.Meshes
 {
     // Modelling: booleans, subdivision, spherize, loop cuts and extrusion.
 
-    [SchematicDoc(@"{""name"": ""Boolean"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Mesh/Model"", ""description"": ""Combines two closed meshes as solids. Union: one shell, the insides gone. Subtract: A with B carved out (windows, doorways, a bite). Intersect: only where they overlap. Both should be closed (no holes); the carved surfaces take B's material slot."", ""inputs"": [{""name"": ""A"", ""type"": ""MeshData""}, {""name"": ""B"", ""type"": ""MeshData""}], ""outputs"": [{""name"": ""Mesh"", ""type"": ""MeshData""}]}")]
+    [SchematicDoc(@"{""name"": ""Boolean"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Mesh/Model"", ""description"": ""Combines two closed meshes as solids. Union: one shell, the insides gone. Subtract: A with B carved out (windows, doorways, a bite). Intersect: only where they overlap. Both should be closed (no holes); the carved surfaces take B's material slot. Points closer than Merge Distance afterwards become one, cleaning up slivers along the cut (0: off)."", ""inputs"": [{""name"": ""A"", ""type"": ""MeshData""}, {""name"": ""B"", ""type"": ""MeshData""}, {""name"": ""Merge Distance"", ""type"": ""float""}], ""outputs"": [{""name"": ""Mesh"", ""type"": ""MeshData""}]}")]
     [Serializable]
     [Node(Name = "Boolean", Path = "Model"), Tags(MeshNode.Tag)]
     public sealed class MeshBooleanNode : MeshNode
     {
         [Input("A", Editable = false)] [NonSerialized] public MeshData A;
         [Input("B", Editable = false)] [NonSerialized] public MeshData B;
+        [Input("Merge Distance", Editable = true)] public float MergeDistance = 0.001f;
         [Editable] public MeshBoolean.Operation Operation = MeshBoolean.Operation.Subtract;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 
@@ -26,7 +27,8 @@ namespace Remedy.Meshes
             var a = c.Mesh(this, "A");
             var b = c.Mesh(this, "B");
             var operation = Operation;
-            return new MeshOp(() => MeshBoolean.Apply(a.Get(), b.Get(), operation));
+            float merge = c.Number(this, "Merge Distance", MergeDistance);
+            return new MeshOp(() => MeshBoolean.Apply(a.Get(), b.Get(), operation, merge));
         }
     }
 
@@ -71,7 +73,13 @@ namespace Remedy.Meshes
         {
             var input = c.Mesh(this, "In");
             float amount = c.Number(this, "Amount", Amount), radius = c.Number(this, "Radius", Radius);
-            return new MeshOp(() => MeshOperations.Spherize(input.Get(), amount, radius));
+            return new MeshOp(() =>
+            {
+                var before = input.Get();
+                var mesh = MeshOperations.Spherize(before, amount, radius);
+                MeshSelection.Restrict(mesh, before);
+                return mesh;
+            });
         }
     }
 
@@ -94,7 +102,7 @@ namespace Remedy.Meshes
         }
     }
 
-    [SchematicDoc(@"{""name"": ""Extrude"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Mesh/Model"", ""description"": ""Pulls faces out of a mesh, with walls joining them to where they were: a box's top pulled up into a tower, a plane into a slab, the tops of a stamped grid of tiles into a city. Faces are picked by Select: those facing within Angle degrees of Direction, all of them, or material slot Slot. They move Distance along Direction (or along their own normals), and Cap Scale shrinks or grows the moved faces about their middle (0.5: a taper). Wall Slot puts the new walls in their own material slot (-1: the first)."", ""inputs"": [{""name"": ""In"", ""type"": ""MeshData""}, {""name"": ""Direction"", ""type"": ""Vector3""}, {""name"": ""Distance"", ""type"": ""float""}, {""name"": ""Cap Scale"", ""type"": ""float""}, {""name"": ""Angle"", ""type"": ""float""}], ""outputs"": [{""name"": ""Mesh"", ""type"": ""MeshData""}]}")]
+    [SchematicDoc(@"{""name"": ""Extrude"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Mesh/Model"", ""description"": ""Pulls faces out of a mesh, with walls joining them to where they were: a box's top pulled up into a tower, a plane into a slab, the tops of a stamped grid of tiles into a city. Faces are picked by Select: those facing within Angle degrees of Direction, all of them, material slot Slot, or Selected (faces whose corners are all selected by Select nodes). They move Distance along Direction (or along their own normals), and Cap Scale shrinks or grows the moved faces about their middle (0.5: a taper). Wall Slot puts the new walls in their own material slot (-1: the first)."", ""inputs"": [{""name"": ""In"", ""type"": ""MeshData""}, {""name"": ""Direction"", ""type"": ""Vector3""}, {""name"": ""Distance"", ""type"": ""float""}, {""name"": ""Cap Scale"", ""type"": ""float""}, {""name"": ""Angle"", ""type"": ""float""}], ""outputs"": [{""name"": ""Mesh"", ""type"": ""MeshData""}]}")]
     [Serializable]
     [Node(Name = "Extrude", Path = "Model"), Tags(MeshNode.Tag)]
     public sealed class MeshExtrudeNode : MeshNode

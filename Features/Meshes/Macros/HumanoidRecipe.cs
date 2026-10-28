@@ -107,11 +107,27 @@ namespace Remedy.Meshes
             return keys[keys.Length - 1].value;
         }
 
+        /// <summary>How far apart parts' cut edges can be and still be joined (at the 1.8 m base size).</summary>
+        public const float JoinDistance = 0.04f;
+
+        /// <summary>
+        /// Makes the separate parts one skin: what's hidden inside a neighbouring part is cut away (only triangles
+        /// wholly inside, so the cut edges stay just inside the neighbour), then those edges are joined onto it.
+        /// </summary>
+        public static MeshData Seal(MeshData parts)
+        {
+            var selected = parts.Clone();
+            var inside = MeshSelection.Inside(selected);
+            MeshSelection.Apply(selected, i => inside[i], MeshSelection.Mode.Replace);
+            return MeshSelection.Join(MeshSelection.DeleteSelected(selected, true), JoinDistance);
+        }
+
         /// <summary>
         /// The mannequin as a mesh: <paramref name="height"/> tall, <paramref name="build"/> times as broad (1 is
-        /// average), its head <paramref name="headSize"/> times the size.
+        /// average), its head <paramref name="headSize"/> times the size. Sealed into one skin unless
+        /// <paramref name="seal"/> is off.
         /// </summary>
-        public static MeshData Build(float height = BaseHeight, float build = 1f, float headSize = 1f)
+        public static MeshData Build(float height = BaseHeight, float build = 1f, float headSize = 1f, bool seal = true)
         {
             var body = new MeshData();
             var limbs = new MeshData();
@@ -122,6 +138,8 @@ namespace Remedy.Meshes
             }
             MeshModifiers.Mirror(limbs, 0);
             body.Append(limbs);
+            if (seal)
+                body = Seal(body);
             body.Transform(MeshModifiers.TRS(Vector3.zero, Vector3.zero, new Vector3(build, 1f, build) * (height / BaseHeight)));
             return body;
         }

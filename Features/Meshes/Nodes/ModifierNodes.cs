@@ -32,7 +32,7 @@ namespace Remedy.Meshes
             var input = c.Mesh(this, "In");
             var scale = c.Vector(this, "Scale", Scale) * c.Number(this, "Uniform Scale", UniformScale);
             var matrix = MeshModifiers.TRS(c.Vector(this, "Position", Position), c.Vector(this, "Rotation", Rotation), scale);
-            return new MeshOp(() => { var mesh = input.Copy(); mesh.Transform(matrix); return mesh; });
+            return new MeshOp(() => MeshSelection.Deform(input.Get(), mesh => mesh.Transform(matrix)));
         }
     }
 
@@ -131,7 +131,7 @@ namespace Remedy.Meshes
         {
             var input = c.Mesh(this, "In");
             float degrees = c.Number(this, "Degrees", Degrees);
-            return new MeshOp(() => { var mesh = input.Copy(); MeshModifiers.Twist(mesh, degrees); return mesh; });
+            return new MeshOp(() => MeshSelection.Deform(input.Get(), mesh => MeshModifiers.Twist(mesh, degrees)));
         }
     }
 
@@ -148,7 +148,7 @@ namespace Remedy.Meshes
         {
             var input = c.Mesh(this, "In");
             float degrees = c.Number(this, "Degrees", Degrees);
-            return new MeshOp(() => { var mesh = input.Copy(); MeshModifiers.Bend(mesh, degrees); return mesh; });
+            return new MeshOp(() => MeshSelection.Deform(input.Get(), mesh => MeshModifiers.Bend(mesh, degrees)));
         }
     }
 
@@ -166,7 +166,12 @@ namespace Remedy.Meshes
         {
             var input = c.Mesh(this, "In");
             float scale = c.Number(this, "Top Scale", TopScale), smooth = SmoothAngle;
-            return new MeshOp(() => { var mesh = input.Copy(); MeshModifiers.Taper(mesh, scale); mesh.RecalculateNormals(smooth); return mesh; });
+            return new MeshOp(() =>
+            {
+                var mesh = MeshSelection.Deform(input.Get(), m => MeshModifiers.Taper(m, scale));
+                mesh.RecalculateNormals(smooth);
+                return mesh;
+            });
         }
     }
 
@@ -192,8 +197,7 @@ namespace Remedy.Meshes
             float smooth = SmoothAngle;
             return new MeshOp(() =>
             {
-                var mesh = input.Copy();
-                MeshModifiers.Displace(mesh, amount, frequency, seed, alongNormals);
+                var mesh = MeshSelection.Deform(input.Get(), m => MeshModifiers.Displace(m, amount, frequency, seed, alongNormals));
                 mesh.RecalculateNormals(smooth);
                 return mesh;
             });

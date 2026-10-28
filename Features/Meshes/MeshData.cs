@@ -17,6 +17,11 @@ namespace Remedy.Meshes
         public readonly List<Vector3> Normals = new();
         public readonly List<Vector2> UVs = new();
         public readonly List<Color> Colors = new();
+        /// <summary>
+        /// How selected each vertex is, 0 to 1 (set by Select nodes; Delete Selected, Join, Extrude and the deformers
+        /// work on it). Empty: nothing has been selected, and nodes work on the whole mesh.
+        /// </summary>
+        public readonly List<float> Selection = new();
         /// <summary>Triangles (3 vertex indices each), per material slot.</summary>
         public readonly List<List<int>> Slots = new() { new List<int>() };
 
@@ -36,6 +41,19 @@ namespace Remedy.Meshes
         /// <summary>Whether it has vertex colors (every vertex has one).</summary>
         public bool HasColors => Colors.Count == Positions.Count && Colors.Count > 0;
 
+        /// <summary>Whether it has a selection (every vertex has a weight).</summary>
+        public bool HasSelection => Selection.Count == Positions.Count && Selection.Count > 0;
+
+        /// <summary>A vertex's selection weight (0 when nothing's selected).</summary>
+        public float Selected(int vertex) => HasSelection ? Selection[vertex] : 0f;
+
+        /// <summary>Gives every vertex a selection weight (0), so a selection can be set.</summary>
+        public void FillSelection()
+        {
+            while (Selection.Count < Positions.Count)
+                Selection.Add(0f);
+        }
+
         /// <summary>The triangles of a material slot, made (with the slots before it) if it doesn't exist yet.</summary>
         public List<int> Slot(int index)
         {
@@ -53,6 +71,8 @@ namespace Remedy.Meshes
             UVs.Add(uv);
             if (Colors.Count > 0)
                 Colors.Add(Color.white);
+            if (Selection.Count > 0)
+                Selection.Add(0f);
             return Positions.Count - 1;
         }
 
@@ -90,6 +110,9 @@ namespace Remedy.Meshes
             bool colors = HasColors || other.HasColors;
             if (colors && !HasColors)
                 FillColors();
+            bool selection = HasSelection || other.HasSelection;
+            if (selection && !HasSelection)
+                FillSelection();
             bool flip = transform && Determinant(matrix) < 0f;
             var normals = new NormalMatrix(matrix);
             for (int i = 0; i < other.Positions.Count; i++)
@@ -100,6 +123,8 @@ namespace Remedy.Meshes
                 UVs.Add(i < other.UVs.Count ? other.UVs[i] : Vector2.zero);
                 if (colors)
                     Colors.Add(other.HasColors ? other.Colors[i] : Color.white);
+                if (selection)
+                    Selection.Add(other.HasSelection ? other.Selection[i] : 0f);
             }
             for (int s = 0; s < other.Slots.Count; s++)
             {
@@ -193,7 +218,7 @@ namespace Remedy.Meshes
 
             float cosLimit = Mathf.Cos(Mathf.Clamp(smoothAngle, 0f, 180f) * Mathf.Deg2Rad);
             var source = Clone();
-            Positions.Clear(); Normals.Clear(); UVs.Clear(); Colors.Clear();
+            Positions.Clear(); Normals.Clear(); UVs.Clear(); Colors.Clear(); Selection.Clear();
             var made = new Dictionary<(int vertex, Vector3 normal), int>();
             var newSlots = new List<List<int>>();
             foreach (var slot in source.Slots)
@@ -221,6 +246,8 @@ namespace Remedy.Meshes
                         UVs.Add(vertex < source.UVs.Count ? source.UVs[vertex] : Vector2.zero);
                         if (source.HasColors)
                             Colors.Add(source.Colors[vertex]);
+                        if (source.HasSelection)
+                            Selection.Add(source.Selection[vertex]);
                         made[key] = index;
                     }
                     newSlots[s][corner] = index;

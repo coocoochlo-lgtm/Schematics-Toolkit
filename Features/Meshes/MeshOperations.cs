@@ -42,6 +42,11 @@ namespace Remedy.Meshes
                 to.FillColors();
                 to.Colors[index] = Color.Lerp(from.Colors[a], from.Colors[b], t);
             }
+            if (from.HasSelection)
+            {
+                to.FillSelection();
+                to.Selection[index] = Mathf.Lerp(from.Selection[a], from.Selection[b], t);
+            }
             return index;
         }
 
@@ -52,6 +57,11 @@ namespace Remedy.Meshes
             {
                 to.FillColors();
                 to.Colors[copy] = from.Colors[index];
+            }
+            if (from.HasSelection)
+            {
+                to.FillSelection();
+                to.Selection[copy] = from.Selection[index];
             }
             return copy;
         }
@@ -249,6 +259,8 @@ namespace Remedy.Meshes
             result.UVs.AddRange(mesh.UVs);
             if (mesh.HasColors)
                 result.Colors.AddRange(mesh.Colors);
+            if (mesh.HasSelection)
+                result.Selection.AddRange(mesh.Selection);
             result.Slots.Clear();
             var split = new Dictionary<(int, int), int>();
 
@@ -334,12 +346,13 @@ namespace Remedy.Meshes
 
         #region Extrude
 
-        public enum ExtrudeSelection { FacingDirection, All, MaterialSlot }
+        public enum ExtrudeSelection { FacingDirection, All, MaterialSlot, Selected }
 
         /// <summary>
         /// Pulls faces out of the mesh, with walls joining them to where they were: the top of a box pulled up into a
         /// tower, a plane's edge into a wall. Faces are picked by which way they face (within
-        /// <paramref name="angle"/> degrees of <paramref name="direction"/>), all of them, or a material slot. They move
+        /// <paramref name="angle"/> degrees of <paramref name="direction"/>), all of them, a material slot, or the
+        /// vertex selection (faces with every corner selected). They move
         /// <paramref name="distance"/> along <paramref name="direction"/> (or along their own normals), and the moved
         /// faces can be scaled about their middle (<paramref name="capScale"/>: 0.5 tapers a tower).
         /// </summary>
@@ -363,6 +376,7 @@ namespace Remedy.Meshes
                     {
                         ExtrudeSelection.All => true,
                         ExtrudeSelection.MaterialSlot => s == slotIndex,
+                        ExtrudeSelection.Selected => result.Selected(slot[t]) >= 0.5f && result.Selected(slot[t + 1]) >= 0.5f && result.Selected(slot[t + 2]) >= 0.5f,
                         _ => Vector3.Dot(FaceNormal(result, slot, t), dir) >= cosLimit - 1e-5f,
                     };
                     if (take)

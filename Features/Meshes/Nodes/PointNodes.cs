@@ -338,7 +338,8 @@ namespace Remedy.Meshes
             float smooth = SmoothAngle;
             return new MeshOp(() =>
             {
-                var mesh = input.Copy();
+                var before = input.Get();
+                var mesh = before.Clone();
                 if (position == null)
                     return mesh;
                 // One result per place (worked out with the average normal there), so welded corners stay welded.
@@ -366,6 +367,7 @@ namespace Remedy.Meshes
                     }
                     mesh.Positions[i] = to;
                 }
+                MeshSelection.Restrict(mesh, before);
                 if (smooth >= 0f)
                     mesh.RecalculateNormals(smooth);
                 return mesh;
