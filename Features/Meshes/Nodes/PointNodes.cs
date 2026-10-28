@@ -31,10 +31,15 @@ namespace Remedy.Meshes
     [Node(Name = "Point Grid", Path = "Points"), Tags(MeshNode.Tag)]
     public sealed class MeshPointGridNode : MeshPointsNode
     {
+        [Tooltip("How many points across (X).")]
         [Input("Count X", Editable = true)] public int CountX = 5;
+        [Tooltip("How many points up (Y).")]
         [Input("Count Y", Editable = true)] public int CountY = 1;
+        [Tooltip("How many points deep (Z).")]
         [Input("Count Z", Editable = true)] public int CountZ = 5;
+        [Tooltip("The distance between neighbouring points (meters), per axis.")]
         [Input("Spacing", Editable = true)] public Vector3 Spacing = Vector3.one;
+        [Tooltip("Centre the grid on the origin. Off: it starts at the origin and grows outward.")]
         [Editable] public bool Centered = true;
         [Output(PointsPort)] [NonSerialized] public PointData Points;
 
@@ -64,7 +69,9 @@ namespace Remedy.Meshes
     public sealed class MeshPointLineNode : MeshPointsNode
     {
         [Input("Count", Editable = true)] public int Count = 10;
+        [Tooltip("Where the line starts (the first point).")]
         [Input("Start", Editable = true)] public Vector3 Start;
+        [Tooltip("Where the line ends (the last point).")]
         [Input("End", Editable = true)] public Vector3 End = new(5f, 0f, 0f);
         [Output(PointsPort)] [NonSerialized] public PointData Points;
 
@@ -90,7 +97,9 @@ namespace Remedy.Meshes
     {
         [Input("Count", Editable = true)] public int Count = 12;
         [Input("Radius", Editable = true)] public float Radius = 2f;
+        [Tooltip("How much of the circle to use (degrees): 360 all the way round, 180 half.")]
         [Input("Arc", Editable = true)] public float Arc = 360f;
+        [Tooltip("Turn each point to face away from the centre. Off: they all face the same way.")]
         [Editable] public bool FaceOut = true;
         [Output(PointsPort)] [NonSerialized] public PointData Points;
 
@@ -246,7 +255,9 @@ namespace Remedy.Meshes
         [Input("In", Editable = false)] [NonSerialized] public PointData In;
         [Input("Offset", Editable = true)] public Vector3 Offset = new(0.2f, 0f, 0.2f);
         [Input("Rotation", Editable = true)] public Vector3 Rotation = new(0f, 180f, 0f);
+        [Tooltip("The smallest a point's copy can be scaled (1 is unchanged).")]
         [Input("Min Scale", Editable = true)] public float MinScale = 0.8f;
+        [Tooltip("The largest a point's copy can be scaled (1 is unchanged).")]
         [Input("Max Scale", Editable = true)] public float MaxScale = 1.2f;
         [Input("Seed", Editable = true)] public int Seed;
         [Output(PointsPort)] [NonSerialized] public PointData Points;
@@ -300,6 +311,7 @@ namespace Remedy.Meshes
     public sealed class MeshStampNode : MeshNode
     {
         [Input("Points", Editable = false)] [NonSerialized] public PointData Points;
+        [Tooltip("The mesh to put a copy of at every point.")]
         [Input("Item", Editable = false)] [NonSerialized] public MeshData Item;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 
@@ -381,10 +393,13 @@ namespace Remedy.Meshes
     [Node(Name = "Math", Path = "Values"), Tags(MeshNode.Tag)]
     public sealed class MeshMathNode : MeshNode
     {
+        [Tooltip("The formula, using a, b, c, d and the graph's Parameters by name: + - * / ^, min, max, abs, floor, sin, cos, lerp, clamp, pi...")]
         [Editable] public string Formula = "a * b";
         [Input("A", Editable = true)] public float A = 1f;
         [Input("B", Editable = true)] public float B = 1f;
+        [Tooltip("The third number (c in the formula).")]
         [Input("C", Editable = true)] public float C;
+        [Tooltip("The fourth number (d in the formula).")]
         [Input("D", Editable = true)] public float D;
         [Output("Result")] public float Result;
 
@@ -413,9 +428,13 @@ namespace Remedy.Meshes
     [Node(Name = "Make Vector", Path = "Values"), Tags(MeshNode.Tag)]
     public sealed class MeshMakeVectorNode : MeshNode
     {
+        [Tooltip("The vector's X (left/right).")]
         [Input("X", Editable = true)] public float X;
+        [Tooltip("The vector's Y (up/down).")]
         [Input("Y", Editable = true)] public float Y;
+        [Tooltip("The vector's Z (forward/back).")]
         [Input("Z", Editable = true)] public float Z;
+        [Tooltip("The three numbers as one vector (a position, rotation in degrees, or scale).")]
         [Output("Vector")] public Vector3 Vector;
 
         public override MeshOp Compile(MeshCompiler compiler) => MeshOp.Empty;

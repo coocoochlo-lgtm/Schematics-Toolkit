@@ -17,6 +17,7 @@ namespace Remedy.Meshes
     public sealed class MeshBoxNode : MeshNode
     {
         [Input("Size", Editable = true)] public Vector3 Size = Vector3.one;
+        [Tooltip("How many pieces each side is split into, per axis. More pieces bend and deform smoothly but cost more.")]
         [Input("Segments", Editable = true)] public int Segments = 1;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 
@@ -33,8 +34,11 @@ namespace Remedy.Meshes
     [Node(Name = "Plane", Path = "Shapes"), Tags(MeshNode.Tag)]
     public sealed class MeshPlaneNode : MeshNode
     {
+        [Tooltip("How wide it is (X, meters).")]
         [Input("Width", Editable = true)] public float Width = 1f;
+        [Tooltip("How long it is (Z, meters).")]
         [Input("Length", Editable = true)] public float Length = 1f;
+        [Tooltip("How many pieces it's split into each way. More lets it be displaced into hills or waves.")]
         [Input("Segments", Editable = true)] public int Segments = 1;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 
@@ -52,7 +56,9 @@ namespace Remedy.Meshes
     public sealed class MeshSphereNode : MeshNode
     {
         [Input("Radius", Editable = true)] public float Radius = 0.5f;
+        [Tooltip("How many pieces around (more is rounder).")]
         [Input("Segments", Editable = true)] public int Segments = 24;
+        [Tooltip("How many bands from bottom to top (more is rounder).")]
         [Input("Rings", Editable = true)] public int Rings = 16;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 
@@ -70,11 +76,17 @@ namespace Remedy.Meshes
     [Node(Name = "Cylinder", Path = "Shapes"), Tags(MeshNode.Tag)]
     public sealed class MeshCylinderNode : MeshNode
     {
+        [Tooltip("How wide the bottom is, from the middle (meters).")]
         [Input("Bottom Radius", Editable = true)] public float BottomRadius = 0.5f;
+        [Tooltip("How wide the top is, from the middle (meters): 0 makes a cone.")]
         [Input("Top Radius", Editable = true)] public float TopRadius = 0.5f;
+        [Tooltip("How tall it is (meters).")]
         [Input("Height", Editable = true)] public float Height = 1f;
+        [Tooltip("How many pieces around (more is rounder).")]
         [Input("Segments", Editable = true)] public int Segments = 24;
+        [Tooltip("How many bands up its height (more to bend or twist it smoothly).")]
         [Input("Height Segments", Editable = true)] public int HeightSegments = 1;
+        [Tooltip("Close the top and bottom. Off: an open tube.")]
         [Editable] public bool Caps = true;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 
@@ -95,8 +107,11 @@ namespace Remedy.Meshes
     public sealed class MeshTorusNode : MeshNode
     {
         [Input("Radius", Editable = true)] public float Radius = 0.5f;
+        [Tooltip("How thick the tube is (meters, across).")]
         [Input("Thickness", Editable = true)] public float Thickness = 0.2f;
+        [Tooltip("How many pieces around the ring (more is rounder).")]
         [Input("Segments", Editable = true)] public int Segments = 32;
+        [Tooltip("How many pieces around the tube (more is rounder).")]
         [Input("Sides", Editable = true)] public int Sides = 16;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 
@@ -117,8 +132,11 @@ namespace Remedy.Meshes
         public AnimationCurve Profile = new(new Keyframe(0f, 0.6f), new Keyframe(0.3f, 1f), new Keyframe(0.8f, 0.45f), new Keyframe(1f, 0.55f));
         [Input("Radius", Editable = true)] public float Radius = 0.5f;
         [Input("Height", Editable = true)] public float Height = 1f;
+        [Tooltip("How many slices from bottom to top the profile is read at (more follows the curve closer).")]
         [Input("Steps", Editable = true)] public int Steps = 16;
+        [Tooltip("How many pieces around (more is rounder).")]
         [Input("Segments", Editable = true)] public int Segments = 24;
+        [Tooltip("Close the top and bottom. Off: open ends.")]
         [Editable] public bool Caps = true;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 

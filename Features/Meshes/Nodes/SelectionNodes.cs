@@ -62,10 +62,14 @@ namespace Remedy.Meshes
     public sealed class MeshSelectRegionNode : MeshNode
     {
         [Input("In", Editable = false)] [NonSerialized] public MeshData In;
+        [Tooltip("Sphere (Size's X is its radius) or Box (Size is its full size).")]
         [Editable] public SelectRegionShape Shape = SelectRegionShape.Sphere;
+        [Tooltip("Where the region's centre is (meters, in the mesh's own space).")]
         [Input("Center", Editable = true)] public Vector3 Center;
         [Input("Size", Editable = true)] public Vector3 Size = new(0.5f, 0.5f, 0.5f);
+        [Tooltip("How far beyond the edge the selection fades out, for a soft edit (meters). 0 is a hard edge.")]
         [Input("Falloff", Editable = true)] public float Falloff;
+        [Tooltip("How it combines with what's already selected: Replace, Add to it, Subtract from it, or Intersect (keep only what's in both).")]
         [Editable] public MeshSelection.Mode Mode = MeshSelection.Mode.Replace;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 
@@ -109,7 +113,9 @@ namespace Remedy.Meshes
         [Input("In", Editable = false)] [NonSerialized] public MeshData In;
         [Input("Min", Editable = true)] public Vector3 Min = new(0f, 0.8f, 0f);
         [Input("Max", Editable = true)] public Vector3 Max = Vector3.one;
+        [Tooltip("How far beyond the box the selection fades out, as a share of the bounds (0 to 1). 0 is a hard edge.")]
         [Input("Falloff", Editable = true)] public float Falloff;
+        [Tooltip("How it combines with what's already selected: Replace, Add, Subtract or Intersect.")]
         [Editable] public MeshSelection.Mode Mode = MeshSelection.Mode.Replace;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 
@@ -140,8 +146,11 @@ namespace Remedy.Meshes
     {
         [Input("In", Editable = false)] [NonSerialized] public MeshData In;
         [Input("Direction", Editable = true)] public Vector3 Direction = Vector3.up;
+        [Tooltip("How far from Direction a face can point and still be selected (degrees).")]
         [Input("Angle", Editable = true)] public float Angle = 30f;
+        [Tooltip("How many degrees more it fades out over, for a soft edge.")]
         [Input("Falloff", Editable = true)] public float Falloff;
+        [Tooltip("How it combines with what's already selected: Replace, Add, Subtract or Intersect.")]
         [Editable] public MeshSelection.Mode Mode = MeshSelection.Mode.Replace;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 
@@ -174,7 +183,9 @@ namespace Remedy.Meshes
     public sealed class MeshSelectSlotNode : MeshNode
     {
         [Input("In", Editable = false)] [NonSerialized] public MeshData In;
+        [Tooltip("Which material slot's faces to select: 0 the first material, 1 the second...")]
         [Input("Slot", Editable = true)] public int Slot;
+        [Tooltip("How it combines with what's already selected: Replace, Add, Subtract or Intersect.")]
         [Editable] public MeshSelection.Mode Mode = MeshSelection.Mode.Replace;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 
@@ -203,6 +214,7 @@ namespace Remedy.Meshes
     {
         [Input("In", Editable = false)] [NonSerialized] public MeshData In;
         [Input("Other", Editable = false)] [NonSerialized] public MeshData Other;
+        [Tooltip("How it combines with what's already selected: Replace, Add, Subtract or Intersect.")]
         [Editable] public MeshSelection.Mode Mode = MeshSelection.Mode.Replace;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 
@@ -230,7 +242,9 @@ namespace Remedy.Meshes
         [Input("In", Editable = false)] [NonSerialized] public MeshData In;
         [Input("Other", Editable = false)] [NonSerialized] public MeshData Other;
         [Input("Distance", Editable = true)] public float Distance = 0.05f;
+        [Tooltip("How far beyond Distance the selection fades out (meters), for a soft edge.")]
         [Input("Falloff", Editable = true)] public float Falloff;
+        [Tooltip("How it combines with what's already selected: Replace, Add, Subtract or Intersect.")]
         [Editable] public MeshSelection.Mode Mode = MeshSelection.Mode.Replace;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 
@@ -260,7 +274,9 @@ namespace Remedy.Meshes
     public sealed class MeshEditSelectionNode : MeshNode
     {
         [Input("In", Editable = false)] [NonSerialized] public MeshData In;
+        [Tooltip("Invert: swap selected and unselected. Grow / Shrink: by Rings of neighbouring vertices. Clear: nothing selected (later nodes work on the whole mesh).")]
         [Editable] public SelectionEdit Edit = SelectionEdit.Invert;
+        [Tooltip("How many rings of neighbouring vertices to grow or shrink by.")]
         [Input("Rings", Editable = true)] public int Rings = 1;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 
@@ -290,6 +306,7 @@ namespace Remedy.Meshes
     public sealed class MeshDeleteSelectedNode : MeshNode
     {
         [Input("In", Editable = false)] [NonSerialized] public MeshData In;
+        [Tooltip("Only remove triangles whose corners are all selected (gentler). Off: any triangle touching the selection goes.")]
         [Editable] public bool AllCorners = true;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 

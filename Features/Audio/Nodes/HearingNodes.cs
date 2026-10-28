@@ -14,24 +14,40 @@ namespace Remedy.Audio
         /// <summary>How many numbers <see cref="Values"/> holds (a Brain input slot's Size).</summary>
         public const int ValueCount = 9;
 
+        [Tooltip("Whose ears (the object running this graph if nothing's wired in).")]
         [Input("Ear")] public GameObject Ear;
+        [Tooltip("How keen its hearing is: scales every noise's range (2 hears twice as far, 0.5 half as far).")]
         [Input("Sensitivity", Editable = true)] public float Sensitivity = 1f;
+        [Tooltip("Only hear noises of this kind (\"footstep\", \"alarm\"; a Sound Cue's kind is its name). Empty: hears anything.")]
         [Input("Kind", Editable = true)] public string Kind;
+        [Tooltip("How high its ears are above its position (meters), where the sound is checked from.")]
         [Input("Height", Editable = true)] public float Height = 1.6f;
 
+        [Tooltip("True if it heard anything this time; the other outputs only mean something then.")]
         [Output("Heard")] public bool Heard;
+        [Tooltip("How loud the loudest noise is at its ears: 1 right next to it, falling to 0 at the edge of its range.")]
         [Output("Loudness")] public float Loudness;
+        [Tooltip("How muffled it is: 0 clear, a little for round a corner, 1 only through walls.")]
         [Output("Muffled")] public float Muffled;
         [Output("Direction")] public Vector3 Direction;
+        [Tooltip("Where the sound reaches it from: the noise itself, or the corner or doorway it came round.")]
         [Output("Heard From")] public Vector3 HeardFrom;
+        [Tooltip("True if it came round a corner or through a doorway rather than straight.")]
         [Output("Came Round")] public bool CameRound;
+        [Tooltip("True if it's only heard through the walls (no way round).")]
         [Output("Through Walls")] public bool ThroughWalls;
+        [Tooltip("The doorway or opening it came through (when it came round).")]
         [Output("Opening")] public Vector3 Opening;
+        [Tooltip("Which way that opening is, as the AI sees it (x right, z ahead).")]
         [Output("Opening Direction")] public Vector3 OpeningDirection;
+        [Tooltip("Where the noise actually is (which may be behind a wall).")]
         [Output("Noise Position")] public Vector3 NoisePosition;
         [Output("Distance")] public float Distance;
+        [Tooltip("What made the noise (empty for a Make Noise with no object).")]
         [Output("Source")] public GameObject Source;
+        [Tooltip("What kind of noise it was.")]
         [Output("Kind")] public string HeardKind;
+        [Tooltip("Everything above as 9 numbers for a Brain input of Size 9 (see the node's help for the order).")]
         [Output("Values")] public float[] Values;
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
@@ -102,14 +118,21 @@ namespace Remedy.Audio
     [Node(Name = "Nearest Openings", Path = "AI/Senses"), Tags("Object")]
     public class NearestOpeningsNode : SchematicActionNode
     {
+        [Tooltip("Whose surroundings (the object running this graph if nothing's wired in).")]
         [Input("From")] public GameObject From;
         [Input("Count", Editable = true)] public int Count = 3;
+        [Tooltip("How far to look for openings (meters).")]
         [Input("Range", Editable = true)] public float Range = 20f;
+        [Tooltip("How high above its position to look from (meters), so low clutter doesn't block the view.")]
         [Input("Height", Editable = true)] public float Height = 1f;
 
+        [Tooltip("How many openings it found (up to Count).")]
         [Output("Found")] public int Found;
+        [Tooltip("Where the nearest opening is.")]
         [Output("Nearest")] public Vector3 Nearest;
+        [Tooltip("How far away the nearest opening is (meters).")]
         [Output("Nearest Distance")] public float NearestDistance;
+        [Tooltip("Count openings as numbers for a Brain input of Size Count × 3: each one's direction x and z and how near it is (1 here, 0 at Range).")]
         [Output("Values")] public float[] Values;
 
         private (SoundField field, int doorway, float distance)[] _found = Array.Empty<(SoundField, int, float)>();
@@ -155,9 +178,12 @@ namespace Remedy.Audio
     [Node(Name = "Make Noise", Path = "AI/Senses"), Tags("Object")]
     public class MakeNoiseNode : SchematicActionNode
     {
+        [Tooltip("Where the noise is (the object running this graph if nothing's wired in); it follows that object while it lasts.")]
         [Input("At")] public GameObject At;
+        [Tooltip("How far it can be heard in the open (meters). Walls and corners make it reach less far.")]
         [Input("Range", Editable = true)] public float Range = 20f;
         [Input("Duration", Editable = true)] public float Duration = 0.5f;
+        [Tooltip("What kind of noise it is (\"footstep\", \"alarm\"), so a Hear node can listen for just that kind.")]
         [Input("Kind", Editable = true)] public string Kind;
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)

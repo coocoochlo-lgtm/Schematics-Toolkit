@@ -51,9 +51,12 @@ namespace Remedy.Audio
     public class SoundWaveNode : SoundNode
     {
         [Input("Time", Editable = false)] public float Time;
+        [Tooltip("The audio file to play (drop one on the graph to make this node).")]
         [Editable] public AudioClip Clip;
+        [Tooltip("Start again from the beginning when it reaches its end.")]
         [Editable] public bool Loop;
         [Output("Audio")] public float Audio;
+        [Tooltip("How long the audio file is (seconds), for time math.")]
         [Output("Length")] public float Length;
 
         public override SoundProcessor CreateProcessor(SoundCueBuilder builder)
@@ -86,6 +89,7 @@ namespace Remedy.Audio
     [AssetNode(typeof(SoundCueGraph), Title = "Sound Cue: {0}", Field = nameof(Cue))]
     public class SoundCueSourceNode : SoundNode, IDynamicPorts
     {
+        [Tooltip("The Sound Cue to play inside this one.")]
         [Editable] public SoundCueGraph Cue;
         [Input("Volume", Editable = true)] public float Volume = 1f;
         [Editable, Tooltip("Seconds before it starts.")] public float Delay;
@@ -218,9 +222,11 @@ namespace Remedy.Audio
     public class SoundGeneratorNode : SoundNode
     {
         [Input("Time", Editable = false)] public float Time;
+        [Tooltip("Start again from the beginning when it reaches its end.")]
         [Editable] public bool Loop;
         public SfxrSettings Settings = SfxrSettings.FromPreset(SfxrSettings.Preset.PickupCoin, 1);
         [Output("Audio")] public float Audio;
+        [Tooltip("How long the generated sound is (seconds).")]
         [Output("Length")] public float Length;
 
         [NonSerialized] private float[] _rendered, _looped;
@@ -339,6 +345,7 @@ namespace Remedy.Audio
         [Input("Audio", Editable = false)] public float AudioIn;
         [Input("Cutoff", Editable = true)] public float Cutoff = 1200f;
         [Input("Resonance", Editable = true)] public float Resonance = 0.707f;
+        [Tooltip("Low Pass keeps the lows (muffled, distant, underwater), High Pass keeps the highs (thin, radio, phone), Band Pass keeps a band around Cutoff.")]
         [Editable] public Kind Type = Kind.LowPass;
         [Output("Out")] public float Out;
 
@@ -414,6 +421,7 @@ namespace Remedy.Audio
 
         [Input("Audio", Editable = false)] public float AudioIn;
         [Input("Delay", Editable = true)] public float Delay = 0.25f;
+        [Tooltip("How loud each echo is compared with the last: 0 one echo, 0.5 a few, near 1 a long trail.")]
         [Input("Feedback", Editable = true)] public float Feedback = 0.4f;
         [Input("Mix", Editable = true)] public float Mix = 0.35f;
         /// <summary>
@@ -426,8 +434,10 @@ namespace Remedy.Audio
         /// preview). A Spatial effect linked to a Trail (before or after it) echoes each spot off the walls from where
         /// it is.
         /// </summary>
+        [Tooltip("Own: a plain echo of the sound. Spatial: echoes off the real walls around it (from the Sound Field). Trail: leaves echoing spots behind a moving sound.")]
         [Editable] public DelayMode Mode = DelayMode.Own;
         /// <summary>Spatial: how much echo walls (cliffs, canyon sides, buildings, a hall's far wall) throw the sound back, 0 to 1.</summary>
+        [Tooltip("Spatial: how much echo walls (cliffs, canyon sides, buildings, a hall's far wall) throw the sound back, 0 to 1.")]
         [Editable] public float Echoes = 1f;
         [Editable, Tooltip("Spatial: how much the place's slapback and echoes may drown out the sound itself, which is always heard in full from where it is. 0: they duck under the sound while it plays (like sidechain compression: the louder it is, the further), swelling back in its gaps and after it; 1: never ducked.")]
         public float SourceBlend = 0.5f;
@@ -604,6 +614,7 @@ namespace Remedy.Audio
     public class SoundDistortionNode : SoundNode
     {
         [Input("Audio", Editable = false)] public float AudioIn;
+        [Tooltip("How hard it's pushed: 1 clean, 3 warm, 10+ crunchy.")]
         [Input("Drive", Editable = true)] public float Drive = 4f;
         [Input("Mix", Editable = true)] public float Mix = 1f;
         [Output("Out")] public float Out;
@@ -641,7 +652,9 @@ namespace Remedy.Audio
     public class SoundBitcrushNode : SoundNode
     {
         [Input("Audio", Editable = false)] public float AudioIn;
+        [Tooltip("How finely loudness is kept: 16 clean, 8 old console, 4 harsh.")]
         [Input("Bits", Editable = true)] public float Bits = 6f;
+        [Tooltip("Holds each sample this many times: 1 off, 4 gritty, 8+ very lo-fi.")]
         [Input("Downsample", Editable = true)] public float Downsample = 4f;
         [Output("Out")] public float Out;
 
@@ -683,7 +696,9 @@ namespace Remedy.Audio
     public class SoundReverbNode : SoundNode
     {
         [Input("Audio", Editable = false)] public float AudioIn;
+        [Tooltip("How big the room sounds: 0 a small room, 1 a cathedral.")]
         [Input("Room Size", Editable = true)] public float RoomSize = 0.6f;
+        [Tooltip("How fast the highs die away in the room: 0 bright and ringing, 1 dull and soft.")]
         [Input("Damping", Editable = true)] public float Damping = 0.4f;
         [Input("Mix", Editable = true)] public float Mix = 0.3f;
         /// <summary>
@@ -695,8 +710,10 @@ namespace Remedy.Audio
         /// sound (in the game and the preview). A Spatial effect linked to a Trail (before or after it) rings the place
         /// with each spot, and echoes it off the walls from where it is.
         /// </summary>
+        [Tooltip("Own: its own reverb. Shared: sends to the scene's reverb (Reverb Zones), much cheaper for sounds played often. Spatial: rings the real place it's in (from the Sound Field). Trail: leaves ringing spots behind a moving sound.")]
         [Editable] public ReverbMode Mode = ReverbMode.Own;
         /// <summary>Spatial: how much echo walls (cliffs, canyon sides, buildings) throw the sound back in the open, 0 to 1.</summary>
+        [Tooltip("Spatial: how much echo walls (cliffs, canyon sides, buildings) throw the sound back in the open, 0 to 1.")]
         [Editable] public float Echoes = 1f;
         [Editable, Tooltip("Spatial: how much the place's reverb (its room's, a tail's, and echoes) may drown out the sound itself, which is always heard in full from where it is. 0: they duck under the sound while it plays (like sidechain compression: the louder it is, the further), swelling back in its gaps and after it; 1: never ducked.")]
         public float SourceBlend = 0.5f;
@@ -892,6 +909,7 @@ namespace Remedy.Audio
     {
         [Input("A", Editable = false)] public float A;
         [Input("B", Editable = false)] public float B;
+        [Tooltip("0 only A, 1 only B, in between a blend that keeps the loudness even.")]
         [Input("Blend", Editable = true)] public float Blend = 0.5f;
         [Output("Out")] public float Out;
 

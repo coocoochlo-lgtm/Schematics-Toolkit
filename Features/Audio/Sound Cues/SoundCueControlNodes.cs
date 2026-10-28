@@ -29,6 +29,7 @@ namespace Remedy.Audio
         [Input(VolumePort, Editable = true)]
         public float Volume = 1f;
 
+        [Tooltip("How long the cue plays: Auto as long as its longest Sound Wave or Generator, Fixed for Duration seconds, Endless until it's stopped.")]
         [Editable]
         public LengthMode Length = LengthMode.Auto;
         /// <summary>Seconds, for Fixed length.</summary>
@@ -160,11 +161,17 @@ namespace Remedy.Audio
     public class SoundListenerNode : SoundNode
     {
         [Output("Distance")] public float Distance;
+        [Tooltip("Degrees between where the listener faces and the sound: 0 straight ahead, 90 to the side, 180 behind.")]
         [Output("Angle")] public float Angle;
+        [Tooltip("Where the sound is left to right: -1 fully left, 0 centre, 1 fully right.")]
         [Output("Pan")] public float Pan;
+        [Tooltip("How much in front it is: 1 straight ahead, 0 beside, -1 behind.")]
         [Output("Front")] public float Front;
+        [Tooltip("How far above the listener it is (degrees); negative below.")]
         [Output("Elevation")] public float Elevation;
+        [Tooltip("How fast the sound and listener are closing in (m/s); negative when moving apart.")]
         [Output("Approach Speed")] public float ApproachSpeed;
+        [Tooltip("1 when the sound and listener are in the same Sound Room (or neither is in one), else 0.")]
         [Output("Same Room")] public float SameRoom;
 
         private static readonly string[] Ports = { "Distance", "Angle", "Pan", "Front", "Elevation", "Approach Speed", "Same Room" };
@@ -235,7 +242,9 @@ namespace Remedy.Audio
     [Node(Name = "Parameter", Path = "Controls"), Tags(SoundNode.Tag)]
     public class SoundParameterNode : SoundNode
     {
+        [Tooltip("The name the game sets it by (Set Graph Parameters, or SoundCuePlayer.SetParameter). Also its pin's name on nodes that play or call this cue.")]
         [Editable] public string ParameterName = "Intensity";
+        [Tooltip("Its value until the game sets one.")]
         [Editable] public float Default;
         [Editable, Tooltip("How long a new value takes to glide in (seconds; most of the way there by then), so values set once a frame (an engine's RPM) sweep smoothly instead of stepping. 0 = jumps straight there.")]
         public float Glide = 0.05f;
@@ -391,8 +400,11 @@ namespace Remedy.Audio
     [Node(Name = "Curve", Path = "Controls"), Tags(SoundNode.Tag)]
     public class SoundCurveNode : SoundNode
     {
+        [Tooltip("Where along the curve to read (wire Time's Progress for over the whole sound, or Distance).")]
         [Input("X", Editable = true)] public float X;
+        [Tooltip("The shape: X across, Y up. Draw it in the curve editor.")]
         [Editable] public AnimationCurve Curve = AnimationCurve.Linear(0f, 1f, 1f, 0f);
+        [Tooltip("The curve's height at X.")]
         [Output("Y")] public float Y;
 
         public override SoundProcessor CreateProcessor(SoundCueBuilder builder)
@@ -419,10 +431,15 @@ namespace Remedy.Audio
     public class SoundMapRangeNode : SoundNode
     {
         [Input("Value", Editable = true)] public float Value;
+        [Tooltip("The low end of what comes in.")]
         [Input("In Min", Editable = true)] public float InMin;
+        [Tooltip("The high end of what comes in.")]
         [Input("In Max", Editable = true)] public float InMax = 1f;
+        [Tooltip("What In Min turns into.")]
         [Input("Out Min", Editable = true)] public float OutMin;
+        [Tooltip("What In Max turns into (Out Min can be bigger, to turn it upside down).")]
         [Input("Out Max", Editable = true)] public float OutMax = 1f;
+        [Tooltip("Keep the result between Out Min and Out Max. Off: values outside the in range carry on past them.")]
         [Editable] public bool Clamp = true;
         [Output("Result")] public float Result;
 
@@ -575,6 +592,7 @@ namespace Remedy.Audio
         [Input("Frequency", Editable = true)] public float Frequency = 5f;
         [Input("Amplitude", Editable = true)] public float Amplitude = 1f;
         [Input("Offset", Editable = true)] public float Offset;
+        [Tooltip("The wave's shape: Sine smooth, Square on/off, Saw ramps up then drops, Triangle up and down, Noise random.")]
         [Editable] public Shape Wave = Shape.Sine;
         [Output("Value")] public float Value;
 
