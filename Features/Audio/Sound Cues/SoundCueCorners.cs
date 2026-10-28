@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace Remedy.Audio
 {
-    [SchematicDoc(@"{""name"": ""Around Corners"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Effects"", ""description"": ""Sound that bends round corners. When walls block the straight line to the listener but there's a way round (a doorway, the end of a corridor), the sound is heard from the last corner it comes round, fading in as it slips behind the corner (fully round by Fade Angle degrees past the edge, seen from the listener): quieter for the longer way, a little later, and duller the sharper it bends (Bend Cutoff at a right angle). What still gets straight through the walls is Through Walls loud, muffled to Through Cutoff (Hz). Fully closed in, only that is heard. In the game the ways round come from the Sound Field baked there; in the preview from its surroundings (try Doorway or Corner). Put it last, so everything before it goes round the corner."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Through Walls"", ""type"": ""float""}, {""name"": ""Through Cutoff"", ""type"": ""float""}], ""outputs"": [{""name"": ""Out"", ""type"": ""audio""}], ""use_for"": [""a sound in the next room heard through the doorway"", ""footsteps coming round a corridor corner""], ""notes"": ""Only for 3D (Stereo) cues. Sound Fields baked before this was added need baking again.""}")]
+    [SchematicDoc(@"{""name"": ""Around Corners"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Effects"", ""description"": ""Sound that bends round corners. When walls block the straight line to the listener but there's a way round (a doorway, the end of a corridor), the sound is heard both ways at once. From the last corner it comes round (fading in as it slips behind the corner, fully round by Fade Angle degrees past the edge, seen from the listener): quieter for the longer way and the sharper it has to bend (Bend Loss at a right angle), a little later, and duller the sharper the bend (Bend Cutoff at a right angle). And straight through the walls: Through Walls loud, muffled to Through Cutoff (Hz), and fading exponentially with the distance between them (to about a third every Through Falloff meters), so a wall right beside you lets more through than a building's worth of them. Fully closed in, only the through-walls sound is heard. In the game the ways round come from the Sound Field baked there; in the preview from its surroundings (try Doorway or Corner). Put it last, so everything before it goes round the corner."", ""inputs"": [{""name"": ""Audio"", ""type"": ""audio""}, {""name"": ""Through Walls"", ""type"": ""float""}, {""name"": ""Through Cutoff"", ""type"": ""float""}], ""outputs"": [{""name"": ""Out"", ""type"": ""audio""}], ""use_for"": [""a sound in the next room heard through the doorway"", ""footsteps coming round a corridor corner""], ""notes"": ""Only for 3D (Stereo) cues. Sound Fields baked before this was added need baking again.""}")]
     [Serializable]
     [Node(Name = "Around Corners", Path = "Effects"), Tags(SoundNode.Tag)]
     public class SoundCornersNode : SoundNode
@@ -16,6 +16,10 @@ namespace Remedy.Audio
         [Input("Through Cutoff", Editable = true)] public float ThroughCutoff = 700f;
         [Editable, Tooltip("How dull (Hz) the sound is when it bends a right angle round a corner (sharper bends are duller).")]
         public float BendCutoff = 2500f;
+        [Editable, Tooltip("How much quieter the sound coming round the corner is when it bends a right angle (0: no quieter, 1: silent). Sharper bends lose more, gentle ones hardly any.")]
+        public float BendLoss = 0.5f;
+        [Editable, Tooltip("Through walls: the distance (meters) over which what gets through drops to about a third, and to a third of that again over the next, and so on (on top of the sound's own fading with distance).")]
+        public float ThroughFalloff = 10f;
         [Editable, Tooltip("How far the sound must slip behind the corner (in degrees, seen from the listener: the angle between the corner and the sound) before it's heard fully round it. Closer to the edge, it fades between heard straight and heard round.")]
         public float FadeAngle = 35f;
         [Editable, Tooltip("Seconds to glide between heard straight and heard round a corner.")]
@@ -28,9 +32,9 @@ namespace Remedy.Audio
             // Flat (2D) cues aren't anywhere: nothing to go round.
             if (!(Graph is SoundCueGraph cue) || !cue.IsSpatial)
                 return new PassProcessor { In = audio };
-            var probe = new Probe { Node = this, Targets = new float[1] };
+            var probe = new Probe { Node = this, Targets = new float[] { 0f, 1f } };
             builder.Context.Probes.Add(probe);
-            var blocked = new ProbedProcessor { Ports = new[] { "Blocked" }, Targets = probe.Targets, Smoothing = Mathf.Max(0f, Smoothing) };
+            var blocked = new ProbedProcessor { Ports = new[] { "Blocked", "Through" }, Targets = probe.Targets, Smoothing = Mathf.Max(0f, Smoothing) };
             builder.AddHelper(blocked);
             return new Processor(builder.SampleRate)
             {
@@ -38,6 +42,7 @@ namespace Remedy.Audio
                 ThroughWalls = builder.Input(this, "Through Walls", ThroughWalls),
                 ThroughCutoff = builder.Input(this, "Through Cutoff", ThroughCutoff),
                 Blocked = blocked.Output("Blocked"),
+                Through = blocked.Output("Through"),
                 Place = probe,
             };
         }
@@ -46,7 +51,10 @@ namespace Remedy.Audio
         private sealed class Probe : SoundProbe
         {
             public SoundCornersNode Node;
-            /// <summary>How blocked the straight way is (1: only what gets through the walls is heard straight).</summary>
+            /// <summary>
+            /// [0] How blocked the straight way is (1: only what gets through the walls is heard straight); [1] how much
+            /// of Through Walls gets through over the distance between them.
+            /// </summary>
             public float[] Targets;
             /// <summary>The corner to send the sound to, read by the processor.</summary>
             public SpaceSends Sends;
@@ -60,6 +68,9 @@ namespace Remedy.Audio
                 Vector3 corner;
                 float length, bend;
                 CornerPool pool;
+                float straight = Vector3.Distance(world.Position, world.ListenerPosition);
+                // Through the walls: exponentially less the further apart they are.
+                Volatile.Write(ref Targets[1], Mathf.Exp(-straight / Mathf.Max(0.1f, Node.ThroughFalloff)));
                 if (world.Simulated)
                 {
                     var simulation = SoundSpaceSimulation.Current;
@@ -116,12 +127,12 @@ namespace Remedy.Audio
                     Set(null, 0f);
                     return;
                 }
-                float straight = Vector3.Distance(world.Position, world.ListenerPosition);
                 var sends = new SpaceSends
                 {
                     Corner = bus,
-                    // As loud as the sound itself would be the whole way round (the corner's bus has no falloff of its own).
-                    CornerGain = (world.Hearing != null ? world.Hearing(length) : 1f / Mathf.Max(1f, length)) * behind,
+                    // As loud as the sound itself would be the whole way round (the corner's bus has no falloff of its own),
+                    // less for the sharper it bends.
+                    CornerGain = (world.Hearing != null ? world.Hearing(length) : 1f / Mathf.Max(1f, length)) * behind * BendGain(bend),
                     // Later than the sound itself by the longer way.
                     CornerDelay = (int)(Mathf.Max(0f, length - straight) / SoundSpaces.SpeedOfSound * bus.Rate),
                 };
@@ -138,6 +149,10 @@ namespace Remedy.Audio
                 float angle = Vector3.Angle(corner - from, sound - from);
                 return Mathf.SmoothStep(0f, 1f, angle / Mathf.Max(1f, fadeAngle));
             }
+
+            // Quieter the sharper it bends: Bend Loss at a right angle (bend 0.5), compounding past it, nothing straight on.
+            private float BendGain(float bend)
+                => Mathf.Pow(1f - Mathf.Clamp01(Node.BendLoss), Mathf.Clamp(bend * 2f, 0f, 2f));
 
             // Duller the sharper it bends: Bend Cutoff at a right angle, evenly in pitch, down to a quarter of it bent back.
             private float Cutoff(float bend)
@@ -163,7 +178,8 @@ namespace Remedy.Audio
                 get
                 {
                     float blocked = Volatile.Read(ref Targets[0]);
-                    string straight = blocked >= 0.99f ? $"straight sound down to Through Walls ({Node.ThroughWalls:0.00}, muffled)"
+                    float through = Volatile.Read(ref Targets[1]);
+                    string straight = blocked >= 0.99f ? $"straight sound down to Through Walls ({Node.ThroughWalls:0.00} × {through:0.00} over the distance, muffled)"
                         : blocked > 0.01f ? $"straight sound {Mathf.Round((1f - blocked) * 10f) * 10f:0}% (the rest through walls)" : "straight sound in full";
                     return _route == SoundRoute.Sealed ? $"Around Corners: SEALED (no way through the Sound Field between them): {straight}"
                         : _route == SoundRoute.Around ? $"Around Corners: round a corner ({Mathf.Round(_behind * 10f) * 10f:0}% behind it): {straight}"
@@ -175,7 +191,7 @@ namespace Remedy.Audio
 
         private sealed class Processor : SoundProcessor, ISpatialSends
         {
-            public float[] In, ThroughWalls, ThroughCutoff, Blocked;
+            public float[] In, ThroughWalls, ThroughCutoff, Blocked, Through;
             public Probe Place;
             private readonly SpatialSender _sender;
             SpatialSender ISpatialSends.Sender => _sender;
@@ -202,7 +218,7 @@ namespace Remedy.Audio
                     float x = In[i];
                     _muffled += (x - _muffled) * amount;
                     float blocked = Mathf.Clamp01(Blocked[i]);
-                    o[i] = x * (1f - blocked) + _muffled * Mathf.Max(0f, ThroughWalls[i]) * blocked;
+                    o[i] = x * (1f - blocked) + _muffled * Mathf.Max(0f, ThroughWalls[i]) * Through[i] * blocked;
                 }
                 Volatile.Write(ref Place.Sending, context.HeardStart >= 0 ? 1 : 0);
                 _sender.Send(Volatile.Read(ref Place.Sends), context, In, count, 1f);
