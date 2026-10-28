@@ -419,13 +419,20 @@ namespace Remedy.Meshes
         /// <paramref name="mirrorX"/>, the other side of the mesh (across the middle of its bounds in X) gets the mirror
         /// image of the same grab, like symmetry in a sculpting tool: one grab swings both arms. With a selection, the
         /// box is measured across the selection's bounds (select the head, and the box is part of the head) and only
-        /// what's selected moves.
+        /// what's selected moves. <paramref name="strength"/> scales the whole grab (0: nothing, 1: as set, 2: twice as
+        /// far, turned and scaled twice as much): a slider for a feature can drive several grabs at once.
         /// </summary>
-        public static MeshData Grab(MeshData source, Vector3 min, Vector3 max, float falloff, Vector3 pivot, Vector3 move, Vector3 rotate, Vector3 scale, bool mirrorX = false)
+        public static MeshData Grab(MeshData source, Vector3 min, Vector3 max, float falloff, Vector3 pivot, Vector3 move, Vector3 rotate, Vector3 scale, bool mirrorX = false, float strength = 1f)
         {
             var mesh = source.Clone();
-            if (mesh.VertexCount == 0)
+            if (mesh.VertexCount == 0 || strength == 0f)
                 return mesh;
+            if (strength != 1f)
+            {
+                move *= strength;
+                rotate *= strength;
+                scale = Vector3.one + (scale - Vector3.one) * strength;
+            }
             var bounds = MeshSelection.SelectedBounds(mesh);
             var lo = Vector3.Min(min, max);
             var hi = Vector3.Max(min, max);

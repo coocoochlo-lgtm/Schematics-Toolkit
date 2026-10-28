@@ -35,26 +35,72 @@ namespace Remedy.Meshes
 
         [NonSerialized] private int _version;
 
-        /// <summary>Changes whenever the graph does (an edit in the editor): generated meshes from before are stale.</summary>
-        public int Version => _version;
+        /// <summary>
+        /// Changes whenever the graph does (an edit in the editor), or any graph it calls as a function does:
+        /// generated meshes from before are stale.
+        /// </summary>
+        public int Version => VersionWith(0);
 
-        /// <summary>Its Parameters, for Set Graph Parameters and the Mesh Graph Renderer.</summary>
+        // Its own version mixed with those of the graphs it calls (a few calls deep: a graph calling itself is
+        // refused when it's built anyway). Only in the editor: in a game nothing's edited, and renderers ask every frame.
+        private int VersionWith(int depth)
+        {
+            int version = _version;
+#if UNITY_EDITOR
+            if (depth > 8)
+                return version;
+            unchecked
+            {
+                foreach (var node in Nodes)
+                    if (node is MeshFunctionNode call && call.Calls != null && call.Calls != this)
+                        version = version * 31 + call.Calls.VersionWith(depth + 1);
+            }
+#endif
+            return version;
+        }
+
+        /// <summary>Its Parameters, with how they're shown where it's called as a function, for Set Graph Parameters, the Mesh Graph Renderer and Function nodes.</summary>
         public override IReadOnlyList<GraphParameter> GraphParameters
-            => ParameterList.Select(p => new GraphParameter(p.name, typeof(float), p.value)).ToList();
+            => ParameterNodes.Select(p => new GraphParameter(p.ParameterName.Trim(), typeof(float), p.Default, p.UI)).ToList();
 
-        /// <summary>The graph's Parameters (each name once), with their defaults.</summary>
-        public List<(string name, float value)> ParameterList
+        /// <summary>The Parameter node declaring each of its Parameters (the first, where two share a name).</summary>
+        public List<MeshParameterNode> ParameterNodes
         {
             get
             {
-                var found = new List<(string, float)>();
+                var found = new List<MeshParameterNode>();
                 var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var node in Nodes)
                     if (node is MeshParameterNode parameter && !string.IsNullOrWhiteSpace(parameter.ParameterName) && names.Add(parameter.ParameterName.Trim()))
-                        found.Add((parameter.ParameterName.Trim(), parameter.Default));
+                        found.Add(parameter);
                 return found;
             }
         }
+
+        /// <summary>The graph's Parameters (each name once), with their defaults.</summary>
+        public List<(string name, float value)> ParameterList
+            => ParameterNodes.Select(p => (p.ParameterName.Trim(), p.Default)).ToList();
+
+        /// <summary>The meshes it takes when called as a function: its Mesh Input nodes (each name once).</summary>
+        public override IReadOnlyList<GraphPinInfo> FunctionInputs
+        {
+            get
+            {
+                var found = new List<GraphPinInfo>();
+                var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var node in Nodes)
+                    if (node is MeshInputNode input && !string.IsNullOrWhiteSpace(input.InputName) && names.Add(input.InputName.Trim()))
+                        found.Add(new GraphPinInfo(input.InputName.Trim(), typeof(MeshData), input.Description));
+                return found;
+            }
+        }
+
+        /// <summary>Mesh Graphs can be called from other Mesh Graphs with a Function node.</summary>
+        public override bool CallableAsFunction => true;
+
+        /// <summary>What it gives back when called as a function: its model.</summary>
+        public override IReadOnlyList<GraphPinInfo> FunctionOutputs
+            => new[] { new GraphPinInfo(MeshNode.MeshPort, typeof(MeshData), "The model (what's wired into its Output).") };
 
         /// <summary>The graph's Output node.</summary>
         public MeshOutputNode Output
@@ -137,8 +183,11 @@ namespace Remedy.Meshes
         public override MeshOp Compile(MeshCompiler compiler) => compiler.Mesh(this, MeshPort);
     }
 
-    /// <summary>A number set per object (the Mesh Graph Renderer's Parameters, or Set Graph Parameters).</summary>
-    [SchematicDoc(@"{""name"": ""Parameter"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Mesh"", ""description"": ""A number each object sets for itself, by Name: a tree's height, a rock's seed, a fence's length. It's Default until set (on the Mesh Graph Renderer, or with Set Graph Parameters, which rebuilds the model). Wire it into any number on a node."", ""outputs"": [{""name"": ""Value"", ""type"": ""float""}]}")]
+    /// <summary>
+    /// A number set per object (the Mesh Graph Renderer's Parameters, or Set Graph Parameters), or by whatever calls
+    /// the graph as a function, where <see cref="UI"/> says how it's shown: a slider, a toggle, a dropdown.
+    /// </summary>
+    [SchematicDoc(@"{""name"": ""Parameter"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Mesh"", ""description"": ""A number each object sets for itself, by Name: a tree's height, a rock's seed, a fence's length. It's Default until set (on the Mesh Graph Renderer, or with Set Graph Parameters, which rebuilds the model). Wire it into any number on a node. When the graph is called as a function (a Function node in another Mesh Graph), each Parameter is a pin on that node with its own control there: set Control (Number, Slider, Whole Number, Toggle, Dropdown), Min, Max, Options, Group and Description in the Inspector."", ""outputs"": [{""name"": ""Value"", ""type"": ""float""}]}")]
     [Serializable]
     [NodeColor(NodeColors.Value)]
     [Node(Name = "Parameter", Path = "Values"), Tags(MeshNode.Tag)]
@@ -146,6 +195,8 @@ namespace Remedy.Meshes
     {
         [Editable] public string ParameterName = "Size";
         [Editable] public float Default = 1f;
+        [Tooltip("How it's shown on Function nodes calling this graph: its control, range, group and description.")]
+        public ParameterUI UI = new();
         [Output("Value")] public float Value;
 
         public override MeshOp Compile(MeshCompiler compiler) => MeshOp.Empty;

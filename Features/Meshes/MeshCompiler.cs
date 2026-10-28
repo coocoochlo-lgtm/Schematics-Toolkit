@@ -2,6 +2,7 @@ using BlueGraph;
 using Remedy.Schematics;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace Remedy.Meshes
@@ -70,6 +71,11 @@ namespace Remedy.Meshes
         public static MeshCompiler Current => _current;
 
         private readonly IReadOnlyDictionary<string, float> _parameters;
+        private readonly IReadOnlyDictionary<string, MeshOp> _inputs;
+
+        // The graphs being read right now, outermost first: a graph calling itself (or one that calls it back) as a
+        // function is refused rather than read forever.
+        [ThreadStatic] private static List<MeshGraph> _calling;
         private readonly Dictionary<MeshNode, MeshOp> _ops = new();
         private readonly Dictionary<MeshPointsNode, PointOp> _pointOps = new();
         private readonly Dictionary<string, float> _constants = new(StringComparer.OrdinalIgnoreCase);
@@ -78,10 +84,39 @@ namespace Remedy.Meshes
         /// <summary>Problems found while reading the graph (shown in the graph window).</summary>
         public readonly List<string> Warnings = new();
 
-        private MeshCompiler(IReadOnlyDictionary<string, float> parameters) => _parameters = parameters;
+        private MeshCompiler(IReadOnlyDictionary<string, float> parameters, IReadOnlyDictionary<string, MeshOp> inputs = null)
+        {
+            _parameters = parameters;
+            _inputs = inputs;
+        }
 
-        /// <summary>Reads a Mesh Graph with these Parameter values (null: their defaults).</summary>
-        public static MeshPlan Compile(MeshGraph graph, IReadOnlyDictionary<string, float> parameters = null)
+        /// <summary>
+        /// Reads a Mesh Graph with these Parameter values (null: their defaults), and, when it's called as a function,
+        /// the meshes given to its Mesh Inputs.
+        /// </summary>
+        public static MeshPlan Compile(MeshGraph graph, IReadOnlyDictionary<string, float> parameters = null, IReadOnlyDictionary<string, MeshOp> inputs = null)
+        {
+            _calling ??= new List<MeshGraph>();
+            if (graph != null && _calling.Contains(graph))
+            {
+                var refused = new MeshPlan { Root = MeshOp.Empty };
+                refused.Warnings.Add($"\"{graph.name}\" calls itself as a function (through {string.Join(" → ", _calling.Select(g => g.name))}), which can't be made.");
+                return refused;
+            }
+            if (graph != null)
+                _calling.Add(graph);
+            try
+            {
+                return CompileGraph(graph, parameters, inputs);
+            }
+            finally
+            {
+                if (graph != null)
+                    _calling.RemoveAt(_calling.Count - 1);
+            }
+        }
+
+        private static MeshPlan CompileGraph(MeshGraph graph, IReadOnlyDictionary<string, float> parameters, IReadOnlyDictionary<string, MeshOp> inputs)
         {
             var plan = new MeshPlan();
             var output = graph != null ? graph.Output : null;
@@ -91,7 +126,7 @@ namespace Remedy.Meshes
                 plan.Warnings.Add("The Mesh Graph has no Output.");
                 return plan;
             }
-            var compiler = new MeshCompiler(parameters ?? new Dictionary<string, float>());
+            var compiler = new MeshCompiler(parameters ?? new Dictionary<string, float>(), inputs);
             // The graph's Parameters, as formulas see them (set values, or defaults).
             foreach (var (name, value) in graph.ParameterList)
                 compiler._constants[name] = compiler.Parameter(name, value);
@@ -116,6 +151,48 @@ namespace Remedy.Meshes
             }
             return plan;
         }
+
+        /// <summary>
+        /// Another Mesh Graph called as a function (a Function node): read now, with these Parameter values and meshes
+        /// for its Mesh Inputs, into a step giving its model. Its warnings come back here, named after the node.
+        /// </summary>
+        public MeshOp Call(SchematicGraphNode node, MeshGraph graph, IReadOnlyDictionary<string, float> parameters, IReadOnlyDictionary<string, MeshOp> inputs)
+        {
+            if (graph == null)
+                return MeshOp.Empty;
+            var plan = Compile(graph, parameters, inputs);
+            foreach (var warning in plan.Warnings)
+                Warnings.Add($"\"{node.Name}\" ({graph.name}): {warning}");
+            var root = plan.Root ?? MeshOp.Empty;
+            // The called graph's Output settings that change the model (its hard edges), not its LODs.
+            if (plan.SmoothAngle < 0f)
+                return root;
+            float angle = plan.SmoothAngle;
+            return new MeshOp(() =>
+            {
+                var model = root.Copy();
+                model.RecalculateNormals(angle);
+                return model;
+            });
+        }
+
+        /// <summary>The mesh given to a Mesh Input when the graph is called as a function (false when it isn't, or none was).</summary>
+        public bool Input(string name, out MeshOp mesh)
+        {
+            mesh = null;
+            if (_inputs == null || string.IsNullOrWhiteSpace(name))
+                return false;
+            foreach (var entry in _inputs)
+                if (string.Equals(entry.Key, name.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    mesh = entry.Value;
+                    return mesh != null;
+                }
+            return false;
+        }
+
+        /// <summary>Whether the graph is being read as a function call (rather than for itself).</summary>
+        public bool IsCall => _inputs != null;
 
         /// <summary>A Parameter's value for this object (its default when not set).</summary>
         public float Parameter(string name, float defaultValue)

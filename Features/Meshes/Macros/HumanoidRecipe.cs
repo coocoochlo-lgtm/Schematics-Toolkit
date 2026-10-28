@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace Remedy.Meshes
@@ -50,8 +51,63 @@ namespace Remedy.Meshes
             public Vector3 Min, Max = Vector3.one, Pivot = new(0.5f, 0.5f, 0.5f), Move, Rotate, Scale = Vector3.one;
             public float Falloff;
             public bool MirrorX;
+            /// <summary>The slider (a Parameter of the function graph it's in) driving its Strength; null: none.</summary>
+            public string Slider;
+            public float Strength = 1f;
 
-            public MeshData Apply(MeshData mesh) => MeshModifiers.Grab(mesh, Min, Max, Falloff, Pivot, Move, Rotate, Scale, MirrorX);
+            public MeshData Apply(MeshData mesh) => MeshModifiers.Grab(mesh, Min, Max, Falloff, Pivot, Move, Rotate, Scale, MirrorX, Strength);
+        }
+
+        /// <summary>
+        /// A semantic slider: a Parameter of one of the humanoid's function graphs (Face, Shape), shown as a slider on
+        /// the Function node calling it. Most drive the Strength of the Grabs that make a feature: 0 none, 1 as made, 2
+        /// twice as much.
+        /// </summary>
+        public sealed class Slider
+        {
+            public string Name, Group, Description;
+            public float Default = 1f, Min, Max = 2f;
+        }
+
+        public const string HeadRoundness = "Head Roundness";
+
+        /// <summary>The Humanoid Face function's sliders.</summary>
+        public static readonly Slider[] FaceSliders =
+        {
+            new() { Name = HeadRoundness, Group = "Head", Default = HeadRound, Max = 1f, Description = "How round the head is: 0 keeps the cube's shape, 1 is a ball." },
+            new() { Name = "Skull", Group = "Head", Description = "A fuller back of the head and narrower temples." },
+            new() { Name = "Jaw Taper", Group = "Head", Description = "How much the jaw narrows towards the chin." },
+            new() { Name = "Ears", Group = "Head", Description = "How far the ears stand out." },
+            new() { Name = "Eye Depth", Group = "Eyes", Description = "How deep the eye sockets are." },
+            new() { Name = "Brow", Group = "Eyes", Description = "How far the brow ridge stands out over the eyes." },
+            new() { Name = "Nose", Group = "Nose", Description = "The nose's size: its bridge, tip and nostrils together." },
+            new() { Name = "Cheekbones", Group = "Cheeks", Description = "How far the cheekbones stand out." },
+            new() { Name = "Lips", Group = "Mouth", Description = "How full the lips are, and how deep the line between them." },
+            new() { Name = "Chin", Group = "Mouth", Description = "How far the chin juts forward." },
+        };
+
+        /// <summary>The Humanoid Shape function's sliders.</summary>
+        public static readonly Slider[] ShapeSliders =
+        {
+            new() { Name = "Waist", Group = "Torso", Description = "How much the waist pinches in." },
+            new() { Name = "Chest", Group = "Torso", Description = "How far the chest stands forward." },
+            new() { Name = "Seat", Group = "Torso", Description = "How far the seat stands back." },
+            new() { Name = "Shoulder Slope", Group = "Torso", Description = "How much the shoulders slope down from the neck." },
+            new() { Name = ArmsStep, Group = "Pose", Default = ArmsDown, Max = 90f, Description = "Degrees the arms swing down from a T-pose (0: a T-pose)." },
+            new() { Name = HeadStep, Group = "Head", Min = 0.6f, Max = 1.6f, Description = "The head's size." },
+        };
+
+        /// <summary>A slider's value: as given, else its default (1 for a name it doesn't know).</summary>
+        public static float Value(IReadOnlyDictionary<string, float> sliders, string name)
+        {
+            if (string.IsNullOrEmpty(name))
+                return 1f;
+            if (sliders != null && sliders.TryGetValue(name, out float value))
+                return value;
+            foreach (var slider in FaceSliders.Concat(ShapeSliders))
+                if (slider.Name == name)
+                    return slider.Default;
+            return 1f;
         }
 
         public sealed class Part
@@ -221,6 +277,7 @@ namespace Remedy.Meshes
             public Vector3 Min = Vector3.one * -10f, Max = Vector3.one * 10f, Pivot = new(0.5f, 0.5f, 0.5f), Move, Rotate, Scale = Vector3.one;
             public float Falloff;
             public bool MirrorX;
+            public string Slider;
         }
 
         /// <summary>The names of the whole-body grabs the Parameters drive.</summary>
@@ -232,10 +289,10 @@ namespace Remedy.Meshes
             float side = TorsoSize.x * 0.5f;
             return new List<BodyGrab>
             {
-                new() { Name = "Waist", Min = new Vector3(-side, 1.06f, -1f), Max = new Vector3(side, 1.14f, 1f), Falloff = 0.07f, Scale = new Vector3(0.86f, 1f, 0.9f) },
-                new() { Name = "Chest", Min = new Vector3(-side, 1.26f, 0f), Max = new Vector3(side, 1.38f, 1f), Falloff = 0.05f, Move = new Vector3(0f, 0f, 0.02f) },
-                new() { Name = "Seat", Min = new Vector3(-side, 0.9f, -1f), Max = new Vector3(side, 1f, -0.02f), Falloff = 0.05f, Move = new Vector3(0f, 0f, -0.02f) },
-                new() { Name = "Sloped Shoulders", Min = new Vector3(0.1f, top - 0.02f, -1f), Max = new Vector3(side + 0.08f, top + 0.01f, 1f), Falloff = 0.04f, Move = new Vector3(0f, -0.03f, 0f), MirrorX = true },
+                new() { Name = "Waist", Slider = "Waist", Min = new Vector3(-side, 1.06f, -1f), Max = new Vector3(side, 1.14f, 1f), Falloff = 0.07f, Scale = new Vector3(0.86f, 1f, 0.9f) },
+                new() { Name = "Chest", Slider = "Chest", Min = new Vector3(-side, 1.26f, 0f), Max = new Vector3(side, 1.38f, 1f), Falloff = 0.05f, Move = new Vector3(0f, 0f, 0.02f) },
+                new() { Name = "Seat", Slider = "Seat", Min = new Vector3(-side, 0.9f, -1f), Max = new Vector3(side, 1f, -0.02f), Falloff = 0.05f, Move = new Vector3(0f, 0f, -0.02f) },
+                new() { Name = "Sloped Shoulders", Slider = "Shoulder Slope", Min = new Vector3(0.1f, top - 0.02f, -1f), Max = new Vector3(side + 0.08f, top + 0.01f, 1f), Falloff = 0.04f, Move = new Vector3(0f, -0.03f, 0f), MirrorX = true },
                 // Swung down about the shoulder, the shoulder easing into the torso.
                 new() { Name = ArmsStep, Min = new Vector3(side + 0.04f, top - 0.24f, -1f), Max = new Vector3(10f, top + 0.02f, 1f), Pivot = new Vector3(0f, 0.5f, 0.5f), Falloff = 0.04f, Rotate = new Vector3(0f, 0f, -ArmsDown), MirrorX = true },
                 // Sized about the bottom of the head, the neck easing into it.
@@ -265,45 +322,51 @@ namespace Remedy.Meshes
         public static List<GrabStep> FaceSteps() => new()
         {
             // The skull: an egg, narrower at the jaw, fuller at the back.
-            new() { Name = "Narrow Jaw", Min = new Vector3(0f, 0f, 0.45f), Max = new Vector3(1f, 0.38f, 1f), Falloff = 0.3f, Scale = new Vector3(0.8f, 1f, 1f) },
-            new() { Name = "Back Of Head", Min = new Vector3(0f, 0.5f, 0f), Max = new Vector3(1f, 0.95f, 0.3f), Falloff = 0.25f, Move = new Vector3(0f, 0.004f, -0.014f) },
-            new() { Name = "Temples", Min = new Vector3(0.9f, 0.55f, 0.55f), Max = new Vector3(1f, 0.75f, 0.85f), Falloff = 0.15f, Move = new Vector3(-0.006f, 0f, 0f), MirrorX = true },
+            new() { Name = "Narrow Jaw", Slider = "Jaw Taper", Min = new Vector3(0f, 0f, 0.45f), Max = new Vector3(1f, 0.38f, 1f), Falloff = 0.3f, Scale = new Vector3(0.8f, 1f, 1f) },
+            new() { Name = "Back Of Head", Slider = "Skull", Min = new Vector3(0f, 0.5f, 0f), Max = new Vector3(1f, 0.95f, 0.3f), Falloff = 0.25f, Move = new Vector3(0f, 0.004f, -0.014f) },
+            new() { Name = "Temples", Slider = "Skull", Min = new Vector3(0.9f, 0.55f, 0.55f), Max = new Vector3(1f, 0.75f, 0.85f), Falloff = 0.15f, Move = new Vector3(-0.006f, 0f, 0f), MirrorX = true },
             // Eyes under a brow, either side of the nose.
-            new() { Name = "Eye Sockets", Min = new Vector3(0.6f, 0.43f, 0.8f), Max = new Vector3(0.8f, 0.53f, 1f), Falloff = 0.1f, Move = new Vector3(0f, 0f, -0.018f), MirrorX = true },
-            new() { Name = "Brow", Min = new Vector3(0.53f, 0.57f, 0.8f), Max = new Vector3(0.86f, 0.63f, 1f), Falloff = 0.08f, Move = new Vector3(0f, 0f, 0.008f), MirrorX = true },
-            new() { Name = "Nose Bridge", Min = new Vector3(0.46f, 0.33f, 0.85f), Max = new Vector3(0.54f, 0.55f, 1f), Falloff = 0.07f, Move = new Vector3(0f, 0f, 0.02f) },
-            new() { Name = "Nose Tip", Min = new Vector3(0.43f, 0.28f, 0.85f), Max = new Vector3(0.57f, 0.35f, 1f), Falloff = 0.07f, Move = new Vector3(0f, -0.003f, 0.02f) },
-            new() { Name = "Nostrils", Min = new Vector3(0.56f, 0.28f, 0.85f), Max = new Vector3(0.62f, 0.33f, 1f), Falloff = 0.05f, Move = new Vector3(0f, 0f, 0.008f), MirrorX = true },
+            new() { Name = "Eye Sockets", Slider = "Eye Depth", Min = new Vector3(0.6f, 0.43f, 0.8f), Max = new Vector3(0.8f, 0.53f, 1f), Falloff = 0.1f, Move = new Vector3(0f, 0f, -0.018f), MirrorX = true },
+            new() { Name = "Brow", Slider = "Brow", Min = new Vector3(0.53f, 0.57f, 0.8f), Max = new Vector3(0.86f, 0.63f, 1f), Falloff = 0.08f, Move = new Vector3(0f, 0f, 0.008f), MirrorX = true },
+            new() { Name = "Nose Bridge", Slider = "Nose", Min = new Vector3(0.46f, 0.33f, 0.85f), Max = new Vector3(0.54f, 0.55f, 1f), Falloff = 0.07f, Move = new Vector3(0f, 0f, 0.02f) },
+            new() { Name = "Nose Tip", Slider = "Nose", Min = new Vector3(0.43f, 0.28f, 0.85f), Max = new Vector3(0.57f, 0.35f, 1f), Falloff = 0.07f, Move = new Vector3(0f, -0.003f, 0.02f) },
+            new() { Name = "Nostrils", Slider = "Nose", Min = new Vector3(0.56f, 0.28f, 0.85f), Max = new Vector3(0.62f, 0.33f, 1f), Falloff = 0.05f, Move = new Vector3(0f, 0f, 0.008f), MirrorX = true },
             // Cheeks, the mouth between its lips, the chin.
-            new() { Name = "Cheekbones", Min = new Vector3(0.7f, 0.36f, 0.6f), Max = new Vector3(0.92f, 0.45f, 0.88f), Falloff = 0.12f, Move = new Vector3(0.006f, 0f, 0.006f), MirrorX = true },
-            new() { Name = "Mouth Line", Min = new Vector3(0.37f, 0.195f, 0.85f), Max = new Vector3(0.63f, 0.215f, 1f), Falloff = 0.04f, Move = new Vector3(0f, 0f, -0.007f) },
-            new() { Name = "Upper Lip", Min = new Vector3(0.4f, 0.215f, 0.85f), Max = new Vector3(0.6f, 0.26f, 1f), Falloff = 0.05f, Move = new Vector3(0f, 0f, 0.006f) },
-            new() { Name = "Lower Lip", Min = new Vector3(0.41f, 0.15f, 0.85f), Max = new Vector3(0.59f, 0.195f, 1f), Falloff = 0.05f, Move = new Vector3(0f, 0f, 0.006f) },
-            new() { Name = "Chin", Min = new Vector3(0.4f, 0.0f, 0.8f), Max = new Vector3(0.6f, 0.1f, 1f), Falloff = 0.08f, Move = new Vector3(0f, -0.004f, 0.012f) },
-            new() { Name = "Ears", Min = new Vector3(0.9f, 0.36f, 0.34f), Max = new Vector3(1f, 0.58f, 0.5f), Falloff = 0.06f, Move = new Vector3(0.016f, 0.004f, -0.006f), MirrorX = true },
+            new() { Name = "Cheekbones", Slider = "Cheekbones", Min = new Vector3(0.7f, 0.36f, 0.6f), Max = new Vector3(0.92f, 0.45f, 0.88f), Falloff = 0.12f, Move = new Vector3(0.006f, 0f, 0.006f), MirrorX = true },
+            new() { Name = "Mouth Line", Slider = "Lips", Min = new Vector3(0.37f, 0.195f, 0.85f), Max = new Vector3(0.63f, 0.215f, 1f), Falloff = 0.04f, Move = new Vector3(0f, 0f, -0.007f) },
+            new() { Name = "Upper Lip", Slider = "Lips", Min = new Vector3(0.4f, 0.215f, 0.85f), Max = new Vector3(0.6f, 0.26f, 1f), Falloff = 0.05f, Move = new Vector3(0f, 0f, 0.006f) },
+            new() { Name = "Lower Lip", Slider = "Lips", Min = new Vector3(0.41f, 0.15f, 0.85f), Max = new Vector3(0.59f, 0.195f, 1f), Falloff = 0.05f, Move = new Vector3(0f, 0f, 0.006f) },
+            new() { Name = "Chin", Slider = "Chin", Min = new Vector3(0.4f, 0.0f, 0.8f), Max = new Vector3(0.6f, 0.1f, 1f), Falloff = 0.08f, Move = new Vector3(0f, -0.004f, 0.012f) },
+            new() { Name = "Ears", Slider = "Ears", Min = new Vector3(0.9f, 0.36f, 0.34f), Max = new Vector3(1f, 0.58f, 0.5f), Falloff = 0.06f, Move = new Vector3(0.016f, 0.004f, -0.006f), MirrorX = true },
         };
 
         /// <summary>
         /// The head made a face: selected, pulled towards a sphere, shaped (<see cref="FaceSteps"/>) on the loops it was
         /// cut with, and the selection cleared again.
         /// </summary>
-        public static MeshData Face(MeshData body)
+        public static MeshData Face(MeshData body, IReadOnlyDictionary<string, float> sliders = null)
         {
             var (min, max, falloff) = HeadRegion(body);
             var mesh = body.Clone();
             var weights = MeshSelection.BoundsWeights(mesh, min, max, falloff);
             MeshSelection.Apply(mesh, i => weights[i], MeshSelection.Mode.Replace);
-            var round = MeshOperations.Spherize(mesh, HeadRound);
+            var round = MeshOperations.Spherize(mesh, Value(sliders, HeadRoundness));
             MeshSelection.Restrict(round, mesh);
             mesh = round;
             foreach (var step in FaceSteps())
+            {
+                step.Strength = Value(sliders, step.Slider);
                 mesh = step.Apply(mesh);
+            }
             MeshSelection.Clear(mesh);
             return mesh;
         }
 
+        /// <summary>The welded, relaxed body: what the Humanoid Body function gives.</summary>
+        public static MeshData Body() => MeshModifiers.Relax(Seal(Assemble()), RelaxIterations, RelaxStrength);
+
         /// <summary>The body up to its whole-body shaping: welded, relaxed, and its face made.</summary>
-        public static MeshData Shaped() => Face(MeshModifiers.Relax(Seal(Assemble()), RelaxIterations, RelaxStrength));
+        public static MeshData Shaped(IReadOnlyDictionary<string, float> sliders = null) => Face(Body(), sliders);
 
         /// <summary>
         /// The whole-body grabs as Grab nodes take them (0 to 1 of the body's bounds when each runs), worked out on the
@@ -326,7 +389,7 @@ namespace Remedy.Meshes
                 var step = new GrabStep
                 {
                     Name = grab.Name, Min = Normalized(grab.Min), Max = Normalized(grab.Max), Pivot = grab.Pivot,
-                    Move = grab.Move, Rotate = grab.Rotate, Scale = grab.Scale, MirrorX = grab.MirrorX,
+                    Move = grab.Move, Rotate = grab.Rotate, Scale = grab.Scale, MirrorX = grab.MirrorX, Slider = grab.Slider,
                     // Measured against the height, so it's about the same distance whichever way.
                     Falloff = grab.Falloff / Mathf.Max(1e-5f, bounds.size.y),
                 };
@@ -338,18 +401,20 @@ namespace Remedy.Meshes
 
         /// <summary>
         /// The humanoid as a mesh: <paramref name="height"/> tall, <paramref name="build"/> times as broad (1 is
-        /// average), its head <paramref name="headSize"/> times the size, its arms <paramref name="armsDown"/> degrees
-        /// down from a T-pose.
+        /// average), with its face and shape sliders (<see cref="FaceSliders"/>, <see cref="ShapeSliders"/>, by name;
+        /// missing ones at their defaults).
         /// </summary>
-        public static MeshData Build(float height = BaseHeight, float build = 1f, float headSize = 1f, float armsDown = ArmsDown)
+        public static MeshData Build(float height = BaseHeight, float build = 1f, IReadOnlyDictionary<string, float> sliders = null)
         {
-            var mesh = Shaped();
+            var mesh = Shaped(sliders);
             foreach (var step in BodySteps())
             {
                 if (step.Name == ArmsStep)
-                    step.Rotate = new Vector3(0f, 0f, -armsDown);
+                    step.Strength = Value(sliders, ArmsStep) / ArmsDown;
                 else if (step.Name == HeadStep)
-                    step.Scale = Vector3.one * headSize;
+                    step.Scale = Vector3.one * Value(sliders, HeadStep);
+                else
+                    step.Strength = Value(sliders, step.Slider);
                 mesh = step.Apply(mesh);
             }
             mesh = MeshOperations.SubdivideQuads(mesh, SmoothLevels);

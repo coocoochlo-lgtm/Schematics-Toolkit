@@ -13,8 +13,9 @@ namespace Remedy.Schematics.Assistant
 {
     /// <summary>
     /// Keeps the assistant's API reference in step with the code: after every recompile, every [SchematicDoc] (nodes,
-    /// Behaviors, Variables, Signals) is gathered and handed to the assistant's server, which adds whatever it doesn't
-    /// have yet (or that changed). When the server isn't running, the list waits in Agent~/reference/incoming.json and
+    /// Behaviors, Variables, Signals), and every graph offered as a function (In Library: documented the same way from
+    /// its description and Parameters), is gathered and handed to the assistant's server, which adds whatever it
+    /// doesn't have yet (or that changed). Sync API Reference does it on demand, after editing a function. When the server isn't running, the list waits in Agent~/reference/incoming.json and
     /// is taken in when it starts.
     /// </summary>
     [InitializeOnLoad]
@@ -49,8 +50,31 @@ namespace Remedy.Schematics.Assistant
                 string kind = field.FieldType.Name.StartsWith("SignalHandle") ? "signal" : "variable";
                 entries.Add(($"{kind}:{field.DeclaringType?.FullName}.{field.Name}", kind, Hash(doc.Json), doc.Json));
             }
+            foreach (var graph in LibraryFunctions())
+            {
+                string doc = GraphFunctions.Doc(graph);
+                entries.Add(($"function:{graph.Uid}", "function", Hash(doc), doc));
+            }
             entries.Sort((a, b) => string.CompareOrdinal(a.Item1, b.Item1));
             return entries;
+        }
+
+        // The graphs offered as functions. Their files are read as text first (a library graph's says InLibrary: 1),
+        // so only those are loaded.
+        private static IEnumerable<SchematicGraph> LibraryFunctions()
+        {
+            foreach (var guid in AssetDatabase.FindAssets("t:" + nameof(SchematicGraph)))
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                string text;
+                try { text = File.ReadAllText(path); }
+                catch { continue; }
+                if (!text.Contains("InLibrary: 1"))
+                    continue;
+                var graph = AssetDatabase.LoadAssetAtPath<SchematicGraph>(path);
+                if (graph != null && graph.Function.InLibrary)
+                    yield return graph;
+            }
         }
 
         private static string Hash(string text)

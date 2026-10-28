@@ -367,7 +367,7 @@ namespace Remedy.Meshes
         }
     }
 
-    [SchematicDoc(@"{""name"": ""Grab"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Mesh/Deform"", ""description"": ""Grabs part of a mesh and moves it with a soft edge, like a sculpting brush. The part is a box in the mesh's own bounds, 0 to 1 on each axis (Min X 0.8, Max X 1: the right-hand fifth; Y 0 to 0.2: the bottom), fading out over Falloff (also 0 to 1) beyond it. It's scaled, then turned (degrees), about Pivot (0 to 1 within the box: 0.5 its middle, X 0 its left side), then moved by Move. Taper an end, bulge a calf, swing an arm down at the shoulder. Mirror X does the same to the other side (one grab, both arms). With a selection, the box is measured across what's selected (select the head first, and X 0.6 to 0.8 is part of the head), and only that moves."", ""inputs"": [{""name"": ""In"", ""type"": ""MeshData""}, {""name"": ""Min"", ""type"": ""Vector3""}, {""name"": ""Max"", ""type"": ""Vector3""}, {""name"": ""Falloff"", ""type"": ""float""}, {""name"": ""Pivot"", ""type"": ""Vector3""}, {""name"": ""Move"", ""type"": ""Vector3""}, {""name"": ""Rotate"", ""type"": ""Vector3""}, {""name"": ""Scale"", ""type"": ""Vector3""}], ""outputs"": [{""name"": ""Mesh"", ""type"": ""MeshData""}]}")]
+    [SchematicDoc(@"{""name"": ""Grab"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Mesh/Deform"", ""description"": ""Grabs part of a mesh and moves it with a soft edge, like a sculpting brush. The part is a box in the mesh's own bounds, 0 to 1 on each axis (Min X 0.8, Max X 1: the right-hand fifth; Y 0 to 0.2: the bottom), fading out over Falloff (also 0 to 1) beyond it. It's scaled, then turned (degrees), about Pivot (0 to 1 within the box: 0.5 its middle, X 0 its left side), then moved by Move. Taper an end, bulge a calf, swing an arm down at the shoulder. Strength scales the whole grab (0 none, 2 double): wire one slider into several Grabs to make a feature. Mirror X does the same to the other side (one grab, both arms). With a selection, the box is measured across what's selected (select the head first, and X 0.6 to 0.8 is part of the head), and only that moves."", ""inputs"": [{""name"": ""In"", ""type"": ""MeshData""}, {""name"": ""Min"", ""type"": ""Vector3""}, {""name"": ""Max"", ""type"": ""Vector3""}, {""name"": ""Falloff"", ""type"": ""float""}, {""name"": ""Pivot"", ""type"": ""Vector3""}, {""name"": ""Move"", ""type"": ""Vector3""}, {""name"": ""Rotate"", ""type"": ""Vector3""}, {""name"": ""Scale"", ""type"": ""Vector3""}, {""name"": ""Strength"", ""type"": ""float""}], ""outputs"": [{""name"": ""Mesh"", ""type"": ""MeshData""}]}")]
     [Serializable]
     [Node(Name = "Grab", Path = "Deform"), Tags(MeshNode.Tag)]
     public sealed class MeshGrabNode : MeshNode
@@ -380,6 +380,7 @@ namespace Remedy.Meshes
         [Input("Move", Editable = true)] public Vector3 Move;
         [Input("Rotate", Editable = true)] public Vector3 Rotate;
         [Input("Scale", Editable = true)] public Vector3 Scale = Vector3.one;
+        [Input("Strength", Editable = true), Tooltip("How much of it: 0 nothing, 1 as set, 2 twice as much. Wire a slider in to drive a feature.")] public float Strength = 1f;
         [Editable, Tooltip("The other side (across the middle in X) gets the mirror image of the grab, like sculpting symmetry.")] public bool MirrorX;
         [Editable, Tooltip("Normals are worked out again afterwards: edges sharper than this stay hard (-1: keep them).")] public float SmoothAngle = 60f;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
@@ -395,10 +396,11 @@ namespace Remedy.Meshes
             var move = c.Vector(this, "Move", Move);
             var rotate = c.Vector(this, "Rotate", Rotate);
             var scale = c.Vector(this, "Scale", Scale);
+            float strength = c.Number(this, "Strength", Strength);
             float smooth = SmoothAngle;
             return new MeshOp(() =>
             {
-                var mesh = MeshModifiers.Grab(input.Get(), min, max, falloff, pivot, move, rotate, scale, mirror);
+                var mesh = MeshModifiers.Grab(input.Get(), min, max, falloff, pivot, move, rotate, scale, mirror, strength);
                 if (smooth >= 0f)
                     mesh.RecalculateNormals(smooth);
                 return mesh;

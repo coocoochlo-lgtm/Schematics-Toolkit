@@ -203,7 +203,7 @@ public sealed class ReferenceStore
                 if (alwaysInclude != null && alwaysInclude.Contains(entry.Name))
                     score += 3.0;
                 // Nodes and Behaviors are what plans are built from; their members follow.
-                if (entry.Kind is "node" or "behavior") score *= 1.15;
+                if (entry.Kind is "node" or "behavior" or "function") score *= 1.15;
                 if (score > 0) scored.Add((score, entry));
             }
         }

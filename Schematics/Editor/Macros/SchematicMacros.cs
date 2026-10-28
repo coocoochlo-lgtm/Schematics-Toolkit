@@ -162,6 +162,31 @@ namespace Remedy.Schematics.Macros
             }
         }
 
+        /// <summary>
+        /// Fills a graph that isn't open in a window (a new asset, say: a macro's function graphs) with a built-in
+        /// macro's nodes and wires, straight into the asset (no Undo).
+        /// </summary>
+        public static void BuildInto(Graph graph, Action<MacroBuilder> build)
+        {
+            if (graph == null || build == null)
+                return;
+            var builder = new MacroBuilder(graph);
+            build(builder);
+            foreach (var node in builder.Nodes)
+                graph.AddNode(node);
+            foreach (var (from, output, to, input) in builder.Links)
+            {
+                var outPort = from?.GetPort(output);
+                var inPort = to?.GetPort(input);
+                if (outPort != null && inPort != null)
+                    graph.AddEdge(outPort, inPort);
+                else
+                    Debug.LogWarning($"Macro wire {from?.Name}.{output} → {to?.Name}.{input}: no such pin.", graph);
+            }
+            builder.AfterInsert?.Invoke();
+            EditorUtility.SetDirty(graph);
+        }
+
         private static void SaveSelection(CanvasView canvas)
         {
             var elements = canvas.SelectedElements.ToList();

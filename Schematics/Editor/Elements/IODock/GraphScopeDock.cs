@@ -53,8 +53,69 @@ public class GraphScopeDock : VisualElement
             "Add an Output Signal: this graph sends it, and other graphs react to it to extend what happens.",
             "None yet. Press + to add one: this graph sends it (drag it in for Send), and other graphs react to it.");
 
+        if (_graph.CallableAsFunction)
+            Add(FunctionSection());
+
         Add(OtherGraphs());
     }
+
+    #region Function
+
+    // The graph as a function: whether it's in the node search's Functions, where, and what it's for (its description,
+    // uses and notes, which the assistant reads too), with what calling it takes and gives.
+    private VisualElement FunctionSection()
+    {
+        var section = new VisualElement();
+        var label = DockRows.SectionLabel("Function");
+        label.tooltip = "Call this graph from other graphs of its kind like a node: its Parameters become the calling node's pins, each with the control set on its Parameter node (a slider, a toggle, a dropdown).";
+        section.Add(label);
+        var graph = _graph;
+        var fields = new IMGUIContainer(() =>
+        {
+            var info = graph.Function;
+            float labelWidth = EditorGUIUtility.labelWidth;
+            EditorGUIUtility.labelWidth = 72;
+            EditorGUI.BeginChangeCheck();
+            bool inLibrary = EditorGUILayout.Toggle(new GUIContent("In Library", "Offer it in the node search of graphs of its kind, under Functions."), info.InLibrary);
+            string path = info.Path;
+            using (new EditorGUI.DisabledScope(!inLibrary))
+                path = EditorGUILayout.TextField(new GUIContent("Path", "Its folder under Functions in the node search (Characters/Face)."), info.Path ?? "");
+            EditorGUILayout.LabelField(new GUIContent("Description", "What it does: shown with it, and given to the assistant."));
+            string description = EditorGUILayout.TextArea(graph.Description ?? "", EditorStyles.textArea, GUILayout.MinHeight(34));
+            EditorGUILayout.LabelField(new GUIContent("Use For", "What it's good for, one use per line."));
+            string useFor = EditorGUILayout.TextArea(info.UseFor ?? "", EditorStyles.textArea, GUILayout.MinHeight(28));
+            EditorGUILayout.LabelField(new GUIContent("Notes", "Anything else worth knowing when using it."));
+            string notes = EditorGUILayout.TextArea(info.Notes ?? "", EditorStyles.textArea, GUILayout.MinHeight(20));
+            EditorGUIUtility.labelWidth = labelWidth;
+            if (EditorGUI.EndChangeCheck())
+            {
+                Undo.RecordObject(graph, "Edit Function");
+                info.InLibrary = inLibrary;
+                info.Path = path;
+                graph.Description = description;
+                info.UseFor = useFor;
+                info.Notes = notes;
+                GraphScopeEditing.Commit(graph, structural: false, redraw: false);
+            }
+
+            // What calling it takes and gives.
+            var takes = graph.FunctionInputs.Select(i => i.Name)
+                .Concat(graph.GraphParameters.Select(p => p.UI != null && p.UI.Control != ParameterControl.Number ? $"{p.Name} ({ObjectNames.NicifyVariableName(p.UI.Control.ToString()).ToLowerInvariant()})" : p.Name))
+                .ToList();
+            var gives = graph.FunctionOutputs.Select(o => o.Name).ToList();
+            EditorGUILayout.LabelField(takes.Count == 0 ? "Takes nothing (add Parameters to give it pins)." : "Takes: " + string.Join(", ", takes), EditorStyles.wordWrappedMiniLabel);
+            if (gives.Count > 0)
+                EditorGUILayout.LabelField("Gives: " + string.Join(", ", gives), EditorStyles.wordWrappedMiniLabel);
+            if (GUILayout.Button(new GUIContent("Copy Docs", "Copy its documentation (the form built-in nodes use) to the clipboard."), EditorStyles.miniButton))
+                EditorGUIUtility.systemCopyBuffer = GraphFunctions.Doc(graph);
+        });
+        fields.style.marginLeft = 6;
+        fields.style.marginRight = 4;
+        section.Add(fields);
+        return section;
+    }
+
+    #endregion
 
     #region Rows
 

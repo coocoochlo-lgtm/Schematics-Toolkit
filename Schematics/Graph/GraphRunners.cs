@@ -10,12 +10,15 @@ namespace Remedy.Schematics
         public readonly string Name;
         public readonly Type Type;
         public readonly object Default;
+        /// <summary>How it's shown where the graph is called as a function (null: a plain number box).</summary>
+        public readonly ParameterUI UI;
 
-        public GraphParameter(string name, Type type, object value)
+        public GraphParameter(string name, Type type, object value, ParameterUI ui = null)
         {
             Name = name;
             Type = type;
             Default = value;
+            UI = ui;
         }
     }
 

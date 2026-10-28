@@ -59,6 +59,31 @@ namespace Remedy.Schematics
         /// </summary>
         public virtual IReadOnlyList<GraphParameter> GraphParameters => Array.Empty<GraphParameter>();
 
+        [SerializeField, HideInInspector]
+        private GraphFunctionInfo _function = new();
+
+        /// <summary>Whether graphs of this kind can be called as functions yet (a Function node for them exists).</summary>
+        public virtual bool CallableAsFunction => false;
+
+        /// <summary>Whether (and where) it's offered as a function in the node search, and what it's for.</summary>
+        public GraphFunctionInfo Function => _function ??= new();
+
+        /// <summary>What the graph does (shown with it as a function, and given to the assistant).</summary>
+        public string Description
+        {
+            get => _description;
+            set => _description = value;
+        }
+
+        /// <summary>
+        /// What a call to it as a function takes besides its Parameters: a Mesh Graph's Mesh Inputs, say. None by
+        /// default.
+        /// </summary>
+        public virtual IReadOnlyList<GraphPinInfo> FunctionInputs => Array.Empty<GraphPinInfo>();
+
+        /// <summary>What a call to it as a function gives back (a Mesh Graph's model). None by default.</summary>
+        public virtual IReadOnlyList<GraphPinInfo> FunctionOutputs => Array.Empty<GraphPinInfo>();
+
         public GraphVariable FindVariable(string idOrName)
         {
             if (string.IsNullOrEmpty(idOrName)) return null;

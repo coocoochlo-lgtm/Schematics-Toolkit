@@ -41,19 +41,34 @@ Create → Schematics → Mesh Graph, or from the Project Manager's Meshes page.
   are p, r, s, x, y, z, i, n and t. Vertex Function's are p, x, y, z, nrm, uv, i and n; Select's add sel.
 - **Values:** Parameter (a number each object sets for itself), Random (seeded), Math (a formula of A–D), Make Vector,
   and any Float or Integer value node.
+- **Functions:** any Mesh Graph can be called from another like a node.
+  - A **Function** node calls it. Its Mesh Inputs and Parameters become the node's pins, and its model comes out.
+    Dropping a Mesh Graph into a Mesh Graph makes one; double-click its title to open the graph it calls.
+  - Each Parameter shows on the Function node with the control set on its Parameter node in the Inspector: Number,
+    Slider, Whole Number, Toggle or Dropdown, with Min, Max, Options, Group and Description. Wire something into a pin
+    instead to drive it (a Parameter of the calling graph, to set it per object).
+  - A **Mesh Input** node is a mesh the graph takes when called. Its Preview pin stands in when the graph is opened
+    on its own.
+  - In the IO Dock's Graph tab, the **Function** section puts a graph **In Library**: it's listed in the node search
+    under Functions/(its Path), documented by its Description, Use For and Notes the same way built-in nodes are, and
+    the assistant learns it too. Copy Docs copies that documentation.
+  - Edits to a function rebuild every model that calls it. A graph calling itself is refused with a warning.
+  - **Grab's Strength** pin scales a whole grab (0 none, 2 double), so one slider can drive the several Grabs that
+    make a feature.
 
-**Macros** (right-click in a Mesh Graph → Macros): **Characters/Humanoid**, a box-modelled body built from editable
-nodes (`HumanoidRecipe` can also build it directly from code).
-- Every part is a loop-cut cube shaped with Grab. Each limb's ends are rings of 8 corners, and the torso is cut so its
-  neck, shoulder and leg patches are the same rings.
-- The parts sit a couple of millimetres apart. Select Near picks the facing ends, Delete Selected opens them, and
-  Join (Weld) welds each pair of rings, so the body is one closed skin with edge loops running through every joint.
-- The head cube gets extra loops on every side but its underside, for the face.
-- Then the body is relaxed, and the face is made on the head alone: the head is selected and rounded, and mirrored
-  Grabs measured across it shape the jaw, brow, eye sockets, nose, cheekbones, lips, chin and ears.
-- After that, the body is shaped with Grab (waist, chest, seat, sloped shoulders) and subdivided with Catmull-Clark.
-- It's built in a T-pose, then one mirrored Grab swings the arms down at the shoulders.
-- Parameters: Height, Build, Head Size and Arms Down.
+**Macros** (right-click in a Mesh Graph → Macros): **Characters/Humanoid**, an ensemble of three library functions
+(Mesh Graphs made the first time in `Assets/Content/Meshes/Library/Humanoid`, also under Functions/Characters/Humanoid
+in the node search). `HumanoidRecipe` builds the same model directly from code.
+- **Humanoid Body:** every part is a loop-cut cube shaped with Grab. Each limb's ends are rings of 8 corners, and the
+  torso is cut so its neck, shoulder and leg patches are the same rings. The parts sit a couple of millimetres apart;
+  Select Near picks the facing ends, Delete Selected opens them, and Join (Weld) welds each pair of rings, so the body
+  is one closed skin with edge loops through every joint. The head cube has extra loops for a face. Then it's relaxed.
+- **Humanoid Face:** takes a body, selects its head and rounds it, then shapes the features with mirrored Grabs, each
+  feature a slider: Head Roundness, Skull, Jaw Taper, Ears, Eye Depth, Brow, Nose, Cheekbones, Lips, Chin.
+- **Humanoid Shape:** takes a body: Waist, Chest, Seat, Shoulder Slope, Arms Down (degrees from the T-pose) and Head
+  Size.
+- The macro calls them in turn, subdivides with Catmull-Clark, and sizes the result by the graph's Height and Build
+  Parameters.
 - **Output:** the model, plus its LODs: LOD1 and LOD2 at the share of triangles you pick, and when each one shows.
 
 The graph window shows a live preview in its corner, rebuilt in the background a moment after each edit. It has
