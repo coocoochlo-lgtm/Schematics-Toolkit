@@ -10,6 +10,7 @@ namespace Remedy.Schematics
     [Node(Name = "Boolean Value", Path = "Values"), Tags("Default", TagsAttribute.AnyGraph)]
     public class BooleanValue : SchematicGraphNode
     {
+        [Tooltip("The value: type it on the node, or wire one in.")]
         [Input("Input", Editable = true)]
         public bool InputValue;
 
@@ -25,6 +26,7 @@ namespace Remedy.Schematics
     [Node(Name = "Integer Value", Path = "Values"), Tags("Default", TagsAttribute.AnyGraph)]
     public class IntegerValue : SchematicGraphNode
     {
+        [Tooltip("The value: type it on the node, or wire one in.")]
         [Input("Input", Editable = true)]
         public int InputValue;
 
@@ -40,6 +42,7 @@ namespace Remedy.Schematics
     [Node(Name = "Float Value", Path = "Values"), Tags("Default", TagsAttribute.AnyGraph)]
     public class FloatValue : SchematicGraphNode
     {
+        [Tooltip("The value: type it on the node, or wire one in.")]
         [Input("Input", Editable = true)]
         public float InputValue;
 
@@ -55,6 +58,7 @@ namespace Remedy.Schematics
     [Node(Name = "String Value", Path = "Values"), Tags("Default")]
     public class StringValue : SchematicGraphNode
     {
+        [Tooltip("The value: type it on the node, or wire one in.")]
         [Input("Input", Editable = true)]
         public string InputValue;
 
@@ -70,6 +74,7 @@ namespace Remedy.Schematics
     [Node(Name = "Game Object Value", Path = "Values"), Tags("Default")]
     public class GameObjectValue : SchematicGraphNode
     {
+        [Tooltip("The value: type it on the node, or wire one in.")]
         [Input("Input", Editable = true)]
         public GameObject InputValue;
 
@@ -85,6 +90,7 @@ namespace Remedy.Schematics
     [Node(Name = "Vector 2 Value", Path = "Values"), Tags("Default")]
     public class Vector2Value : SchematicGraphNode
     {
+        [Tooltip("The value: type it on the node, or wire one in.")]
         [Input("Input", Editable = true)]
         public Vector2 InputValue;
 
@@ -100,6 +106,7 @@ namespace Remedy.Schematics
     [Node(Name = "Vector 4 Value", Path = "Values"), Tags("Default")]
     public class Vector4Value : SchematicGraphNode
     {
+        [Tooltip("The value: type it on the node, or wire one in.")]
         [Input("Input", Editable = true)]
         public Vector4 InputValue;
 
@@ -115,6 +122,7 @@ namespace Remedy.Schematics
     [Node(Name = "Color Value", Path = "Values"), Tags("Default")]
     public class ColorValue : SchematicGraphNode
     {
+        [Tooltip("The value: type it on the node, or wire one in.")]
         [Input("Input", Editable = true)]
         public Color InputValue = Color.white;
 
@@ -130,6 +138,7 @@ namespace Remedy.Schematics
     [Node(Name = "Color 32 Value", Path = "Values"), Tags("Default")]
     public class Color32Value : SchematicGraphNode
     {
+        [Tooltip("The value: type it on the node, or wire one in.")]
         [Input("Input", Editable = true)]
         public Color32 InputValue = new Color32(255, 255, 255, 255);
 
@@ -145,6 +154,7 @@ namespace Remedy.Schematics
     [Node(Name = "Quaternion Value", Path = "Values"), Tags("Default")]
     public class QuaternionValue : SchematicGraphNode
     {
+        [Tooltip("The value: type it on the node, or wire one in.")]
         [Input("Input", Editable = true)]
         public Quaternion InputValue = Quaternion.identity;
 
@@ -160,6 +170,7 @@ namespace Remedy.Schematics
     [Node(Name = "Layer Mask Value", Path = "Values"), Tags("Default")]
     public class LayerMaskValue : SchematicGraphNode
     {
+        [Tooltip("The value: type it on the node, or wire one in.")]
         [Input("Input", Editable = true)]
         public LayerMask InputValue;
 

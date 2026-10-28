@@ -14,8 +14,11 @@ namespace Remedy.Audio
         public enum ArpPattern { Up, Down, UpDown, DownUp, AsWritten, Random }
 
         [Input("Time", Editable = false)] public float Time;
+        [Tooltip("How many notes a second (12 is fast and rolling, 4 a steady pulse).")]
         [Input("Rate", Editable = true)] public float Rate = 12f;
+        [Tooltip("Semitones every note is raised by (12 an octave up, -12 down).")]
         [Input("Base", Editable = true)] public float Base;
+        [Tooltip("How much of each step the note sounds for, 0 to 1: 0.8 leaves a short gap, 1 joins them up.")]
         [Input("Gate Length", Editable = true)] public float GateLength = 0.8f;
         [Editable, Tooltip("The notes, in semitones from Base, separated by spaces or commas (e.g. 0 4 7 for a major chord, 0 3 7 for minor).")]
         public string Notes = "0 4 7 12";
@@ -25,8 +28,11 @@ namespace Remedy.Audio
         public int Octaves = 1;
         [Output("Note Time")] public float NoteTime;
         [Output("Pitch")] public float Pitch;
+        [Tooltip("The current note in semitones from the original pitch (Base included).")]
         [Output("Semitones")] public float Semitones;
+        [Tooltip("1 while the current note sounds, 0 in the gap after it: multiply the audio by it for separate notes.")]
         [Output("Gate")] public float Gate;
+        [Tooltip("Which step of the pattern it's on, counting from 0.")]
         [Output("Step")] public float Step;
 
         public override SoundProcessor CreateProcessor(SoundCueBuilder builder) => new Processor
@@ -159,7 +165,9 @@ namespace Remedy.Audio
     public class SoundPitchShiftNode : SoundNode
     {
         [Input("Audio", Editable = false)] public float AudioIn;
+        [Tooltip("The pitch as a ratio: 2 an octave up, 0.5 an octave down, 1 unchanged.")]
         [Input("Pitch", Editable = true)] public float Pitch = 1f;
+        [Tooltip("Semitones more on top of Pitch (12 an octave, 7 a fifth; negative goes down).")]
         [Input("Semitones", Editable = true)] public float Semitones;
         [Input("Mix", Editable = true)] public float Mix = 1f;
         [Editable, Tooltip("How long each slice is, in milliseconds (short: tighter for drums and hits; long: smoother for tones).")]
@@ -236,6 +244,7 @@ namespace Remedy.Audio
     public class SoundFreqShiftNode : SoundNode
     {
         [Input("Audio", Editable = false)] public float AudioIn;
+        [Tooltip("How far every frequency moves (Hz): 1 to 10 swirls, bigger sounds metallic or alien; negative moves down.")]
         [Input("Shift", Editable = true)] public float Shift = 100f;
         [Input("Mix", Editable = true)] public float Mix = 1f;
         [Output("Out")] public float Out;
@@ -331,6 +340,7 @@ namespace Remedy.Audio
         public float Window = 60f;
         [Output("Out")] public float Out;
         [Output("Time")] public float Time;
+        [Tooltip("The pitch ratio it's shifting by (Target ÷ Root): 2 is an octave up.")]
         [Output("Ratio")] public float Ratio;
 
         /// <summary>A note's pitch in Hz (A4 = 440), or NaN when it isn't one ("A3", "C#4", "Eb2", "G-1").</summary>

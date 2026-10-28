@@ -67,7 +67,9 @@ namespace Remedy.Audio
     [Node(Name = "Occlusion", Path = "Controls"), Tags(SoundNode.Tag)]
     public class SoundOcclusionNode : SoundNode
     {
+        [Tooltip("How blocked the way to the listener is: 0 clear, 1 behind solid walls.")]
         [Output("Occlusion")] public float Occlusion;
+        [Tooltip("A low-pass cutoff (Hz) that drops as it gets more blocked: wire it into a Filter's Cutoff to muffle it.")]
         [Output("Muffled Cutoff")] public float MuffledCutoff;
         [Output("Volume")] public float Volume;
 
@@ -133,13 +135,20 @@ namespace Remedy.Audio
     {
         public enum Toward { Down, Up, Forward, Back, Left, Right, Listener, Custom }
 
+        [Tooltip("1 if a surface was found within Distance, else 0.")]
         [Output("Has Hit")] public float HasHit;
+        [Tooltip("How far away the surface is (meters).")]
         [Output("Hit Distance")] public float HitDistance;
+        [Tooltip("How wet the surface is, 0 to 1 (from its Surface Material).")]
         [Output("Wetness")] public float Wetness;
+        [Tooltip("How much the surface soaks up sound, 0 to 1 (carpet high, tile low).")]
         [Output("Absorption")] public float Absorption;
+        [Tooltip("How hard the surface is, 0 to 1 (metal and stone high, grass low).")]
         [Output("Hardness")] public float Hardness;
+        [Tooltip("How grippy the surface is, 0 to 1.")]
         [Output("Friction")] public float Friction;
         [Output("Value")] public float Value;
+        [Tooltip("1 if the surface is the material picked in Is, else 0: switch footstep sounds by surface.")]
         [Output("Is Match")] public float IsMatch;
 
         [Editable, Tooltip("Which way to look.")] public Toward Direction = Toward.Down;
@@ -210,6 +219,7 @@ namespace Remedy.Audio
     [Node(Name = "Room", Path = "Controls"), Tags(SoundNode.Tag)]
     public class SoundRoomNode : SoundNode
     {
+        [Tooltip("1 inside a Sound Room, 0 outside, gliding between as the sound moves in or out.")]
         [Output("In Room")] public float InRoom;
         [Output("Size")] public float Size;
         [Output("Value")] public float Value;
@@ -250,13 +260,20 @@ namespace Remedy.Audio
     [Node(Name = "Acoustics", Path = "Controls"), Tags(SoundNode.Tag)]
     public class SoundAcousticsNode : SoundNode
     {
+        [Tooltip("1 inside a baked Sound Field, 0 outside (the other outputs are only meaningful inside).")]
         [Output("In Field")] public float InField;
+        [Tooltip("How long a sound rings on in this place (seconds): short in a small room, long in a hall.")]
         [Output("Reverb Time")] public float ReverbTime;
+        [Tooltip("How much reverb the place makes, 0 dry to 0.65 very wet: wire into a Reverb's Mix.")]
         [Output("Wet")] public float Wet;
         [Output("Size")] public float Size;
+        [Tooltip("How closed in it is: 0 open sky, 1 walled in all round.")]
         [Output("Enclosure")] public float Enclosure;
+        [Tooltip("How much the surfaces around soak up sound, 0 to 1.")]
         [Output("Absorption")] public float Absorption;
+        [Tooltip("How hard the surfaces around are, 0 to 1.")]
         [Output("Hardness")] public float Hardness;
+        [Tooltip("How wet the surfaces around are, 0 to 1.")]
         [Output("Wetness")] public float Wetness;
 
         [Editable, Tooltip("Seconds to glide to new values.")] public float Smoothing = 0.4f;

@@ -20,18 +20,28 @@ namespace Remedy.Surfaces
         [Input("Object")] public GameObject Object;
         [Input("Direction", Editable = true)] public Vector3 Direction = Vector3.down;
         [Input("Distance", Editable = true)] public float Distance = 2f;
+        [Tooltip("World: Direction is in world axes (Down is always down). Local: in the object's own axes (Forward is where it faces).")]
         [Editable] public SurfaceDirectionSpace Space = SurfaceDirectionSpace.World;
+        [Tooltip("Which surfaces count: painted surfaces, tagged objects, or both.")]
         [Editable] public SurfaceLayers Layers = SurfaceLayers.All;
 
+        [Tooltip("The Surface Material it's made of (connect to Is Surface or Get Surface Property).")]
         [Output("Material")] public SurfaceMaterial Material;
+        [Tooltip("True if a surface was found within Distance.")]
         [Output("Has Hit")] public bool HasHit;
+        [Tooltip("How wet the surface is, 0 to 1.")]
         [Output("Wetness")] public float Wetness;
+        [Tooltip("How much the surface soaks up sound, 0 to 1.")]
         [Output("Absorption")] public float Absorption;
+        [Tooltip("How hard the surface is, 0 to 1.")]
         [Output("Hardness")] public float Hardness;
+        [Tooltip("How grippy the surface is, 0 to 1.")]
         [Output("Friction")] public float Friction;
         [Output("Point")] public Vector3 Point;
         [Output("Normal")] public Vector3 Normal;
+        [Tooltip("How far away the surface is (meters).")]
         [Output("Hit Distance")] public float HitDistance;
+        [Tooltip("The object that was hit.")]
         [Output("Hit Object")] public GameObject HitObject;
 
         [NonSerialized] private int _cachedFrame = -1;
@@ -98,9 +108,12 @@ namespace Remedy.Surfaces
     [Node(Name = "Get Surface Property", Path = "Surfaces"), Tags("Default")]
     public class GetSurfacePropertyNode : SchematicGraphNode
     {
+        [Tooltip("The Surface Material to read (from Get Surface).")]
         [Input("Material", Editable = true)] public SurfaceMaterial Material;
+        [Tooltip("The property's name: Wetness, Absorption, Hardness, Friction, or one the material defines itself.")]
         [Input("Property", Editable = true)] public string Property = "Wetness";
         [Output("Value")] public float Value;
+        [Tooltip("True if the material has a property by that name.")]
         [Output("Has Property")] public bool HasProperty;
 
         public override object OnRequestValue(Port port)
@@ -118,7 +131,9 @@ namespace Remedy.Surfaces
     [Node(Name = "Is Surface", Path = "Surfaces"), Tags("Default")]
     public class IsSurfaceNode : SchematicConditionalNode
     {
+        [Tooltip("The Surface Material to check (from Get Surface).")]
         [Input("Material")] public SurfaceMaterial Material;
+        [Tooltip("The Surface Material to compare with.")]
         [Editable] public SurfaceMaterial Is;
 
         public override bool Condition() => Is != null && GetInputValue<SurfaceMaterial>("Material", null) == Is;

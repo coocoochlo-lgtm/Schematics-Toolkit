@@ -18,6 +18,7 @@ namespace Remedy.Schematics
     [Node(Name = "On Possessed", Path = "Events/Controllers"), Tags("Object")]
     public class OnPossessed : SchematicEventNode
     {
+        [Tooltip("The controller (player or AI) that took control of this object.")]
         [Output("Controller")] public Controller Controller;
     }
 
@@ -27,6 +28,7 @@ namespace Remedy.Schematics
     [Node(Name = "On Unpossessed", Path = "Events/Controllers"), Tags("Object")]
     public class OnUnpossessed : SchematicEventNode
     {
+        [Tooltip("The controller that let it go.")]
         [Output("Controller")] public Controller Controller;
     }
 
@@ -36,9 +38,12 @@ namespace Remedy.Schematics
     [Node(Name = "Possess", Path = "Controllers"), Tags("Object")]
     public class PossessNode : SchematicActionNode
     {
+        [Tooltip("The controller (player or AI) to give the object to.")]
         [Input("Controller")] public Controller Controller;
         [Input("Target")] public GameObject Target;
+        [Tooltip("Let the controller keep what it already controls as well. Off: it lets go of everything else.")]
         [Input("Keep Others", Editable = true)] public bool KeepOthers;
+        [Tooltip("True if it worked.")]
         [Output("Possessed")] public bool Possessed;
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
@@ -72,6 +77,7 @@ namespace Remedy.Schematics
     public class UnpossessNode : SchematicActionNode
     {
         [Input("Target")] public GameObject Target;
+        [Tooltip("The controller that had it (empty if nobody did).")]
         [Output("Controller")] public Controller Controller;
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
@@ -93,8 +99,11 @@ namespace Remedy.Schematics
     public class GetControllerNode : SchematicGraphNode
     {
         [Input("Target")] public GameObject Target;
+        [Tooltip("Whoever controls the object (empty if nobody does).")]
         [Output("Controller")] public Controller Controller;
+        [Tooltip("True if it's a player rather than an AI.")]
         [Output("Is Player")] public bool IsPlayer;
+        [Tooltip("True if a controller has taken it over (rather than the default player).")]
         [Output("Is Possessed")] public bool IsPossessed;
 
         public override object OnRequestValue(Port port)
@@ -118,6 +127,7 @@ namespace Remedy.Schematics
     [Node(Name = "Input Controller", Path = "Controllers"), Tags("Object")]
     public class InputControllerNode : SchematicGraphNode
     {
+        [Tooltip("The player (or AI) whose input started this flow; empty outside input.")]
         [Output("Controller")] public Controller Controller;
         [Output("Index")] public int Index;
 
@@ -134,11 +144,15 @@ namespace Remedy.Schematics
     [Node(Name = "Controller Info", Path = "Controllers"), Tags("Object")]
     public class ControllerInfoNode : SchematicGraphNode
     {
+        [Tooltip("The controller to ask about.")]
         [Input("Controller")] public Controller Controller;
+        [Tooltip("True if it's a player rather than an AI.")]
         [Output("Is Player")] public bool IsPlayer;
         [Output("Index")] public int Index;
         [Output("Name")] public string ControllerName;
+        [Tooltip("The object it mainly controls (the first it took over).")]
         [Output("Possessed Object")] public GameObject PossessedObject;
+        [Tooltip("How many objects it controls.")]
         [Output("Possessed Count")] public int PossessedCount;
 
         public override object OnRequestValue(Port port)
@@ -164,6 +178,7 @@ namespace Remedy.Schematics
     public class SendInputNode : SchematicActionNode
     {
         [Editable] public SignalData Signal;
+        [Tooltip("The controller to act as (an AI Controller Graph's own, usually).")]
         [Input("Controller")] public Controller Controller;
         [Input("Value")] public object Value;
 
@@ -198,6 +213,7 @@ namespace Remedy.Schematics
     public class ReleaseInputNode : SchematicActionNode
     {
         [Editable] public SignalData Signal;
+        [Tooltip("The controller to act as.")]
         [Input("Controller")] public Controller Controller;
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)

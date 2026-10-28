@@ -65,11 +65,16 @@ namespace Remedy.Schematics
         [Input("Object")]
         public UnityEngine.Object Object;
 
+        [Tooltip("The body itself.")]
         [Output("Body")] public Box3DBody Body;
+        [Tooltip("True if the object (or a parent) has a Box3D body.")]
         [Output("Has Body")] public bool HasBody;
+        [Tooltip("How fast and which way it's moving (meters per second).")]
         [Output("Velocity")] public Vector3 Velocity;
         [Output("Speed")] public float Speed;
+        [Tooltip("How fast it's spinning, around each axis (radians per second).")]
         [Output("Angular Velocity")] public Vector3 AngularVelocity;
+        [Tooltip("How heavy it is (kg).")]
         [Output("Mass")] public float Mass;
 
         public override object OnRequestValue(Port port)
@@ -96,13 +101,17 @@ namespace Remedy.Schematics
     {
         [Input("Object")]
         public UnityEngine.Object Object;
+        [Tooltip("Which way to push and how hard (its length is the strength).")]
         [Input("Force", Editable = true)]
         public Vector3 Force = Vector3.up;
+        [Tooltip("Force and Acceleration push over time (run every physics step); Impulse and Velocity Change kick at once. Acceleration and Velocity Change ignore mass.")]
         [Editable]
         public BodyForceMode Mode = BodyForceMode.Impulse;
+        [Tooltip("World: Force is in world axes. Local: in the object's own axes (Z is its forward).")]
         [Editable]
         public BodySpace Space = BodySpace.World;
         /// <summary>Push at Point (world position) rather than the center of mass, so it spins too.</summary>
+        [Tooltip("Push at Point (a world position) rather than the middle, so it spins too.")]
         [Editable]
         public bool AtPoint;
         [Input("Point", Editable = true)]
@@ -145,10 +154,13 @@ namespace Remedy.Schematics
 
         [Input("Object")]
         public UnityEngine.Object Object;
+        [Tooltip("The axis to spin around; its length is how hard.")]
         [Input("Torque", Editable = true)]
         public Vector3 Torque = Vector3.up;
+        [Tooltip("Force spins over time (run every physics step); Impulse spins at once.")]
         [Editable]
         public TorqueMode Mode = TorqueMode.Impulse;
+        [Tooltip("World: Torque is in world axes. Local: in the object's own axes.")]
         [Editable]
         public BodySpace Space = BodySpace.World;
 
@@ -175,10 +187,13 @@ namespace Remedy.Schematics
     {
         [Input("Object")]
         public UnityEngine.Object Object;
+        [Tooltip("How fast and which way it should move (meters per second).")]
         [Input("Velocity", Editable = true)]
         public Vector3 Velocity;
+        [Tooltip("World: Velocity is in world axes. Local: in the object's own axes (Z is forward).")]
         [Editable]
         public BodySpace Space = BodySpace.World;
+        [Tooltip("Keep its current up/down speed, so gravity and jumps still work.")]
         [Editable]
         public bool KeepVertical;
 

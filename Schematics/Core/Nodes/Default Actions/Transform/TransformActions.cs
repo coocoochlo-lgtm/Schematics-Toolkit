@@ -10,7 +10,9 @@ namespace Remedy.Schematics
     public class SetRotation : SchematicActionNode
     {
         [Input("Target")] public GameObject Target;
+        [Tooltip("The rotation to set, in degrees around X, Y and Z.")]
         [Input("Euler Angles")] public Vector3 EulerAngles;
+        [Tooltip("Set it relative to its parent. Off: in world space.")]
         [Editable] public bool Local;
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
@@ -45,7 +47,9 @@ namespace Remedy.Schematics
     public class TranslateTransform : SchematicActionNode
     {
         [Input("Target")] public GameObject Target;
+        [Tooltip("How far to move it, along X, Y and Z (meters).")]
         [Input("Translation")] public Vector3 Translation;
+        [Tooltip("Self: along its own axes (Z is where it faces). World: along the world's axes.")]
         [Editable] public Space Space = Space.Self;
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
@@ -62,7 +66,9 @@ namespace Remedy.Schematics
     public class RotateTransform : SchematicActionNode
     {
         [Input("Target")] public GameObject Target;
+        [Tooltip("How much to turn it, in degrees around X, Y and Z.")]
         [Input("Euler Angles")] public Vector3 EulerAngles;
+        [Tooltip("Self: around its own axes. World: around the world's axes.")]
         [Editable] public Space Space = Space.Self;
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
@@ -79,7 +85,9 @@ namespace Remedy.Schematics
     public class SetParent : SchematicActionNode
     {
         [Input("Target")] public GameObject Target;
+        [Tooltip("The new parent (empty: no parent, at the top of the scene).")]
         [Input("Parent")] public GameObject Parent;
+        [Tooltip("Keep it where it is in the world. Off: it keeps its local position, so it jumps to the same spot relative to the new parent.")]
         [Editable] public bool PreserveWorldTransform = true;
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
@@ -97,6 +105,7 @@ namespace Remedy.Schematics
     public class SetGameObjectActive : SchematicActionNode
     {
         [Input("Target")] public GameObject Target;
+        [Tooltip("True shows it (and turns its Behaviors on); false hides it.")]
         [Input("Active", Editable = true)] public bool Active = true;
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
