@@ -87,7 +87,7 @@ namespace Remedy.Meshes
         }
     }
 
-    [SchematicDoc(@"{""name"": ""Loop Cut"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Mesh/Model"", ""description"": ""Cuts rings of edges around a mesh across Axis: Cuts evenly spaced slices. The shape doesn't change, but it can then bend, twist and taper smoothly, and Extrude has new faces to pull."", ""inputs"": [{""name"": ""In"", ""type"": ""MeshData""}, {""name"": ""Cuts"", ""type"": ""int""}], ""outputs"": [{""name"": ""Mesh"", ""type"": ""MeshData""}]}")]
+    [SchematicDoc(@"{""name"": ""Loop Cut"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Mesh/Model"", ""description"": ""Cuts rings of edges around a mesh across Axis: Cuts evenly spaced slices. The shape doesn't change, but it can then bend, twist and taper smoothly, and Extrude has new faces to pull. With a selection, only the selected faces are cut, evenly across what's selected: extra loops for a face without slicing the whole body."", ""inputs"": [{""name"": ""In"", ""type"": ""MeshData""}, {""name"": ""Cuts"", ""type"": ""int""}], ""outputs"": [{""name"": ""Mesh"", ""type"": ""MeshData""}]}")]
     [Serializable]
     [Node(Name = "Loop Cut", Path = "Model"), Tags(MeshNode.Tag)]
     public sealed class MeshLoopCutNode : MeshNode

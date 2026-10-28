@@ -8,7 +8,8 @@ Create → Schematics → Mesh Graph, or from the Project Manager's Meshes page.
 - **Deform:** Twist, Bend, Taper, Noise, Grab and Relax.
   - **Grab** works like a sculpting brush. It takes a box of the mesh given as 0 to 1 across its bounds on each axis
     (X 0.8 to 1 is the right-hand fifth), with a soft falloff. It scales, turns and moves that part about a pivot.
-    **Mirror X** does the mirror image on the other side, so one Grab swings both arms.
+    **Mirror X** does the mirror image on the other side, so one Grab swings both arms. With a selection, the box is
+    measured across what's selected: select the head, and X 0.6 to 0.8 is part of the head.
   - **Relax** eases points towards their neighbours, which rounds a loop-cut cube's corners without shrinking it.
   - All of these, plus Transform, Spherize and Vertex Function, only move selected vertices when there's a selection
     (blended by how selected each is).
@@ -16,7 +17,8 @@ Create → Schematics → Mesh Graph, or from the Project Manager's Meshes page.
 - **Model:** Boolean (union, subtract and intersect for closed meshes; points closer than Merge Distance merge
   afterwards, 1 mm by default, which cleans slivers off the cut), Subdivide (Catmull-Clark for quads and box
   modelling, Loop for triangle meshes, or linear), Spherize (an Amount from 0 to 1), Loop Cut (clean rings of edges
-  across an axis; square faces are cut as squares), and Extrude. Extrude pulls out faces picked by facing, all of
+  across an axis; square faces are cut as squares; with a selection, only the selected faces are cut, so a face can
+  get extra loops without slicing the whole body), and Extrude. Extrude pulls out faces picked by facing, all of
   them, a material slot, or the selection, builds walls joining them to where they were, and can shrink the moved
   faces with Cap Scale.
 - **Select:** a weight from 0 to 1 on each vertex. Each Select node's Mode replaces, adds to, subtracts from or
@@ -46,8 +48,10 @@ nodes (`HumanoidRecipe` can also build it directly from code).
   neck, shoulder and leg patches are the same rings.
 - The parts sit a couple of millimetres apart. Select Near picks the facing ends, Delete Selected opens them, and
   Join (Weld) welds each pair of rings, so the body is one closed skin with edge loops running through every joint.
-- Then the head is rounded (a Spherize on just the head), the body is shaped with Grab (waist, chest, seat, sloped
-  shoulders, jaw), relaxed and subdivided with Catmull-Clark.
+- The head cube gets extra loops on every side but its underside, for the face.
+- Then the body is relaxed, and the face is made on the head alone: the head is selected and rounded, and mirrored
+  Grabs measured across it shape the jaw, brow, eye sockets, nose, cheekbones, lips, chin and ears.
+- After that, the body is shaped with Grab (waist, chest, seat, sloped shoulders) and subdivided with Catmull-Clark.
 - It's built in a T-pose, then one mirrored Grab swings the arms down at the shoulders.
 - Parameters: Height, Build, Head Size and Arms Down.
 - **Output:** the model, plus its LODs: LOD1 and LOD2 at the share of triangles you pick, and when each one shows.

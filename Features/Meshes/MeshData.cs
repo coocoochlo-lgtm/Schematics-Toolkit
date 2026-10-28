@@ -195,6 +195,16 @@ namespace Remedy.Meshes
         /// degrees they're smoothed across; sharper edges stay hard (their vertices are split). 0: every triangle flat,
         /// 180: everything smooth.
         /// </summary>
+        /// <summary>
+        /// A direction from a vector of any length. (Unity's normalized gives zero below 0.00001, which a small
+        /// triangle's normal easily is: a face 2 mm across has a cross product of about 0.000004.)
+        /// </summary>
+        public static Vector3 Direction(Vector3 v, Vector3 fallback = default)
+        {
+            float length = v.magnitude;
+            return length > 1e-20f ? v / length : fallback;
+        }
+
         public void RecalculateNormals(float smoothAngle = 60f)
         {
             // Triangle normals, by area.
@@ -227,15 +237,15 @@ namespace Remedy.Meshes
             foreach (var corners in byPosition.Values)
                 foreach (var (s, corner, f) in corners)
                 {
-                    var own = faceNormals[f].normalized;
+                    var own = Direction(faceNormals[f]);
                     Vector3 sum = Vector3.zero;
                     foreach (var (_, _, other) in corners)
                     {
                         var n = faceNormals[other];
-                        if (other == f || Vector3.Dot(own, n.normalized) >= cosLimit - 1e-5f)
+                        if (other == f || Vector3.Dot(own, Direction(n)) >= cosLimit - 1e-5f)
                             sum += n;
                     }
-                    var normal = sum.sqrMagnitude > 1e-12f ? sum.normalized : own;
+                    var normal = Direction(sum, own);
                     int vertex = source.Slots[s][corner];
                     var key = (vertex, Quantize(normal));
                     if (!made.TryGetValue(key, out int index))
@@ -357,7 +367,7 @@ namespace Remedy.Meshes
                     _r0.x * normal.x + _r0.y * normal.y + _r0.z * normal.z,
                     _r1.x * normal.x + _r1.y * normal.y + _r1.z * normal.z,
                     _r2.x * normal.x + _r2.y * normal.y + _r2.z * normal.z);
-                return n.sqrMagnitude > 1e-12f ? n.normalized : normal;
+                return Direction(n, normal);
             }
         }
 

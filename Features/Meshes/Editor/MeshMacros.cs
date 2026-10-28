@@ -1,3 +1,4 @@
+using System;
 using Remedy.Schematics.Macros;
 using UnityEditor;
 using UnityEngine;
@@ -18,15 +19,16 @@ namespace Remedy.Meshes
             SchematicMacros.Register(new BuiltInMacro
             {
                 Path = "Characters/Humanoid",
-                Description = "A 1.8 m box-modelled humanoid: every part a loop-cut cube shaped with Grab, welded to the next at the joints so edge loops run through them, then shaped, relaxed and subdivided (Catmull-Clark). The right arm and leg are mirrored to the left. Parameters: Height, Build (broadness, 1 = average), Head Size and Arms Down (degrees from a T-pose).",
+                Description = "A 1.8 m box-modelled humanoid: every part a loop-cut cube shaped with Grab, welded to the next at the joints so edge loops run through them, relaxed, given a face (brow, eyes, nose, cheeks, lips, chin, ears: Grabs on the head), shaped and subdivided (Catmull-Clark). The right arm and leg are mirrored to the left. Parameters: Height, Build (broadness, 1 = average), Head Size and Arms Down (degrees from a T-pose).",
                 GraphType = typeof(MeshGraph),
                 Build = Humanoid,
             });
         }
 
         // One row per part (its cube, loop cuts, shaping Grabs and placement), the limbs merged and mirrored; then the
-        // body along the bottom, left to right: merged, joints welded (Select Near, Delete Selected, Join), the head
-        // rounded, the whole-body Grabs, Relax, Subdivide, and sized by the Parameters into the Output (if it's free).
+        // body along the bottom, left to right: merged, joints welded (Select Near, Delete Selected, Join), relaxed, the
+        // face (the head selected and rounded, its Grabs along a row below), the whole-body Grabs, Subdivide, and sized by
+        // the Parameters into the Output (if it's free).
         private static void Humanoid(MacroBuilder b)
         {
             var height = b.Add<MeshParameterNode>(0f, 0f, n => { n.ParameterName = "Height"; n.Default = HumanoidRecipe.BaseHeight; n.Name = "Height"; });
@@ -35,7 +37,7 @@ namespace Remedy.Meshes
             var armsDown = b.Add<MeshParameterNode>(0f, Row * 3f, n => { n.ParameterName = "Arms Down"; n.Default = HumanoidRecipe.ArmsDown; n.Name = "Arms Down"; });
 
             var parts = HumanoidRecipe.Parts();
-            float partsRight = Column * 9f;
+            float partsRight = Column * 14f;
             var limbs = b.Add<MeshMergeNode>(partsRight, Row * 4f, n => n.Name = "Right Arm and Leg");
             var mirror = b.Add<MeshMirrorNode>(partsRight + Column, Row * 4f, n => { n.Name = "Both Sides"; n.Axis = MeshAxis.X; n.KeepOriginal = true; });
             b.Link(limbs, MeshNode.MeshPort, mirror, "In");
@@ -56,12 +58,36 @@ namespace Remedy.Meshes
                     b.Link(last, MeshNode.MeshPort, cut, "In");
                     last = cut;
                 }
+                if (part.DetailX + part.DetailY + part.DetailZ > 0)
+                {
+                    // Detail loops on every side but the underside (where the next part joins).
+                    var under = b.Add<MeshSelectFacingNode>(x, y + Row * 0.5f, n => { n.Name = $"{part.Name} Underside"; n.Direction = Vector3.down; n.Angle = 45f; });
+                    b.Link(last, MeshNode.MeshPort, under, "In");
+                    var sides = b.Add<MeshEditSelectionNode>(x + Column, y + Row * 0.5f, n => { n.Name = $"{part.Name} All But Underside"; n.Edit = SelectionEdit.Invert; });
+                    b.Link(under, MeshNode.MeshPort, sides, "In");
+                    last = sides;
+                    x += Column;
+                    foreach (var (axis, cuts) in new[] { (MeshAxis.X, part.DetailX), (MeshAxis.Y, part.DetailY), (MeshAxis.Z, part.DetailZ) })
+                    {
+                        if (cuts <= 0)
+                            continue;
+                        x += Column;
+                        var cut = b.Add<MeshLoopCutNode>(x, y + Row * 0.5f, n => { n.Name = $"{part.Name} Detail {axis}"; n.Axis = axis; n.Cuts = cuts; });
+                        b.Link(last, MeshNode.MeshPort, cut, "In");
+                        last = cut;
+                    }
+                    x += Column;
+                    var clear = b.Add<MeshEditSelectionNode>(x, y + Row * 0.5f, n => { n.Name = $"{part.Name} Whole Again"; n.Edit = SelectionEdit.Clear; });
+                    b.Link(last, MeshNode.MeshPort, clear, "In");
+                    last = clear;
+                    y += Row;
+                }
                 foreach (var step in part.Shaping)
                 {
                     x += Column;
                     last = AddGrab(b, x, y, step, last);
                 }
-                var place = b.Add<MeshTransformNode>(Column * 8f, y, n => { n.Name = part.Name + " Placement"; n.Position = part.Position; });
+                var place = b.Add<MeshTransformNode>(Math.Max(Column * 8f, x + Column), y, n => { n.Name = part.Name + " Placement"; n.Position = part.Position; });
                 b.Link(last, MeshNode.MeshPort, place, "In");
                 b.Link(place, MeshNode.MeshPort, part.Limb ? limbs : merged, "In");
                 y += Row;
@@ -81,9 +107,19 @@ namespace Remedy.Meshes
             Next(b.Add<MeshDeleteSelectedNode>(bx, bodyY, n => { n.Name = "Open The Joints"; n.AllCorners = true; }));
             Next(b.Add<MeshJoinNode>(bx, bodyY, n => { n.Name = "Weld The Joints"; n.Distance = HumanoidRecipe.JoinDistance * 2f; n.Mode = MeshSelection.JoinMode.Weld; n.SmoothAngle = 60f; }));
 
-            var (headMin, headMax, headFalloff) = HumanoidRecipe.HeadRegion(HumanoidRecipe.Seal(HumanoidRecipe.Assemble()));
+            Next(b.Add<MeshRelaxNode>(bx, bodyY, n => { n.Name = "Round Off"; n.Iterations = HumanoidRecipe.RelaxIterations; n.Strength = HumanoidRecipe.RelaxStrength; }));
+
+            // The face: on the head alone (its Grab boxes measured across the head).
+            var relaxed = MeshModifiers.Relax(HumanoidRecipe.Seal(HumanoidRecipe.Assemble()), HumanoidRecipe.RelaxIterations, HumanoidRecipe.RelaxStrength);
+            var (headMin, headMax, headFalloff) = HumanoidRecipe.HeadRegion(relaxed);
             Next(b.Add<MeshSelectBoundsNode>(bx, bodyY, n => { n.Name = "Head"; n.Min = headMin; n.Max = headMax; n.Falloff = headFalloff; }));
             Next(b.Add<MeshSpherizeNode>(bx, bodyY, n => { n.Name = "Round Head"; n.Amount = HumanoidRecipe.HeadRound; n.Radius = 0f; }));
+            float faceY = bodyY + Row * 4f;
+            foreach (var step in HumanoidRecipe.FaceSteps())
+            {
+                body = AddGrab(b, bx, faceY, step, body);
+                bx += Column;
+            }
             Next(b.Add<MeshEditSelectionNode>(bx, bodyY, n => { n.Name = "Whole Body Again"; n.Edit = SelectionEdit.Clear; }));
 
             foreach (var step in HumanoidRecipe.BodySteps())
@@ -110,7 +146,6 @@ namespace Remedy.Meshes
                 }
             }
 
-            Next(b.Add<MeshRelaxNode>(bx, bodyY, n => { n.Name = "Round Off"; n.Iterations = HumanoidRecipe.RelaxIterations; n.Strength = HumanoidRecipe.RelaxStrength; }));
             Next(b.Add<MeshSubdivideNode>(bx, bodyY, n =>
             {
                 n.Name = "Smooth"; n.Levels = HumanoidRecipe.SmoothLevels; n.Smooth = true; n.Method = MeshOperations.SubdivideMethod.CatmullClark; n.SmoothAngle = 80f;

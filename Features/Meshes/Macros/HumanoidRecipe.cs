@@ -12,8 +12,9 @@ namespace Remedy.Meshes
     /// corners round a middle point. The torso is cut so that the patches where the neck, shoulders and legs go are
     /// rings of the same size, in the same place. Merged, the matching ends sit a couple of millimetres apart; Select
     /// Near picks those ends, Delete Selected cuts them away (leaving open rings), and Join welds each pair of rings into one. Then the
-    /// head is rounded (Spherize on it alone), the whole body is shaped with Grab (waist, chest, seat, shoulders, jaw,
-    /// the arms swung down, the head sized), relaxed so the cubes' corners round off, and subdivided (Catmull-Clark).
+    /// body is relaxed (the cubes' corners round off), the face is made on the head alone (selected, rounded, and its
+    /// features shaped with mirrored Grabs on the extra loops the head cube was cut with), the whole body is shaped with Grab (waist, chest,
+    /// seat, shoulders, the arms swung down, the head sized), and subdivided (Catmull-Clark).
     ///
     /// The Humanoid macro builds it as nodes you can edit; <see cref="Build"/> makes it directly.
     /// </summary>
@@ -30,7 +31,7 @@ namespace Remedy.Meshes
         public const float RelaxStrength = 0.5f;
 
         /// <summary>How far the head is pulled towards a sphere (Spherize on the head alone).</summary>
-        public const float HeadRound = 0.45f;
+        public const float HeadRound = 0.85f;
 
         /// <summary>Catmull-Clark levels the body is rounded off by at the end.</summary>
         public const int SmoothLevels = 2;
@@ -60,6 +61,11 @@ namespace Remedy.Meshes
             public Vector3 Size;
             /// <summary>Loop cuts across X, Y and Z.</summary>
             public int CutsX, CutsY, CutsZ;
+            /// <summary>
+            /// More loop cuts across X, Y and Z on every side but the underside (where the neck joins, so its ring stays
+            /// the same): detail for the face. They fall exactly on the first cuts where they meet them.
+            /// </summary>
+            public int DetailX, DetailY, DetailZ;
             /// <summary>Its shaping, in order, on the cube where it was made (centred on the origin).</summary>
             public readonly List<GrabStep> Shaping = new();
             /// <summary>Where its middle goes.</summary>
@@ -108,9 +114,13 @@ namespace Remedy.Meshes
             var neck = new Part { Name = "Neck", Size = new Vector3(cellX * 2f, 0.08f, TorsoSize.z), CutsX = 1, CutsY = 1, CutsZ = 1, Position = new Vector3(0f, top + 0.04f, 0f) };
             neck.Shaping.Add(End("Narrow To Head", 1, 1f, new Vector3(neckTop.x / neck.Size.x, 1f, neckTop.z / neck.Size.z), new Vector3(0f, 0f, 0.01f)));
 
-            // Head: cut in quarters across X and Z so its underside has the neck's ring, and in quarters up (loops for
-            // the brow, eyes and mouth later).
-            var head = new Part { Name = "Head", Size = new Vector3(0.16f, 0.22f, 0.2f), CutsX = 3, CutsY = 3, CutsZ = 3, Position = new Vector3(0f, top + 0.08f + 0.11f, 0.01f) };
+            // Head: cut in quarters across X and Z so its underside has the neck's ring; then, on every side but the
+            // underside, in eighths across, twelfths up and eighths front to back, for the face.
+            var head = new Part
+            {
+                Name = "Head", Size = new Vector3(0.16f, 0.22f, 0.2f), CutsX = 3, CutsZ = 3, DetailX = FaceCutsX, DetailY = FaceCutsY, DetailZ = FaceCutsZ,
+                Position = new Vector3(0f, top + 0.08f + 0.11f, 0.01f),
+            };
 
             // Arm, along +X: shoulder, upper arm, forearm, hand, each ending the size the next one starts.
             var shoulder = new Part { Name = "Shoulder", Size = new Vector3(0.08f, shoulderHeight, TorsoSize.z), CutsX = 1, CutsY = 1, CutsZ = 1, Position = new Vector3(side + 0.04f, shoulderY, 0f), Limb = true };
@@ -162,6 +172,17 @@ namespace Remedy.Meshes
             mesh = MeshOperations.LoopCut(mesh, 0, part.CutsX);
             mesh = MeshOperations.LoopCut(mesh, 1, part.CutsY);
             mesh = MeshOperations.LoopCut(mesh, 2, part.CutsZ);
+            if (part.DetailX + part.DetailY + part.DetailZ > 0)
+            {
+                // Everything but the underside selected (Select Facing down, inverted), cut, the selection cleared.
+                var detail = mesh.Clone();
+                MeshSelection.Apply(detail, i => detail.Normals[i].y < -0.7f ? 0f : 1f, MeshSelection.Mode.Replace);
+                detail = MeshOperations.LoopCut(detail, 0, part.DetailX);
+                detail = MeshOperations.LoopCut(detail, 1, part.DetailY);
+                detail = MeshOperations.LoopCut(detail, 2, part.DetailZ);
+                MeshSelection.Clear(detail);
+                mesh = detail;
+            }
             foreach (var step in part.Shaping)
                 mesh = step.Apply(mesh);
             mesh.Transform(MeshModifiers.TRS(part.Position, Vector3.zero, Vector3.one));
@@ -215,8 +236,6 @@ namespace Remedy.Meshes
                 new() { Name = "Chest", Min = new Vector3(-side, 1.26f, 0f), Max = new Vector3(side, 1.38f, 1f), Falloff = 0.05f, Move = new Vector3(0f, 0f, 0.02f) },
                 new() { Name = "Seat", Min = new Vector3(-side, 0.9f, -1f), Max = new Vector3(side, 1f, -0.02f), Falloff = 0.05f, Move = new Vector3(0f, 0f, -0.02f) },
                 new() { Name = "Sloped Shoulders", Min = new Vector3(0.1f, top - 0.02f, -1f), Max = new Vector3(side + 0.08f, top + 0.01f, 1f), Falloff = 0.04f, Move = new Vector3(0f, -0.03f, 0f), MirrorX = true },
-                new() { Name = "Jaw", Min = new Vector3(-0.08f, top + 0.08f, 0.03f), Max = new Vector3(0.08f, top + 0.14f, 1f), Falloff = 0.03f, Scale = new Vector3(0.8f, 1f, 1f) },
-                new() { Name = "Back Of Head", Min = new Vector3(-0.08f, top + 0.16f, -1f), Max = new Vector3(0.08f, top + 0.3f, -0.03f), Falloff = 0.03f, Move = new Vector3(0f, 0f, -0.015f) },
                 // Swung down about the shoulder, the shoulder easing into the torso.
                 new() { Name = ArmsStep, Min = new Vector3(side + 0.04f, top - 0.24f, -1f), Max = new Vector3(10f, top + 0.02f, 1f), Pivot = new Vector3(0f, 0.5f, 0.5f), Falloff = 0.04f, Rotate = new Vector3(0f, 0f, -ArmsDown), MirrorX = true },
                 // Sized about the bottom of the head, the neck easing into it.
@@ -225,37 +244,74 @@ namespace Remedy.Meshes
         }
 
         /// <summary>
-        /// The head as Select Bounds takes it on the sealed body (0 to 1 of its bounds), with a little falloff into the
-        /// neck: what Round Head spherizes.
+        /// The head as Select Bounds takes it on the welded, relaxed body (0 to 1 of its bounds), with a little falloff
+        /// into the neck.
         /// </summary>
-        public static (Vector3 min, Vector3 max, float falloff) HeadRegion(MeshData sealedBody)
+        public static (Vector3 min, Vector3 max, float falloff) HeadRegion(MeshData body)
         {
-            var bounds = sealedBody.Bounds;
+            var bounds = body.Bounds;
             float headBottom = TorsoBottom + TorsoSize.y + 0.08f;
             float y = (headBottom - bounds.min.y) / bounds.size.y;
             return (new Vector3(0f, y, 0f), Vector3.one, 0.02f / bounds.size.y);
         }
 
-        /// <summary>The head pulled towards a sphere (selected, spherized, the selection cleared again).</summary>
-        public static MeshData RoundHead(MeshData sealedBody)
+        /// <summary>Extra loop cuts across the head (X, Y, Z; all but its underside) for the face to be shaped from.</summary>
+        public const int FaceCutsX = 7, FaceCutsY = 11, FaceCutsZ = 7;
+
+        /// <summary>
+        /// The face's shaping, in order: Grabs on the selected head, each box 0 to 1 across the head (X 0.5 its middle,
+        /// Y 0 the chin, Z 1 the face), mirrored for the eyes, brows, cheeks and ears.
+        /// </summary>
+        public static List<GrabStep> FaceSteps() => new()
         {
-            var (min, max, falloff) = HeadRegion(sealedBody);
-            var selected = sealedBody.Clone();
-            var weights = MeshSelection.BoundsWeights(selected, min, max, falloff);
-            MeshSelection.Apply(selected, i => weights[i], MeshSelection.Mode.Replace);
-            var round = MeshOperations.Spherize(selected, HeadRound);
-            MeshSelection.Restrict(round, selected);
-            MeshSelection.Clear(round);
-            return round;
+            // The skull: an egg, narrower at the jaw, fuller at the back.
+            new() { Name = "Narrow Jaw", Min = new Vector3(0f, 0f, 0.45f), Max = new Vector3(1f, 0.38f, 1f), Falloff = 0.3f, Scale = new Vector3(0.8f, 1f, 1f) },
+            new() { Name = "Back Of Head", Min = new Vector3(0f, 0.5f, 0f), Max = new Vector3(1f, 0.95f, 0.3f), Falloff = 0.25f, Move = new Vector3(0f, 0.004f, -0.014f) },
+            new() { Name = "Temples", Min = new Vector3(0.9f, 0.55f, 0.55f), Max = new Vector3(1f, 0.75f, 0.85f), Falloff = 0.15f, Move = new Vector3(-0.006f, 0f, 0f), MirrorX = true },
+            // Eyes under a brow, either side of the nose.
+            new() { Name = "Eye Sockets", Min = new Vector3(0.6f, 0.43f, 0.8f), Max = new Vector3(0.8f, 0.53f, 1f), Falloff = 0.1f, Move = new Vector3(0f, 0f, -0.018f), MirrorX = true },
+            new() { Name = "Brow", Min = new Vector3(0.53f, 0.57f, 0.8f), Max = new Vector3(0.86f, 0.63f, 1f), Falloff = 0.08f, Move = new Vector3(0f, 0f, 0.008f), MirrorX = true },
+            new() { Name = "Nose Bridge", Min = new Vector3(0.46f, 0.33f, 0.85f), Max = new Vector3(0.54f, 0.55f, 1f), Falloff = 0.07f, Move = new Vector3(0f, 0f, 0.02f) },
+            new() { Name = "Nose Tip", Min = new Vector3(0.43f, 0.28f, 0.85f), Max = new Vector3(0.57f, 0.35f, 1f), Falloff = 0.07f, Move = new Vector3(0f, -0.003f, 0.02f) },
+            new() { Name = "Nostrils", Min = new Vector3(0.56f, 0.28f, 0.85f), Max = new Vector3(0.62f, 0.33f, 1f), Falloff = 0.05f, Move = new Vector3(0f, 0f, 0.008f), MirrorX = true },
+            // Cheeks, the mouth between its lips, the chin.
+            new() { Name = "Cheekbones", Min = new Vector3(0.7f, 0.36f, 0.6f), Max = new Vector3(0.92f, 0.45f, 0.88f), Falloff = 0.12f, Move = new Vector3(0.006f, 0f, 0.006f), MirrorX = true },
+            new() { Name = "Mouth Line", Min = new Vector3(0.37f, 0.195f, 0.85f), Max = new Vector3(0.63f, 0.215f, 1f), Falloff = 0.04f, Move = new Vector3(0f, 0f, -0.007f) },
+            new() { Name = "Upper Lip", Min = new Vector3(0.4f, 0.215f, 0.85f), Max = new Vector3(0.6f, 0.26f, 1f), Falloff = 0.05f, Move = new Vector3(0f, 0f, 0.006f) },
+            new() { Name = "Lower Lip", Min = new Vector3(0.41f, 0.15f, 0.85f), Max = new Vector3(0.59f, 0.195f, 1f), Falloff = 0.05f, Move = new Vector3(0f, 0f, 0.006f) },
+            new() { Name = "Chin", Min = new Vector3(0.4f, 0.0f, 0.8f), Max = new Vector3(0.6f, 0.1f, 1f), Falloff = 0.08f, Move = new Vector3(0f, -0.004f, 0.012f) },
+            new() { Name = "Ears", Min = new Vector3(0.9f, 0.36f, 0.34f), Max = new Vector3(1f, 0.58f, 0.5f), Falloff = 0.06f, Move = new Vector3(0.016f, 0.004f, -0.006f), MirrorX = true },
+        };
+
+        /// <summary>
+        /// The head made a face: selected, pulled towards a sphere, shaped (<see cref="FaceSteps"/>) on the loops it was
+        /// cut with, and the selection cleared again.
+        /// </summary>
+        public static MeshData Face(MeshData body)
+        {
+            var (min, max, falloff) = HeadRegion(body);
+            var mesh = body.Clone();
+            var weights = MeshSelection.BoundsWeights(mesh, min, max, falloff);
+            MeshSelection.Apply(mesh, i => weights[i], MeshSelection.Mode.Replace);
+            var round = MeshOperations.Spherize(mesh, HeadRound);
+            MeshSelection.Restrict(round, mesh);
+            mesh = round;
+            foreach (var step in FaceSteps())
+                mesh = step.Apply(mesh);
+            MeshSelection.Clear(mesh);
+            return mesh;
         }
+
+        /// <summary>The body up to its whole-body shaping: welded, relaxed, and its face made.</summary>
+        public static MeshData Shaped() => Face(MeshModifiers.Relax(Seal(Assemble()), RelaxIterations, RelaxStrength));
 
         /// <summary>
         /// The whole-body grabs as Grab nodes take them (0 to 1 of the body's bounds when each runs), worked out on the
-        /// sealed, head-rounded body with the arms at <see cref="ArmsDown"/> and the head at full size.
+        /// welded, relaxed body with its face made, the arms at <see cref="ArmsDown"/> and the head at full size.
         /// </summary>
         public static List<GrabStep> BodySteps()
         {
-            var mesh = RoundHead(Seal(Assemble()));
+            var mesh = Shaped();
             var steps = new List<GrabStep>();
             foreach (var grab in BodyGrabs())
             {
@@ -287,7 +343,7 @@ namespace Remedy.Meshes
         /// </summary>
         public static MeshData Build(float height = BaseHeight, float build = 1f, float headSize = 1f, float armsDown = ArmsDown)
         {
-            var mesh = RoundHead(Seal(Assemble()));
+            var mesh = Shaped();
             foreach (var step in BodySteps())
             {
                 if (step.Name == ArmsStep)
@@ -296,7 +352,6 @@ namespace Remedy.Meshes
                     step.Scale = Vector3.one * headSize;
                 mesh = step.Apply(mesh);
             }
-            mesh = MeshModifiers.Relax(mesh, RelaxIterations, RelaxStrength);
             mesh = MeshOperations.SubdivideQuads(mesh, SmoothLevels);
             mesh.RecalculateNormals(80f);
             mesh.Transform(MeshModifiers.TRS(Vector3.zero, Vector3.zero, new Vector3(build, 1f, build) * (height / BaseHeight)));

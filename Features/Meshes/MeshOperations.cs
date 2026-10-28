@@ -391,6 +391,8 @@ namespace Remedy.Meshes
         /// <summary>
         /// Cuts the mesh across an axis (0: X, 1: Y, 2: Z) with <paramref name="cuts"/> evenly spaced slices, adding a
         /// ring of edges around it at each: more places for Bend, Twist and Taper to bend it, and for Extrude to start.
+        /// With a selection, only the selected faces are cut, evenly across the selection's extent (loops for a face on
+        /// a whole body); the faces next to them take the new points into their edges, so nothing cracks open.
         /// </summary>
         public static MeshData LoopCut(MeshData mesh, int axis, int cuts)
         {
@@ -398,19 +400,30 @@ namespace Remedy.Meshes
             var result = mesh.Clone();
             if (cuts <= 0 || result.VertexCount == 0)
                 return result;
+            bool selected = result.HasSelection;
             float min = float.MaxValue, max = float.MinValue;
-            foreach (var p in result.Positions)
+            for (int i = 0; i < result.VertexCount; i++)
             {
-                min = Mathf.Min(min, p[axis]);
-                max = Mathf.Max(max, p[axis]);
+                if (selected && result.Selection[i] < 0.5f)
+                    continue;
+                min = Mathf.Min(min, result.Positions[i][axis]);
+                max = Mathf.Max(max, result.Positions[i][axis]);
             }
+            if (min > max)
+                return result;
+            // A cut passing very close to a corner goes through it instead (no sliver of a face beside it).
+            float snap = (max - min) / (cuts + 1) * 0.15f;
             for (int k = 1; k <= cuts; k++)
-                result = Slice(result, axis, Mathf.Lerp(min, max, k / (float)(cuts + 1)));
+                result = Slice(result, axis, Mathf.Lerp(min, max, k / (float)(cuts + 1)), selected, snap);
             return result;
         }
 
-        /// <summary>Splits the triangles that cross a plane (axis = value) along it.</summary>
-        public static MeshData Slice(MeshData mesh, int axis, float value)
+        /// <summary>
+        /// Splits the faces that cross a plane (axis = value) along it. With <paramref name="selectedOnly"/>, only faces
+        /// whose corners are all selected. Corners within <paramref name="snap"/> of the plane count as on it. Faces
+        /// that aren't cut take any new points on their edges in, so nothing cracks open.
+        /// </summary>
+        public static MeshData Slice(MeshData mesh, int axis, float value, bool selectedOnly = false, float snap = 0f)
         {
             var result = new MeshData();
             result.Positions.AddRange(mesh.Positions);
@@ -422,11 +435,26 @@ namespace Remedy.Meshes
                 result.Selection.AddRange(mesh.Selection);
             result.Slots.Clear();
             var split = new Dictionary<(int, int), int>();
+            // Where each cut edge was cut, by place (so a neighbour with its own copies of the corners finds it).
+            var cutPlaces = new Dictionary<(Vector3, Vector3), Vector3>(new EdgePlaceComparer());
+            float tolerance = Mathf.Max(1e-6f, snap);
+            selectedOnly &= mesh.HasSelection;
 
             float Side(int v)
             {
                 float d = mesh.Positions[v][axis] - value;
+                return Mathf.Abs(d) < tolerance ? 0f : d;
+            }
+            float Exact(int v)
+            {
+                float d = mesh.Positions[v][axis] - value;
                 return Mathf.Abs(d) < 1e-6f ? 0f : d;
+            }
+            (Vector3, Vector3) Place(int a, int b)
+            {
+                var pa = mesh.Positions[a];
+                var pb = mesh.Positions[b];
+                return Compare(pa, pb) <= 0 ? (pa, pb) : (pb, pa);
             }
             int Cut(int a, int b)
             {
@@ -442,37 +470,85 @@ namespace Remedy.Meshes
                 var point = Vector3.Lerp(mesh.Positions[lo], mesh.Positions[hi], t);
                 point[axis] = value;
                 split[key] = index = Blend(mesh, result, lo, hi, t, point);
+                cutPlaces[Place(a, b)] = point;
                 return index;
             }
+            bool Cuttable(int[] polygon)
+            {
+                bool above = false, below = false;
+                foreach (int v in polygon)
+                {
+                    if (selectedOnly && mesh.Selection[v] < 0.5f)
+                        return false;
+                    float d = Side(v);
+                    above |= d > 0f;
+                    below |= d < 0f;
+                }
+                return above && below;
+            }
 
+            // Cut as quads where two triangles make one (a box's faces, a grid): cutting the triangles alone would also
+            // cut each quad's hidden diagonal, leaving stray points along the new loop.
+            var bySlot = new List<List<int[]>>(mesh.Slots.Count);
             for (int s = 0; s < mesh.Slots.Count; s++)
             {
-                var target = result.Slot(s);
-                var front = new List<int>(6);
-                var back = new List<int>(6);
-                // Cut as quads where two triangles make one (a box's faces, a grid): cutting the triangles alone would
-                // also cut each quad's hidden diagonal, leaving stray points along the new loop.
-                foreach (var polygon in Polygons(mesh, mesh.Slots[s]))
+                var polygons = Polygons(mesh, mesh.Slots[s], 0.9f);
+                // A quad folded so its corners go above, below, above, below the plane would be crossed four times:
+                // that one is cut as its two triangles.
+                for (int i = polygons.Count - 1; i >= 0; i--)
                 {
-                    int n = polygon.Length;
-                    bool above = false, below = false;
-                    for (int k = 0; k < n; k++)
-                    {
-                        float dk = Side(polygon[k]);
-                        above |= dk > 0f;
-                        below |= dk < 0f;
-                    }
-                    if (!(above && below))
-                    {
-                        Fan(polygon, target);
+                    var q = polygons[i];
+                    if (q.Length != 4 || Crossings(q) <= 2)
                         continue;
-                    }
+                    polygons[i] = new[] { q[0], q[1], q[2] };
+                    polygons.Add(new[] { q[0], q[2], q[3] });
+                }
+                bySlot.Add(polygons);
+            }
+            int Crossings(int[] polygon)
+            {
+                int changes = 0;
+                float first = 0f, last = 0f;
+                foreach (int v in polygon)
+                {
+                    float d = Side(v);
+                    if (d == 0f)
+                        continue;
+                    if (first == 0f)
+                        first = d;
+                    else if ((d > 0f) != (last > 0f))
+                        changes++;
+                    last = d;
+                }
+                if (first != 0f && (first > 0f) != (last > 0f))
+                    changes++;
+                return changes;
+            }
+
+            // First the cut faces (making the new points), then everything else (taking in points on their edges).
+            var front = new List<int>(6);
+            var back = new List<int>(6);
+            var cutFaces = new List<List<int>>();
+            for (int s = 0; s < bySlot.Count; s++)
+            {
+                var target = result.Slot(s);
+                foreach (var polygon in bySlot[s])
+                {
+                    if (!Cuttable(polygon))
+                        continue;
                     front.Clear();
                     back.Clear();
+                    int n = polygon.Length;
+                    // Two corners side by side both snapped onto the plane would leave the edge between them in both
+                    // halves: that face is cut where its corners really are (its neighbours take in any new points).
+                    Func<int, float> side = Side;
+                    for (int k = 0; k < n; k++)
+                        if (Side(polygon[k]) == 0f && Side(polygon[(k + 1) % n]) == 0f)
+                            side = Exact;
                     for (int k = 0; k < n; k++)
                     {
                         int va = polygon[k], vb = polygon[(k + 1) % n];
-                        float da = Side(va), db = Side(vb);
+                        float da = side(va), db = side(vb);
                         if (da >= 0) front.Add(va);
                         if (da <= 0) back.Add(va);
                         if ((da > 0 && db < 0) || (da < 0 && db > 0))
@@ -484,6 +560,49 @@ namespace Remedy.Meshes
                     }
                     Fan(front, target);
                     Fan(back, target);
+                }
+            }
+            var inserted = new Dictionary<(int, int), int>();
+            var corners = new List<int>(8);
+            var isNew = new List<bool>(8);
+            for (int s = 0; s < bySlot.Count; s++)
+            {
+                var target = result.Slot(s);
+                foreach (var polygon in bySlot[s])
+                {
+                    if (Cuttable(polygon))
+                        continue;
+                    if (cutPlaces.Count == 0)
+                    {
+                        Fan(polygon, target);
+                        continue;
+                    }
+                    corners.Clear();
+                    isNew.Clear();
+                    int n = polygon.Length;
+                    for (int k = 0; k < n; k++)
+                    {
+                        int va = polygon[k], vb = polygon[(k + 1) % n];
+                        corners.Add(va);
+                        isNew.Add(false);
+                        if (!cutPlaces.TryGetValue(Place(va, vb), out var point))
+                            continue;
+                        var key = va < vb ? (va, vb) : (vb, va);
+                        if (!inserted.TryGetValue(key, out int index))
+                        {
+                            float length = (mesh.Positions[vb] - mesh.Positions[va]).magnitude;
+                            float t = length > 1e-9f ? (point - mesh.Positions[va]).magnitude / length : 0.5f;
+                            inserted[key] = index = Blend(mesh, result, va, vb, t, point);
+                        }
+                        corners.Add(index);
+                        isNew.Add(true);
+                    }
+                    if (corners.Count == n)
+                    {
+                        Fan(polygon, target);
+                        continue;
+                    }
+                    FanAround(corners, isNew, result, target);
                 }
             }
             return result;
@@ -517,7 +636,7 @@ namespace Remedy.Meshes
             Vector3 FaceNormal(int t)
             {
                 var p0 = mesh.Positions[slot[t * 3]];
-                return Vector3.Cross(mesh.Positions[slot[t * 3 + 1]] - p0, mesh.Positions[slot[t * 3 + 2]] - p0).normalized;
+                return MeshData.Direction(Vector3.Cross(mesh.Positions[slot[t * 3 + 1]] - p0, mesh.Positions[slot[t * 3 + 2]] - p0));
             }
             int Opposite(int t, int a, int b)
             {
@@ -548,6 +667,43 @@ namespace Remedy.Meshes
                 polygons.Add(new[] { slot[t * 3], slot[t * 3 + 1], slot[t * 3 + 2] });
             }
             return polygons;
+        }
+
+        // A face with extra points along its edges, made triangles without any lying flat along an edge: fanned from a
+        // corner whose neighbours are both original corners, or else from a new point in its middle.
+        private static void FanAround(List<int> corners, List<bool> isNew, MeshData mesh, List<int> into)
+        {
+            int n = corners.Count;
+            for (int i = 0; i < n; i++)
+            {
+                if (isNew[i] || isNew[(i + 1) % n] || isNew[(i + n - 1) % n])
+                    continue;
+                for (int k = 1; k + 1 < n; k++)
+                {
+                    into.Add(corners[i]);
+                    into.Add(corners[(i + k) % n]);
+                    into.Add(corners[(i + k + 1) % n]);
+                }
+                return;
+            }
+            var centre = Vector3.zero;
+            foreach (int v in corners)
+                centre += mesh.Positions[v];
+            int middle = Blend(mesh, mesh, corners[0], corners[n / 2], 0.5f, centre / n);
+            for (int k = 0; k < n; k++)
+            {
+                into.Add(middle);
+                into.Add(corners[k]);
+                into.Add(corners[(k + 1) % n]);
+            }
+        }
+
+        // Edges by where their ends are (welded copies alike).
+        private sealed class EdgePlaceComparer : IEqualityComparer<(Vector3, Vector3)>
+        {
+            private static readonly MeshData.PositionComparer Positions = new();
+            public bool Equals((Vector3, Vector3) a, (Vector3, Vector3) b) => Positions.Equals(a.Item1, b.Item1) && Positions.Equals(a.Item2, b.Item2);
+            public int GetHashCode((Vector3, Vector3) e) => Positions.GetHashCode(e.Item1) * 397 ^ Positions.GetHashCode(e.Item2);
         }
 
         private static int Compare(Vector3 a, Vector3 b)
@@ -688,7 +844,7 @@ namespace Remedy.Meshes
                 var normal = Vector3.Cross(pb - pa, qa - pa);
                 if (Vector3.Dot(normal, outward) < 0f)
                     normal = -normal;
-                normal = normal.sqrMagnitude > 1e-12f ? normal.normalized : outward.normalized;
+                normal = MeshData.Direction(normal, MeshData.Direction(outward));
                 float width = (pb - pa).magnitude, height = (qa - pa).magnitude;
                 int va = result.AddVertex(pa, normal, new Vector2(0f, 0f));
                 int vb = result.AddVertex(pb, normal, new Vector2(width, 0f));
@@ -715,7 +871,7 @@ namespace Remedy.Meshes
         {
             var a = mesh.Positions[slot[t]];
             var n = Vector3.Cross(mesh.Positions[slot[t + 1]] - a, mesh.Positions[slot[t + 2]] - a);
-            return n.sqrMagnitude > 1e-14f ? n.normalized : Vector3.zero;
+            return MeshData.Direction(n);
         }
 
         // Which patch (connected group of picked faces) each picked position is in.

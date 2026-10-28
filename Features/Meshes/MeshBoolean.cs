@@ -105,7 +105,7 @@ namespace Remedy.Meshes
                 float longest = Mathf.Max((b - a).sqrMagnitude, Mathf.Max((c - b).sqrMagnitude, (a - c).sqrMagnitude));
                 if (n.magnitude <= longest * 1e-4f || n.sqrMagnitude < 1e-20f)
                     return false;
-                n = n.normalized;
+                n = MeshData.Direction(n);
                 plane = new Plane { Normal = n, W = Vector3.Dot(n, a) };
                 return true;
             }

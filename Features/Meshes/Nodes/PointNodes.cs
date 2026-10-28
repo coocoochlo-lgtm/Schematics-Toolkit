@@ -159,7 +159,7 @@ namespace Remedy.Meshes
                     float area = cross.magnitude * 0.5f;
                     if (area <= 1e-10f) continue;
                     total += area;
-                    triangles.Add((a, b, c, cross.normalized));
+                    triangles.Add((a, b, c, MeshData.Direction(cross)));
                     cumulative.Add(total);
                 }
             if (triangles.Count == 0)
@@ -359,7 +359,7 @@ namespace Remedy.Meshes
                     {
                         vars[0] = p;
                         vars[1] = p.x; vars[2] = p.y; vars[3] = p.z;
-                        vars[4] = normals[p].normalized;
+                        vars[4] = MeshData.Direction(normals[p]);
                         vars[5] = (Vector3)mesh.UVs[i];
                         vars[6] = i;
                         vars[7] = n;

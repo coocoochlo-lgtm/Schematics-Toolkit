@@ -92,16 +92,39 @@ namespace Remedy.Meshes
         }
 
         /// <summary>
-        /// For each vertex, how far it's inside a box given in the mesh's bounds (0 to 1 on each axis): 1 inside,
-        /// easing to 0 by <paramref name="falloff"/> (0 to 1 of the bounds) beyond it. Times the selection, if there is
-        /// one.
+        /// The bounds of what's selected (half selected or more), or of the whole mesh with nothing selected: what Grab's
+        /// 0 to 1 box measures across, so with the head selected, X 0.6 to 0.8 is part of the head, not the body.
+        /// </summary>
+        public static Bounds SelectedBounds(MeshData mesh)
+        {
+            if (!mesh.HasSelection)
+                return mesh.Bounds;
+            var min = Vector3.one * float.MaxValue;
+            var max = Vector3.one * float.MinValue;
+            for (int i = 0; i < mesh.VertexCount; i++)
+                if (mesh.Selection[i] >= 0.5f)
+                {
+                    min = Vector3.Min(min, mesh.Positions[i]);
+                    max = Vector3.Max(max, mesh.Positions[i]);
+                }
+            if (min.x > max.x)
+                return mesh.Bounds;
+            var bounds = new Bounds();
+            bounds.SetMinMax(min, max);
+            return bounds;
+        }
+
+        /// <summary>
+        /// For each vertex, how far it's inside a box given in the mesh's bounds (0 to 1 on each axis; with a
+        /// selection, the selection's bounds): 1 inside, easing to 0 by <paramref name="falloff"/> (0 to 1 of the
+        /// bounds) beyond it. Times the selection, if there is one.
         /// </summary>
         public static float[] BoundsWeights(MeshData mesh, Vector3 min, Vector3 max, float falloff)
         {
             var weights = new float[mesh.VertexCount];
             if (mesh.VertexCount == 0)
                 return weights;
-            var bounds = mesh.Bounds;
+            var bounds = SelectedBounds(mesh);
             var lo = Vector3.Min(min, max);
             var hi = Vector3.Max(min, max);
             for (int i = 0; i < mesh.VertexCount; i++)

@@ -188,7 +188,7 @@ namespace Remedy.Meshes
                 float n = Noise.Fractal(p * frequency, seed, 3) * amount;
                 var direction = Vector3.up;
                 if (alongNormals)
-                    direction = shared.TryGetValue(p, out var sum) && sum.sqrMagnitude > 1e-10f ? sum.normalized : mesh.Normals[i];
+                    direction = shared.TryGetValue(p, out var sum) ? MeshData.Direction(sum, mesh.Normals[i]) : mesh.Normals[i];
                 mesh.Positions[i] = p + direction * n;
             }
         }
@@ -215,7 +215,7 @@ namespace Remedy.Meshes
                     float area = cross.magnitude * 0.5f;
                     if (area <= 1e-10f) continue;
                     total += area;
-                    triangles.Add((a, b, c, cross.normalized));
+                    triangles.Add((a, b, c, MeshData.Direction(cross)));
                     cumulative.Add(total);
                 }
             if (triangles.Count == 0)
@@ -417,15 +417,16 @@ namespace Remedy.Meshes
         /// (also 0 to 1 of the bounds) beyond it. What's grabbed is scaled, then turned (degrees), about
         /// <paramref name="pivot"/> (0 to 1 within the box: 0.5 its middle), then moved. With
         /// <paramref name="mirrorX"/>, the other side of the mesh (across the middle of its bounds in X) gets the mirror
-        /// image of the same grab, like symmetry in a sculpting tool: one grab swings both arms. A selection, if there
-        /// is one, limits it further.
+        /// image of the same grab, like symmetry in a sculpting tool: one grab swings both arms. With a selection, the
+        /// box is measured across the selection's bounds (select the head, and the box is part of the head) and only
+        /// what's selected moves.
         /// </summary>
         public static MeshData Grab(MeshData source, Vector3 min, Vector3 max, float falloff, Vector3 pivot, Vector3 move, Vector3 rotate, Vector3 scale, bool mirrorX = false)
         {
             var mesh = source.Clone();
             if (mesh.VertexCount == 0)
                 return mesh;
-            var bounds = mesh.Bounds;
+            var bounds = MeshSelection.SelectedBounds(mesh);
             var lo = Vector3.Min(min, max);
             var hi = Vector3.Max(min, max);
             var weights = MeshSelection.BoundsWeights(mesh, lo, hi, falloff);
