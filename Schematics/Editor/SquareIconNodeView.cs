@@ -57,22 +57,7 @@ namespace Remedy.Schematics
                 border.style.borderTopColor = Color.Lerp(color, Color.white, 0.55f);
                 border.style.borderLeftColor = border.style.borderRightColor = Color.Lerp(color, Color.black, 0.15f);
                 border.style.borderBottomColor = Color.Lerp(color, Color.black, 0.45f);
-                var shine = new VisualElement { name = "gloss", pickingMode = PickingMode.Ignore };
-                shine.style.position = Position.Absolute;
-                shine.style.left = shine.style.right = 3;
-                shine.style.top = 2;
-                shine.style.height = Size * 0.42f;
-                shine.style.borderTopLeftRadius = shine.style.borderTopRightRadius = 6;
-                shine.style.borderBottomLeftRadius = shine.style.borderBottomRightRadius = 14;
-                shine.style.backgroundColor = new Color(1f, 1f, 1f, 0.22f);
-                border.Add(shine);
-                var shade = new VisualElement { name = "gloss-shade", pickingMode = PickingMode.Ignore };
-                shade.style.position = Position.Absolute;
-                shade.style.left = shade.style.right = shade.style.bottom = 0;
-                shade.style.height = Size * 0.3f;
-                shade.style.borderBottomLeftRadius = shade.style.borderBottomRightRadius = 7;
-                shade.style.backgroundColor = new Color(0f, 0f, 0f, 0.12f);
-                border.Add(shade);
+                NodeGloss.Apply(border, 8f);
             }
             // (Nodes' body gradient would darken the colour under the shine.)
             var body = this.Q("contents");
