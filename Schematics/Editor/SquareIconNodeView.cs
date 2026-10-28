@@ -167,7 +167,8 @@ namespace Remedy.Schematics
             var label = view.Q<Label>("type");
             if (label != null)
                 label.style.display = DisplayStyle.None;
-            view.tooltip = view.portName;
+            if (string.IsNullOrEmpty(view.tooltip))
+                view.tooltip = view.portName;
             view.style.width = view.style.minWidth = view.style.maxWidth = PinBox;
             view.style.height = 18;
             view.style.paddingLeft = view.style.paddingRight = view.style.paddingTop = view.style.paddingBottom = 0;

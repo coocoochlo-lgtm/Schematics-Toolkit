@@ -277,6 +277,11 @@ namespace BlueGraph.Editor
         protected void AddEditableField(EditableReflectionData editable)
         {
             var field = editable.GetControlElement(this);
+            string help = null;
+            try { help = SettingHelp?.Invoke(Target, editable.Field) ?? editable.Field?.GetCustomAttribute<TooltipAttribute>(true)?.tooltip; }
+            catch (System.Exception e) { Debug.LogException(e); }
+            if (!string.IsNullOrEmpty(help) && field != null)
+                field.tooltip = help;
             extensionContainer.Add(field);
         }
 
@@ -297,6 +302,7 @@ namespace BlueGraph.Editor
                 view.SetEditorField(container);
             }
 
+            view.tooltip = HelpFor(port) ?? view.tooltip;
             Inputs.Add(view);
             inputContainer.Add(view);
         }
@@ -304,6 +310,7 @@ namespace BlueGraph.Editor
         protected virtual void AddOutputPort(Port port)
         {
             var view = PortView.Create(port, ConnectorListener);
+            view.tooltip = HelpFor(port) ?? view.tooltip;
 
             Outputs.Add(view);
             outputContainer.Add(view);
@@ -469,6 +476,23 @@ namespace BlueGraph.Editor
         /// </summary>
         public static event System.Action<NodeView, ContextualMenuPopulateEvent> ExtendContextMenu;
 
+        /// <summary>
+        /// Where hover help comes from (editor tools plug in their docs): a node's (on its title), a pin's, and a
+        /// setting's on the node. Null, or giving null: the [Tooltip] on the field, if any.
+        /// </summary>
+        public static System.Func<Node, string> NodeHelp;
+        public static System.Func<Node, Port, string> PortHelp;
+        public static System.Func<Node, FieldInfo, string> SettingHelp;
+
+        /// <summary>A pin's hover help (see <see cref="PortHelp"/>).</summary>
+        public string HelpFor(Port port)
+        {
+            string text = null;
+            try { text = PortHelp?.Invoke(Target, port); }
+            catch (System.Exception e) { Debug.LogException(e); }
+            return text;
+        }
+
         public override void BuildContextualMenu(ContextualMenuPopulateEvent evt)
         {
             if (ExtendContextMenu != null)
@@ -557,7 +581,10 @@ namespace BlueGraph.Editor
             if (evt.target == titleContainer.Q("title-label"))
             {
                 var typeData = NodeReflection.GetNodeType(Target.GetType());
-                evt.tooltip = typeData?.Help;
+                string help = null;
+                try { help = NodeHelp?.Invoke(Target); }
+                catch (System.Exception e) { Debug.LogException(e); }
+                evt.tooltip = string.IsNullOrEmpty(help) ? typeData?.Help : help;
 
                 // Float the tooltip above the node title bar
                 var bound = titleContainer.worldBound;

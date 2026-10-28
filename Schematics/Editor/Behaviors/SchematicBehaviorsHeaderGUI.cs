@@ -208,7 +208,9 @@ public static class SchematicBehaviorsHeaderGUI
             // As an IO Dock row; embedded single fields (showLabel off) stay plain.
             if (showLabel)
                 InspectorRows.Begin(VariableRow(root, gameObject, attachment, definition), ObjectNames.NicifyVariableName(definition.Name),
-                    InspectorRows.TypeName(type) + (definition.Networked ? "  ⇅" : ""), entry != null ? "Overridden on this object. Click for details; drag into a graph." : null);
+                    InspectorRows.TypeName(type) + (definition.Networked ? "  ⇅" : ""),
+                    MemberHelp.Row(MemberHelp.OfBehavior(attachment.Metadata?.BehaviorType.Type, definition.Name),
+                        entry != null ? "Overridden on this object. Click for details; drag into a graph." : "Click for details (and Network Sync); drag into a Schematic Graph to use it."));
             else
                 EditorGUILayout.BeginHorizontal();
             {
@@ -363,7 +365,8 @@ public static class SchematicBehaviorsHeaderGUI
             {
                 Kind = InspectorRows.RowKind.Signal, Behavior = metadata.BehaviorType.Type, Path = PathOf(root, gameObject),
                 Name = signal.Name, Signal = signal.Asset, Direction = signal.Direction,
-            }, ObjectNames.NicifyVariableName(signal.Name), string.Join(", ", parameters));
+            }, ObjectNames.NicifyVariableName(signal.Name), string.Join(", ", parameters),
+                MemberHelp.Row(MemberHelp.OfBehavior(metadata.BehaviorType.Type, signal.Name), "Drag it into a Schematic Graph to send it or react to it."));
             InspectorRows.End();
         }
     }
@@ -670,7 +673,8 @@ public static class SchematicBehaviorsHeaderGUI
                 {
                     Kind = InspectorRows.RowKind.BehaviorVariable, Behavior = instance.Behavior.GetType(), Path = PathOf(root, gameObject),
                     Name = variables[i].Name, ValueType = variables[i].ValueType,
-                }, ObjectNames.NicifyVariableName(variables[i].Name), InspectorRows.TypeName(variables[i].ValueType) + (definition != null && definition.Networked ? "  ⇅" : ""));
+                }, ObjectNames.NicifyVariableName(variables[i].Name), InspectorRows.TypeName(variables[i].ValueType) + (definition != null && definition.Networked ? "  ⇅" : ""),
+                    MemberHelp.Row(MemberHelp.OfBehavior(instance.Behavior.GetType(), variables[i].Name), "Its live value on this object."));
                 int indent = EditorGUI.indentLevel;
                 EditorGUI.indentLevel = 0;
                 var value = runtime.GetVariableBoxed(instance, i);

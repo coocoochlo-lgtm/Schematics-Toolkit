@@ -18,6 +18,9 @@ public class FieldOrPropertyInfo
     public IEnumerable<CustomAttributeData> Attributes => field != null ? field.CustomAttributes : property.CustomAttributes;
     public string Name => field != null ? field.Name : property.Name;
 
+    /// <summary>The field or property itself.</summary>
+    public MemberInfo Member => field != null ? field : property;
+
     public object GetValue(object obj)
     {
         try

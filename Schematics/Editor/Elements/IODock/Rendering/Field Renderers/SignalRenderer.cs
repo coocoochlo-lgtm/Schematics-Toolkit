@@ -1,4 +1,5 @@
 ﻿using Remedy.Framework;
+using Remedy.Schematics;
 using System;
 using System.Collections.Generic;
 //using System.Linq;
@@ -246,7 +247,10 @@ public class SignalRenderer : FieldRenderer
             column.RemoveFromClassList("event-container-hover");
         });
 
-        imageElement.tooltip = (signalType ? "Output Signal" : "Input Signal") + ": drag it into the graph.";
+        // What the Behavior says the Signal is, then how to use it.
+        string help = MemberHelp.Row(MemberHelp.Of(_field.Member), (signalType ? "Output Signal: the Behavior sends it; react to it with On Signal Received" : "Input Signal: send it to make the Behavior act") + ". Drag it into the graph.");
+        imageElement.tooltip = help;
+        nameField.tooltip = help;
 
         row.Add(imageElement);
         row.Add(nameField);

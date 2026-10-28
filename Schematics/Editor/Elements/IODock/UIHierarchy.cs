@@ -361,7 +361,7 @@ public sealed class UIHierarchy : VisualElement
             };
             var variableRow = DockRows.Build(variableItem, DockRows.VariableIcon,
                 ObjectNames.NicifyVariableName(variable.Name), DockRows.TypeName(variableItem.ValueType),
-                "Drag to create a Get or Set node for this UI Behavior Variable.",
+                MemberHelp.Row(MemberHelp.OfBehavior(behaviorType, variable.Name), "Drag to create a Get or Set node for this UI Behavior Variable."),
                 () => { graphWindow.FocusNodes(variableItem); ScopeItemInspector.Show(variableItem); });
             var definition = variable;
             var value = new IMGUIContainer(() => DrawVariable(attachment, definition));
@@ -384,7 +384,7 @@ public sealed class UIHierarchy : VisualElement
             };
             var signalRow = DockRows.Build(signalItem, DockRows.SignalIconFor(intoGraph),
                 ObjectNames.NicifyVariableName(signal.Name), "Signal",
-                "Drag this Signal into the graph to send or receive it.",
+                MemberHelp.Row(MemberHelp.OfBehavior(behaviorType, signal.Name), "Drag this Signal into the graph to send or receive it."),
                 () => graphWindow.FocusNodes(signalItem));
             DockRows.SetSignalMark(signalRow, intoGraph);
             content.Add(signalRow);

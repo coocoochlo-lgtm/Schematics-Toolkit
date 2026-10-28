@@ -483,7 +483,8 @@ public class PrefabHierarchy : VisualElement
             };
             var row = DockRows.Build(item, VariableIcon, ObjectNames.NicifyVariableName(variable.Name),
                 DockRows.TypeName(item.ValueType) + (variable.Networked ? "  ⇅" : ""),
-                "Variable: drag the name into the graph to Get or Set it; click it to find its nodes. The field is this object's starting value.",
+                MemberHelp.Row(MemberHelp.OfBehavior(type, variable.Name),
+                    "Variable: drag the name into the graph to Get or Set it; click it to find its nodes. The field is this object's starting value."),
                 () =>
                 {
                     window?.FocusNodes(item);
