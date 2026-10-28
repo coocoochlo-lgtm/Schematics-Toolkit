@@ -12,11 +12,13 @@ using UnityEngine;
 [RequireBehavior(typeof(CharacterMotionContext), typeof(CharacterRaycastContext))]
 public class PhysicsBasedCharacterController : SchematicBehavior
 {
+    [Tooltip("Move input (linked to the Motion Context's): x left/right, y forward/back, relative to the camera.")]
     [SchematicEventLink(typeof(CharacterMotionContext), nameof(CharacterMotionContext.MoveInput))]
     public readonly SignalHandle<Vector2> MoveInput;
+    [Tooltip("Jump input (linked to the Motion Context's): true when pressed, false when let go (holding jumps higher).")]
     [SchematicEventLink(typeof(CharacterMotionContext), nameof(CharacterMotionContext.JumpInput))]
     public readonly SignalHandle<bool> JumpInput;
-    [SchematicDoc(@"{""name"": ""MoveToPosition"", ""kind"": ""signal"", ""behavior"": ""Physics Based Character Controller"", ""direction"": ""input"", ""params"": [{""name"": ""Position"", ""type"": ""Vector3""}], ""description"": ""Tells Physics Based Character Controller to act."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
+    [SchematicDoc(@"{""name"": ""MoveToPosition"", ""kind"": ""signal"", ""behavior"": ""Physics Based Character Controller"", ""direction"": ""input"", ""params"": [{""name"": ""Position"", ""type"": ""Vector3""}], ""description"": ""Send a position to make the character walk there by itself (an AI or a cutscene moving it)."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
     [InputSignal]
     [Parameter("Position", typeof(Vector3))]
     public readonly SignalHandle<Vector3> MoveToPosition;

@@ -17,19 +17,19 @@ public class CharacterRaycastContext : SchematicBehavior
     [OutputSignal, Parameter("Point", typeof(Vector3))]
     public readonly SignalHandle<Vector3> OnHitWall;
 
-    [SchematicDoc(@"{""name"": ""Properties"", ""kind"": ""variable"", ""behavior"": ""Character Raycast Context"", ""type"": ""CharacterRaycastProperties"", ""default"": ""null"", ""description"": ""Properties (CharacterRaycastProperties) of Character Raycast Context.""}")]
+    [SchematicDoc(@"{""name"": ""Properties"", ""kind"": ""variable"", ""behavior"": ""Character Raycast Context"", ""type"": ""CharacterRaycastProperties"", ""default"": ""null"", ""description"": ""Its settings asset: how far down and out it checks for ground and walls, and which layers count.""}")]
     public readonly VariableHandle<CharacterRaycastProperties> Properties = (CharacterRaycastProperties)null;
 
-    [SchematicDoc(@"{""name"": ""IsGrounded"", ""kind"": ""variable"", ""behavior"": ""Character Raycast Context"", ""type"": ""bool"", ""default"": ""false"", ""description"": ""Is Grounded (bool) of Character Raycast Context.""}")]
+    [SchematicDoc(@"{""name"": ""IsGrounded"", ""kind"": ""variable"", ""behavior"": ""Character Raycast Context"", ""type"": ""bool"", ""default"": ""false"", ""description"": ""True while the character is standing on ground.""}")]
     public readonly VariableHandle<bool> IsGrounded = false;
-    [SchematicDoc(@"{""name"": ""GroundPosition"", ""kind"": ""variable"", ""behavior"": ""Character Raycast Context"", ""type"": ""Vector3"", ""default"": ""Vector3.zero"", ""description"": ""Ground Position (Vector3) of Character Raycast Context.""}")]
+    [SchematicDoc(@"{""name"": ""GroundPosition"", ""kind"": ""variable"", ""behavior"": ""Character Raycast Context"", ""type"": ""Vector3"", ""default"": ""Vector3.zero"", ""description"": ""Where the ground under the character is (the point the ground check hit).""}")]
     public readonly VariableHandle<Vector3> GroundPosition = Vector3.zero;
-    [SchematicDoc(@"{""name"": ""WallPosition"", ""kind"": ""variable"", ""behavior"": ""Character Raycast Context"", ""type"": ""Vector3"", ""default"": ""Vector3.zero"", ""description"": ""Wall Position (Vector3) of Character Raycast Context.""}")]
+    [SchematicDoc(@"{""name"": ""WallPosition"", ""kind"": ""variable"", ""behavior"": ""Character Raycast Context"", ""type"": ""Vector3"", ""default"": ""Vector3.zero"", ""description"": ""Where the nearest wall beside the character is (the point the wall check hit).""}")]
     public readonly VariableHandle<Vector3> WallPosition = Vector3.zero;
 
-    [SchematicDoc(@"{""name"": ""GroundCastResult"", ""kind"": ""variable"", ""behavior"": ""Character Raycast Context"", ""type"": ""RaycastResult"", ""default"": ""default(RaycastUtility.RaycastResult)"", ""description"": ""Ground Cast Result (RaycastResult) of Character Raycast Context.""}")]
+    [SchematicDoc(@"{""name"": ""GroundCastResult"", ""kind"": ""variable"", ""behavior"": ""Character Raycast Context"", ""type"": ""RaycastResult"", ""default"": ""default(RaycastUtility.RaycastResult)"", ""description"": ""The full result of the last ground check (what it hit, how far, the surface's direction).""}")]
     public readonly VariableHandle<RaycastUtility.RaycastResult> GroundCastResult = default(RaycastUtility.RaycastResult);
-    [SchematicDoc(@"{""name"": ""WallCastResult"", ""kind"": ""variable"", ""behavior"": ""Character Raycast Context"", ""type"": ""RaycastResult"", ""default"": ""default(RaycastUtility.RaycastResult)"", ""description"": ""Wall Cast Result (RaycastResult) of Character Raycast Context.""}")]
+    [SchematicDoc(@"{""name"": ""WallCastResult"", ""kind"": ""variable"", ""behavior"": ""Character Raycast Context"", ""type"": ""RaycastResult"", ""default"": ""default(RaycastUtility.RaycastResult)"", ""description"": ""The full result of the last wall check.""}")]
     public readonly VariableHandle<RaycastUtility.RaycastResult> WallCastResult = default(RaycastUtility.RaycastResult);
 
     private readonly VariableHandle<Vector3> _dirToWall = Vector3.zero;

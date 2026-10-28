@@ -12,10 +12,10 @@ namespace Remedy.Cameras
     [SchematicDoc(@"{""name"": ""Camera Operator"", ""kind"": ""behavior"", ""description"": ""The base of a camera rig: a Root that follows a target, with the Camera on a boom beneath it. The Camera Manager blends the scene camera toward the active Operator."", ""variables"": [""Properties"", ""Follow"", ""Root"", ""Camera"", ""CameraCollisionRadius"", ""CurrentVolume"", ""AimDirection"", ""OrientCharacterToCamera"", ""XAxis"", ""YAxis"", ""ActualXAxis"", ""ActualYAxis"", ""AlignToTargetUp"", ""UpAlignSpeed"", ""GroundProbeDistance"", ""HeadingRecovery""], ""signals"": [""SetObjectToFollow"", ""LookInput"", ""AimDirectionOutput"", ""OrientCharacterToCameraOutput""], ""use_for"": [""custom camera rigs""], ""notes"": ""Base of the camera Behaviors; use Third Person or Shoulder instead.""}")]
     public abstract class CameraOperator : SchematicBehavior
     {
-        [SchematicDoc(@"{""name"": ""SetObjectToFollow"", ""kind"": ""signal"", ""behavior"": ""Camera Operator"", ""direction"": ""input"", ""params"": [{""name"": ""Target"", ""type"": ""GameObject""}], ""description"": ""Tells Camera Operator to act."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
+        [SchematicDoc(@"{""name"": ""SetObjectToFollow"", ""kind"": ""signal"", ""behavior"": ""Camera Operator"", ""direction"": ""input"", ""params"": [{""name"": ""Target"", ""type"": ""GameObject""}], ""description"": ""Send it an object to make the camera follow that object instead."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
         [InputSignal, Parameter("Target", typeof(GameObject))]
         public readonly SignalHandle<GameObject> SetObjectToFollow;
-        [SchematicDoc(@"{""name"": ""LookInput"", ""kind"": ""signal"", ""behavior"": ""Camera Operator"", ""direction"": ""input"", ""params"": [{""name"": ""Look"", ""type"": ""Vector2""}], ""description"": ""Tells Camera Operator to act."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
+        [SchematicDoc(@"{""name"": ""LookInput"", ""kind"": ""signal"", ""behavior"": ""Camera Operator"", ""direction"": ""input"", ""params"": [{""name"": ""Look"", ""type"": ""Vector2""}], ""description"": ""The look input (mouse or right stick): x turns left and right, y tilts up and down."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
         [InputSignal, Parameter("Look", typeof(Vector2))]
         public readonly SignalHandle<Vector2> LookInput;
 
@@ -28,14 +28,14 @@ namespace Remedy.Cameras
         [OutputSignal, Parameter("Orient", typeof(bool))]
         public readonly SignalHandle<bool> OrientCharacterToCameraOutput;
 
-        [SchematicDoc(@"{""name"": ""Properties"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""CameraOperatorProperties"", ""default"": ""null"", ""description"": ""Properties (CameraOperatorProperties) of Camera Operator.""}")]
+        [SchematicDoc(@"{""name"": ""Properties"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""CameraOperatorProperties"", ""default"": ""null"", ""description"": ""Its settings asset: look sensitivity, limits and the like (shared by every camera using it).""}")]
         public readonly VariableHandle<CameraOperatorProperties> Properties = (CameraOperatorProperties)null;
         [SchematicDoc(@"{""name"": ""Follow"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""What the camera follows. Empty: in Play Mode, the root of the Schematic Object the camera is on.""}")]
         [Tooltip("What the camera follows. Empty: in Play Mode, the root of the Schematic Object the camera is on.")]
         public readonly VariableHandle<Transform> Follow = (Transform)null;
-        [SchematicDoc(@"{""name"": ""Root"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""Root (Transform) of Camera Operator.""}")]
+        [SchematicDoc(@"{""name"": ""Root"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""The part of the rig that follows the target (the camera hangs off it).""}")]
         public readonly VariableHandle<Transform> Root = (Transform)null;
-        [SchematicDoc(@"{""name"": ""Camera"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""Camera (Transform) of Camera Operator.""}")]
+        [SchematicDoc(@"{""name"": ""Camera"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""The camera itself, on its boom under the Root.""}")]
         public readonly VariableHandle<Transform> Camera = (Transform)null;
 
         [SchematicDoc(@"{""name"": ""CameraCollisionRadius"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""float"", ""default"": ""0.2f"", ""description"": ""Radius of the Sphere used for SphereCasting to set the distance away from the player""}")]
@@ -45,19 +45,19 @@ namespace Remedy.Cameras
         /// <summary>The Camera Properties Volume this Operator is inside, if any.</summary>
         [SchematicDoc(@"{""name"": ""CurrentVolume"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""BehaviorInstance"", ""default"": ""null"", ""description"": ""The Camera Properties Volume this Operator is inside, if any.""}")]
         public readonly VariableHandle<BehaviorInstance> CurrentVolume = (BehaviorInstance)null;
-        [SchematicDoc(@"{""name"": ""AimDirection"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""Vector3"", ""default"": ""Vector3.forward"", ""description"": ""Aim Direction (Vector3) of Camera Operator.""}")]
+        [SchematicDoc(@"{""name"": ""AimDirection"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""Vector3"", ""default"": ""Vector3.forward"", ""description"": ""The direction the camera is aiming (read it to aim a weapon or turn a character).""}")]
         public readonly VariableHandle<Vector3> AimDirection = Vector3.forward;
-        [SchematicDoc(@"{""name"": ""OrientCharacterToCamera"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""bool"", ""default"": ""false"", ""description"": ""Orient Character To Camera (bool) of Camera Operator.""}")]
+        [SchematicDoc(@"{""name"": ""OrientCharacterToCamera"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""bool"", ""default"": ""false"", ""description"": ""Turn the character to face where the camera looks (for aiming or over-the-shoulder play).""}")]
         public readonly VariableHandle<bool> OrientCharacterToCamera = false;
 
         // Rotation state, read by the Camera Manager to keep inactive Operators in step with the active one.
-        [SchematicDoc(@"{""name"": ""XAxis"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""float"", ""default"": ""0f"", ""description"": ""X Axis (float) of Camera Operator.""}")]
+        [SchematicDoc(@"{""name"": ""XAxis"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""float"", ""default"": ""0f"", ""description"": ""Where the camera is being turned to, left and right (degrees).""}")]
         public readonly VariableHandle<float> XAxis = 0f;
-        [SchematicDoc(@"{""name"": ""YAxis"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""float"", ""default"": ""0f"", ""description"": ""Y Axis (float) of Camera Operator.""}")]
+        [SchematicDoc(@"{""name"": ""YAxis"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""float"", ""default"": ""0f"", ""description"": ""Where the camera is being tilted to, up and down (degrees).""}")]
         public readonly VariableHandle<float> YAxis = 0f;
-        [SchematicDoc(@"{""name"": ""ActualXAxis"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""float"", ""default"": ""0f"", ""description"": ""Actual X Axis (float) of Camera Operator.""}")]
+        [SchematicDoc(@"{""name"": ""ActualXAxis"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""float"", ""default"": ""0f"", ""description"": ""Where the camera is actually turned now, left and right (degrees); it eases towards X Axis.""}")]
         public readonly VariableHandle<float> ActualXAxis = 0f;
-        [SchematicDoc(@"{""name"": ""ActualYAxis"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""float"", ""default"": ""0f"", ""description"": ""Actual Y Axis (float) of Camera Operator.""}")]
+        [SchematicDoc(@"{""name"": ""ActualYAxis"", ""kind"": ""variable"", ""behavior"": ""Camera Operator"", ""type"": ""float"", ""default"": ""0f"", ""description"": ""Where the camera is actually tilted now, up and down (degrees); it eases towards Y Axis.""}")]
         public readonly VariableHandle<float> ActualYAxis = 0f;
 
         protected readonly VariableHandle<float> _xAxisInput = 0f;

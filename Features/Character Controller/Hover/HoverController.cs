@@ -11,16 +11,18 @@ namespace Remedy.CharacterControllers.Hover
     [SchematicBehaviorPath("Movement/3D/Flight and Hover Controller")]
     public class HoverController : SchematicBehavior
     {
+        [Tooltip("Move input (linked to the Motion Context's): steers while flying.")]
         [SchematicEventLink(typeof(CharacterMotionContext), nameof(CharacterMotionContext.MoveInput))]
         public readonly SignalHandle<Vector2> MoveInput;
+        [Tooltip("Jump input (linked to the Motion Context's): hold to rise (while there's stamina), let go to drop.")]
         [SchematicEventLink(typeof(CharacterMotionContext), nameof(CharacterMotionContext.JumpInput))]
         public readonly SignalHandle<bool> JumpInput;
-        [SchematicDoc(@"{""name"": ""Properties"", ""kind"": ""variable"", ""behavior"": ""Hover Controller"", ""type"": ""HoverControllerProperties"", ""default"": ""null"", ""description"": ""Properties (HoverControllerProperties) of Hover Controller.""}")]
+        [SchematicDoc(@"{""name"": ""Properties"", ""kind"": ""variable"", ""behavior"": ""Hover Controller"", ""type"": ""HoverControllerProperties"", ""default"": ""null"", ""description"": ""Its settings asset: rise speed, hover time, steering and fall speed.""}")]
         public readonly VariableHandle<HoverControllerProperties> Properties = (HoverControllerProperties)null;
 
-        [SchematicDoc(@"{""name"": ""CurrentVerticalSpeed"", ""kind"": ""variable"", ""behavior"": ""Hover Controller"", ""type"": ""float"", ""default"": ""0f"", ""description"": ""Current Vertical Speed (float) of Hover Controller.""}")]
+        [SchematicDoc(@"{""name"": ""CurrentVerticalSpeed"", ""kind"": ""variable"", ""behavior"": ""Hover Controller"", ""type"": ""float"", ""default"": ""0f"", ""description"": ""How fast it's rising (positive) or dropping (negative) right now (meters per second).""}")]
         public readonly VariableHandle<float> CurrentVerticalSpeed = 0f;
-        [SchematicDoc(@"{""name"": ""RotationVelocity"", ""kind"": ""variable"", ""behavior"": ""Hover Controller"", ""type"": ""float"", ""default"": ""0f"", ""description"": ""Rotation Velocity (float) of Hover Controller.""}")]
+        [SchematicDoc(@"{""name"": ""RotationVelocity"", ""kind"": ""variable"", ""behavior"": ""Hover Controller"", ""type"": ""float"", ""default"": ""0f"", ""description"": ""How fast it's turning right now.""}")]
         public readonly VariableHandle<float> RotationVelocity = 0f;
 
         // state variables

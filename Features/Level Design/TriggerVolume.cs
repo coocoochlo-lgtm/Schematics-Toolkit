@@ -12,12 +12,12 @@ namespace Remedy.LevelDesign
     [RequireComponent(typeof(BoxCollider))]
     public class TriggerVolume : SchematicBehavior
     {
-        [SchematicDoc(@"{""name"": ""OnTrigger"", ""kind"": ""signal"", ""behavior"": ""Trigger Volume"", ""direction"": ""output"", ""description"": ""Sent by Trigger Volume when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
+        [SchematicDoc(@"{""name"": ""OnTrigger"", ""kind"": ""signal"", ""behavior"": ""Trigger Volume"", ""direction"": ""output"", ""description"": ""Sent when something enters the volume."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [OutputSignal]
         [NetworkSync(SignalSender.Authority)]
         public readonly SignalHandle OnTrigger;
 
-        [SchematicDoc(@"{""name"": ""ShowCollider"", ""kind"": ""variable"", ""behavior"": ""Trigger Volume"", ""type"": ""bool"", ""default"": ""true"", ""description"": ""Show Collider (bool) of Trigger Volume.""}")]
+        [SchematicDoc(@"{""name"": ""ShowCollider"", ""kind"": ""variable"", ""behavior"": ""Trigger Volume"", ""type"": ""bool"", ""default"": ""true"", ""description"": ""Draw the volume's shape in the Scene view so it's easy to see and place.""}")]
         public readonly VariableHandle<bool> ShowCollider = true;
 
         [SchematicDoc(@"{""name"": ""TriggerType"", ""kind"": ""variable"", ""behavior"": ""Trigger Volume"", ""type"": ""int"", ""default"": ""0"", ""description"": ""Index into the Trigger Types defined in the Level Design Data.""}")]

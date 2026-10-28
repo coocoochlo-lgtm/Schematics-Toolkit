@@ -30,7 +30,7 @@ namespace Remedy.Weapons.Projectiles
         [OutputSignal]
         public readonly SignalHandle OnDestroyed;
 
-        [SchematicDoc(@"{""name"": ""Data"", ""kind"": ""variable"", ""behavior"": ""Projectile"", ""type"": ""ProjectileData"", ""default"": ""null"", ""description"": ""Data (ProjectileData) of Projectile.""}")]
+        [SchematicDoc(@"{""name"": ""Data"", ""kind"": ""variable"", ""behavior"": ""Projectile"", ""type"": ""ProjectileData"", ""default"": ""null"", ""description"": ""Its settings asset: speed, damage, homing, ricochets, lifetime.""}")]
         public readonly VariableHandle<ProjectileData> Data = (ProjectileData)null;
 
         [SchematicDoc(@"{""name"": ""Target"", ""kind"": ""variable"", ""behavior"": ""Projectile"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""Used for magnetization or orientation to the Target object.""}")]
@@ -50,7 +50,7 @@ namespace Remedy.Weapons.Projectiles
         /// <summary>The Fire Mode that shot this Projectile. Set by the Weapon.</summary>
         [SchematicDoc(@"{""name"": ""ParentFireMode"", ""kind"": ""variable"", ""behavior"": ""Projectile"", ""type"": ""FireMode"", ""default"": ""null"", ""description"": ""The Fire Mode that shot this Projectile. Set by the Weapon.""}")]
         public readonly VariableHandle<FireMode> ParentFireMode = (FireMode)null;
-        [SchematicDoc(@"{""name"": ""AimTargetPosition"", ""kind"": ""variable"", ""behavior"": ""Projectile"", ""type"": ""Vector3"", ""default"": ""Vector3.zero"", ""description"": ""Aim Target Position (Vector3) of Projectile.""}")]
+        [SchematicDoc(@"{""name"": ""AimTargetPosition"", ""kind"": ""variable"", ""behavior"": ""Projectile"", ""type"": ""Vector3"", ""default"": ""Vector3.zero"", ""description"": ""The point it flies towards (set by the weapon that fired it).""}")]
         public readonly VariableHandle<Vector3> AimTargetPosition = Vector3.zero;
 
         private readonly VariableHandle<float> _timeAlive = 0f;

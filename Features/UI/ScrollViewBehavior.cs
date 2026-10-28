@@ -9,24 +9,31 @@ namespace Remedy.UI
     [SchematicUIElementBehavior(typeof(ScrollView))]
     public sealed class ScrollViewBehavior : SchematicUIBehavior
     {
+        [Tooltip("Sent whenever it scrolls, with how far it's scrolled (x across, y down).")]
         [OutputSignal, Parameter("Scroll Offset", typeof(Vector2))]
         public readonly SignalHandle<Vector2> Scrolled;
 
+        [Tooltip("Sent when it's scrolled all the way to the top.")]
         [OutputSignal]
         public readonly SignalHandle ReachedTop;
 
+        [Tooltip("Sent when it's scrolled all the way to the bottom.")]
         [OutputSignal]
         public readonly SignalHandle ReachedBottom;
 
+        [Tooltip("Send a scroll position (x across, y down) to scroll there.")]
         [InputSignal, Parameter("Scroll Offset", typeof(Vector2))]
         public readonly SignalHandle<Vector2> ScrollToOffset;
 
+        [Tooltip("Send an element's name (from UI Builder) to scroll until it's in view.")]
         [InputSignal, Parameter("Element Name", typeof(string))]
         public readonly SignalHandle<string> ScrollToElement;
 
+        [Tooltip("Scrolls to the top.")]
         [InputSignal]
         public readonly SignalHandle ScrollToTop;
 
+        [Tooltip("Scrolls to the bottom.")]
         [InputSignal]
         public readonly SignalHandle ScrollToBottom;
 

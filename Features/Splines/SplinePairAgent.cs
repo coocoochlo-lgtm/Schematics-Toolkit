@@ -24,7 +24,7 @@ namespace Remedy.Splines
         [SchematicDoc(@"{""name"": ""Distance"", ""kind"": ""variable"", ""behavior"": ""Spline Pair Agent"", ""type"": ""float"", ""default"": ""2f"", ""description"": ""How far behind the front point the back point is.""}")]
         [Tooltip("How far behind the front point the back point is.")]
         public readonly VariableHandle<float> Distance = 2f;
-        [SchematicDoc(@"{""name"": ""DistanceMeasure"", ""kind"": ""variable"", ""behavior"": ""Spline Pair Agent"", ""type"": ""Measure"", ""default"": ""Measure.StraightLine"", ""description"": ""Distance Measure (Measure) of Spline Pair Agent.""}")]
+        [SchematicDoc(@"{""name"": ""DistanceMeasure"", ""kind"": ""variable"", ""behavior"": ""Spline Pair Agent"", ""type"": ""Measure"", ""default"": ""Measure.StraightLine"", ""description"": ""How the gap between the two points is measured: Straight Line (rigid, like a cart's axles) or along the spline.""}")]
         public readonly VariableHandle<Measure> DistanceMeasure = Measure.StraightLine;
         [SchematicDoc(@"{""name"": ""PlaceBetween"", ""kind"": ""variable"", ""behavior"": ""Spline Pair Agent"", ""type"": ""bool"", ""default"": ""true"", ""description"": ""Put the object between the two points, facing from the back point to the front one.""}")]
         [Tooltip("Put the object between the two points, facing from the back point to the front one.")]

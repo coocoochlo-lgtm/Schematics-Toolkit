@@ -18,9 +18,9 @@ namespace Remedy.CharacterControllers.Gadgets
         [NetworkSync(SignalSender.Authority)]
         public readonly SignalHandle<GameObject> OnHit;
 
-        [SchematicDoc(@"{""name"": ""Force"", ""kind"": ""variable"", ""behavior"": ""Pusher"", ""type"": ""float"", ""default"": ""0f"", ""description"": ""Force (float) of Pusher.""}")]
+        [SchematicDoc(@"{""name"": ""Force"", ""kind"": ""variable"", ""behavior"": ""Pusher"", ""type"": ""float"", ""default"": ""0f"", ""description"": ""How hard it launches what touches it (along its up axis).""}")]
         public readonly VariableHandle<float> Force = 0f;
-        [SchematicDoc(@"{""name"": ""ScaleOnHit"", ""kind"": ""variable"", ""behavior"": ""Pusher"", ""type"": ""Vector3"", ""default"": ""Vector3.one"", ""description"": ""Scale On Hit (Vector3) of Pusher.""}")]
+        [SchematicDoc(@"{""name"": ""ScaleOnHit"", ""kind"": ""variable"", ""behavior"": ""Pusher"", ""type"": ""Vector3"", ""default"": ""Vector3.one"", ""description"": ""How it squashes while launching (1, 1, 1 is no change).""}")]
         public readonly VariableHandle<Vector3> ScaleOnHit = Vector3.one;
         [SchematicDoc(@"{""name"": ""Delay"", ""kind"": ""variable"", ""behavior"": ""Pusher"", ""type"": ""int"", ""default"": ""30"", ""description"": ""Milliseconds before the push is applied.""}")]
         [Tooltip("Milliseconds before the push is applied.")]

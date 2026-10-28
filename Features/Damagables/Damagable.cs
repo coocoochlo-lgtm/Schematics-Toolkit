@@ -12,31 +12,41 @@ namespace Remedy.Damagables
     [SchematicBehaviorPath("Damageables/Damageable")]
     public class Damageable : SchematicBehavior
     {
+        [Tooltip("Sent when the object is hit (before the damage is applied): flash, play a hurt sound.")]
         [OutputSignal] [NetworkSync(SignalSender.Authority)] public readonly SignalHandle OnDamageBegin;
+        [Tooltip("Sent when healing starts.")]
         [OutputSignal] [NetworkSync(SignalSender.Authority)] public readonly SignalHandle OnHealBegin;
+        [Tooltip("Sent when an instant heal is applied.")]
         [OutputSignal] public readonly SignalHandle OnHealInstigation;
+        [Tooltip("Sent on each tick of damage over time.")]
         [OutputSignal] public readonly SignalHandle OnDamageContinued;
+        [Tooltip("Sent on each tick of healing over time.")]
         [OutputSignal] public readonly SignalHandle OnHealContinued;
+        [Tooltip("Sent when a hit (or damage over time) has finished being applied.")]
         [OutputSignal] public readonly SignalHandle OnDamageFinish;
+        [Tooltip("Sent when healing over time has finished.")]
         [OutputSignal] public readonly SignalHandle OnHealFinish;
         [SchematicDoc(@"{""name"": ""OnKnockback"", ""kind"": ""signal"", ""behavior"": ""Damageable"", ""direction"": ""output"", ""params"": [{""name"": ""Direction"", ""type"": ""Vector3""}], ""description"": ""Not handled by the Damageable. This functionality must be uniquely implemented for each object that uses this Component. The given value is the direction from the instigation position to this object."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [Tooltip("Not handled by the Damageable. This functionality must be uniquely implemented for each object that uses this Component. The given value is the direction from the instigation position to this object.")]
         [OutputSignal, Parameter("Direction", typeof(Vector3))]
         [NetworkSync(SignalSender.Authority)]
         public readonly SignalHandle<Vector3> OnKnockback;
+        [Tooltip("Sent when its health runs out.")]
         [OutputSignal] [NetworkSync(SignalSender.Authority)] public readonly SignalHandle OnDeath;
+        [Tooltip("Sent when healing brings it back to full health.")]
         [OutputSignal] [NetworkSync(SignalSender.Authority)] public readonly SignalHandle OnFullHealth;
+        [Tooltip("Sent when the object is revived after dying.")]
         [OutputSignal] [NetworkSync(SignalSender.Authority)] public readonly SignalHandle OnRevive;
 
-        [SchematicDoc(@"{""name"": ""DamageLayer"", ""kind"": ""variable"", ""behavior"": ""Damageable"", ""type"": ""int"", ""default"": ""0"", ""description"": ""Damage Layer (int) of Damageable.""}")]
+        [SchematicDoc(@"{""name"": ""DamageLayer"", ""kind"": ""variable"", ""behavior"": ""Damageable"", ""type"": ""int"", ""default"": ""0"", ""description"": ""Which damage layer it's on (set up in the Damage Data): damage only reaches Damageables on the layers it's meant for (friendly fire, for example).""}")]
         public readonly VariableHandle<int> DamageLayer = 0;
-        [SchematicDoc(@"{""name"": ""Health"", ""kind"": ""variable"", ""behavior"": ""Damageable"", ""type"": ""float"", ""default"": ""100f"", ""description"": ""Health (float) of Damageable.""}")]
+        [SchematicDoc(@"{""name"": ""Health"", ""kind"": ""variable"", ""behavior"": ""Damageable"", ""type"": ""float"", ""default"": ""100f"", ""description"": ""How much health it has right now.""}")]
         [NetworkSync]
         public readonly VariableHandle<float> Health = 100f;
-        [SchematicDoc(@"{""name"": ""MaxHealth"", ""kind"": ""variable"", ""behavior"": ""Damageable"", ""type"": ""float"", ""default"": ""100f"", ""description"": ""Max Health (float) of Damageable.""}")]
+        [SchematicDoc(@"{""name"": ""MaxHealth"", ""kind"": ""variable"", ""behavior"": ""Damageable"", ""type"": ""float"", ""default"": ""100f"", ""description"": ""The most health it can have (healing stops here).""}")]
         [NetworkSync]
         public readonly VariableHandle<float> MaxHealth = 100f;
-        [SchematicDoc(@"{""name"": ""IsAlive"", ""kind"": ""variable"", ""behavior"": ""Damageable"", ""type"": ""bool"", ""default"": ""true"", ""description"": ""Is Alive (bool) of Damageable.""}")]
+        [SchematicDoc(@"{""name"": ""IsAlive"", ""kind"": ""variable"", ""behavior"": ""Damageable"", ""type"": ""bool"", ""default"": ""true"", ""description"": ""True until its health runs out (and again after Revive).""}")]
         [NetworkSync]
         public readonly VariableHandle<bool> IsAlive = true;
 

@@ -15,7 +15,7 @@ namespace Remedy.CharacterControllers
     [RequireComponent(typeof(Box3D.Hybrid.Box3DBody))]
     public class CharacterControllerRig : SchematicBehavior
     {
-        [SchematicDoc(@"{""name"": ""CollisionLayer"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""LayerMask"", ""default"": ""~0"", ""description"": ""Collision Layer (LayerMask) of Character Controller Rig.""}")]
+        [SchematicDoc(@"{""name"": ""CollisionLayer"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""LayerMask"", ""default"": ""~0"", ""description"": ""Which physics layers count as ground when placing the shadow decal under the character.""}")]
         public readonly VariableHandle<LayerMask> CollisionLayer = (LayerMask)~0;
 
         [SchematicDoc(@"{""name"": ""InputAim"", ""kind"": ""signal"", ""behavior"": ""Character Controller Rig"", ""direction"": ""input"", ""params"": [{""name"": ""Direction"", ""type"": ""Vector3""}], ""description"": ""Vector3 Input for the Aim Direction, should be passed from the Camera Manager."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
@@ -26,71 +26,71 @@ namespace Remedy.CharacterControllers
         [Tooltip("Boolean Inputs that determine whether to Orient toward the Aim Direction.")]
         [InputSignal, Parameter("Orient", typeof(bool))]
         public readonly SignalHandle<bool> InputOrientToAim;
-        [SchematicDoc(@"{""name"": ""OnGroundCast"", ""kind"": ""signal"", ""behavior"": ""Character Controller Rig"", ""direction"": ""input"", ""params"": [{""name"": ""Grounded"", ""type"": ""bool""}], ""description"": ""Tells Character Controller Rig to act."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
+        [SchematicDoc(@"{""name"": ""OnGroundCast"", ""kind"": ""signal"", ""behavior"": ""Character Controller Rig"", ""direction"": ""input"", ""params"": [{""name"": ""Grounded"", ""type"": ""bool""}], ""description"": ""Whether the ground check found ground under the character (wire the Raycast Context's ground result here); the rig passes it on as Is On Ground."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
         [InputSignal, Parameter("Grounded", typeof(bool))]
         public readonly SignalHandle<bool> OnGroundCast;
-        [SchematicDoc(@"{""name"": ""OnGroundCastHit"", ""kind"": ""signal"", ""behavior"": ""Character Controller Rig"", ""direction"": ""input"", ""params"": [{""name"": ""Hit"", ""type"": ""RaycastHit""}], ""description"": ""Tells Character Controller Rig to act."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
+        [SchematicDoc(@"{""name"": ""OnGroundCastHit"", ""kind"": ""signal"", ""behavior"": ""Character Controller Rig"", ""direction"": ""input"", ""params"": [{""name"": ""Hit"", ""type"": ""RaycastHit""}], ""description"": ""What the ground check hit, used to place the character on the ground."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
         [InputSignal, Parameter("Hit", typeof(RaycastHit))]
         public readonly SignalHandle<RaycastHit> OnGroundCastHit;
 
-        [SchematicDoc(@"{""name"": ""IsWallSliding"", ""kind"": ""signal"", ""behavior"": ""Character Controller Rig"", ""direction"": ""output"", ""params"": [{""name"": ""Value"", ""type"": ""bool""}], ""description"": ""Sent by Character Controller Rig when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
+        [SchematicDoc(@"{""name"": ""IsWallSliding"", ""kind"": ""signal"", ""behavior"": ""Character Controller Rig"", ""direction"": ""output"", ""params"": [{""name"": ""Value"", ""type"": ""bool""}], ""description"": ""Sent with true while the character is wall sliding, false when it stops: drive animation from it."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [OutputSignal, Parameter("Value", typeof(bool))]
         public readonly SignalHandle<bool> IsWallSliding;
-        [SchematicDoc(@"{""name"": ""IsHovering"", ""kind"": ""signal"", ""behavior"": ""Character Controller Rig"", ""direction"": ""output"", ""params"": [{""name"": ""Value"", ""type"": ""bool""}], ""description"": ""Sent by Character Controller Rig when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
+        [SchematicDoc(@"{""name"": ""IsHovering"", ""kind"": ""signal"", ""behavior"": ""Character Controller Rig"", ""direction"": ""output"", ""params"": [{""name"": ""Value"", ""type"": ""bool""}], ""description"": ""Sent with true while the character is hovering, false when it stops."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [OutputSignal, Parameter("Value", typeof(bool))]
         public readonly SignalHandle<bool> IsHovering;
-        [SchematicDoc(@"{""name"": ""IsLedgeGrabbing"", ""kind"": ""signal"", ""behavior"": ""Character Controller Rig"", ""direction"": ""output"", ""params"": [{""name"": ""Value"", ""type"": ""bool""}], ""description"": ""Sent by Character Controller Rig when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
+        [SchematicDoc(@"{""name"": ""IsLedgeGrabbing"", ""kind"": ""signal"", ""behavior"": ""Character Controller Rig"", ""direction"": ""output"", ""params"": [{""name"": ""Value"", ""type"": ""bool""}], ""description"": ""Sent with true while the character hangs from a ledge, false when it lets go."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [OutputSignal, Parameter("Value", typeof(bool))]
         public readonly SignalHandle<bool> IsLedgeGrabbing;
-        [SchematicDoc(@"{""name"": ""IsStrafing"", ""kind"": ""signal"", ""behavior"": ""Character Controller Rig"", ""direction"": ""output"", ""params"": [{""name"": ""Value"", ""type"": ""bool""}], ""description"": ""Sent by Character Controller Rig when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
+        [SchematicDoc(@"{""name"": ""IsStrafing"", ""kind"": ""signal"", ""behavior"": ""Character Controller Rig"", ""direction"": ""output"", ""params"": [{""name"": ""Value"", ""type"": ""bool""}], ""description"": ""Sent with true while the character faces its aim direction instead of where it's moving (strafing)."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [OutputSignal, Parameter("Value", typeof(bool))]
         public readonly SignalHandle<bool> IsStrafing;
-        [SchematicDoc(@"{""name"": ""VerticalVelocity"", ""kind"": ""signal"", ""behavior"": ""Character Controller Rig"", ""direction"": ""output"", ""params"": [{""name"": ""Value"", ""type"": ""float""}], ""description"": ""Sent by Character Controller Rig when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
+        [SchematicDoc(@"{""name"": ""VerticalVelocity"", ""kind"": ""signal"", ""behavior"": ""Character Controller Rig"", ""direction"": ""output"", ""params"": [{""name"": ""Value"", ""type"": ""float""}], ""description"": ""Sent every frame with how fast the character is moving up (positive) or down (negative), in meters per second: drive jump and fall animation from it."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [OutputSignal, Parameter("Value", typeof(float))]
         public readonly SignalHandle<float> VerticalVelocity;
-        [SchematicDoc(@"{""name"": ""IsOnGround"", ""kind"": ""signal"", ""behavior"": ""Character Controller Rig"", ""direction"": ""output"", ""params"": [{""name"": ""Value"", ""type"": ""bool""}], ""description"": ""Sent by Character Controller Rig when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
+        [SchematicDoc(@"{""name"": ""IsOnGround"", ""kind"": ""signal"", ""behavior"": ""Character Controller Rig"", ""direction"": ""output"", ""params"": [{""name"": ""Value"", ""type"": ""bool""}], ""description"": ""Sent with true when the character lands on ground and false when it leaves it."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [OutputSignal, Parameter("Value", typeof(bool))]
         public readonly SignalHandle<bool> IsOnGround;
 
         // References
-        [SchematicDoc(@"{""name"": ""CameraTransform"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""Camera Transform (Transform) of Character Controller Rig.""}")]
+        [SchematicDoc(@"{""name"": ""CameraTransform"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""The camera the character turns to face when it aims or orients to the camera.""}")]
         public readonly VariableHandle<Transform> CameraTransform = (Transform)null;
-        [SchematicDoc(@"{""name"": ""CharacterRenderer"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""Character Renderer (Transform) of Character Controller Rig.""}")]
+        [SchematicDoc(@"{""name"": ""CharacterRenderer"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""The visible model (a child object) that follows the physics body smoothly, leaning, turning and squashing.""}")]
         public readonly VariableHandle<Transform> CharacterRenderer = (Transform)null;
         [SchematicDoc(@"{""name"": ""LedgeGrabHandTransform"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""Bone that should be placed at the Ledge Position when Ledge Grabbing.""}")]
         [Tooltip("Bone that should be placed at the Ledge Position when Ledge Grabbing.")]
         public readonly VariableHandle<Transform> LedgeGrabHandTransform = (Transform)null;
-        [SchematicDoc(@"{""name"": ""ShadowDecal"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""Material"", ""default"": ""null"", ""description"": ""Shadow Decal (Material) of Character Controller Rig.""}")]
+        [SchematicDoc(@"{""name"": ""ShadowDecal"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""Material"", ""default"": ""null"", ""description"": ""A material for a blob shadow under the character, which grows and fades with height (optional).""}")]
         public readonly VariableHandle<Material> ShadowDecal = (Material)null;
-        [SchematicDoc(@"{""name"": ""ShadowProjector"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""Shadow Projector (Transform) of Character Controller Rig.""}")]
+        [SchematicDoc(@"{""name"": ""ShadowProjector"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""The object that projects the blob shadow; it's kept under the character.""}")]
         public readonly VariableHandle<Transform> ShadowProjector = (Transform)null;
 
         // Shadow Decal
-        [SchematicDoc(@"{""name"": ""DecalMinScale"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""float"", ""default"": ""1.15f"", ""description"": ""Decal Min Scale (float) of Character Controller Rig.""}")]
+        [SchematicDoc(@"{""name"": ""DecalMinScale"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""float"", ""default"": ""1.15f"", ""description"": ""How big the shadow is when the character is high above the ground.""}")]
         public readonly VariableHandle<float> DecalMinScale = 1.15f;
-        [SchematicDoc(@"{""name"": ""DecalMaxScale"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""float"", ""default"": ""1.35f"", ""description"": ""Decal Max Scale (float) of Character Controller Rig.""}")]
+        [SchematicDoc(@"{""name"": ""DecalMaxScale"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""float"", ""default"": ""1.35f"", ""description"": ""How big the shadow is when the character is on the ground.""}")]
         public readonly VariableHandle<float> DecalMaxScale = 1.35f;
-        [SchematicDoc(@"{""name"": ""DecalScaleGap"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""float"", ""default"": ""5f"", ""description"": ""Decal Scale Gap (float) of Character Controller Rig.""}")]
+        [SchematicDoc(@"{""name"": ""DecalScaleGap"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""float"", ""default"": ""5f"", ""description"": ""The height (meters) over which the shadow shrinks from its ground size to its smallest.""}")]
         public readonly VariableHandle<float> DecalScaleGap = 5f;
 
         // Motion
-        [SchematicDoc(@"{""name"": ""RotateCharacterWhileJumping"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""bool"", ""default"": ""false"", ""description"": ""Rotate Character While Jumping (bool) of Character Controller Rig.""}")]
+        [SchematicDoc(@"{""name"": ""RotateCharacterWhileJumping"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""bool"", ""default"": ""false"", ""description"": ""Let the model keep turning to face its movement while in the air. Off: it holds its direction until it lands.""}")]
         public readonly VariableHandle<bool> RotateCharacterWhileJumping = false;
-        [SchematicDoc(@"{""name"": ""Offset"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""Vector3"", ""default"": ""Vector3.zero"", ""description"": ""Offset (Vector3) of Character Controller Rig.""}")]
+        [SchematicDoc(@"{""name"": ""Offset"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""Vector3"", ""default"": ""Vector3.zero"", ""description"": ""Where the model sits relative to the physics body (meters); its Y lifts or lowers the model.""}")]
         public readonly VariableHandle<Vector3> Offset = Vector3.zero;
-        [SchematicDoc(@"{""name"": ""TiltDampening"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""float"", ""default"": ""5f"", ""description"": ""Tilt Dampening (float) of Character Controller Rig.""}")]
+        [SchematicDoc(@"{""name"": ""TiltDampening"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""float"", ""default"": ""5f"", ""description"": ""How quickly the model leans to match the body's tilt (higher is snappier, lower floatier).""}")]
         public readonly VariableHandle<float> TiltDampening = 5f;
-        [SchematicDoc(@"{""name"": ""TurnDamening"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""float"", ""default"": ""15f"", ""description"": ""Turn Damening (float) of Character Controller Rig.""}")]
+        [SchematicDoc(@"{""name"": ""TurnDamening"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""float"", ""default"": ""15f"", ""description"": ""How quickly the model turns to face where it's going (higher is snappier).""}")]
         public readonly VariableHandle<float> TurnDamening = 15f;
-        [SchematicDoc(@"{""name"": ""PositionFollowSpeed"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""float"", ""default"": ""20f"", ""description"": ""Position Follow Speed (float) of Character Controller Rig.""}")]
+        [SchematicDoc(@"{""name"": ""PositionFollowSpeed"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""float"", ""default"": ""20f"", ""description"": ""How quickly the model catches up with the physics body (higher sticks closer, lower trails behind smoothly).""}")]
         public readonly VariableHandle<float> PositionFollowSpeed = 20f;
-        [SchematicDoc(@"{""name"": ""ScaleSpringDampening"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""Scale Spring Dampening (float) of Character Controller Rig.""}")]
+        [SchematicDoc(@"{""name"": ""ScaleSpringDampening"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""How quickly the squash-and-stretch settles (higher stops wobbling sooner).""}")]
         public readonly VariableHandle<float> ScaleSpringDampening = 10f;
-        [SchematicDoc(@"{""name"": ""ScaleSpringFrequency"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""float"", ""default"": ""6f"", ""description"": ""Scale Spring Frequency (float) of Character Controller Rig.""}")]
+        [SchematicDoc(@"{""name"": ""ScaleSpringFrequency"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""float"", ""default"": ""6f"", ""description"": ""How fast the squash-and-stretch wobbles (higher is a quicker bounce).""}")]
         public readonly VariableHandle<float> ScaleSpringFrequency = 6f;
-        [SchematicDoc(@"{""name"": ""VerticalVelocityScaleFactor"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""float"", ""default"": ""0.2f"", ""description"": ""Vertical Velocity Scale Factor (float) of Character Controller Rig.""}")]
+        [SchematicDoc(@"{""name"": ""VerticalVelocityScaleFactor"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""float"", ""default"": ""0.2f"", ""description"": ""How much the model stretches with up/down speed: 0 none, 0.2 a little stretch when jumping and falling.""}")]
         public readonly VariableHandle<float> VerticalVelocityScaleFactor = 0.2f;
-        [SchematicDoc(@"{""name"": ""OrientToCameraSpeed"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""Orient To Camera Speed (float) of Character Controller Rig.""}")]
+        [SchematicDoc(@"{""name"": ""OrientToCameraSpeed"", ""kind"": ""variable"", ""behavior"": ""Character Controller Rig"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""How quickly the model turns to face the aim direction when orienting to the camera.""}")]
         public readonly VariableHandle<float> OrientToCameraSpeed = 10f;
 
         // State

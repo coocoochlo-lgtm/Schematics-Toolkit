@@ -25,7 +25,7 @@ public class StateMachine : SchematicBehavior
     [OutputSignal, Parameter("State", typeof(string))]
     public readonly SignalHandle<string> OnStateChanged;
 
-    [SchematicDoc(@"{""name"": ""Definition"", ""kind"": ""variable"", ""behavior"": ""State Machine"", ""type"": ""StateMachineDefinition"", ""default"": ""null"", ""description"": ""Definition (StateMachineDefinition) of State Machine.""}")]
+    [SchematicDoc(@"{""name"": ""Definition"", ""kind"": ""variable"", ""behavior"": ""State Machine"", ""type"": ""StateMachineDefinition"", ""default"": ""null"", ""description"": ""The State Machine Definition to run: its states, their graphs and Behavior settings, and the transitions between them.""}")]
     public readonly VariableHandle<StateMachineDefinition> Definition = (StateMachineDefinition)null;
 
     /// <summary>The innermost active state's name.</summary>

@@ -8,43 +8,43 @@ namespace Remedy.Cameras
     [SchematicBehaviorPath("Cameras/Third Person")]
     public class ThirdPersonCamera : CameraOperator
     {
-        [SchematicDoc(@"{""name"": ""AimPosition"", ""kind"": ""signal"", ""behavior"": ""Third Person Camera"", ""direction"": ""output"", ""params"": [{""name"": ""Position"", ""type"": ""Vector3""}], ""description"": ""Sent by Third Person Camera when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
+        [SchematicDoc(@"{""name"": ""AimPosition"", ""kind"": ""signal"", ""behavior"": ""Third Person Camera"", ""direction"": ""output"", ""params"": [{""name"": ""Position"", ""type"": ""Vector3""}], ""description"": ""Sent every frame with the point in the world the camera is aiming at (where a shot would go)."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [OutputSignal, Parameter("Position", typeof(Vector3))]
         public readonly SignalHandle<Vector3> AimPosition;
 
         [SchematicDoc(@"{""name"": ""FollowOffset"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""Vector3"", ""default"": ""Vector3.zero"", ""description"": ""The Object to Follow.""}")]
         [Tooltip("The Object to Follow.")]
         public readonly VariableHandle<Vector3> FollowOffset = Vector3.zero;
-        [SchematicDoc(@"{""name"": ""HorizontalFollowSpeed"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""Horizontal Follow Speed (float) of Third Person Camera.""}")]
+        [SchematicDoc(@"{""name"": ""HorizontalFollowSpeed"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""How quickly the camera keeps up with its target sideways (higher sticks closer, lower trails behind).""}")]
         public readonly VariableHandle<float> HorizontalFollowSpeed = 10f;
-        [SchematicDoc(@"{""name"": ""VerticalFollowSpeed"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""3f"", ""description"": ""Vertical Follow Speed (float) of Third Person Camera.""}")]
+        [SchematicDoc(@"{""name"": ""VerticalFollowSpeed"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""3f"", ""description"": ""How quickly the camera follows its target up and down (lower smooths out jumps and steps).""}")]
         public readonly VariableHandle<float> VerticalFollowSpeed = 3f;
         [SchematicDoc(@"{""name"": ""YDistanceAllowance"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""3f"", ""description"": ""The Camera sticks to the ground beneath the follow target until this distance is reached, then this is used as an offset from the Follow Target""}")]
         [Tooltip("The Camera sticks to the ground beneath the follow target until this distance is reached, then this is used as an offset from the Follow Target")]
         public readonly VariableHandle<float> YDistanceAllowance = 3f;
-        [SchematicDoc(@"{""name"": ""GroundedOffset"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""Vector3"", ""default"": ""new Vector3(0, 1, 0)"", ""description"": ""Grounded Offset (Vector3) of Third Person Camera.""}")]
+        [SchematicDoc(@"{""name"": ""GroundedOffset"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""Vector3"", ""default"": ""new Vector3(0, 1, 0)"", ""description"": ""Where the camera looks at, relative to the ground under its target (meters): Y 1 looks about waist high.""}")]
         public readonly VariableHandle<Vector3> GroundedOffset = new Vector3(0, 1, 0);
         [SchematicDoc(@"{""name"": ""MaxDistance"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""5f"", ""description"": ""Max distance from the Followed Object.""}")]
         [Tooltip("Max distance from the Followed Object.")]
         public readonly VariableHandle<float> MaxDistance = 5f;
 
-        [SchematicDoc(@"{""name"": ""LevelAngle"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""5f"", ""description"": ""Level Angle (float) of Third Person Camera.""}")]
+        [SchematicDoc(@"{""name"": ""LevelAngle"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""5f"", ""description"": ""The angle (degrees, looking down) it settles back to when left alone.""}")]
         public readonly VariableHandle<float> LevelAngle = 5f;
-        [SchematicDoc(@"{""name"": ""AutoLevelDelay"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""1f"", ""description"": ""Auto Level Delay (float) of Third Person Camera.""}")]
+        [SchematicDoc(@"{""name"": ""AutoLevelDelay"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""1f"", ""description"": ""Seconds without camera input before it starts settling back to its resting angle.""}")]
         public readonly VariableHandle<float> AutoLevelDelay = 1f;
-        [SchematicDoc(@"{""name"": ""AutoLevelSpeed"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""5f"", ""description"": ""Auto Level Speed (float) of Third Person Camera.""}")]
+        [SchematicDoc(@"{""name"": ""AutoLevelSpeed"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""5f"", ""description"": ""How quickly it settles back to its resting angle.""}")]
         public readonly VariableHandle<float> AutoLevelSpeed = 5f;
 
         [SchematicDoc(@"{""name"": ""OptimalDistancePush"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""1f"", ""description"": ""An angular force applied to distance the Camera Rotation away from walls over time.""}")]
         [Tooltip("An angular force applied to distance the Camera Rotation away from walls over time.")]
         public readonly VariableHandle<float> OptimalDistancePush = 1f;
-        [SchematicDoc(@"{""name"": ""OptimalDistance"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""Optimal Distance (float) of Third Person Camera.""}")]
+        [SchematicDoc(@"{""name"": ""OptimalDistance"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""How far behind its target the camera sits when nothing's in the way (meters).""}")]
         public readonly VariableHandle<float> OptimalDistance = 10f;
 
         [SchematicDoc(@"{""name"": ""Body"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""Box3DBody"", ""default"": ""null"", ""description"": ""The followed character's physics body, for looking ahead and tilting when falling; empty uses the one on what it follows.""}")]
         [Tooltip("The followed character's physics body (look-ahead, tilting when falling). Empty: the one on what it follows.")]
         public readonly VariableHandle<Box3DBody> Body = (Box3DBody)null;
-        [SchematicDoc(@"{""name"": ""LookaheadOrientationStrength"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""1f"", ""description"": ""Lookahead Orientation Strength (float) of Third Person Camera.""}")]
+        [SchematicDoc(@"{""name"": ""LookaheadOrientationStrength"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""1f"", ""description"": ""How strongly the camera swings round to look the way its target is moving (0 never).""}")]
         public readonly VariableHandle<float> LookaheadOrientationStrength = 1f;
         [SchematicDoc(@"{""name"": ""LookdownOrientationMaxVelocity"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""The Velocity (downward) at which the character must be moving to fully forcefully orient the camera down.""}")]
         [Tooltip("The Velocity (downward) at which the character must be moving to fully forcefully orient the camera down.")]
@@ -58,15 +58,15 @@ namespace Remedy.Cameras
         [SchematicDoc(@"{""name"": ""LookupOrientationMaxAngle"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""30f"", ""description"": ""The maximum angle upward to orient the camera when rising""}")]
         [Tooltip("The maximum angle upward to orient the camera when rising")]
         public readonly VariableHandle<float> LookupOrientationMaxAngle = 30f;
-        [SchematicDoc(@"{""name"": ""LookdownOrientationSpeed"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""Lookdown Orientation Speed (float) of Third Person Camera.""}")]
+        [SchematicDoc(@"{""name"": ""LookdownOrientationSpeed"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""How quickly it tilts down to show the ground when its target is up high or falling.""}")]
         public readonly VariableHandle<float> LookdownOrientationSpeed = 10f;
 
         [SchematicDoc(@"{""name"": ""CollisionLayers"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""LayerMask"", ""default"": ""(-1)"", ""description"": ""What is collided with to move the Camera closer to the Player""}")]
         [Tooltip("What is collided with to move the Camera closer to the Player")]
         public readonly VariableHandle<LayerMask> CollisionLayers = (LayerMask)(-1);
-        [SchematicDoc(@"{""name"": ""CollisionReactSpeed"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""Collision React Speed (float) of Third Person Camera.""}")]
+        [SchematicDoc(@"{""name"": ""CollisionReactSpeed"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""How quickly the camera pulls in when a wall gets between it and its target, and eases back out after.""}")]
         public readonly VariableHandle<float> CollisionReactSpeed = 10f;
-        [SchematicDoc(@"{""name"": ""YOffsetTransitionSpeed"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""Y Offset Transition Speed (float) of Third Person Camera.""}")]
+        [SchematicDoc(@"{""name"": ""YOffsetTransitionSpeed"", ""kind"": ""variable"", ""behavior"": ""Third Person Camera"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""How quickly the camera's height eases between following the target in the air and staying near the ground.""}")]
         public readonly VariableHandle<float> YOffsetTransitionSpeed = 10f;
 
         private readonly VariableHandle<float> _targetScale = 1f;

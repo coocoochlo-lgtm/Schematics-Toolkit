@@ -8,13 +8,13 @@ namespace Remedy.Cameras
     [SchematicBehaviorPath("Cameras/Shoulder")]
     public class ShoulderCamera : CameraOperator
     {
-        [SchematicDoc(@"{""name"": ""ActualLookDirection"", ""kind"": ""signal"", ""behavior"": ""Shoulder Camera"", ""direction"": ""output"", ""params"": [{""name"": ""Direction"", ""type"": ""Vector3""}], ""description"": ""Sent by Shoulder Camera when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
+        [SchematicDoc(@"{""name"": ""ActualLookDirection"", ""kind"": ""signal"", ""behavior"": ""Shoulder Camera"", ""direction"": ""output"", ""params"": [{""name"": ""Direction"", ""type"": ""Vector3""}], ""description"": ""Sent every frame with the direction the camera is actually facing now (it eases towards the goal)."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [OutputSignal, Parameter("Direction", typeof(Vector3))]
         public readonly SignalHandle<Vector3> ActualLookDirection;
-        [SchematicDoc(@"{""name"": ""GoalLookDirection"", ""kind"": ""signal"", ""behavior"": ""Shoulder Camera"", ""direction"": ""output"", ""params"": [{""name"": ""Direction"", ""type"": ""Vector3""}], ""description"": ""Sent by Shoulder Camera when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
+        [SchematicDoc(@"{""name"": ""GoalLookDirection"", ""kind"": ""signal"", ""behavior"": ""Shoulder Camera"", ""direction"": ""output"", ""params"": [{""name"": ""Direction"", ""type"": ""Vector3""}], ""description"": ""Sent every frame with the direction the camera is turning towards (where the player is steering it)."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [OutputSignal, Parameter("Direction", typeof(Vector3))]
         public readonly SignalHandle<Vector3> GoalLookDirection;
-        [SchematicDoc(@"{""name"": ""AimPosition"", ""kind"": ""signal"", ""behavior"": ""Shoulder Camera"", ""direction"": ""output"", ""params"": [{""name"": ""Position"", ""type"": ""Vector3""}], ""description"": ""Sent by Shoulder Camera when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
+        [SchematicDoc(@"{""name"": ""AimPosition"", ""kind"": ""signal"", ""behavior"": ""Shoulder Camera"", ""direction"": ""output"", ""params"": [{""name"": ""Position"", ""type"": ""Vector3""}], ""description"": ""Sent every frame with the point in the world the camera is aiming at (where a shot would go)."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [OutputSignal, Parameter("Position", typeof(Vector3))]
         public readonly SignalHandle<Vector3> AimPosition;
 
@@ -30,17 +30,17 @@ namespace Remedy.Cameras
         [SchematicDoc(@"{""name"": ""ShoulderOffset"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""Vector3"", ""default"": ""new Vector3(0.5f, 0f, 0f)"", ""description"": ""The distance offset from the character's shoulder.""}")]
         [Tooltip("The distance offset from the character's shoulder.")]
         public readonly VariableHandle<Vector3> ShoulderOffset = new Vector3(0.5f, 0f, 0f);
-        [SchematicDoc(@"{""name"": ""ShoulderSwitchSpeed"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""Shoulder Switch Speed (float) of Shoulder Camera.""}")]
+        [SchematicDoc(@"{""name"": ""ShoulderSwitchSpeed"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""How quickly the camera slides across when it switches shoulders (higher is snappier).""}")]
         public readonly VariableHandle<float> ShoulderSwitchSpeed = 10f;
-        [SchematicDoc(@"{""name"": ""AutoSwitch"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""bool"", ""default"": ""true"", ""description"": ""Auto Switch (bool) of Shoulder Camera.""}")]
+        [SchematicDoc(@"{""name"": ""AutoSwitch"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""bool"", ""default"": ""true"", ""description"": ""Switch to the other shoulder by itself when a wall is too close on this side.""}")]
         public readonly VariableHandle<bool> AutoSwitch = true;
-        [SchematicDoc(@"{""name"": ""SwitchDistance"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""float"", ""default"": ""2f"", ""description"": ""Switch Distance (float) of Shoulder Camera.""}")]
+        [SchematicDoc(@"{""name"": ""SwitchDistance"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""float"", ""default"": ""2f"", ""description"": ""How close a wall must be (meters) before it switches shoulders by itself.""}")]
         public readonly VariableHandle<float> SwitchDistance = 2f;
-        [SchematicDoc(@"{""name"": ""FollowOffset"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""Vector3"", ""default"": ""Vector3.zero"", ""description"": ""Follow Offset (Vector3) of Shoulder Camera.""}")]
+        [SchematicDoc(@"{""name"": ""FollowOffset"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""Vector3"", ""default"": ""Vector3.zero"", ""description"": ""Where the camera's pivot sits relative to the character (meters): raise Y to look over the head.""}")]
         public readonly VariableHandle<Vector3> FollowOffset = Vector3.zero;
-        [SchematicDoc(@"{""name"": ""HorizontalFollowSpeed"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""Horizontal Follow Speed (float) of Shoulder Camera.""}")]
+        [SchematicDoc(@"{""name"": ""HorizontalFollowSpeed"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""How quickly the camera keeps up with the character sideways (higher sticks closer, lower trails behind).""}")]
         public readonly VariableHandle<float> HorizontalFollowSpeed = 10f;
-        [SchematicDoc(@"{""name"": ""VerticalFollowSpeed"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""float"", ""default"": ""3f"", ""description"": ""Vertical Follow Speed (float) of Shoulder Camera.""}")]
+        [SchematicDoc(@"{""name"": ""VerticalFollowSpeed"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""float"", ""default"": ""3f"", ""description"": ""How quickly the camera follows the character up and down (lower smooths out jumps and steps).""}")]
         public readonly VariableHandle<float> VerticalFollowSpeed = 3f;
         [SchematicDoc(@"{""name"": ""YDistanceAllowance"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""float"", ""default"": ""3f"", ""description"": ""The Camera sticks to the ground beneath the follow target until this distance is reached, then this is used as an offset from the Follow Target""}")]
         [Tooltip("The Camera sticks to the ground beneath the follow target until this distance is reached, then this is used as an offset from the Follow Target")]
@@ -52,19 +52,19 @@ namespace Remedy.Cameras
         [SchematicDoc(@"{""name"": ""OptimalDistancePush"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""float"", ""default"": ""1f"", ""description"": ""An angular force applied to distance the Camera Rotation away from walls over time.""}")]
         [Tooltip("An angular force applied to distance the Camera Rotation away from walls over time.")]
         public readonly VariableHandle<float> OptimalDistancePush = 1f;
-        [SchematicDoc(@"{""name"": ""OptimalDistance"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""Optimal Distance (float) of Shoulder Camera.""}")]
+        [SchematicDoc(@"{""name"": ""OptimalDistance"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""How far behind the character the camera sits when nothing's in the way (meters).""}")]
         public readonly VariableHandle<float> OptimalDistance = 10f;
 
-        [SchematicDoc(@"{""name"": ""Rigidbody"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""Rigidbody"", ""default"": ""null"", ""description"": ""Rigidbody (Rigidbody) of Shoulder Camera.""}")]
-        [Tooltip("The followed character's physics body (look-ahead, tilting when falling). Empty: the one on what it follows.")]
+        [SchematicDoc(@"{""name"": ""Rigidbody"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""Rigidbody"", ""default"": ""null"", ""description"": ""The character's physics body, to read its movement from (found by itself if left empty).""}")]
+        [Tooltip("The character's physics body, to read its movement from (found by itself if left empty).")]
         public readonly VariableHandle<Box3DBody> Body = (Box3DBody)null;
-        [SchematicDoc(@"{""name"": ""LookaheadOrientationStrength"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""float"", ""default"": ""1f"", ""description"": ""Lookahead Orientation Strength (float) of Shoulder Camera.""}")]
+        [SchematicDoc(@"{""name"": ""LookaheadOrientationStrength"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""float"", ""default"": ""1f"", ""description"": ""How strongly the camera swings round to look the way the character is moving (0 never).""}")]
         public readonly VariableHandle<float> LookaheadOrientationStrength = 1f;
 
         [SchematicDoc(@"{""name"": ""CollisionLayers"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""LayerMask"", ""default"": ""(-1)"", ""description"": ""What is collided with to move the Camera closer to the Player""}")]
         [Tooltip("What is collided with to move the Camera closer to the Player")]
         public readonly VariableHandle<LayerMask> CollisionLayers = (LayerMask)(-1);
-        [SchematicDoc(@"{""name"": ""CollisionReactSpeed"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""Collision React Speed (float) of Shoulder Camera.""}")]
+        [SchematicDoc(@"{""name"": ""CollisionReactSpeed"", ""kind"": ""variable"", ""behavior"": ""Shoulder Camera"", ""type"": ""float"", ""default"": ""10f"", ""description"": ""How quickly the camera pulls in when a wall gets between it and the character, and eases back out after.""}")]
         public readonly VariableHandle<float> CollisionReactSpeed = 10f;
 
         private readonly VariableHandle<float> _targetScale = 1f;

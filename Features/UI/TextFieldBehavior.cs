@@ -1,3 +1,4 @@
+using UnityEngine;
 using Remedy.Schematics;
 using UnityEngine.UIElements;
 
@@ -8,12 +9,15 @@ namespace Remedy.UI
     [SchematicUIElementBehavior(typeof(TextField))]
     public sealed class TextFieldBehavior : SchematicUIBehavior
     {
+        [Tooltip("Sent whenever the text changes, with the new text.")]
         [OutputSignal, Parameter("Text", typeof(string))]
         public readonly SignalHandle<string> TextChanged;
 
+        [Tooltip("Send text to put it in the field.")]
         [InputSignal, Parameter("Text", typeof(string))]
         public readonly SignalHandle<string> SetText;
 
+        [Tooltip("Empties the field.")]
         [InputSignal]
         public readonly SignalHandle Clear;
 

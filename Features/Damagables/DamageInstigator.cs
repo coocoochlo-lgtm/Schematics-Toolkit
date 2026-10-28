@@ -13,7 +13,7 @@ namespace Remedy.Damagables
         [InputSignal] public readonly SignalHandle Instigate;
         [OutputSignal] [NetworkSync(SignalSender.Authority)] public readonly SignalHandle OnInstigation;
 
-        [SchematicDoc(@"{""name"": ""Data"", ""kind"": ""variable"", ""behavior"": ""Damage Instigator"", ""type"": ""DamageInstigationData"", ""default"": ""null"", ""description"": ""Data (DamageInstigationData) of Damage Instigator.""}")]
+        [SchematicDoc(@"{""name"": ""Data"", ""kind"": ""variable"", ""behavior"": ""Damage Instigator"", ""type"": ""DamageInstigationData"", ""default"": ""null"", ""description"": ""Its settings asset: how much damage, over how long, in what radius, on contact or when Instigate is sent.""}")]
         public readonly VariableHandle<DamageInstigationData> Data = (DamageInstigationData)null;
 
         protected override void OnStart()

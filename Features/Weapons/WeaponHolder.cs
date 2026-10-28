@@ -29,7 +29,7 @@ namespace Remedy.Weapons
         [InputSignal, Parameter("Aim", typeof(Vector3))]
         public readonly SignalHandle<Vector3> AimInput;
 
-        [SchematicDoc(@"{""name"": ""AimBones"", ""kind"": ""variable"", ""behavior"": ""Weapon Holder"", ""type"": ""AimBone[]"", ""default"": ""null"", ""description"": ""Aim Bones (AimBone[]) of Weapon Holder.""}")]
+        [SchematicDoc(@"{""name"": ""AimBones"", ""kind"": ""variable"", ""behavior"": ""Weapon Holder"", ""type"": ""AimBone[]"", ""default"": ""null"", ""description"": ""Bones that turn towards where it aims (a spine, a neck, arms), and how much each one turns.""}")]
         public readonly VariableHandle<AimBone[]> AimBones = (AimBone[])null;
 
         // The way a Weapon fills sockets is based on the number of (and SocketIndex of) WeaponHandles that are applied to the Weapon Prefab.

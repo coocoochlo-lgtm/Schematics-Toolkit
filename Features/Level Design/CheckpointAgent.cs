@@ -12,7 +12,7 @@ namespace Remedy.LevelDesign
     [SchematicBehaviorPath("Level Design/Checkpoint Agent")]
     public class CheckpointAgent : SchematicBehavior
     {
-        [SchematicDoc(@"{""name"": ""Respawn"", ""kind"": ""signal"", ""behavior"": ""Checkpoint Agent"", ""direction"": ""input"", ""params"": [{""name"": ""Position"", ""type"": ""Vector3""}], ""description"": ""Tells Checkpoint Agent to act."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
+        [SchematicDoc(@"{""name"": ""Respawn"", ""kind"": ""signal"", ""behavior"": ""Checkpoint Agent"", ""direction"": ""input"", ""params"": [{""name"": ""Position"", ""type"": ""Vector3""}], ""description"": ""Send a position to move the object's body there and stop it (back to a checkpoint)."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
         [InputSignal]
         [Parameter("Position", typeof(Vector3))]
         [NetworkSync(SignalSender.Authority)]

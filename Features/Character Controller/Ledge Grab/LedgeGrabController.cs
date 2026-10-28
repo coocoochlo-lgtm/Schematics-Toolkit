@@ -13,25 +13,27 @@ namespace Remedy.CharacterControllers.LedgeGrab
     [SchematicBehaviorPath("Movement/3D/Ledge Grab Controller")]
     public class LedgeGrabController : SchematicBehavior
     {
+        [Tooltip("Move input (linked to the Motion Context's): steers along the ledge, or lets go when pulled away from it.")]
         [SchematicEventLink(typeof(CharacterMotionContext), nameof(CharacterMotionContext.MoveInput))]
         public readonly SignalHandle<Vector2> MoveInput;
+        [Tooltip("Jump input (linked to the Motion Context's): clambers up onto the ledge.")]
         [SchematicEventLink(typeof(CharacterMotionContext), nameof(CharacterMotionContext.JumpInput))]
         public readonly SignalHandle<bool> JumpInput;
-        [SchematicDoc(@"{""name"": ""OnClamber"", ""kind"": ""signal"", ""behavior"": ""Ledge Grab Controller"", ""direction"": ""output"", ""description"": ""Sent by Ledge Grab Controller when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
+        [SchematicDoc(@"{""name"": ""OnClamber"", ""kind"": ""signal"", ""behavior"": ""Ledge Grab Controller"", ""direction"": ""output"", ""description"": ""Sent when the character clambers up onto the ledge."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [OutputSignal]
         public readonly SignalHandle OnClamber;
-        [SchematicDoc(@"{""name"": ""OnLedgeGrabExitted"", ""kind"": ""signal"", ""behavior"": ""Ledge Grab Controller"", ""direction"": ""output"", ""description"": ""Sent by Ledge Grab Controller when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
+        [SchematicDoc(@"{""name"": ""OnLedgeGrabExitted"", ""kind"": ""signal"", ""behavior"": ""Ledge Grab Controller"", ""direction"": ""output"", ""description"": ""Sent when the character lets go of the ledge (or clambers up)."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [OutputSignal]
         public readonly SignalHandle OnLedgeGrabExitted;
 
-        [SchematicDoc(@"{""name"": ""Properties"", ""kind"": ""variable"", ""behavior"": ""Ledge Grab Controller"", ""type"": ""LedgeGrabControllerProperties"", ""default"": ""null"", ""description"": ""Properties (LedgeGrabControllerProperties) of Ledge Grab Controller.""}")]
+        [SchematicDoc(@"{""name"": ""Properties"", ""kind"": ""variable"", ""behavior"": ""Ledge Grab Controller"", ""type"": ""LedgeGrabControllerProperties"", ""default"": ""null"", ""description"": ""Its settings asset: how far it reaches for ledges, how fast it shuffles and climbs.""}")]
         public readonly VariableHandle<LedgeGrabControllerProperties> Properties = (LedgeGrabControllerProperties)null;
 
-        [SchematicDoc(@"{""name"": ""FacingRotation"", ""kind"": ""variable"", ""behavior"": ""Ledge Grab Controller"", ""type"": ""Quaternion"", ""default"": ""Quaternion.identity"", ""description"": ""Facing Rotation (Quaternion) of Ledge Grab Controller.""}")]
+        [SchematicDoc(@"{""name"": ""FacingRotation"", ""kind"": ""variable"", ""behavior"": ""Ledge Grab Controller"", ""type"": ""Quaternion"", ""default"": ""Quaternion.identity"", ""description"": ""The way the character faces while hanging (towards the wall).""}")]
         public readonly VariableHandle<Quaternion> FacingRotation = Quaternion.identity;
 
         public enum WallSide { Left, Right }
-        [SchematicDoc(@"{""name"": ""CurrentWallSide"", ""kind"": ""variable"", ""behavior"": ""Ledge Grab Controller"", ""type"": ""WallSide"", ""default"": ""WallSide.Left"", ""description"": ""Current Wall Side (WallSide) of Ledge Grab Controller.""}")]
+        [SchematicDoc(@"{""name"": ""CurrentWallSide"", ""kind"": ""variable"", ""behavior"": ""Ledge Grab Controller"", ""type"": ""WallSide"", ""default"": ""WallSide.Left"", ""description"": ""Which side of the character the wall is on.""}")]
         public readonly VariableHandle<WallSide> CurrentWallSide = WallSide.Left;
 
         private readonly VariableHandle<RaycastHit> _lastWallHit = default(RaycastHit);

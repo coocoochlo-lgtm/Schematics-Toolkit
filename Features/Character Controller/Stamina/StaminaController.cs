@@ -22,8 +22,8 @@ namespace Remedy.CharacterControllers.Stamina
         [Tooltip("Passes the amount that was consumed")]
         [OutputSignal, Parameter("Amount", typeof(float))]
         public readonly SignalHandle<float> OnStaminaConsumed;
-        [SchematicDoc(@"{""name"": ""OnStaminaChanged"", ""kind"": ""signal"", ""behavior"": ""Stamina Controller"", ""direction"": ""output"", ""params"": [{""name"": ""Stamina"", ""type"": ""float""}], ""description"": ""Passes the current amount of stamina"", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
-        [Tooltip("Passes the current amount of stamina")]
+        [SchematicDoc(@"{""name"": ""OnStaminaChanged"", ""kind"": ""signal"", ""behavior"": ""Stamina Controller"", ""direction"": ""output"", ""params"": [{""name"": ""Stamina"", ""type"": ""float""}], ""description"": ""Sent whenever stamina changes, with how much is left: drive a stamina bar from it."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
+        [Tooltip("Sent whenever stamina changes, with how much is left: drive a stamina bar from it.")]
         [OutputSignal, Parameter("Stamina", typeof(float))]
         public readonly SignalHandle<float> OnStaminaChanged;
         [SchematicDoc(@"{""name"": ""OnStaminaDrained"", ""kind"": ""signal"", ""behavior"": ""Stamina Controller"", ""direction"": ""output"", ""description"": ""Triggered when the Controller runs out of Stamina"", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
@@ -32,12 +32,12 @@ namespace Remedy.CharacterControllers.Stamina
         [NetworkSync(SignalSender.Authority)]
         public readonly SignalHandle OnStaminaDrained;
 
-        [SchematicDoc(@"{""name"": ""Properties"", ""kind"": ""variable"", ""behavior"": ""Stamina Controller"", ""type"": ""StaminaProperties"", ""default"": ""null"", ""description"": ""Properties (StaminaProperties) of Stamina Controller.""}")]
+        [SchematicDoc(@"{""name"": ""Properties"", ""kind"": ""variable"", ""behavior"": ""Stamina Controller"", ""type"": ""StaminaProperties"", ""default"": ""null"", ""description"": ""Its settings asset: the most stamina it can hold, how fast it refills, and how long after use it waits to refill.""}")]
         public readonly VariableHandle<StaminaProperties> Properties = (StaminaProperties)null;
 
-        [SchematicDoc(@"{""name"": ""Regenerating"", ""kind"": ""variable"", ""behavior"": ""Stamina Controller"", ""type"": ""bool"", ""default"": ""false"", ""description"": ""Regenerating (bool) of Stamina Controller.""}")]
+        [SchematicDoc(@"{""name"": ""Regenerating"", ""kind"": ""variable"", ""behavior"": ""Stamina Controller"", ""type"": ""bool"", ""default"": ""false"", ""description"": ""True while stamina is refilling.""}")]
         public readonly VariableHandle<bool> Regenerating = false;
-        [SchematicDoc(@"{""name"": ""Stamina"", ""kind"": ""variable"", ""behavior"": ""Stamina Controller"", ""type"": ""float"", ""default"": ""100f"", ""description"": ""Stamina (float) of Stamina Controller.""}")]
+        [SchematicDoc(@"{""name"": ""Stamina"", ""kind"": ""variable"", ""behavior"": ""Stamina Controller"", ""type"": ""float"", ""default"": ""100f"", ""description"": ""How much stamina is left right now.""}")]
         [NetworkSync]
         public readonly VariableHandle<float> Stamina = 100f;
 

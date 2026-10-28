@@ -12,9 +12,9 @@ namespace Remedy.Splines
     [RequireBehavior(typeof(SplineAgent))]
     public class OnRailsRig : SchematicBehavior
     {
-        [SchematicDoc(@"{""name"": ""Camera"", ""kind"": ""variable"", ""behavior"": ""On Rails Rig"", ""type"": ""Camera"", ""default"": ""null"", ""description"": ""Camera (Camera) of On Rails Rig.""}")]
+        [SchematicDoc(@"{""name"": ""Camera"", ""kind"": ""variable"", ""behavior"": ""On Rails Rig"", ""type"": ""Camera"", ""default"": ""null"", ""description"": ""The camera carried along the rails (the ship stays on screen in front of it).""}")]
         public readonly VariableHandle<Camera> Camera = (Camera)null;
-        [SchematicDoc(@"{""name"": ""Ship"", ""kind"": ""variable"", ""behavior"": ""On Rails Rig"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""Ship (Transform) of On Rails Rig.""}")]
+        [SchematicDoc(@"{""name"": ""Ship"", ""kind"": ""variable"", ""behavior"": ""On Rails Rig"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""The ship (or character) that moves freely on the plane in front of the camera.""}")]
         public readonly VariableHandle<Transform> Ship = (Transform)null;
 
         [SchematicDoc(@"{""name"": ""ShipDepth"", ""kind"": ""variable"", ""behavior"": ""On Rails Rig"", ""type"": ""float"", ""default"": ""12f"", ""description"": ""How far in front of the camera the ship flies.""}")]
@@ -49,7 +49,7 @@ namespace Remedy.Splines
         private readonly VariableHandle<Vector2> _tilt = Vector2.zero;
         private readonly VariableHandle<Vector3> _cameraHome = Vector3.zero;
 
-        [SchematicDoc(@"{""name"": ""MoveInput"", ""kind"": ""signal"", ""behavior"": ""On Rails Rig"", ""direction"": ""input"", ""params"": [{""name"": ""Value"", ""type"": ""Vector2""}], ""description"": ""Tells On Rails Rig to act."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
+        [SchematicDoc(@"{""name"": ""MoveInput"", ""kind"": ""signal"", ""behavior"": ""On Rails Rig"", ""direction"": ""input"", ""params"": [{""name"": ""Value"", ""type"": ""Vector2""}], ""description"": ""Move input: steers the ship around the screen (x left/right, y up/down)."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
         [InputSignal, Parameter("Value", typeof(Vector2))]
         public readonly SignalHandle<Vector2> MoveInput;
 

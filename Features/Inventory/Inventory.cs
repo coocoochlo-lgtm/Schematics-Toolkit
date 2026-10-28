@@ -21,13 +21,14 @@ namespace Remedy.Inventories
         [OutputSignal] public readonly SignalHandle OnInventoryChanged;
         [OutputSignal, Parameter("Index", typeof(int))] public readonly SignalHandle<int> OnSetActiveItem;
         [OutputSignal, Parameter("Item ID", typeof(int))] public readonly SignalHandle<int> OnItemAdded;
+        [Tooltip("Sent when an item is taken out of the inventory, with its ID.")]
         [OutputSignal, Parameter("Item ID", typeof(int))] public readonly SignalHandle<int> OnItemRemoved;
 
         [SchematicDoc(@"{""name"": ""StartingData"", ""kind"": ""variable"", ""behavior"": ""Inventory"", ""type"": ""InventoryData"", ""default"": ""null"", ""description"": ""The Inventory asset this object starts with. Copied per spawn.""}")]
         [Tooltip("The Inventory asset this object starts with. Copied per spawn.")]
         public readonly VariableHandle<InventoryData> StartingData = (InventoryData)null;
 
-        [SchematicDoc(@"{""name"": ""NavigationModes"", ""kind"": ""variable"", ""behavior"": ""Inventory"", ""type"": ""NavigationMode[]"", ""default"": ""null"", ""description"": ""Navigation Modes (NavigationMode[]) of Inventory.""}")]
+        [SchematicDoc(@"{""name"": ""NavigationModes"", ""kind"": ""variable"", ""behavior"": ""Inventory"", ""type"": ""NavigationMode[]"", ""default"": ""null"", ""description"": ""How the player moves between items (next and previous, a number per slot, a scroll wheel...).""}")]
         public readonly VariableHandle<NavigationMode[]> NavigationModes = (NavigationMode[])null;
 
         // This spawn's own copy of StartingData.

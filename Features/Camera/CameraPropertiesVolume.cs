@@ -16,21 +16,21 @@ namespace Remedy.Cameras
     [RequireComponent(typeof(BoxCollider))]
     public class CameraPropertiesVolume : SchematicBehavior
     {
-        [SchematicDoc(@"{""name"": ""ChangeZoom"", ""kind"": ""variable"", ""behavior"": ""Camera Properties Volume"", ""type"": ""bool"", ""default"": ""false"", ""description"": ""Change Zoom (bool) of Camera Properties Volume.""}")]
+        [SchematicDoc(@"{""name"": ""ChangeZoom"", ""kind"": ""variable"", ""behavior"": ""Camera Properties Volume"", ""type"": ""bool"", ""default"": ""false"", ""description"": ""Change how far away the camera sits while inside the volume.""}")]
         public readonly VariableHandle<bool> ChangeZoom = false;
-        [SchematicDoc(@"{""name"": ""Zoom"", ""kind"": ""variable"", ""behavior"": ""Camera Properties Volume"", ""type"": ""float"", ""default"": ""15f"", ""description"": ""Zoom (float) of Camera Properties Volume.""}")]
+        [SchematicDoc(@"{""name"": ""Zoom"", ""kind"": ""variable"", ""behavior"": ""Camera Properties Volume"", ""type"": ""float"", ""default"": ""15f"", ""description"": ""How far away the camera sits inside the volume (meters), when Change Zoom is on.""}")]
         public readonly VariableHandle<float> Zoom = 15f;
-        [SchematicDoc(@"{""name"": ""ChangeFOV"", ""kind"": ""variable"", ""behavior"": ""Camera Properties Volume"", ""type"": ""bool"", ""default"": ""false"", ""description"": ""Change FOV (bool) of Camera Properties Volume.""}")]
+        [SchematicDoc(@"{""name"": ""ChangeFOV"", ""kind"": ""variable"", ""behavior"": ""Camera Properties Volume"", ""type"": ""bool"", ""default"": ""false"", ""description"": ""Change the camera's field of view while inside the volume.""}")]
         public readonly VariableHandle<bool> ChangeFOV = false;
-        [SchematicDoc(@"{""name"": ""FOV"", ""kind"": ""variable"", ""behavior"": ""Camera Properties Volume"", ""type"": ""float"", ""default"": ""60f"", ""description"": ""FOV (float) of Camera Properties Volume.""}")]
+        [SchematicDoc(@"{""name"": ""FOV"", ""kind"": ""variable"", ""behavior"": ""Camera Properties Volume"", ""type"": ""float"", ""default"": ""60f"", ""description"": ""The field of view inside the volume (degrees: lower zooms in, higher is wider), when Change FOV is on.""}")]
         public readonly VariableHandle<float> FOV = 60f;
-        [SchematicDoc(@"{""name"": ""ChangeRestingAngle"", ""kind"": ""variable"", ""behavior"": ""Camera Properties Volume"", ""type"": ""bool"", ""default"": ""false"", ""description"": ""Change Resting Angle (bool) of Camera Properties Volume.""}")]
+        [SchematicDoc(@"{""name"": ""ChangeRestingAngle"", ""kind"": ""variable"", ""behavior"": ""Camera Properties Volume"", ""type"": ""bool"", ""default"": ""false"", ""description"": ""Change the angle the camera settles back to while inside the volume.""}")]
         public readonly VariableHandle<bool> ChangeRestingAngle = false;
-        [SchematicDoc(@"{""name"": ""RestingAngle"", ""kind"": ""variable"", ""behavior"": ""Camera Properties Volume"", ""type"": ""float"", ""default"": ""60f"", ""description"": ""Resting Angle (float) of Camera Properties Volume.""}")]
+        [SchematicDoc(@"{""name"": ""RestingAngle"", ""kind"": ""variable"", ""behavior"": ""Camera Properties Volume"", ""type"": ""float"", ""default"": ""60f"", ""description"": ""The angle the camera settles to inside the volume (degrees, looking down), when Change Resting Angle is on.""}")]
         public readonly VariableHandle<float> RestingAngle = 60f;
-        [SchematicDoc(@"{""name"": ""UseReferenceCam"", ""kind"": ""variable"", ""behavior"": ""Camera Properties Volume"", ""type"": ""bool"", ""default"": ""false"", ""description"": ""Use Reference Cam (bool) of Camera Properties Volume.""}")]
+        [SchematicDoc(@"{""name"": ""UseReferenceCam"", ""kind"": ""variable"", ""behavior"": ""Camera Properties Volume"", ""type"": ""bool"", ""default"": ""false"", ""description"": ""Line the camera up with a placed reference camera while inside the volume (for a fixed, framed shot).""}")]
         public readonly VariableHandle<bool> UseReferenceCam = false;
-        [SchematicDoc(@"{""name"": ""ReferenceCamera"", ""kind"": ""variable"", ""behavior"": ""Camera Properties Volume"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""Reference Camera (Transform) of Camera Properties Volume.""}")]
+        [SchematicDoc(@"{""name"": ""ReferenceCamera"", ""kind"": ""variable"", ""behavior"": ""Camera Properties Volume"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""The placed camera to match while Use Reference Cam is on.""}")]
         public readonly VariableHandle<Transform> ReferenceCamera = (Transform)null;
         [SchematicDoc(@"{""name"": ""ReferenceCamPositionMask"", ""kind"": ""variable"", ""behavior"": ""Camera Properties Volume"", ""type"": ""Vector3Bool"", ""default"": ""Vector3Bool.False"", ""description"": ""A mask to applied to copying the position of the Reference Camera""}")]
         [Tooltip("A mask to applied to copying the position of the Reference Camera")]

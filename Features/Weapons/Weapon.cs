@@ -47,7 +47,7 @@ namespace Remedy.Weapons
         [SchematicDoc(@"{""name"": ""PrimaryHandle"", ""kind"": ""variable"", ""behavior"": ""Weapon"", ""type"": ""WeaponHandle"", ""default"": ""null"", ""description"": ""The handles of the Weapon, used to place the Weapon into a Weapon Holder's Weapon Socket.""}")]
         [Tooltip("The handles of the Weapon, used to place the Weapon into a Weapon Holder's Weapon Socket.")]
         public readonly VariableHandle<WeaponHandle> PrimaryHandle = (WeaponHandle)null;
-        [SchematicDoc(@"{""name"": ""SecondHandle"", ""kind"": ""variable"", ""behavior"": ""Weapon"", ""type"": ""WeaponHandle"", ""default"": ""null"", ""description"": ""Second Handle (WeaponHandle) of Weapon.""}")]
+        [SchematicDoc(@"{""name"": ""SecondHandle"", ""kind"": ""variable"", ""behavior"": ""Weapon"", ""type"": ""WeaponHandle"", ""default"": ""null"", ""description"": ""Where the second hand holds the weapon (for two-handed weapons; empty for one-handed).""}")]
         public readonly VariableHandle<WeaponHandle> SecondHandle = (WeaponHandle)null;
 
         // Muzzles are paired with their FireModes here (received from the Weapon Data). When a WeaponHolder fires or
@@ -74,11 +74,11 @@ namespace Remedy.Weapons
         [SchematicDoc(@"{""name"": ""WeaponHolderRigidbody"", ""kind"": ""variable"", ""behavior"": ""Weapon"", ""type"": ""Rigidbody"", ""default"": ""null"", ""description"": ""The Rigidbody of the WeaponHolder""}")]
         [Tooltip("The Rigidbody of the WeaponHolder")]
         public readonly VariableHandle<Rigidbody> WeaponHolderRigidbody = (Rigidbody)null;
-        [SchematicDoc(@"{""name"": ""AttackDirection"", ""kind"": ""variable"", ""behavior"": ""Weapon"", ""type"": ""Vector3"", ""default"": ""Vector3.zero"", ""description"": ""Attack Direction (Vector3) of Weapon.""}")]
+        [SchematicDoc(@"{""name"": ""AttackDirection"", ""kind"": ""variable"", ""behavior"": ""Weapon"", ""type"": ""Vector3"", ""default"": ""Vector3.zero"", ""description"": ""The direction it fires or swings in (set by whoever holds it, usually from where they aim).""}")]
         public readonly VariableHandle<Vector3> AttackDirection = Vector3.zero;
 
         // TODO: Replace with a system that logs prefab ID's in Weapon Data to make Weapon Systems more clear.
-        [SchematicDoc(@"{""name"": ""ID"", ""kind"": ""variable"", ""behavior"": ""Weapon"", ""type"": ""int"", ""default"": ""0"", ""description"": ""ID (int) of Weapon.""}")]
+        [SchematicDoc(@"{""name"": ""ID"", ""kind"": ""variable"", ""behavior"": ""Weapon"", ""type"": ""int"", ""default"": ""0"", ""description"": ""The weapon's ID number (matches its item in an Inventory).""}")]
         public readonly VariableHandle<int> ID = 0;
 
         private readonly VariableHandle<Quaternion> _aimTarget = Quaternion.identity;

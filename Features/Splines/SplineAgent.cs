@@ -23,16 +23,16 @@ namespace Remedy.Splines
         [SchematicDoc(@"{""name"": ""StartAtClosestPoint"", ""kind"": ""variable"", ""behavior"": ""Spline Agent"", ""type"": ""bool"", ""default"": ""true"", ""description"": ""Start at the closest point to where the object is, instead of at Start Percent.""}")]
         [Tooltip("Start at the closest point to where the object is, instead of at Start Percent.")]
         public readonly VariableHandle<bool> StartAtClosestPoint = true;
-        [SchematicDoc(@"{""name"": ""StartPercent"", ""kind"": ""variable"", ""behavior"": ""Spline Agent"", ""type"": ""double"", ""default"": ""0.0"", ""description"": ""Start Percent (double) of Spline Agent.""}")]
+        [SchematicDoc(@"{""name"": ""StartPercent"", ""kind"": ""variable"", ""behavior"": ""Spline Agent"", ""type"": ""double"", ""default"": ""0.0"", ""description"": ""Where along the spline it starts: 0 the start, 1 the end, 0.5 halfway.""}")]
         public readonly VariableHandle<double> StartPercent = 0.0;
 
         [SchematicDoc(@"{""name"": ""Speed"", ""kind"": ""variable"", ""behavior"": ""Spline Agent"", ""type"": ""float"", ""default"": ""5f"", ""description"": ""Units per second along the spline. Negative goes backwards.""}")]
         [Tooltip("Units per second along the spline. Negative goes backwards.")]
         [NetworkSync]
         public readonly VariableHandle<float> Speed = 5f;
-        [SchematicDoc(@"{""name"": ""Wrap"", ""kind"": ""variable"", ""behavior"": ""Spline Agent"", ""type"": ""SplineWrap"", ""default"": ""SplineWrap.Clamp"", ""description"": ""Wrap (SplineWrap) of Spline Agent.""}")]
+        [SchematicDoc(@"{""name"": ""Wrap"", ""kind"": ""variable"", ""behavior"": ""Spline Agent"", ""type"": ""SplineWrap"", ""default"": ""SplineWrap.Clamp"", ""description"": ""What happens at the end: Clamp stops there, Loop starts again from the other end, Ping Pong turns around.""}")]
         public readonly VariableHandle<SplineWrap> Wrap = SplineWrap.Clamp;
-        [SchematicDoc(@"{""name"": ""Paused"", ""kind"": ""variable"", ""behavior"": ""Spline Agent"", ""type"": ""bool"", ""default"": ""false"", ""description"": ""Paused (bool) of Spline Agent.""}")]
+        [SchematicDoc(@"{""name"": ""Paused"", ""kind"": ""variable"", ""behavior"": ""Spline Agent"", ""type"": ""bool"", ""default"": ""false"", ""description"": ""Stay still instead of moving along the spline.""}")]
         [NetworkSync]
         public readonly VariableHandle<bool> Paused = false;
         [SchematicDoc(@"{""name"": ""FaceAlongSpline"", ""kind"": ""variable"", ""behavior"": ""Spline Agent"", ""type"": ""bool"", ""default"": ""true"", ""description"": ""Turn the object to face along the spline.""}")]
@@ -50,27 +50,27 @@ namespace Remedy.Splines
         public readonly VariableHandle<double> Percent = 0.0;
         private readonly VariableHandle<bool> _atEnd = false;
 
-        [SchematicDoc(@"{""name"": ""SetSpeed"", ""kind"": ""signal"", ""behavior"": ""Spline Agent"", ""direction"": ""input"", ""params"": [{""name"": ""Speed"", ""type"": ""float""}], ""description"": ""Tells Spline Agent to act."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
+        [SchematicDoc(@"{""name"": ""SetSpeed"", ""kind"": ""signal"", ""behavior"": ""Spline Agent"", ""direction"": ""input"", ""params"": [{""name"": ""Speed"", ""type"": ""float""}], ""description"": ""Send a speed (meters per second; negative goes backwards) to change how fast it moves."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
         [InputSignal, Parameter("Speed", typeof(float))]
         public readonly SignalHandle<float> SetSpeed;
-        [SchematicDoc(@"{""name"": ""SetPercent"", ""kind"": ""signal"", ""behavior"": ""Spline Agent"", ""direction"": ""input"", ""params"": [{""name"": ""Percent"", ""type"": ""float""}], ""description"": ""Tells Spline Agent to act."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
+        [SchematicDoc(@"{""name"": ""SetPercent"", ""kind"": ""signal"", ""behavior"": ""Spline Agent"", ""direction"": ""input"", ""params"": [{""name"": ""Percent"", ""type"": ""float""}], ""description"": ""Send a position along the spline (0 the start, 1 the end) to put it there."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
         [InputSignal, Parameter("Percent", typeof(float))]
         public readonly SignalHandle<float> SetPercent;
-        [SchematicDoc(@"{""name"": ""JumpToSpline"", ""kind"": ""signal"", ""behavior"": ""Spline Agent"", ""direction"": ""input"", ""params"": [{""name"": ""Spline"", ""type"": ""SplineComputer""}], ""description"": ""Tells Spline Agent to act."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
+        [SchematicDoc(@"{""name"": ""JumpToSpline"", ""kind"": ""signal"", ""behavior"": ""Spline Agent"", ""direction"": ""input"", ""params"": [{""name"": ""Spline"", ""type"": ""SplineComputer""}], ""description"": ""Send a spline to move onto it, at its closest point (branching paths)."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
         [InputSignal, Parameter("Spline", typeof(SplineComputer))]
         public readonly SignalHandle<SplineComputer> JumpToSpline;
-        [SchematicDoc(@"{""name"": ""JumpToNearestSpline"", ""kind"": ""signal"", ""behavior"": ""Spline Agent"", ""direction"": ""input"", ""description"": ""Tells Spline Agent to act."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
+        [SchematicDoc(@"{""name"": ""JumpToNearestSpline"", ""kind"": ""signal"", ""behavior"": ""Spline Agent"", ""direction"": ""input"", ""description"": ""Moves it onto the nearest other spline in the scene, at its closest point."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
         [InputSignal]
         public readonly SignalHandle JumpToNearestSpline;
-        [SchematicDoc(@"{""name"": ""SnapToClosestPoint"", ""kind"": ""signal"", ""behavior"": ""Spline Agent"", ""direction"": ""input"", ""description"": ""Tells Spline Agent to act."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
+        [SchematicDoc(@"{""name"": ""SnapToClosestPoint"", ""kind"": ""signal"", ""behavior"": ""Spline Agent"", ""direction"": ""input"", ""description"": ""Moves it to the closest point on its own spline (after something pushed it off)."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
         [InputSignal]
         public readonly SignalHandle SnapToClosestPoint;
 
-        [SchematicDoc(@"{""name"": ""ReachedEnd"", ""kind"": ""signal"", ""behavior"": ""Spline Agent"", ""direction"": ""output"", ""description"": ""Sent by Spline Agent when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
+        [SchematicDoc(@"{""name"": ""ReachedEnd"", ""kind"": ""signal"", ""behavior"": ""Spline Agent"", ""direction"": ""output"", ""description"": ""Sent when it reaches the end of the spline (each end, with Ping Pong; each lap, with Loop)."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [OutputSignal]
         [NetworkSync(SignalSender.Authority)]
         public readonly SignalHandle ReachedEnd;
-        [SchematicDoc(@"{""name"": ""ChangedSpline"", ""kind"": ""signal"", ""behavior"": ""Spline Agent"", ""direction"": ""output"", ""params"": [{""name"": ""Spline"", ""type"": ""SplineComputer""}], ""description"": ""Sent by Spline Agent when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
+        [SchematicDoc(@"{""name"": ""ChangedSpline"", ""kind"": ""signal"", ""behavior"": ""Spline Agent"", ""direction"": ""output"", ""params"": [{""name"": ""Spline"", ""type"": ""SplineComputer""}], ""description"": ""Sent when it moves onto another spline, with that spline."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
         [OutputSignal, Parameter("Spline", typeof(SplineComputer))]
         public readonly SignalHandle<SplineComputer> ChangedSpline;
 

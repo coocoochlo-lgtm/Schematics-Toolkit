@@ -25,7 +25,7 @@ namespace Remedy.Audio
         [SchematicDoc(@"{""name"": ""SelectionMode"", ""kind"": ""variable"", ""behavior"": ""Sound Cue"", ""type"": ""SelectionMode"", ""default"": ""Audio.SelectionMode.Random"", ""description"": ""The way in which Audio Definitions are picked for Playback.""}")]
         [Tooltip("The way in which Audio Definitions are picked for Playback.")]
         public readonly VariableHandle<SelectionMode> SelectionMode = Audio.SelectionMode.Random;
-        [SchematicDoc(@"{""name"": ""SequenceDelay"", ""kind"": ""variable"", ""behavior"": ""Sound Cue"", ""type"": ""float"", ""default"": ""0f"", ""description"": ""Sequence Delay (float) of Sound Cue.""}")]
+        [SchematicDoc(@"{""name"": ""SequenceDelay"", ""kind"": ""variable"", ""behavior"": ""Sound Cue"", ""type"": ""float"", ""default"": ""0f"", ""description"": ""Seconds between one sound and the next when it plays its list in sequence.""}")]
         public readonly VariableHandle<float> SequenceDelay = 0f;
         [SchematicDoc(@"{""name"": ""PlaybackMode"", ""kind"": ""variable"", ""behavior"": ""Sound Cue"", ""type"": ""PlaybackMode"", ""default"": ""Audio.PlaybackMode.OnStart"", ""description"": ""When an AudioDefinition is played""}")]
         [Tooltip("When an AudioDefinition is played")]
@@ -53,12 +53,12 @@ namespace Remedy.Audio
         [SchematicDoc(@"{""name"": ""FadeIn"", ""kind"": ""variable"", ""behavior"": ""Sound Cue"", ""type"": ""bool"", ""default"": ""false"", ""description"": ""When the Audio is told to Play, it will fade in instead of stopping immidiately""}")]
         [Tooltip("When the Audio is told to Play, it will fade in instead of stopping immidiately")]
         public readonly VariableHandle<bool> FadeIn = false;
-        [SchematicDoc(@"{""name"": ""FadeInTime"", ""kind"": ""variable"", ""behavior"": ""Sound Cue"", ""type"": ""float"", ""default"": ""0.1f"", ""description"": ""Fade In Time (float) of Sound Cue.""}")]
+        [SchematicDoc(@"{""name"": ""FadeInTime"", ""kind"": ""variable"", ""behavior"": ""Sound Cue"", ""type"": ""float"", ""default"": ""0.1f"", ""description"": ""Seconds to fade in when it starts (0 starts at full volume straight away).""}")]
         public readonly VariableHandle<float> FadeInTime = 0.1f;
         [SchematicDoc(@"{""name"": ""FadeOut"", ""kind"": ""variable"", ""behavior"": ""Sound Cue"", ""type"": ""bool"", ""default"": ""false"", ""description"": ""When the Audio is told to stop, it will fade out instead of stopping immidiately.""}")]
         [Tooltip("When the Audio is told to stop, it will fade out instead of stopping immidiately.")]
         public readonly VariableHandle<bool> FadeOut = false;
-        [SchematicDoc(@"{""name"": ""FadeOuttime"", ""kind"": ""variable"", ""behavior"": ""Sound Cue"", ""type"": ""float"", ""default"": ""0.1f"", ""description"": ""Fade Outtime (float) of Sound Cue.""}")]
+        [SchematicDoc(@"{""name"": ""FadeOuttime"", ""kind"": ""variable"", ""behavior"": ""Sound Cue"", ""type"": ""float"", ""default"": ""0.1f"", ""description"": ""Seconds to fade out when it's stopped (0 cuts off at once).""}")]
         public readonly VariableHandle<float> FadeOuttime = 0.1f;
 
         public bool IsMusic => Type.Value == AudioType.Music;

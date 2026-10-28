@@ -18,37 +18,37 @@ using UnityEngine;
 public class CharacterMotionContext : SchematicBehavior
 {
     // IO
-    [SchematicDoc(@"{""name"": ""JumpInput"", ""kind"": ""signal"", ""behavior"": ""Character Motion Context"", ""direction"": ""input"", ""params"": [{""name"": ""Value"", ""type"": ""bool""}], ""description"": ""Tells Character Motion Context to act."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
+    [SchematicDoc(@"{""name"": ""JumpInput"", ""kind"": ""signal"", ""behavior"": ""Character Motion Context"", ""direction"": ""input"", ""params"": [{""name"": ""Value"", ""type"": ""bool""}], ""description"": ""Jump input: send true when the jump button is pressed, false when it's let go (link it to an Input Map's jump)."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
     [InputSignal]
     [Parameter("Value", typeof(bool))]
     public readonly SignalHandle<bool> JumpInput;
-    [SchematicDoc(@"{""name"": ""MoveInput"", ""kind"": ""signal"", ""behavior"": ""Character Motion Context"", ""direction"": ""input"", ""params"": [{""name"": ""Value"", ""type"": ""Vector2""}], ""description"": ""Tells Character Motion Context to act."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
+    [SchematicDoc(@"{""name"": ""MoveInput"", ""kind"": ""signal"", ""behavior"": ""Character Motion Context"", ""direction"": ""input"", ""params"": [{""name"": ""Value"", ""type"": ""Vector2""}], ""description"": ""Move input: x left/right, y forward/back, each -1 to 1 (link it to an Input Map's move stick or keys). Movement is relative to the camera."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
     [InputSignal]
     [Parameter("Value", typeof(Vector2))]
     public readonly SignalHandle<Vector2> MoveInput;
-    [SchematicDoc(@"{""name"": ""StaminaUpdated"", ""kind"": ""signal"", ""behavior"": ""Character Motion Context"", ""direction"": ""input"", ""params"": [{""name"": ""Amount"", ""type"": ""float""}], ""description"": ""Tells Character Motion Context to act."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
+    [SchematicDoc(@"{""name"": ""StaminaUpdated"", ""kind"": ""signal"", ""behavior"": ""Character Motion Context"", ""direction"": ""input"", ""params"": [{""name"": ""Amount"", ""type"": ""float""}], ""description"": ""The character's current stamina (from a Stamina Controller): movement that costs stamina stops when it runs out."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
     [InputSignal]
     [Parameter("Amount", typeof(float))]
     public readonly SignalHandle<float> StaminaUpdated;
-    [SchematicDoc(@"{""name"": ""SetDirectionOfGravity"", ""kind"": ""signal"", ""behavior"": ""Character Motion Context"", ""direction"": ""input"", ""params"": [{""name"": ""Direction"", ""type"": ""Vector3""}], ""description"": ""Tells Character Motion Context to act."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
+    [SchematicDoc(@"{""name"": ""SetDirectionOfGravity"", ""kind"": ""signal"", ""behavior"": ""Character Motion Context"", ""direction"": ""input"", ""params"": [{""name"": ""Direction"", ""type"": ""Vector3""}], ""description"": ""Send a direction to make gravity pull that way for this character (walking on walls or ceilings)."", ""how"": ""Send it with a Send a Signal node (drag it from the IO Dock) to make the Behavior act.""}")]
     [InputSignal]
     [Parameter("Direction", typeof(Vector3))]
     public readonly SignalHandle<Vector3> SetDirectionOfGravity;
 
-    [SchematicDoc(@"{""name"": ""OnJump"", ""kind"": ""signal"", ""behavior"": ""Character Motion Context"", ""direction"": ""output"", ""description"": ""Sent by Character Motion Context when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
+    [SchematicDoc(@"{""name"": ""OnJump"", ""kind"": ""signal"", ""behavior"": ""Character Motion Context"", ""direction"": ""output"", ""description"": ""Sent when the character jumps: play a jump sound or animation."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
     [OutputSignal]
     [NetworkSync(SignalSender.OwnerToAuthority)]
     public readonly SignalHandle OnJump;
-    [SchematicDoc(@"{""name"": ""OnMoveOnGround"", ""kind"": ""signal"", ""behavior"": ""Character Motion Context"", ""direction"": ""output"", ""params"": [{""name"": ""Velocity"", ""type"": ""Vector3""}], ""description"": ""Sent by Character Motion Context when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
+    [SchematicDoc(@"{""name"": ""OnMoveOnGround"", ""kind"": ""signal"", ""behavior"": ""Character Motion Context"", ""direction"": ""output"", ""params"": [{""name"": ""Velocity"", ""type"": ""Vector3""}], ""description"": ""Sent while the character moves along the ground, with its velocity: drive footsteps from it."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
     [OutputSignal]
     [Parameter("Velocity", typeof(Vector3))]
     public readonly SignalHandle<Vector3> OnMoveOnGround;
-    [SchematicDoc(@"{""name"": ""OnFall"", ""kind"": ""signal"", ""behavior"": ""Character Motion Context"", ""direction"": ""output"", ""description"": ""Sent by Character Motion Context when it happens."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
+    [SchematicDoc(@"{""name"": ""OnFall"", ""kind"": ""signal"", ""behavior"": ""Character Motion Context"", ""direction"": ""output"", ""description"": ""Sent when the character starts falling (left the ground without jumping)."", ""how"": ""React to it with On Signal Received (drag it from the IO Dock); it fires when the Behavior reports it.""}")]
     [OutputSignal]
     public readonly SignalHandle OnFall;
 
     //Data
-    [SchematicDoc(@"{""name"": ""Properties"", ""kind"": ""variable"", ""behavior"": ""Character Motion Context"", ""type"": ""CharacterMotionProperties"", ""default"": ""null"", ""description"": ""Properties (CharacterMotionProperties) of Character Motion Context.""}")]
+    [SchematicDoc(@"{""name"": ""Properties"", ""kind"": ""variable"", ""behavior"": ""Character Motion Context"", ""type"": ""CharacterMotionProperties"", ""default"": ""null"", ""description"": ""Its settings asset: speeds, acceleration, jump height, spring strength and so on (shared by every character using it).""}")]
     public readonly VariableHandle<CharacterMotionProperties> Properties = (CharacterMotionProperties)null;
 
     /// <summary>Raised with the relative velocity of a collision that pushed the character.</summary>
@@ -58,9 +58,9 @@ public class CharacterMotionContext : SchematicBehavior
     [SchematicDoc(@"{""name"": ""SpringPathFinished"", ""kind"": ""variable"", ""behavior"": ""Character Motion Context"", ""type"": ""Action"", ""default"": ""null"", ""description"": ""Raised each time a point of a spring path is reached.""}")]
     public readonly VariableHandle<Action> SpringPathFinished = (Action)null;
 
-    [SchematicDoc(@"{""name"": ""IsKinematic"", ""kind"": ""variable"", ""behavior"": ""Character Motion Context"", ""type"": ""bool"", ""default"": ""true"", ""description"": ""Is Kinematic (bool) of Character Motion Context.""}")]
+    [SchematicDoc(@"{""name"": ""IsKinematic"", ""kind"": ""variable"", ""behavior"": ""Character Motion Context"", ""type"": ""bool"", ""default"": ""true"", ""description"": ""Move the body directly rather than by physics forces (it isn't pushed around by collisions).""}")]
     public readonly VariableHandle<bool> IsKinematic = true;
-    [SchematicDoc(@"{""name"": ""CameraTransform"", ""kind"": ""variable"", ""behavior"": ""Character Motion Context"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""Camera Transform (Transform) of Character Motion Context.""}")]
+    [SchematicDoc(@"{""name"": ""CameraTransform"", ""kind"": ""variable"", ""behavior"": ""Character Motion Context"", ""type"": ""Transform"", ""default"": ""null"", ""description"": ""The camera that movement is relative to: forward on the stick moves away from it.""}")]
     public readonly VariableHandle<Transform> CameraTransform = (Transform)null;
 
     // Accessors (selected instance)
