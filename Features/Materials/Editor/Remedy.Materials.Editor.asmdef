@@ -1,0 +1,26 @@
+{
+    "name": "Remedy.Materials.Editor",
+    "rootNamespace": "Remedy.Materials",
+    "references": [
+        "Remedy.Materials",
+        "Remedy.Meshes",
+        "Remedy.Meshes.Editor",
+        "GUID:34ab7552608995045bf7108d3c6dd27b",
+        "GUID:6ad709935d36ecb428b55e673bc2ab83",
+        "GUID:c61f7966d20e38f45989bde55b098f00",
+        "GUID:6082862122ef11a49bf208ee4ec62519",
+        "GUID:0a22d72520a82174ab746de6d8876564",
+        "GUID:9cef1c0784dad074282847b193c0d47b"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
