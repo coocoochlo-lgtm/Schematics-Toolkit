@@ -99,8 +99,7 @@ namespace Remedy.Materials
         {
             Undo.RegisterCompleteObjectUndo(graph, "Paint Where This Applies");
             var feeds = output.ConnectedPorts.Where(p => p != null).ToList();
-            var blend = NewNode<BlendMasksNode>($"{node.Name} (Painted)", node.Position + new Vector2(300f, 0f));
-            blend.Mode = MaskBlend.Multiply;
+            var blend = NewNode<MaterialMultiplyNode>($"{node.Name} (Painted)", node.Position + new Vector2(300f, 0f));
             var paint = NewNode<PaintMaskNode>($"Where {node.Name} Goes", node.Position + new Vector2(0f, 260f));
             paint.In = 0f;
             graph.AddNode(blend);
@@ -108,7 +107,7 @@ namespace Remedy.Materials
             foreach (var target in feeds)
             {
                 graph.RemoveEdge(output, target);
-                graph.AddEdge(blend.GetPort(MaterialNode.MaskPort), target);
+                graph.AddEdge(blend.GetPort(MaterialMathNode.ResultPort), target);
             }
             graph.AddEdge(output, blend.GetPort("A"));
             graph.AddEdge(paint.GetPort(MaterialNode.MaskPort), blend.GetPort("B"));

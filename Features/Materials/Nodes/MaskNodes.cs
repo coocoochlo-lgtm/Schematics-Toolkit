@@ -5,6 +5,7 @@
 using BlueGraph;
 using Remedy.Schematics;
 using System;
+using System.Linq;
 using UnityEngine;
 
 namespace Remedy.Materials
@@ -307,9 +308,46 @@ namespace Remedy.Materials
     [SchematicDoc(@"{""name"": ""Blend Masks"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Smart Material/Masks"", ""description"": ""Mixes two masks: Multiply (only where both are: wear only on the top), Add, Subtract (A minus B: wear, but not where it's dusty), Lighten (either), Darken (both), Screen (a softer either), Overlay (B adds contrast to A), Difference. Opacity is how much of the mix is used over A as it was."", ""inputs"": [{""name"": ""A"", ""type"": ""MaskMap""}, {""name"": ""B"", ""type"": ""MaskMap""}], ""outputs"": [{""name"": ""Mask"", ""type"": ""MaskMap""}]}")]
     [Serializable]
     [NodeColor(NodeColors.Math)]
-    [Node(Name = "Blend Masks", Path = "Masks"), Tags(MaterialNode.Tag)]
+    // Replaced by the math nodes (Multiply, Screen, Max...), which work on any kind of value: kept so graphs saved with
+    // it still load, and turned into its math node when the graph opens (when its Opacity is 1 and nothing's wired
+    // into it; otherwise it stays, still working, out of the node search).
+    [Node(Name = "Blend Masks (Old)", Path = "Masks"), Tags(LegacyTag)]
     public sealed class BlendMasksNode : MaterialNode
     {
+        /// <summary>The tag of Smart Material nodes no graph offers any more (not in the node search).</summary>
+        public const string LegacyTag = "Smart Material Legacy";
+
+        public override SchematicGraphNode Replacement()
+        {
+            if (Opacity < 1f || GetPort("Opacity")?.ConnectedPorts.Any(p => p != null) == true)
+                return null;
+            BinaryMaterialMathNode math = Mode switch
+            {
+                MaskBlend.Add => new MaterialAddNode(),
+                MaskBlend.Subtract => new MaterialSubtractNode(),
+                MaskBlend.Lighten => new MaterialMaxNode(),
+                MaskBlend.Darken => new MaterialMinNode(),
+                MaskBlend.Screen => new MaterialScreenNode(),
+                MaskBlend.Overlay => new MaterialOverlayNode(),
+                MaskBlend.Difference => new MaterialDifferenceNode(),
+                _ => new MaterialMultiplyNode(),
+            };
+            math.A = A;
+            math.B = B;
+            math.Name = Name;
+            math.Position = Position;
+            math.AddPortsFromAttributes();
+            return math;
+        }
+
+        public override string OldPortFor(string newPort) => newPort == MaterialMathNode.ResultPort ? MaskPort : newPort;
+
+        public override void OnValidate()
+        {
+            base.OnValidate();
+            Warning = "Old: the math nodes (Multiply, Screen, Max...) do this on any kind of value now.";
+        }
+
         [Tooltip("The first mask (or a number, the same everywhere).")]
         [Input("A", typeof(MaskMap), Editable = true)] public float A;
         [Tooltip("The second mask (or a number, the same everywhere).")]

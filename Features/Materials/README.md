@@ -32,7 +32,18 @@ grime in the creases.
   its Cavities output follows creases. These are baked once per mesh and kept.
 - **Smart Masks:** Edge Wear (chipped edges), Grime (dirt in creases, dark places and splashed up from the bottom),
   and Dust (on tops). Each is broken up by noise and has an Amount you can wire a Parameter into.
-- **Masks:** Levels, Blend Masks, Paint Mask.
+- **Masks:** Levels, Paint Mask.
+- **Math:** Add, Subtract, Multiply, Divide, Power, Min, Max, Screen, Overlay, Difference, One Minus, Clamp 0 to 1,
+  Abs, Fraction, Floor, Sin, Mix, and a Color value. These are the same math nodes as everywhere else, but they take
+  any kind of value, and their Result pin takes on the type of what they make, so it wires on to wherever that fits:
+  - mask with mask, or mask with number: a mask, texel by texel (Multiply = only where both, Max = either, Screen =
+    a soft either);
+  - mask with colour: the mask painted in that colour, as a material (colourise a mask, then Layer it);
+  - material with anything: the math is done on its colour (Multiply a material by Ambient Occlusion to darken its
+    creases), and its roughness, metallic and height stay as they were;
+  - numbers, vectors and colours: channel by channel.
+
+  They replace Blend Masks: old graphs' Blend Masks turn into the matching math node when opened.
 - **Materials:**
   - Fill: one material, with a little natural variation.
   - Mask Fill: two materials picked by a mask.

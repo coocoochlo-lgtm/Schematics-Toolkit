@@ -1360,12 +1360,24 @@ public partial class SchematicGraphEditorWindow : GraphEditorWindow
     #region Port syncing
 
     // A node in this graph changed its own pins (what it points at changed): redraw.
+    private bool _portsReloadQueued;
+
     private void OnNodePortsChanged(Node node)
     {
         if (this == null || Canvas == null || SchematicGraph == null || node == null || node.Graph != SchematicGraph)
             return;
         EditorUtility.SetDirty(SchematicGraph);
-        Canvas.Reload();
+        // Redrawn a moment later, once: a pin can change while a wire's still being connected (a math node's Result
+        // takes the type of what was just wired in), and redrawing in the middle of that leaves a stray wire.
+        if (_portsReloadQueued)
+            return;
+        _portsReloadQueued = true;
+        EditorApplication.delayCall += () =>
+        {
+            _portsReloadQueued = false;
+            if (this != null && Canvas != null)
+                Canvas.Reload();
+        };
     }
 
     /// <summary>

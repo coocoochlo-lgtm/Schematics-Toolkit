@@ -31,6 +31,8 @@ namespace Remedy.Schematics
     {
         // Two values (A, B → Result)
         Add, Subtract, Multiply, Divide, Modulo, Power, Min, Max,
+        // Blends (for 0 to 1 values: masks, colours): Screen lightens, Overlay adds contrast, Difference how far apart.
+        Screen, Overlay, Difference,
         // One value (In → Out)
         Sin, Cos, Abs, Floor, Ceil, Round, Fraction, SquareRoot, Negate, OneMinus, Clamp01, Sign,
     }
@@ -54,6 +56,9 @@ namespace Remedy.Schematics
             MathOp.Power => Mathf.Pow(a, b),
             MathOp.Min => Mathf.Min(a, b),
             MathOp.Max => Mathf.Max(a, b),
+            MathOp.Screen => 1f - (1f - a) * (1f - b),
+            MathOp.Overlay => a < 0.5f ? 2f * a * b : 1f - 2f * (1f - a) * (1f - b),
+            MathOp.Difference => Mathf.Abs(a - b),
             MathOp.Sin => Mathf.Sin(a),
             MathOp.Cos => Mathf.Cos(a),
             MathOp.Abs => Mathf.Abs(a),
@@ -94,6 +99,9 @@ namespace Remedy.Schematics
             MathOp.Power => "xʸ",
             MathOp.Min => "min",
             MathOp.Max => "max",
+            MathOp.Screen => "scr",
+            MathOp.Overlay => "ovl",
+            MathOp.Difference => "|a−b|",
             MathOp.Negate => "−x",
             MathOp.OneMinus => "1−x",
             _ => null,

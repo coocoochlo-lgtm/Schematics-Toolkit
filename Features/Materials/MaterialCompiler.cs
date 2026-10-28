@@ -243,6 +243,23 @@ namespace Remedy.Materials
             return mask;
         }
 
+        /// <summary>
+        /// An input of any kind, for math: the map wired in (a mask, a material), or a value wired in (a number, a
+        /// vector, a colour), or the number typed on the node.
+        /// </summary>
+        public Func<object> Value(SchematicGraphNode node, string port, float constant)
+        {
+            if (Source(node, port, out var source, out var sourcePort))
+            {
+                var step = Step(source, sourcePort);
+                int width = Width, height = Height;
+                if (step != null)
+                    return () => step() ?? MaskMap.Constant(width, height, constant);
+            }
+            object value = Connected(node, port, out object wired) && wired != null && MathValues.KindOf(wired.GetType()) != null ? wired : constant;
+            return () => value;
+        }
+
         // ---- Numbers ----
 
         /// <summary>A number input: what's wired in (a Parameter, a value node...), or the number typed on the node.</summary>
