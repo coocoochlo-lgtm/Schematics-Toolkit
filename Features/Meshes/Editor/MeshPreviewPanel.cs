@@ -1,3 +1,4 @@
+using Remedy.Schematics;
 using System.Linq;
 using UnityEditor;
 using UnityEngine;
@@ -10,14 +11,12 @@ namespace Remedy.Meshes
     /// button per LOD and its triangle count. It's remade in the background a moment after each edit. Bake saves it as
     /// assets (meshes and a prefab with its LODs).
     /// </summary>
-    internal sealed class MeshPreviewPanel : VisualElement
+    internal sealed class MeshPreviewPanel : FloatingPanel
     {
-        private const float Width = 300f, Height = 240f;
-
         private readonly MeshGraph _graph;
         private readonly IMGUIContainer _view;
         private readonly Label _stats, _warnings;
-        private readonly VisualElement _lodButtons, _body;
+        private readonly VisualElement _lodButtons;
         private PreviewRenderUtility _preview;
         private GeneratedMesh _generated;
         private int _level;
@@ -25,49 +24,32 @@ namespace Remedy.Meshes
         private bool _making;
         private Vector2 _angles = new(25f, -30f);
         private float _distance = 1f;
-        private bool _dragged, _collapsed;
+        private bool _dragged;
         private double _lastEdit;
 
-        public MeshPreviewPanel(MeshGraph graph)
+        public MeshPreviewPanel(MeshGraph graph) : base("MeshGraphPreview", new Vector2(300f, 330f))
         {
             _graph = graph;
             name = "mesh-graph-preview";
-            style.position = Position.Absolute;
-            style.right = 8;
-            style.bottom = 8;
-            style.width = Width;
-            style.backgroundColor = new Color(0.12f, 0.12f, 0.14f, 0.92f);
-            style.borderTopLeftRadius = style.borderTopRightRadius = style.borderBottomLeftRadius = style.borderBottomRightRadius = 6;
-            style.paddingLeft = style.paddingRight = style.paddingTop = style.paddingBottom = 6;
-
-            var top = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center } };
+            var top = Header;
             var title = new Label("MESH") { style = { unityFontStyleAndWeight = FontStyle.Bold, color = new Color(0.95f, 0.7f, 0.4f), flexGrow = 1 } };
             top.Add(title);
             var bake = new Button(BakeClicked) { text = "Bake", tooltip = "Save the model (with its LODs) as mesh assets and a prefab next to the graph." };
             top.Add(bake);
-            var fold = new Button(() => SetCollapsed(!_collapsed)) { text = "–", tooltip = "Hide or show the preview." };
+            var fold = new Button(() => Collapsed = !Collapsed) { text = "–", tooltip = "Hide or show the preview." };
             top.Add(fold);
-            Add(top);
 
-            _body = new VisualElement();
-            Add(_body);
-            _view = new IMGUIContainer(DrawPreview) { style = { height = Height, marginTop = 4 } };
-            _body.Add(_view);
-            _lodButtons = new VisualElement { style = { flexDirection = FlexDirection.Row, marginTop = 4 } };
-            _body.Add(_lodButtons);
-            _stats = new Label { style = { fontSize = 10, color = new Color(0.75f, 0.75f, 0.75f), marginTop = 2 } };
-            _body.Add(_stats);
-            _warnings = new Label { style = { fontSize = 10, color = new Color(1f, 0.6f, 0.4f), whiteSpace = WhiteSpace.Normal } };
-            _body.Add(_warnings);
+            _view = new IMGUIContainer(DrawPreview) { style = { flexGrow = 1, minHeight = 60, marginTop = 4 } };
+            Body.Add(_view);
+            _lodButtons = new VisualElement { style = { flexDirection = FlexDirection.Row, marginTop = 4, flexShrink = 0 } };
+            Body.Add(_lodButtons);
+            _stats = new Label { style = { fontSize = 10, color = new Color(0.75f, 0.75f, 0.75f), marginTop = 2, flexShrink = 0 } };
+            Body.Add(_stats);
+            _warnings = new Label { style = { fontSize = 10, color = new Color(1f, 0.6f, 0.4f), whiteSpace = WhiteSpace.Normal, flexShrink = 0 } };
+            Body.Add(_warnings);
 
             RegisterCallback<AttachToPanelEvent>(_ => EditorApplication.update += Tick);
             RegisterCallback<DetachFromPanelEvent>(_ => Dispose());
-        }
-
-        private void SetCollapsed(bool collapsed)
-        {
-            _collapsed = collapsed;
-            _body.style.display = collapsed ? DisplayStyle.None : DisplayStyle.Flex;
         }
 
         private void Dispose()
@@ -95,7 +77,7 @@ namespace Remedy.Meshes
                     Remake();
                 }
             }
-            if (!_dragged && !_collapsed)
+            if (!_dragged && !Collapsed)
             {
                 _angles.y += 0.4f;
                 _view.MarkDirtyRepaint();
@@ -151,7 +133,9 @@ namespace Remedy.Meshes
 
         private void DrawPreview()
         {
-            var rect = GUILayoutUtility.GetRect(Width - 12, Height, GUILayout.ExpandWidth(true));
+            var rect = new Rect(0f, 0f, _view.contentRect.width, _view.contentRect.height);
+            if (rect.width < 4f || rect.height < 4f)
+                return;
             HandleInput(rect);
             if (Event.current.type != EventType.Repaint)
                 return;

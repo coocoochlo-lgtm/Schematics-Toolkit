@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
+using Remedy.Schematics;
 using UnityEngine.UIElements;
 using Object = UnityEngine.Object;
 
@@ -155,14 +156,11 @@ namespace Remedy.Materials
     /// you drag it), or one of its maps laid flat. It's remade in the background a moment after each edit, at the
     /// Output's Preview Resolution. Bake saves the textures and a material next to the graph.
     /// </summary>
-    internal sealed class SmartMaterialPreviewPanel : VisualElement
+    internal sealed class SmartMaterialPreviewPanel : FloatingPanel
     {
-        private const float Width = 300f, Height = 260f;
-
         private readonly SmartMaterialGraph _graph;
         private readonly IMGUIContainer _view;
         private readonly Label _stats, _warnings;
-        private readonly VisualElement _body;
         private readonly MaterialPreview _made = new();
         private PreviewRenderUtility _preview;
         private Mesh _mesh;
@@ -170,25 +168,17 @@ namespace Remedy.Materials
         private Object _meshSource;
         private int _meshVersion = int.MinValue;
         private int _shownVersion = int.MinValue;
-        private bool _making, _dragged, _collapsed, _flat;
+        private bool _making, _dragged, _flat;
         private PreviewChannel _channel;
         private Vector2 _angles = new(20f, -30f);
         private float _distance = 3f;
         private double _lastEdit;
 
-        public SmartMaterialPreviewPanel(SmartMaterialGraph graph)
+        public SmartMaterialPreviewPanel(SmartMaterialGraph graph) : base("SmartMaterialPreview", new Vector2(300f, 330f))
         {
             _graph = graph;
             name = "smart-material-preview";
-            style.position = Position.Absolute;
-            style.right = 8;
-            style.bottom = 8;
-            style.width = Width;
-            style.backgroundColor = new Color(0.12f, 0.12f, 0.14f, 0.92f);
-            style.borderTopLeftRadius = style.borderTopRightRadius = style.borderBottomLeftRadius = style.borderBottomRightRadius = 6;
-            style.paddingLeft = style.paddingRight = style.paddingTop = style.paddingBottom = 6;
-
-            var top = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center } };
+            var top = Header;
             top.Add(new Label("MATERIAL") { style = { unityFontStyleAndWeight = FontStyle.Bold, color = new Color(0.55f, 0.85f, 0.75f), flexGrow = 1 } });
             var mode = new Button(() =>
             {
@@ -205,26 +195,17 @@ namespace Remedy.Materials
             });
             top.Add(channel);
             top.Add(new Button(BakeClicked) { text = "Bake", tooltip = "Make it at the Output's Resolution and save its textures (PNG) and a material next to the graph." });
-            top.Add(new Button(() => SetCollapsed(!_collapsed)) { text = "–", tooltip = "Hide or show the preview." });
-            Add(top);
+            top.Add(new Button(() => Collapsed = !Collapsed) { text = "–", tooltip = "Hide or show the preview." });
 
-            _body = new VisualElement();
-            Add(_body);
-            _view = new IMGUIContainer(DrawPreview) { style = { height = Height, marginTop = 4 } };
-            _body.Add(_view);
-            _stats = new Label { style = { fontSize = 10, color = new Color(0.75f, 0.75f, 0.75f), marginTop = 2 } };
-            _body.Add(_stats);
-            _warnings = new Label { style = { fontSize = 10, color = new Color(1f, 0.6f, 0.4f), whiteSpace = WhiteSpace.Normal } };
-            _body.Add(_warnings);
+            _view = new IMGUIContainer(DrawPreview) { style = { flexGrow = 1, minHeight = 60, marginTop = 4 } };
+            Body.Add(_view);
+            _stats = new Label { style = { fontSize = 10, color = new Color(0.75f, 0.75f, 0.75f), marginTop = 2, flexShrink = 0 } };
+            Body.Add(_stats);
+            _warnings = new Label { style = { fontSize = 10, color = new Color(1f, 0.6f, 0.4f), whiteSpace = WhiteSpace.Normal, flexShrink = 0 } };
+            Body.Add(_warnings);
 
             RegisterCallback<AttachToPanelEvent>(_ => EditorApplication.update += Tick);
             RegisterCallback<DetachFromPanelEvent>(_ => Dispose());
-        }
-
-        private void SetCollapsed(bool collapsed)
-        {
-            _collapsed = collapsed;
-            _body.style.display = collapsed ? DisplayStyle.None : DisplayStyle.Flex;
         }
 
         private void Dispose()
@@ -251,7 +232,7 @@ namespace Remedy.Materials
                     Remake();
                 }
             }
-            if (!_dragged && !_collapsed && !_flat)
+            if (!_dragged && !Collapsed && !_flat)
             {
                 _angles.y += 0.3f;
                 _view.MarkDirtyRepaint();
@@ -302,7 +283,9 @@ namespace Remedy.Materials
 
         private void DrawPreview()
         {
-            var rect = GUILayoutUtility.GetRect(Width - 12, Height, GUILayout.ExpandWidth(true));
+            var rect = new Rect(0f, 0f, _view.contentRect.width, _view.contentRect.height);
+            if (rect.width < 4f || rect.height < 4f)
+                return;
             HandleInput(rect);
             if (Event.current.type != EventType.Repaint)
                 return;
