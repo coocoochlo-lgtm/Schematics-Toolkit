@@ -61,8 +61,13 @@ namespace Remedy.Materials
         private float _distance = 2f;
         private Rect _viewRect;
 
-        private bool _making, _paintChanged = true;
+        private bool _paintChanged = true;
         private int _shownVersion = int.MinValue;
+        // The material being made in the background, at what size and for which version of the graph; the size shown.
+        private Task<(List<BakedTexture>, Dictionary<PreviewChannel, Color32[]>, List<string>, double)?> _job;
+        private int _jobSize, _jobVersion, _shownSize;
+        private double _jobStarted;
+        private bool Making => _job != null;
         private double _saveAt;
         private readonly List<StrokeRecord> _undo = new(), _redo = new();
         // The stroke being painted: which texels it's touched (each remembered as it was, the first time).
@@ -169,6 +174,7 @@ namespace Remedy.Materials
             }
             _maskRebuild = true;
             _paintChanged = true;
+            _shownSize = 0;
             Frame();
             Repaint();
         }
@@ -215,44 +221,54 @@ namespace Remedy.Materials
                 Load();
                 return;
             }
-            if (!_making && (_paintChanged || _graph.Version != _shownVersion))
-                Remake();
+            Pump();
             if (_saveAt > 0 && EditorApplication.timeSinceStartup > _saveAt && !_stroking)
                 WriteInBackground();
         }
 
-        // The material made again, coarse first and then finer (128, 256, then the preview's size), so a stroke shows
-        // up quickly; more painting starts it over from coarse.
-        private async void Remake()
+        // The material made again, coarse first and then finer (128, 256, then the preview's size), so a stroke shows up
+        // quickly; more painting starts it over from coarse. The background job is checked from here, on the editor's
+        // update and on every event the window gets (mouse drags included), rather than awaited: an await resumes
+        // through Unity's main-thread queue, which doesn't run while the mouse is held down, so nothing showed until
+        // the stroke ended. Mid-stroke it's remade a few times a second at most, at the coarse size.
+        private void Pump()
         {
-            _making = true;
-            try
+            if (_graph == null)
+                return;
+            if (_job != null)
             {
-                var output = _graph.Output;
-                int full = output != null ? output.PreviewResolution : 512;
-                foreach (int size in new[] { 128, 256, full })
+                if (!_job.IsCompleted)
+                    return;
+                var made = _job.Status == TaskStatus.RanToCompletion ? _job.Result : null;
+                _job = null;
+                if (made.HasValue)
                 {
-                    if (size > full || (size == 256 && full <= 256 && size != full))
-                        continue;
-                    _paintChanged = false;
-                    int version = _graph.Version;
-                    var made = await MaterialPreview.Make(_graph, size);
-                    if (this == null)
-                        return;
-                    if (made.HasValue)
-                        _made.Apply(made.Value);
-                    _shownVersion = version;
-                    Repaint();
-                    if (_paintChanged || _graph.Version != version)
-                        break;
-                    if (size >= full)
-                        break;
+                    _made.Apply(made.Value);
+                    _shownVersion = _jobVersion;
+                    _shownSize = _jobSize;
                 }
+                Repaint();
             }
-            finally
+
+            var output = _graph.Output;
+            int full = output != null ? output.PreviewResolution : 512;
+            int next;
+            if (_paintChanged || _graph.Version != _shownVersion)
             {
-                _making = false;
+                if (_stroking && EditorApplication.timeSinceStartup - _jobStarted < 0.25)
+                    return;
+                next = Mathf.Min(128, full);
             }
+            else if (_shownSize < full && !_stroking)
+                next = _shownSize < 256 ? Mathf.Min(256, full) : full;
+            else
+                return;
+
+            _paintChanged = false;
+            _jobSize = next;
+            _jobVersion = _graph.Version;
+            _jobStarted = EditorApplication.timeSinceStartup;
+            _job = MaterialPreview.Make(_graph, next);
         }
 
         // ---- Drawing ----
@@ -265,6 +281,7 @@ namespace Remedy.Materials
                 EditorGUILayout.HelpBox("Open this from a Paint node (its Paint button) in a Smart Material.", MessageType.Info);
                 return;
             }
+            Pump();
             var area = new Rect(0, 0, position.width, position.height);
             _viewRect = new Rect(area.x, area.y, area.width - SideWidth, area.height);
             HandleKeys();
@@ -299,7 +316,7 @@ namespace Remedy.Materials
                 if (_mirrorX)
                     DrawRing(camera, Mirror(_hoverPoint), Mirror(_hoverNormal), _size, new Color(1f, 1f, 1f, 0.5f));
             }
-            string status = _making ? "Updating..." : "";
+            string status = Making ? "Updating..." : "";
             GUI.Label(new Rect(_viewRect.x + 8, _viewRect.yMax - 20, _viewRect.width - 16, 18),
                 $"Left-drag paint · Ctrl erase · [ ] size · Z undo · right-drag turn · F frame   {status}", EditorStyles.whiteMiniLabel);
         }
@@ -650,6 +667,10 @@ namespace Remedy.Materials
                     if (!erase)
                         _made.Patch(layer.Size, i, _color, w);
                 }
+                else if (!erase)
+                    // Painting roughness, metal, height or a mask: a faint tint where it's going, until the material
+                    // (which shows what it does) is made again.
+                    _made.Patch(layer.Size, i, PaintsMask ? new Color(1f, 0.35f, 0.25f) : Color.white, w * 0.3f);
                 if (PaintsRoughness)
                     Channel(layer.Roughness, layer.RoughnessCover, i, _roughness, w, erase);
                 if (PaintsMetallic)

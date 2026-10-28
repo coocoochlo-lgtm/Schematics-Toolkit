@@ -79,7 +79,9 @@ namespace Remedy.Materials
                         occlusion[i] = maps.Occlusion[i] * (meshAo != null ? meshAo[i] : 1f);
                     channels[PreviewChannel.Occlusion] = Grey(occlusion);
                     return ((List<BakedTexture>, Dictionary<PreviewChannel, Color32[]>, List<string>, double)?)(baked, channels, new List<string>(result.Warnings), (DateTime.Now - started).TotalSeconds);
-                });
+                    // (Finished on the worker thread, not queued back to Unity's main thread: the editor doesn't run that
+                    // queue while a mouse button's held in a window, which froze the painter until the stroke ended.)
+                }).ConfigureAwait(false);
             }
             catch (Exception exception)
             {
