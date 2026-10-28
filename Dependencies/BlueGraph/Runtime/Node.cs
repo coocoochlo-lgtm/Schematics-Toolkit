@@ -11,6 +11,9 @@ namespace BlueGraph
         public event Action OnValidateEvent;
         public event Action OnErrorEvent;
 
+        /// <summary>Raised when <see cref="Warning"/> changes.</summary>
+        public event Action OnWarningEvent;
+
         [SerializeField] private string _graphID;
 
         /// <summary>
@@ -99,6 +102,24 @@ namespace BlueGraph
                 }
 
                 return portMap;
+            }
+        }
+
+        [NonSerialized] private string warning;
+
+        /// <summary>
+        /// Something worth knowing about this node that isn't an error (an outdated node, a missing setting): shown in
+        /// the editor as a yellow wavy outline with a badge, its text on hover. Null or empty: none.
+        /// </summary>
+        public string Warning
+        {
+            get => warning;
+            set
+            {
+                if (warning == value)
+                    return;
+                warning = value;
+                OnWarningEvent?.Invoke();
             }
         }
 

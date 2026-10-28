@@ -98,16 +98,42 @@ namespace Remedy.Schematics
         public SerializableType Type = typeof(float);
         [Tooltip("For a number, bool or whole number: the control on calling nodes, its range and description.")]
         public ParameterUI UI = new();
+        [Tooltip("Its value when a calling node (or Return) doesn't set one.")]
+        public SchematicValue Default = new();
 
         public Type ValueType => Type.Type;
 
-        /// <summary>Whether it can be set right on the calling node (a number, whole number or bool).</summary>
-        public bool HasInlineValue => ValueType == typeof(float) || ValueType == typeof(int) || ValueType == typeof(bool);
+        /// <summary>Whether it's a number (a float, whole number or bool), drawn with its control.</summary>
+        public bool IsNumber => ValueType == typeof(float) || ValueType == typeof(int) || ValueType == typeof(bool);
 
-        public GraphPinInfo Info => new(Name, ValueType, UI?.Description, HasInlineValue ? UI : null);
+        /// <summary>Whether it can be set right on the calling node: numbers, and anything a value field can show (vectors, colours, strings, objects...).</summary>
+        public bool HasInlineValue => IsNumber || SchematicValue.IsDirect(ValueType);
 
-        /// <summary>As a Parameter (for the inline value kept on calling nodes).</summary>
-        public GraphParameter AsParameter(float defaultValue = 0f) => new(Name, typeof(float), defaultValue, UI);
+        public GraphPinInfo Info => new(Name, ValueType, UI?.Description, IsNumber ? UI : null);
+
+        /// <summary>Its default as an object of its type.</summary>
+        public object DefaultValue
+        {
+            get
+            {
+                var type = ValueType;
+                if (type == null)
+                    return null;
+                var value = Default?.Get(type);
+                return value ?? (type.IsValueType ? Activator.CreateInstance(type) : null);
+            }
+        }
+
+        /// <summary>As a Parameter (for the number control drawn on calling nodes).</summary>
+        public GraphParameter AsParameter() => new(Name, typeof(float), ToFloat(DefaultValue), UI);
+
+        private static float ToFloat(object value) => value switch
+        {
+            float f => f,
+            int i => i,
+            bool b => b ? 1f : 0f,
+            _ => 0f,
+        };
     }
 
     /// <summary>
@@ -140,7 +166,10 @@ namespace Remedy.Schematics
     public class FunctionArgument
     {
         public string Name;
+        /// <summary>A number's value.</summary>
         public float Value;
+        /// <summary>Any other type's value (a vector, a colour, a string, an object), when one's been set.</summary>
+        public SchematicValue Any;
     }
 
     /// <summary>The values a calling node keeps for its graph's Parameters (by name, so they survive reordering).</summary>
@@ -154,6 +183,36 @@ namespace Remedy.Schematics
                     if (argument != null && string.Equals(argument.Name, parameter.Name, StringComparison.OrdinalIgnoreCase))
                         return argument.Value;
             return parameter.Default is float f ? f : parameter.Default is int i ? i : 0f;
+        }
+
+        /// <summary>The value kept for a pin of any type, or null when none has been set.</summary>
+        public static bool TryGetObject(List<FunctionArgument> arguments, string name, Type type, out object value)
+        {
+            value = null;
+            if (arguments != null && type != null)
+                foreach (var argument in arguments)
+                    if (argument != null && argument.Any != null && string.Equals(argument.Name, name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        value = argument.Any.Get(type);
+                        return true;
+                    }
+            return false;
+        }
+
+        /// <summary>Keeps a value of any type for a pin.</summary>
+        public static void SetObject(List<FunctionArgument> arguments, string name, Type type, object value)
+        {
+            if (arguments == null)
+                return;
+            foreach (var argument in arguments)
+                if (argument != null && string.Equals(argument.Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    (argument.Any ??= new SchematicValue()).Set(value, type);
+                    return;
+                }
+            var added = new FunctionArgument { Name = name, Any = new SchematicValue() };
+            added.Any.Set(value, type);
+            arguments.Add(added);
         }
 
         /// <summary>Keeps a value for a Parameter (held to what its control allows).</summary>

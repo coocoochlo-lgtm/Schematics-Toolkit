@@ -67,6 +67,34 @@ namespace BlueGraph.Editor
 
             Insert(0, errorContainer);
 
+            // A warning: a yellow wavy outline round the node, and a badge whose tooltip says what's wrong.
+            warningOutline = new VisualElement { name = "warning", pickingMode = PickingMode.Ignore };
+            warningOutline.style.position = Position.Absolute;
+            warningOutline.style.left = warningOutline.style.top = warningOutline.style.right = warningOutline.style.bottom = -6;
+            warningOutline.style.display = DisplayStyle.None;
+            warningOutline.generateVisualContent += DrawWarningOutline;
+            Insert(0, warningOutline);
+            warningBadge = new Label("!") { name = "warning-badge" };
+            warningBadge.style.position = Position.Absolute;
+            warningBadge.style.left = -14;
+            warningBadge.style.top = -14;
+            warningBadge.style.width = 20;
+            warningBadge.style.height = 20;
+            warningBadge.style.borderTopLeftRadius = warningBadge.style.borderTopRightRadius =
+                warningBadge.style.borderBottomLeftRadius = warningBadge.style.borderBottomRightRadius = 10;
+            warningBadge.style.backgroundColor = new Color(0.16f, 0.14f, 0.05f);
+            warningBadge.style.borderLeftWidth = warningBadge.style.borderRightWidth =
+                warningBadge.style.borderTopWidth = warningBadge.style.borderBottomWidth = 2;
+            warningBadge.style.borderLeftColor = warningBadge.style.borderRightColor =
+                warningBadge.style.borderTopColor = warningBadge.style.borderBottomColor = WarningColor;
+            warningBadge.style.color = WarningColor;
+            warningBadge.style.unityFontStyleAndWeight = FontStyle.Bold;
+            warningBadge.style.unityTextAlign = TextAnchor.MiddleCenter;
+            warningBadge.style.fontSize = 13;
+            warningBadge.style.paddingLeft = warningBadge.style.paddingRight = warningBadge.style.paddingTop = warningBadge.style.paddingBottom = 0;
+            warningBadge.style.display = DisplayStyle.None;
+            Add(warningBadge);
+
             SetPosition(new Rect(node.Position, Vector2.one));
             title = node.DisplayName;
 
@@ -100,11 +128,13 @@ namespace BlueGraph.Editor
             RegisterCallback<TooltipEvent>(OnTooltip);
 
             node.OnErrorEvent += RefreshErrorState;
+            node.OnWarningEvent += RefreshWarningState;
             node.OnValidateEvent += OnValidate;
 
             ReloadPorts();
             ReloadEditables();
             RefreshErrorState();
+            RefreshWarningState();
 
             OnInitialize();
             Target.Graph.OnNodeViewCreated?.Invoke(this);
@@ -122,6 +152,7 @@ namespace BlueGraph.Editor
         {
             OnDestroy();
             Target.OnErrorEvent -= RefreshErrorState;
+            Target.OnWarningEvent -= RefreshWarningState;
             Target.OnValidateEvent -= OnValidate;
         }
 
@@ -144,6 +175,57 @@ namespace BlueGraph.Editor
             }
 
             OnError();
+        }
+
+        private static readonly Color WarningColor = new Color(0.98f, 0.78f, 0.18f);
+        private VisualElement warningOutline;
+        private Label warningBadge;
+
+        protected void RefreshWarningState()
+        {
+            bool has = !string.IsNullOrEmpty(Target.Warning);
+            EnableInClassList("hasWarning", has);
+            warningOutline.style.display = has ? DisplayStyle.Flex : DisplayStyle.None;
+            warningBadge.style.display = has ? DisplayStyle.Flex : DisplayStyle.None;
+            warningBadge.tooltip = has ? "Warning: " + Target.Warning : null;
+            warningOutline.MarkDirtyRepaint();
+        }
+
+        // A wavy line round the node: small waves along each side, like a spell checker's underline.
+        private void DrawWarningOutline(MeshGenerationContext context)
+        {
+            var rect = warningOutline.contentRect;
+            if (rect.width < 4 || rect.height < 4)
+                return;
+            const float inset = 2f, amplitude = 1.6f, wavelength = 9f;
+            var painter = context.painter2D;
+            painter.strokeColor = WarningColor;
+            painter.lineWidth = 1.6f;
+            painter.lineJoin = LineJoin.Round;
+            painter.BeginPath();
+            var corners = new[]
+            {
+                new Vector2(rect.xMin + inset, rect.yMin + inset), new Vector2(rect.xMax - inset, rect.yMin + inset),
+                new Vector2(rect.xMax - inset, rect.yMax - inset), new Vector2(rect.xMin + inset, rect.yMax - inset),
+            };
+            painter.MoveTo(corners[0]);
+            for (int side = 0; side < 4; side++)
+            {
+                var from = corners[side];
+                var to = corners[(side + 1) % 4];
+                var along = to - from;
+                float length = along.magnitude;
+                var normal = new Vector2(-along.y, along.x) / Mathf.Max(0.001f, length);
+                int steps = Mathf.Max(2, Mathf.CeilToInt(length / 2f));
+                for (int i = 1; i <= steps; i++)
+                {
+                    float t = i / (float)steps;
+                    float wave = Mathf.Sin(t * length / wavelength * Mathf.PI * 2f) * amplitude;
+                    painter.LineTo(from + along * t + normal * wave);
+                }
+            }
+            painter.ClosePath();
+            painter.Stroke();
         }
 
         /// <summary>

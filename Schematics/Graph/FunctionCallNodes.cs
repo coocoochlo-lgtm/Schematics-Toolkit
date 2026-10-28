@@ -26,6 +26,24 @@ namespace Remedy.Schematics
         public readonly Dictionary<string, Union> Inputs = new(StringComparer.Ordinal);
         public readonly Dictionary<string, Union> Results = new(StringComparer.Ordinal);
 
+        /// <summary>
+        /// Raised as a call starts, before the function's On Called: the calling object's Variables for the function
+        /// graph go back to their starting values here (the Schematic Object does it), so every call starts fresh.
+        /// </summary>
+        public static event Action<FunctionGraph, GameObject> Starting;
+
+        internal static void RaiseStarting(FunctionGraph graph, GameObject instance)
+        {
+            try
+            {
+                Starting?.Invoke(graph, instance);
+            }
+            catch (Exception exception)
+            {
+                Debug.LogException(exception);
+            }
+        }
+
         /// <summary>Whether its Return has run (only the first one counts).</summary>
         public bool Returned { get; private set; }
 
@@ -59,30 +77,60 @@ namespace Remedy.Schematics
     /// <summary>Helpers shared by the function nodes.</summary>
     internal static class FunctionPins
     {
-        /// <summary>A pin's value when nothing's given: its inline number (as its type), or nothing.</summary>
+        /// <summary>
+        /// A pin's value when nothing's wired in: what's set on the node, else the pin's default (as its type).
+        /// </summary>
         public static Union Default(FunctionPin pin, List<FunctionArgument> arguments)
         {
-            if (pin == null || !pin.HasInlineValue)
-                return Union.Null;
-            float value = FunctionArguments.Get(arguments, pin.AsParameter());
+            var value = Value(pin, arguments);
+            return value != null ? PortValues.ToUnion(value) : Union.Null;
+        }
+
+        /// <summary>The value set on the node for a pin (of its type), else the pin's default.</summary>
+        public static object Value(FunctionPin pin, List<FunctionArgument> arguments)
+        {
+            if (pin == null)
+                return null;
             var type = pin.ValueType;
-            if (type == typeof(int))
-                return PortValues.ToUnion(Mathf.RoundToInt(value));
-            if (type == typeof(bool))
-                return PortValues.ToUnion(value >= 0.5f);
-            return PortValues.ToUnion(value);
+            if (pin.IsNumber)
+            {
+                float number = FunctionArguments.Get(arguments, pin.AsParameter());
+                if (type == typeof(int))
+                    return Mathf.RoundToInt(number);
+                if (type == typeof(bool))
+                    return number >= 0.5f;
+                return number;
+            }
+            return FunctionArguments.TryGetObject(arguments, pin.Name, type, out var value) ? value : pin.DefaultValue;
+        }
+
+        /// <summary>Keeps a value set on the node for a pin.</summary>
+        public static void SetValue(FunctionPin pin, List<FunctionArgument> arguments, object value)
+        {
+            if (pin == null || arguments == null)
+                return;
+            if (pin.IsNumber)
+            {
+                float number = value switch { float f => f, int i => i, bool b => b ? 1f : 0f, _ => 0f };
+                FunctionArguments.Set(arguments, pin.AsParameter(), number);
+            }
+            else
+                FunctionArguments.SetObject(arguments, pin.Name, pin.ValueType, value);
         }
 
         public static FunctionGraph GraphOf(Node node) => node.Graph as FunctionGraph;
     }
 
-    /// <summary>A node with numbers set right on its pins (the inputs of a function), drawn with each pin's control.</summary>
+    /// <summary>
+    /// A node with values set right on its pins (a function's inputs, Return's outputs): numbers drawn with each pin's
+    /// control, other types (vectors, colours, strings, objects) with a value field.
+    /// </summary>
     public interface IInlinePinValues
     {
-        /// <summary>The number pin behind a pin's name, if it has one.</summary>
-        bool InlinePin(string pin, out GraphParameter parameter);
-        float InlineValue(GraphParameter parameter);
-        void SetInlineValue(GraphParameter parameter, float value);
+        /// <summary>The function pin behind a pin's name, if it can be set on the node.</summary>
+        bool InlinePin(string pin, out FunctionPin functionPin);
+        object InlineValue(FunctionPin pin);
+        void SetInlineValue(FunctionPin pin, object value);
     }
 
     /// <summary>
@@ -145,19 +193,15 @@ namespace Remedy.Schematics
             base.OnValidate();
         }
 
-        public bool InlinePin(string pin, out GraphParameter parameter)
+        public bool InlinePin(string pin, out FunctionPin functionPin)
         {
-            parameter = default;
-            var found = FunctionPins.GraphOf(this)?.Function.Outputs.FirstOrDefault(p => p != null && p.Name == pin && p.HasInlineValue);
-            if (found == null)
-                return false;
-            parameter = found.AsParameter();
-            return true;
+            functionPin = FunctionPins.GraphOf(this)?.Function.Outputs.FirstOrDefault(p => p != null && p.Name == pin && p.HasInlineValue);
+            return functionPin != null;
         }
 
-        public float InlineValue(GraphParameter parameter) => FunctionArguments.Get(_arguments ??= new(), parameter);
+        public object InlineValue(FunctionPin pin) => FunctionPins.Value(pin, _arguments ??= new());
 
-        public void SetInlineValue(GraphParameter parameter, float value) => FunctionArguments.Set(_arguments ??= new(), parameter, value);
+        public void SetInlineValue(FunctionPin pin, object value) => FunctionPins.SetValue(pin, _arguments ??= new(), value);
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
         {
@@ -176,10 +220,10 @@ namespace Remedy.Schematics
     }
 
     /// <summary>
-    /// Calls a Function Graph like a node: its inputs are this node's pins (numbers set right on them when nothing's
+    /// Calls a Function Graph like a node: its inputs are this node's pins (values set right on them when nothing's
     /// wired in), it runs on this object, and its outputs come out here once it returns; the flow carries on then.
     /// </summary>
-    [SchematicDoc(@"{""name"": ""Call"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Function"", ""description"": ""Calls a Function Graph (Function) as a node. Its inputs are pins here: wire values in, or set numbers right on the node (with the controls the function gave them: sliders, toggles, dropdowns). The function runs on this object, from its On Called, and its outputs come out here when it reaches Return; the flow carries on from this node then: straight away, or once the function's Waits are over. Function Graphs marked In Library are in the node search under Functions; dropping one into a graph makes a Call. Double-click to open it."", ""use_for"": [""reusing a routine across graphs (damage, spawning, a dialogue line)"", ""a library of gameplay building blocks with their own inputs and outputs"", ""splitting a big graph into named steps""], ""notes"": ""Runs when flow reaches it. A function calling itself is allowed (recursion) up to 64 calls deep.""}")]
+    [SchematicDoc(@"{""name"": ""Call"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Function"", ""description"": ""Calls a Function Graph (Function) as a node. Its inputs are pins here: wire values in, or set them right on the node (numbers with the controls the function gave them: sliders, toggles, dropdowns; vectors, colours, text and objects with a value field). The function runs on this object, from its On Called, and its outputs come out here when it reaches Return; the flow carries on from this node then: straight away, or once the function's Waits are over. Function Graphs marked In Library are in the node search under Functions; dropping one into a graph makes a Call. Double-click to open it."", ""use_for"": [""reusing a routine across graphs (damage, spawning, a dialogue line)"", ""a library of gameplay building blocks with their own inputs and outputs"", ""splitting a big graph into named steps""], ""notes"": ""Runs when flow reaches it. A function calling itself is allowed (recursion) up to 64 calls deep.""}")]
     [Serializable]
     [NodeColor(NodeColors.Schematic)]
     [Node(Name = "Call", Path = "Functions"), Tags("Default")]
@@ -219,21 +263,20 @@ namespace Remedy.Schematics
             if (SyncPorts())
                 DynamicPorts.Notify(this);
             base.OnValidate();
+            Warning = Calls == null ? "No Function Graph set: this does nothing."
+                : Calls.Entry == null ? "Its Function Graph has no On Called: the call does nothing."
+                : null;
         }
 
-        public bool InlinePin(string pin, out GraphParameter parameter)
+        public bool InlinePin(string pin, out FunctionPin functionPin)
         {
-            parameter = default;
-            var found = Calls?.Function.Inputs.FirstOrDefault(p => p != null && p.Name == pin && p.HasInlineValue);
-            if (found == null)
-                return false;
-            parameter = found.AsParameter();
-            return true;
+            functionPin = Calls?.Function.Inputs.FirstOrDefault(p => p != null && p.Name == pin && p.HasInlineValue);
+            return functionPin != null;
         }
 
-        public float InlineValue(GraphParameter parameter) => FunctionArguments.Get(_arguments ??= new(), parameter);
+        public object InlineValue(FunctionPin pin) => FunctionPins.Value(pin, _arguments ??= new());
 
-        public void SetInlineValue(GraphParameter parameter, float value) => FunctionArguments.Set(_arguments ??= new(), parameter, value);
+        public void SetInlineValue(FunctionPin pin, object value) => FunctionPins.SetValue(pin, _arguments ??= new(), value);
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
         {
@@ -257,6 +300,7 @@ namespace Remedy.Schematics
                 if (pin != null)
                     call.Inputs[pin.Name] = TryGetInputValue<Union>(pin.Name, out var value) ? value : FunctionPins.Default(pin, _arguments);
 
+            FunctionCall.RaiseStarting(Calls, instance);
             _depth++;
             try
             {

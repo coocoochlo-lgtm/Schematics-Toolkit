@@ -23,6 +23,12 @@ namespace Remedy.Schematics
         [Output]
         public List<FunctionParameter> FunctionParameters;
 
+        public override void OnValidate()
+        {
+            base.OnValidate();
+            Warning = "Legacy: for a reusable routine with typed inputs and outputs (and a return value), use a Function Graph and its Call node.";
+        }
+
         protected override void OnTrigger(GameObject instance, params Union[] arguments)
         {
             // Called by Call Function with (name, parameters).

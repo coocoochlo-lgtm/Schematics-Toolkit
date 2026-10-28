@@ -176,7 +176,22 @@ public class GraphScopeDock : VisualElement
                     GUIUtility.ExitGUI();
                 }
             }
-            if (!pin.HasInlineValue)
+            // Its default: what calls (or Return) give when they don't set it.
+            var valueType = pin.ValueType;
+            if (valueType != null && SchematicValue.IsSupported(valueType))
+            {
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    GUILayout.Space(12);
+                    if (SchematicValueField.Draw(new GUIContent("Default", "Its value when a call (or Return) doesn't set one."), valueType, pin.DefaultValue, out var changedDefault))
+                    {
+                        Undo.RecordObject(graph, "Edit Function Pin");
+                        (pin.Default ??= new SchematicValue()).Set(changedDefault, valueType);
+                        CommitFunction(graph);
+                    }
+                }
+            }
+            if (!pin.IsNumber)
                 continue;
             pin.UI ??= new ParameterUI();
             using (new EditorGUILayout.HorizontalScope())

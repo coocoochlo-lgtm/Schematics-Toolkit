@@ -99,6 +99,7 @@ namespace Remedy.Meshes
                 Name = Calls.name;
             if (SyncPorts())
                 DynamicPorts.Notify(this);
+            Warning = Calls == null ? "No mesh graph set: this outputs nothing." : null;
         }
 
         public override MeshOp Compile(MeshCompiler compiler)

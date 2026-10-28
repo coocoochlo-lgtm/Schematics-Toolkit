@@ -28,6 +28,25 @@ namespace Remedy.Schematics
 
         public int Count => _values.Length;
 
+        // A Function Graph's Variables start fresh for every call (they're its working values, not lasting state). With
+        // two calls on one object running at once (one waiting, or a function calling itself), the newer call's start
+        // resets them for both.
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void HookFunctionCalls()
+        {
+            FunctionCall.Starting -= FreshForCall;
+            FunctionCall.Starting += FreshForCall;
+        }
+
+        private static void FreshForCall(FunctionGraph graph, GameObject instance)
+        {
+            if (graph == null || instance == null || graph.Variables.Count == 0)
+                return;
+            var owner = instance.GetComponentInParent<SchematicObject>();
+            if (owner != null)
+                owner.ResetGraphVariables(graph);
+        }
+
         /// <summary>Back to the starting values: the object's overrides, else the graph's defaults.</summary>
         public void Reset()
         {

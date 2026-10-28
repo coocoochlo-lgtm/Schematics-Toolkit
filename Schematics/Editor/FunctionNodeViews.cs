@@ -3,31 +3,54 @@ using BlueGraph.Editor;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEditor;
+using UnityEngine;
 using UnityEngine.UIElements;
 
 namespace Remedy.Schematics
 {
     /// <summary>
-    /// A node whose number pins can be set right on them (<see cref="IInlinePinValues"/>): each drawn with the control
-    /// its function gave it (a slider, a toggle, a dropdown), shown while nothing's wired in.
+    /// A node whose pins can be set right on them (<see cref="IInlinePinValues"/>), shown while nothing's wired in:
+    /// numbers with the control their function gave them (a slider, a toggle, a dropdown), other types with a value
+    /// field.
     /// </summary>
     public class InlinePinValuesNodeView : NodeView
     {
         protected override void AddInputPort(Port port)
         {
             base.AddInputPort(port);
-            if (Target is not IInlinePinValues node || !node.InlinePin(port.Name, out var parameter))
+            if (Target is not IInlinePinValues node || !node.InlinePin(port.Name, out var pin))
                 return;
             var view = Inputs[Inputs.Count - 1];
-            var control = FunctionParameterControls.Create(parameter, node.InlineValue(parameter), value =>
+
+            void Set(object value)
             {
                 var graph = Target.Graph as UnityEngine.Object;
                 if (graph != null)
-                    Undo.RecordObject(graph, "Set " + parameter.Name);
-                node.SetInlineValue(parameter, value);
+                    Undo.RecordObject(graph, "Set " + pin.Name);
+                node.SetInlineValue(pin, value);
                 if (graph != null)
                     EditorUtility.SetDirty(graph);
-            });
+            }
+
+            VisualElement control;
+            if (pin.IsNumber)
+            {
+                var parameter = pin.AsParameter();
+                float current = node.InlineValue(pin) switch { float f => f, int i => i, bool b => b ? 1f : 0f, _ => 0f };
+                control = FunctionParameterControls.Create(parameter, current, value => Set(value));
+            }
+            else
+            {
+                // Vectors, colours, text, objects: the same value field as Variables' defaults.
+                var type = pin.ValueType;
+                control = new IMGUIContainer(() =>
+                {
+                    if (SchematicValueField.Draw(GUIContent.none, type, node.InlineValue(pin), out var value))
+                        Set(value);
+                });
+                control.style.minWidth = 120;
+                control.tooltip = string.IsNullOrWhiteSpace(pin.UI?.Description) ? pin.Name : pin.UI.Description;
+            }
             var container = new VisualElement();
             container.AddToClassList("property-field-container");
             container.Add(control);
