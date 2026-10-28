@@ -133,6 +133,8 @@ namespace Remedy.Materials
         /// <summary>Raised (above 0.5) or sunk (below) by this much.</summary>
         public readonly float[] HeightOffset;
         public readonly float[] Mask;
+        /// <summary>How much of the mask coming in has been erased (a Paint Mask painting over another mask).</summary>
+        public readonly float[] Erase;
 
         public PaintLayer(int size)
         {
@@ -146,6 +148,7 @@ namespace Remedy.Materials
             HeightOffset = new float[count];
             Array.Fill(HeightOffset, 0.5f);
             Mask = new float[count];
+            Erase = new float[count];
         }
 
         public PaintLayer Clone()
@@ -158,6 +161,7 @@ namespace Remedy.Materials
             Array.Copy(MetallicCover, copy.MetallicCover, MetallicCover.Length);
             Array.Copy(HeightOffset, copy.HeightOffset, HeightOffset.Length);
             Array.Copy(Mask, copy.Mask, Mask.Length);
+            Array.Copy(Erase, copy.Erase, Erase.Length);
             return copy;
         }
 
@@ -172,6 +176,7 @@ namespace Remedy.Materials
             Array.Copy(other.MetallicCover, MetallicCover, MetallicCover.Length);
             Array.Copy(other.HeightOffset, HeightOffset, HeightOffset.Length);
             Array.Copy(other.Mask, Mask, Mask.Length);
+            Array.Copy(other.Erase, Erase, Erase.Length);
         }
 
         /// <summary>Whether anything's been painted.</summary>
@@ -180,14 +185,14 @@ namespace Remedy.Materials
             get
             {
                 for (int i = 0; i < Mask.Length; i++)
-                    if (Colour[i].a > 0f || RoughnessCover[i] > 0f || MetallicCover[i] > 0f || HeightOffset[i] != 0.5f || Mask[i] > 0f)
+                    if (Colour[i].a > 0f || RoughnessCover[i] > 0f || MetallicCover[i] > 0f || HeightOffset[i] != 0.5f || Mask[i] > 0f || Erase[i] > 0f)
                         return false;
                 return true;
             }
         }
 
         // Stored as three textures: colour (RGB, A its cover); surface (R roughness, G its cover, B metallic, A its
-        // cover); and height and mask (R height offset, G mask).
+        // cover); and height and mask (R height offset, G mask, B how much of a mask coming in is erased).
 
         /// <summary>The three textures' pixels (colour, surface, height and mask).</summary>
         public (Color32[] colour, Color32[] surface, Color32[] heightMask) ToPixels()
@@ -200,7 +205,7 @@ namespace Remedy.Materials
             {
                 colour[i] = Colour[i];
                 surface[i] = new Color(Roughness[i], RoughnessCover[i], Metallic[i], MetallicCover[i]);
-                heightMask[i] = new Color(HeightOffset[i], Mask[i], 0f, 1f);
+                heightMask[i] = new Color(HeightOffset[i], Mask[i], Erase[i], 1f);
             }
             return (colour, surface, heightMask);
         }
@@ -225,6 +230,7 @@ namespace Remedy.Materials
                 {
                     layer.HeightOffset[i] = heightMask[i].r;
                     layer.Mask[i] = heightMask[i].g;
+                    layer.Erase[i] = heightMask[i].b;
                 }
             }
             return layer;

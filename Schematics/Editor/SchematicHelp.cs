@@ -163,6 +163,10 @@ namespace Remedy.Schematics
             if (type == typeof(Color)) return "colour";
             if (type == typeof(GameObject)) return "GameObject";
             if (type == typeof(Transform)) return "Transform";
+            // (Feature types, by name: this assembly doesn't see them.)
+            if (type.Name == "MaskMap") return "mask: a grey map, 0 to 1 at each spot on the texture";
+            if (type.Name == "MaterialMaps") return "material: colour, roughness, metallic and height at each spot";
+            if (type.Name == "MeshData") return "mesh";
             if (type.IsEnum) return "one of: " + string.Join(", ", Enum.GetNames(type).Select(ObjectNames.NicifyVariableName));
             if (type.IsArray) return "list of " + Kind(type.GetElementType());
             if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>)) return "list of " + Kind(type.GetGenericArguments()[0]);

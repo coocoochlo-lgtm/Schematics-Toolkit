@@ -69,7 +69,7 @@ namespace Remedy.Materials
         private bool _hover;
         private Vector3 _hoverPoint, _hoverNormal;
 
-        public static void Open(SmartMaterialGraph graph, PaintNode node)
+        public static void Open(SmartMaterialGraph graph, PaintedNode node)
         {
             if (graph == null || node == null)
                 return;
@@ -84,7 +84,15 @@ namespace Remedy.Materials
             window.Show();
         }
 
-        private PaintNode Node => _graph != null && !string.IsNullOrEmpty(_nodeId) ? _graph.GetNodeById(_nodeId) as PaintNode : null;
+        private PaintedNode Node => _graph != null && !string.IsNullOrEmpty(_nodeId) ? _graph.GetNodeById(_nodeId) as PaintedNode : null;
+
+        // A Paint Mask only paints its mask.
+        private bool MaskOnly => Node is { MaskOnly: true };
+        private bool PaintsColor => _paintColor && !MaskOnly;
+        private bool PaintsRoughness => _paintRoughness && !MaskOnly;
+        private bool PaintsMetallic => _paintMetallic && !MaskOnly;
+        private bool PaintsHeight => _paintHeight && !MaskOnly;
+        private bool PaintsMask => _paintMask || MaskOnly;
 
         private void OnEnable()
         {
@@ -311,7 +319,7 @@ namespace Remedy.Materials
             return _maskMaterial;
         }
 
-        private void DrawSide(Rect rect, PaintNode node)
+        private void DrawSide(Rect rect, PaintedNode node)
         {
             GUILayout.BeginArea(new Rect(rect.x + 6, rect.y + 4, rect.width - 12, rect.height - 8));
             GUILayout.Label($"{_graph.name} › {node.Name}", EditorStyles.boldLabel);
@@ -319,32 +327,37 @@ namespace Remedy.Materials
             GUILayout.Space(6);
 
             EditorGUIUtility.labelWidth = 80;
-            GUILayout.Label("Paints", EditorStyles.miniBoldLabel);
-            using (new EditorGUILayout.HorizontalScope())
+            if (MaskOnly)
+                EditorGUILayout.HelpBox("Paints this node's mask: painting adds to the mask coming in, Ctrl (or Erase) carves it away.", MessageType.None);
+            else
             {
-                _paintColor = EditorGUILayout.ToggleLeft(new GUIContent("Color", "Paint colour."), _paintColor, GUILayout.Width(80));
-                using (new EditorGUI.DisabledScope(!_paintColor))
-                    _color = EditorGUILayout.ColorField(GUIContent.none, _color, true, false, false);
+                GUILayout.Label("Paints", EditorStyles.miniBoldLabel);
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    _paintColor = EditorGUILayout.ToggleLeft(new GUIContent("Color", "Paint colour."), _paintColor, GUILayout.Width(80));
+                    using (new EditorGUI.DisabledScope(!_paintColor))
+                        _color = EditorGUILayout.ColorField(GUIContent.none, _color, true, false, false);
+                }
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    _paintRoughness = EditorGUILayout.ToggleLeft(new GUIContent("Roughness", "Paint roughness: 0 shiny, 1 chalky."), _paintRoughness, GUILayout.Width(80));
+                    using (new EditorGUI.DisabledScope(!_paintRoughness))
+                        _roughness = EditorGUILayout.Slider(_roughness, 0f, 1f);
+                }
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    _paintMetallic = EditorGUILayout.ToggleLeft(new GUIContent("Metallic", "Paint metallic: 0 paint, plastic, stone; 1 bare metal."), _paintMetallic, GUILayout.Width(80));
+                    using (new EditorGUI.DisabledScope(!_paintMetallic))
+                        _metallic = EditorGUILayout.Slider(_metallic, 0f, 1f);
+                }
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    _paintHeight = EditorGUILayout.ToggleLeft(new GUIContent("Height", "Raise (above 0) or carve in (below 0) the surface."), _paintHeight, GUILayout.Width(80));
+                    using (new EditorGUI.DisabledScope(!_paintHeight))
+                        _heightAmount = EditorGUILayout.Slider(_heightAmount, -1f, 1f);
+                }
+                _paintMask = EditorGUILayout.ToggleLeft(new GUIContent("Mask", "Paint the node's Mask output: wire it into a Layer's Mask to place a material by hand."), _paintMask);
             }
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                _paintRoughness = EditorGUILayout.ToggleLeft(new GUIContent("Roughness", "Paint roughness: 0 shiny, 1 chalky."), _paintRoughness, GUILayout.Width(80));
-                using (new EditorGUI.DisabledScope(!_paintRoughness))
-                    _roughness = EditorGUILayout.Slider(_roughness, 0f, 1f);
-            }
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                _paintMetallic = EditorGUILayout.ToggleLeft(new GUIContent("Metallic", "Paint metallic: 0 paint, plastic, stone; 1 bare metal."), _paintMetallic, GUILayout.Width(80));
-                using (new EditorGUI.DisabledScope(!_paintMetallic))
-                    _metallic = EditorGUILayout.Slider(_metallic, 0f, 1f);
-            }
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                _paintHeight = EditorGUILayout.ToggleLeft(new GUIContent("Height", "Raise (above 0) or carve in (below 0) the surface."), _paintHeight, GUILayout.Width(80));
-                using (new EditorGUI.DisabledScope(!_paintHeight))
-                    _heightAmount = EditorGUILayout.Slider(_heightAmount, -1f, 1f);
-            }
-            _paintMask = EditorGUILayout.ToggleLeft(new GUIContent("Mask", "Paint the node's Mask output: wire it into a Layer's Mask to place a material by hand."), _paintMask);
 
             GUILayout.Space(6);
             GUILayout.Label("Brush", EditorStyles.miniBoldLabel);
@@ -575,7 +588,7 @@ namespace Remedy.Materials
                 float w = (t <= inner ? 1f : 1f - Smooth((t - inner) / (1f - inner))) * flow;
                 if (w <= 0f)
                     continue;
-                if (_paintColor)
+                if (PaintsColor)
                 {
                     var current = layer.Colour[i];
                     if (erase)
@@ -588,16 +601,28 @@ namespace Remedy.Materials
                     }
                     layer.Colour[i] = current;
                 }
-                if (_paintRoughness)
+                if (PaintsRoughness)
                     Channel(layer.Roughness, layer.RoughnessCover, i, _roughness, w, erase);
-                if (_paintMetallic)
+                if (PaintsMetallic)
                     Channel(layer.Metallic, layer.MetallicCover, i, _metallic, w, erase);
-                if (_paintHeight)
+                if (PaintsHeight)
                     layer.HeightOffset[i] = erase
                         ? Mathf.Lerp(layer.HeightOffset[i], 0.5f, w)
                         : Mathf.Clamp01(layer.HeightOffset[i] + _heightAmount * w * 0.1f);
-                if (_paintMask)
-                    layer.Mask[i] = erase ? layer.Mask[i] * (1f - w) : layer.Mask[i] + (1f - layer.Mask[i]) * w;
+                if (PaintsMask)
+                {
+                    // Erasing also carves away the mask coming in (on a Paint Mask); painting takes that back.
+                    if (erase)
+                    {
+                        layer.Mask[i] *= 1f - w;
+                        layer.Erase[i] += (1f - layer.Erase[i]) * w;
+                    }
+                    else
+                    {
+                        layer.Mask[i] += (1f - layer.Mask[i]) * w;
+                        layer.Erase[i] *= 1f - w;
+                    }
+                }
             }
         }
 
@@ -674,8 +699,9 @@ namespace Remedy.Materials
             SmartMaterialEditor.EnsureFolder(folder);
             string id = string.IsNullOrEmpty(node.ID) ? "Paint" : node.ID.Substring(0, Mathf.Min(8, node.ID.Length));
             var (colour, surface, heightMask) = _layer.ToPixels();
-            var colourTexture = Write($"{folder}/{id}_Colour.png", colour, _layer.Size);
-            var surfaceTexture = Write($"{folder}/{id}_Surface.png", surface, _layer.Size);
+            // (A Paint Mask only has its mask.)
+            var colourTexture = node.MaskOnly ? null : Write($"{folder}/{id}_Colour.png", colour, _layer.Size);
+            var surfaceTexture = node.MaskOnly ? null : Write($"{folder}/{id}_Surface.png", surface, _layer.Size);
             var heightMaskTexture = Write($"{folder}/{id}_HeightMask.png", heightMask, _layer.Size);
             if (node.ColourTexture != colourTexture || node.SurfaceTexture != surfaceTexture || node.HeightMaskTexture != heightMaskTexture)
             {
@@ -719,8 +745,9 @@ namespace Remedy.Materials
         }
     }
 
-    /// <summary>The Paint node: a Paint button opening its viewport.</summary>
+    /// <summary>The Paint and Paint Mask nodes: a Paint button opening their viewport.</summary>
     [CustomNodeView(typeof(PaintNode))]
+    [CustomNodeView(typeof(PaintMaskNode))]
     public class PaintNodeView : NodeView
     {
         protected override void OnInitialize()
@@ -742,7 +769,7 @@ namespace Remedy.Materials
 
         private void OpenPainter()
         {
-            if (Target is PaintNode node && node.Graph is SmartMaterialGraph graph)
+            if (Target is PaintedNode node && node.Graph is SmartMaterialGraph graph)
                 PaintWindow.Open(graph, node);
         }
     }
