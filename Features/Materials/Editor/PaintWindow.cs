@@ -3,6 +3,8 @@ using BlueGraph.Editor;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading.Tasks;
+using UnityEngine.Experimental.Rendering;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -51,7 +53,8 @@ namespace Remedy.Materials
         private readonly MaterialPreview _made = new();
         private Material _maskMaterial;
         private Texture2D _maskTexture;
-        private bool _maskDirty = true;
+        private Color32[] _maskPixels;
+        private bool _maskRebuild = true, _maskUpload;
         private PreviewRenderUtility _preview;
         private Vector2 _angles = new(25f, -30f);
         private Vector3 _target;
@@ -61,7 +64,13 @@ namespace Remedy.Materials
         private bool _making, _paintChanged = true;
         private int _shownVersion = int.MinValue;
         private double _saveAt;
-        private readonly List<PaintLayer> _undo = new(), _redo = new();
+        private readonly List<StrokeRecord> _undo = new(), _redo = new();
+        // The stroke being painted: which texels it's touched (each remembered as it was, the first time).
+        private StrokeRecord _stroke;
+        private bool[] _touched;
+        // Saving: a background write in progress, and whether the files have changed since Unity last imported them.
+        private Task _writing;
+        private bool _needsImport;
         private readonly List<(int texel, float distance)> _found = new();
 
         private bool _stroking, _orbiting;
@@ -77,7 +86,7 @@ namespace Remedy.Materials
             window.titleContent = new GUIContent("Paint");
             window.minSize = new Vector2(640, 400);
             if (window._graph != graph || window._nodeId != node.ID)
-                window.SaveNow();
+                window.FinishSaving();
             window._graph = graph;
             window._nodeId = node.ID;
             window.Load();
@@ -104,7 +113,7 @@ namespace Remedy.Materials
 
         private void OnDisable()
         {
-            SaveNow();
+            FinishSaving();
             EditorApplication.update -= Tick;
             _releaseMesh?.Invoke();
             _releaseMesh = null;
@@ -133,10 +142,14 @@ namespace Remedy.Materials
             _layer = layer;
             _undo.Clear();
             _redo.Clear();
+            _stroke = null;
+            _touched = new bool[size * size];
             try
             {
                 EditorUtility.DisplayProgressBar("Paint", "Laying the model out for painting...", 0.5f);
                 _surface = MaterialCompiler.SurfaceFor(_graph, size);
+                // The brush's lookup grid, made now rather than on the first dab.
+                _surface.TexelsNear(_surface.Bounds.center, Vector3.up, 0f, _found);
             }
             finally
             {
@@ -154,7 +167,7 @@ namespace Remedy.Materials
                 _mesh = mesh;
                 _releaseMesh = release;
             }
-            _maskDirty = true;
+            _maskRebuild = true;
             _paintChanged = true;
             Frame();
             Repaint();
@@ -184,6 +197,7 @@ namespace Remedy.Materials
                 to.MetallicCover[i] = MapSampling.Sample(from.MetallicCover, from.Size, size, size, i);
                 to.HeightOffset[i] = MapSampling.Sample(from.HeightOffset, from.Size, size, size, i);
                 to.Mask[i] = MapSampling.Sample(from.Mask, from.Size, size, size, i);
+                to.Erase[i] = MapSampling.Sample(from.Erase, from.Size, size, size, i);
             }
             return to;
         }
@@ -204,24 +218,36 @@ namespace Remedy.Materials
             if (!_making && (_paintChanged || _graph.Version != _shownVersion))
                 Remake();
             if (_saveAt > 0 && EditorApplication.timeSinceStartup > _saveAt && !_stroking)
-                SaveNow();
+                WriteInBackground();
         }
 
+        // The material made again, coarse first and then finer (128, 256, then the preview's size), so a stroke shows
+        // up quickly; more painting starts it over from coarse.
         private async void Remake()
         {
             _making = true;
-            _paintChanged = false;
-            int version = _graph.Version;
             try
             {
                 var output = _graph.Output;
-                var made = await MaterialPreview.Make(_graph, output != null ? output.PreviewResolution : 512);
-                if (this == null)
-                    return;
-                if (made.HasValue)
-                    _made.Apply(made.Value);
-                _shownVersion = version;
-                Repaint();
+                int full = output != null ? output.PreviewResolution : 512;
+                foreach (int size in new[] { 128, 256, full })
+                {
+                    if (size > full || (size == 256 && full <= 256 && size != full))
+                        continue;
+                    _paintChanged = false;
+                    int version = _graph.Version;
+                    var made = await MaterialPreview.Make(_graph, size);
+                    if (this == null)
+                        return;
+                    if (made.HasValue)
+                        _made.Apply(made.Value);
+                    _shownVersion = version;
+                    Repaint();
+                    if (_paintChanged || _graph.Version != version)
+                        break;
+                    if (size >= full)
+                        break;
+                }
             }
             finally
             {
@@ -257,6 +283,7 @@ namespace Remedy.Materials
                 return;
             }
             var camera = PlaceCamera();
+            _made.UploadPatches();
             _preview.BeginPreview(_viewRect, GUIStyle.none);
             var material = _view == View.Mask ? MaskMaterial() : _made.Material;
             for (int s = 0; s < _mesh.subMeshCount; s++)
@@ -304,20 +331,28 @@ namespace Remedy.Materials
                 if (_maskTexture != null)
                     DestroyImmediate(_maskTexture);
                 _maskTexture = new Texture2D(size, size, TextureFormat.RGBA32, true, false) { hideFlags = HideFlags.HideAndDontSave };
-                _maskDirty = true;
-            }
-            if (_maskDirty)
-            {
-                var pixels = new Color32[size * size];
-                for (int i = 0; i < pixels.Length; i++)
-                    pixels[i] = Color.Lerp(new Color(0.5f, 0.5f, 0.5f), new Color(1f, 0.15f, 0.1f), _layer.Mask[i]);
-                _maskTexture.SetPixels32(pixels);
-                _maskTexture.Apply(true);
                 SmartMaterialEditor.Assign(_maskMaterial, new Dictionary<string, Texture> { [MaterialBaker.BaseColor] = _maskTexture });
-                _maskDirty = false;
+                _maskRebuild = true;
+            }
+            // All of it after a load or an undo; otherwise dabs have already updated their own pixels.
+            if (_maskRebuild || _maskPixels == null || _maskPixels.Length != size * size)
+            {
+                _maskPixels = new Color32[size * size];
+                for (int i = 0; i < _maskPixels.Length; i++)
+                    _maskPixels[i] = MaskPixel(_layer.Mask[i]);
+                _maskRebuild = false;
+                _maskUpload = true;
+            }
+            if (_maskUpload)
+            {
+                _maskTexture.SetPixels32(_maskPixels);
+                _maskTexture.Apply(true);
+                _maskUpload = false;
             }
             return _maskMaterial;
         }
+
+        private static Color32 MaskPixel(float mask) => Color.Lerp(new Color(0.5f, 0.5f, 0.5f), new Color(1f, 0.15f, 0.1f), mask);
 
         private void DrawSide(Rect rect, PaintedNode node)
         {
@@ -383,17 +418,23 @@ namespace Remedy.Materials
                 if (GUILayout.Button(new GUIContent("Clear", "Remove everything painted on this node.")) &&
                     EditorUtility.DisplayDialog("Clear Paint", $"Remove everything painted on \"{node.Name}\"?", "Clear", "Keep"))
                 {
-                    Remember();
+                    BeginStroke();
+                    for (int i = 0; i < _layer.Size * _layer.Size; i++)
+                        Touch(i);
                     _layer.CopyFrom(new PaintLayer(_layer.Size));
+                    EndStroke();
+                    _maskRebuild = true;
                     Painted();
                 }
-                if (GUILayout.Button(new GUIContent("Save", "Save what's painted to its textures now (it saves itself after each stroke too).")))
-                    SaveNow();
+                if (GUILayout.Button(new GUIContent("Save", "Save what's painted and have Unity import it now (strokes are written to disk as you go; Unity imports the file when this window closes).")))
+                    FinishSaving();
             }
+            if (GUILayout.Button(new GUIContent("Export PNGs", "Also write what's painted as PNG textures (colour, surface, height and mask), to open in other apps.")))
+                ExportPngs();
             GUILayout.FlexibleSpace();
             foreach (var warning in _made.Warnings)
                 EditorGUILayout.HelpBox(warning, MessageType.Warning);
-            GUILayout.Label(_saveAt > 0 ? "Unsaved strokes (saving shortly)." : "Saved.", EditorStyles.miniLabel);
+            GUILayout.Label(_saveAt > 0 || _writing is { IsCompleted: false } ? "Saving strokes..." : _needsImport ? "Saved (imported when this closes)." : "Saved.", EditorStyles.miniLabel);
             GUILayout.EndArea();
         }
 
@@ -480,7 +521,7 @@ namespace Remedy.Materials
                     {
                         if (Hit(e.mousePosition, out var point, out var normal))
                         {
-                            Remember();
+                            BeginStroke();
                             _stroking = true;
                             Stamp(point, normal, _erase || e.control);
                             _lastStamp = point;
@@ -531,7 +572,10 @@ namespace Remedy.Materials
 
                 case EventType.MouseUp:
                     if (_stroking)
+                    {
+                        EndStroke();
                         _saveAt = EditorApplication.timeSinceStartup + 1.0;
+                    }
                     _stroking = _orbiting = false;
                     break;
 
@@ -588,6 +632,7 @@ namespace Remedy.Materials
                 float w = (t <= inner ? 1f : 1f - Smooth((t - inner) / (1f - inner))) * flow;
                 if (w <= 0f)
                     continue;
+                Touch(i);
                 if (PaintsColor)
                 {
                     var current = layer.Colour[i];
@@ -600,6 +645,10 @@ namespace Remedy.Materials
                         current = mixed;
                     }
                     layer.Colour[i] = current;
+                    // Shown straight away, before the material's made again. (Erasing waits for it: what's under the
+                    // paint isn't known here.)
+                    if (!erase)
+                        _made.Patch(layer.Size, i, _color, w);
                 }
                 if (PaintsRoughness)
                     Channel(layer.Roughness, layer.RoughnessCover, i, _roughness, w, erase);
@@ -621,6 +670,11 @@ namespace Remedy.Materials
                     {
                         layer.Mask[i] += (1f - layer.Mask[i]) * w;
                         layer.Erase[i] *= 1f - w;
+                    }
+                    if (_maskPixels != null && i < _maskPixels.Length)
+                    {
+                        _maskPixels[i] = MaskPixel(layer.Mask[i]);
+                        _maskUpload = true;
                     }
                 }
             }
@@ -646,83 +700,208 @@ namespace Remedy.Materials
         private void Painted()
         {
             _paintChanged = true;
-            _maskDirty = true;
             _saveAt = Math.Max(_saveAt, EditorApplication.timeSinceStartup + 1.0);
         }
 
         // ---- Undo ----
 
-        // Keeps the painting as it is now, to come back to.
-        private void Remember()
+        // One texel's paint, everything about it.
+        private struct TexelState
         {
-            _undo.Add(_layer.Clone());
-            if (_undo.Count > UndoSteps)
-                _undo.RemoveAt(0);
-            _redo.Clear();
+            public Color Colour;
+            public float Roughness, RoughnessCover, Metallic, MetallicCover, Height, Mask, Erase;
+        }
+
+        // What a stroke changed: the texels it touched, each as it was before. Small next to the whole painting, so
+        // undo costs about as much as the stroke did.
+        private sealed class StrokeRecord
+        {
+            public readonly List<int> Texels = new();
+            public readonly List<TexelState> Before = new();
+        }
+
+        private TexelState Read(int i) => new()
+        {
+            Colour = _layer.Colour[i], Roughness = _layer.Roughness[i], RoughnessCover = _layer.RoughnessCover[i],
+            Metallic = _layer.Metallic[i], MetallicCover = _layer.MetallicCover[i], Height = _layer.HeightOffset[i],
+            Mask = _layer.Mask[i], Erase = _layer.Erase[i],
+        };
+
+        private void Write(int i, TexelState state)
+        {
+            _layer.Colour[i] = state.Colour;
+            _layer.Roughness[i] = state.Roughness;
+            _layer.RoughnessCover[i] = state.RoughnessCover;
+            _layer.Metallic[i] = state.Metallic;
+            _layer.MetallicCover[i] = state.MetallicCover;
+            _layer.HeightOffset[i] = state.Height;
+            _layer.Mask[i] = state.Mask;
+            _layer.Erase[i] = state.Erase;
+        }
+
+        private void BeginStroke() => _stroke = new StrokeRecord();
+
+        // A texel about to change: remembered as it was, the first time this stroke touches it.
+        private void Touch(int i)
+        {
+            if (_stroke == null || _touched == null || _touched[i])
+                return;
+            _touched[i] = true;
+            _stroke.Texels.Add(i);
+            _stroke.Before.Add(Read(i));
+        }
+
+        private void EndStroke()
+        {
+            if (_stroke == null)
+                return;
+            foreach (int i in _stroke.Texels)
+                _touched[i] = false;
+            if (_stroke.Texels.Count > 0)
+            {
+                _undo.Add(_stroke);
+                if (_undo.Count > UndoSteps)
+                    _undo.RemoveAt(0);
+                _redo.Clear();
+            }
+            _stroke = null;
+        }
+
+        // Puts a stroke's texels back as they were, and returns how they were just now (to go the other way).
+        private StrokeRecord Swap(StrokeRecord record)
+        {
+            var other = new StrokeRecord();
+            for (int k = 0; k < record.Texels.Count; k++)
+            {
+                int i = record.Texels[k];
+                other.Texels.Add(i);
+                other.Before.Add(Read(i));
+                Write(i, record.Before[k]);
+            }
+            return other;
         }
 
         private void Undo()
         {
-            if (_undo.Count == 0)
+            if (_undo.Count == 0 || _stroking)
                 return;
-            _redo.Add(_layer.Clone());
-            _layer.CopyFrom(_undo[_undo.Count - 1]);
+            _redo.Add(Swap(_undo[_undo.Count - 1]));
             _undo.RemoveAt(_undo.Count - 1);
+            _maskRebuild = true;
             Painted();
             Repaint();
         }
 
         private void Redo()
         {
-            if (_redo.Count == 0)
+            if (_redo.Count == 0 || _stroking)
                 return;
-            _undo.Add(_layer.Clone());
-            _layer.CopyFrom(_redo[_redo.Count - 1]);
+            _undo.Add(Swap(_redo[_redo.Count - 1]));
             _redo.RemoveAt(_redo.Count - 1);
+            _maskRebuild = true;
             Painted();
             Repaint();
         }
 
         // ---- Saving ----
+        //
+        // Strokes are written in the background, to one small .bytes file (only the painted tiles, deflated: encoding
+        // three big PNGs on the main thread was the brush's big hitch). Unity only imports it when the window closes,
+        // or on Save: until then the node paints from its live layer. Export PNGs writes textures for other apps.
 
-        /// <summary>Writes what's painted to the node's three textures (made next to the graph the first time).</summary>
-        private void SaveNow()
+        private string PaintPath(PaintedNode node, string part, string extension = "png")
+        {
+            string folder = $"{Path.GetDirectoryName(AssetDatabase.GetAssetPath(_graph)).Replace('\\', '/')}/{_graph.name} Paint";
+            string id = string.IsNullOrEmpty(node.ID) ? "Paint" : node.ID.Substring(0, Mathf.Min(8, node.ID.Length));
+            return $"{folder}/{id}_{part}.{extension}";
+        }
+
+        private string DataPath(PaintedNode node) => PaintPath(node, "Paint", "bytes");
+
+        // Writes the PNGs on a background thread (one write at a time; strokes since then are written by the next).
+        private void WriteInBackground()
         {
             var node = Node;
-            if (node == null || _layer == null || _saveAt <= 0)
+            if (node == null || _layer == null)
             {
                 _saveAt = 0;
                 return;
             }
+            if (_writing is { IsCompleted: false })
+            {
+                _saveAt = EditorApplication.timeSinceStartup + 0.5;
+                return;
+            }
             _saveAt = 0;
-            string folder = $"{Path.GetDirectoryName(AssetDatabase.GetAssetPath(_graph)).Replace('\\', '/')}/{_graph.name} Paint";
-            SmartMaterialEditor.EnsureFolder(folder);
-            string id = string.IsNullOrEmpty(node.ID) ? "Paint" : node.ID.Substring(0, Mathf.Min(8, node.ID.Length));
-            var (colour, surface, heightMask) = _layer.ToPixels();
-            // (A Paint Mask only has its mask.)
-            var colourTexture = node.MaskOnly ? null : Write($"{folder}/{id}_Colour.png", colour, _layer.Size);
-            var surfaceTexture = node.MaskOnly ? null : Write($"{folder}/{id}_Surface.png", surface, _layer.Size);
-            var heightMaskTexture = Write($"{folder}/{id}_HeightMask.png", heightMask, _layer.Size);
-            if (node.ColourTexture != colourTexture || node.SurfaceTexture != surfaceTexture || node.HeightMaskTexture != heightMaskTexture)
+            SmartMaterialEditor.EnsureFolder(Path.GetDirectoryName(PaintPath(node, "x")).Replace('\\', '/'));
+            var layer = _layer;
+            string path = DataPath(node);
+            _needsImport = true;
+            // (Read while more strokes may land: those are in the next write.)
+            _writing = Task.Run(() => File.WriteAllBytes(path, layer.ToBytes()));
+        }
+
+        /// <summary>Writes anything not yet written, waits for it, and has Unity import the textures onto the node.</summary>
+        private void FinishSaving()
+        {
+            if (_stroking)
+                EndStroke();
+            if (_saveAt > 0)
+                WriteInBackground();
+            try
+            {
+                _writing?.Wait();
+            }
+            catch (Exception exception)
+            {
+                Debug.LogException(exception);
+            }
+            _writing = null;
+            var node = Node;
+            if (node == null || !_needsImport)
+                return;
+            _needsImport = false;
+            string path = DataPath(node);
+            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceSynchronousImport);
+            var data = AssetDatabase.LoadAssetAtPath<TextAsset>(path);
+            // (Older paintings' textures are let go: the file has everything.)
+            if (node.PaintData != data || node.ColourTexture != null || node.SurfaceTexture != null || node.HeightMaskTexture != null)
             {
                 UnityEditor.Undo.RecordObject(_graph, "Paint");
-                node.ColourTexture = colourTexture;
-                node.SurfaceTexture = surfaceTexture;
-                node.HeightMaskTexture = heightMaskTexture;
+                node.PaintData = data;
+                node.ColourTexture = node.SurfaceTexture = node.HeightMaskTexture = null;
                 EditorUtility.SetDirty(_graph);
             }
             // The graph window's preview picks the strokes up.
             _graph.Touch();
         }
 
-        // A painted texture as a PNG: readable, exact (no compression, no colour conversion, no mipmaps).
-        private static Texture2D Write(string path, Color32[] pixels, int size)
+        /// <summary>Writes what's painted as PNGs too (colour, surface, height and mask), for opening in other apps.</summary>
+        private void ExportPngs()
         {
-            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false, true);
-            texture.SetPixels32(pixels);
-            texture.Apply(false);
-            File.WriteAllBytes(path, texture.EncodeToPNG());
-            DestroyImmediate(texture);
+            var node = Node;
+            if (node == null || _layer == null)
+                return;
+            SmartMaterialEditor.EnsureFolder(Path.GetDirectoryName(PaintPath(node, "x")).Replace('\\', '/'));
+            var (colour, surface, heightMask) = _layer.ToPixels();
+            uint size = (uint)_layer.Size;
+            var parts = node.MaskOnly
+                ? new[] { ("HeightMask", heightMask) }
+                : new[] { ("Colour", colour), ("Surface", surface), ("HeightMask", heightMask) };
+            foreach (var (part, pixels) in parts)
+            {
+                string path = PaintPath(node, part);
+                File.WriteAllBytes(path, ImageConversion.EncodeArrayToPNG(pixels, GraphicsFormat.R8G8B8A8_UNorm, size, size));
+                Import(path, _layer.Size);
+            }
+            EditorUtility.RevealInFinder(PaintPath(node, parts[0].Item1));
+        }
+
+        // An exported texture's import: exact (no compression, no colour conversion, no mipmaps).
+        private static Texture2D Import(string path, int size)
+        {
+            if (!File.Exists(path))
+                return null;
             AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceSynchronousImport);
             if (AssetImporter.GetAtPath(path) is TextureImporter importer)
             {

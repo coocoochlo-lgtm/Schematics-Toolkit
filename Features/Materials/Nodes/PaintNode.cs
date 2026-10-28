@@ -24,6 +24,9 @@ namespace Remedy.Materials
         /// <summary>What's painted: colour (RGB, A how much covers), surface (R roughness, G its cover, B metallic, A its cover), and height and mask (R height, 0.5 none; G mask; B erased).</summary>
         [HideInInspector] public Texture2D ColourTexture, SurfaceTexture, HeightMaskTexture;
 
+        /// <summary>What's painted, as one compact file (see <see cref="PaintLayer.ToBytes"/>): read before the textures, which older paintings used.</summary>
+        [HideInInspector] public TextAsset PaintData;
+
         /// <summary>
         /// What's painted, while it's being painted (the editor's painting window keeps it here, and saves it to the
         /// textures): read in its place.
@@ -44,6 +47,12 @@ namespace Remedy.Materials
         {
             if (Live != null)
                 return Live;
+            if (PaintData != null)
+            {
+                var layer = PaintLayer.FromBytes(PaintData.bytes);
+                if (layer != null)
+                    return layer;
+            }
             int size = Resolution;
             Color[] colour = Pixels(ColourTexture, size), surface = Pixels(SurfaceTexture, size), heightMask = Pixels(HeightMaskTexture, size);
             return colour == null && surface == null && heightMask == null ? null : PaintLayer.FromPixels(size, colour, surface, heightMask);
@@ -56,12 +65,16 @@ namespace Remedy.Materials
             return texture.GetPixels();
         }
 
-        /// <summary>A copy of what's painted as it is now (painting goes on while a plan runs), with a warning if its textures can't be read.</summary>
+        /// <summary>
+        /// What's painted, for a plan (with a warning if its textures can't be read). While it's being painted that's
+        /// the live layer itself, not a copy: copying it (tens of megabytes) for every preview stalled the brush. A
+        /// stroke landing while a plan reads it only shows up a run early or late.
+        /// </summary>
         protected PaintLayer Snapshot(MaterialCompiler c)
         {
-            var paint = Read()?.Clone();
-            if (paint == null && (ColourTexture != null || SurfaceTexture != null || HeightMaskTexture != null))
-                c.Warnings.Add($"\"{Name}\": its painted textures couldn't be read (they need Read/Write on, at {Resolution}×{Resolution}).");
+            var paint = Read();
+            if (paint == null && (PaintData != null || ColourTexture != null || SurfaceTexture != null || HeightMaskTexture != null))
+                c.Warnings.Add($"\"{Name}\": its painted textures couldn't be read (a damaged paint file, or old textures without Read/Write on, at {Resolution}×{Resolution}).");
             return paint;
         }
     }
@@ -69,9 +82,9 @@ namespace Remedy.Materials
     /// <summary>
     /// Hand painting, Substance Painter style: brush strokes painted straight onto the model in its viewport (Paint...
     /// on the node), over the material coming in. Colour, roughness, metallic and height can each be painted, and a
-    /// mask too, to drive Layers below it. What's painted is kept as three textures next to the graph.
+    /// mask too, to drive Layers below it. What's painted is kept as a small .bytes file next to the graph.
     /// </summary>
-    [SchematicDoc(@"{""name"": ""Paint"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Smart Material/Materials"", ""description"": ""Paint by hand on the model. Click Paint... on the node to open its viewport: brush onto the model itself (left-drag), with the colour, roughness, metallic and height you pick (each can be on or off), or paint the Mask (to wire into a Layer: hand-placed rust, a painted logo's outline, where a decal goes). Ctrl erases. [ and ] (or Shift+wheel) change the brush size. What's painted goes over the material wired into In and comes out of Material; the painted mask comes out of Mask. Strokes run straight across UV seams (they're painted in 3D). Saved as three textures next to the graph (at Resolution)."", ""inputs"": [{""name"": ""In"", ""type"": ""MaterialMaps""}], ""outputs"": [{""name"": ""Material"", ""type"": ""MaterialMaps""}, {""name"": ""Mask"", ""type"": ""MaskMap""}], ""use_for"": [""hand-painted details, colour and wear"", ""a hand-placed mask for a Layer"", ""touching up a procedural material""]}")]
+    [SchematicDoc(@"{""name"": ""Paint"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Smart Material/Materials"", ""description"": ""Paint by hand on the model. Click Paint... on the node to open its viewport: brush onto the model itself (left-drag), with the colour, roughness, metallic and height you pick (each can be on or off), or paint the Mask (to wire into a Layer: hand-placed rust, a painted logo's outline, where a decal goes). Ctrl erases. [ and ] (or Shift+wheel) change the brush size. What's painted goes over the material wired into In and comes out of Material; the painted mask comes out of Mask. Strokes run straight across UV seams (they're painted in 3D). Saved as a small .bytes file next to the graph (Export PNGs in its viewport writes textures for other apps)."", ""inputs"": [{""name"": ""In"", ""type"": ""MaterialMaps""}], ""outputs"": [{""name"": ""Material"", ""type"": ""MaterialMaps""}, {""name"": ""Mask"", ""type"": ""MaskMap""}], ""use_for"": [""hand-painted details, colour and wear"", ""a hand-placed mask for a Layer"", ""touching up a procedural material""]}")]
     [Serializable]
     [NodeColor(NodeColors.Audio)]
     [Node(Name = "Paint", Path = "Materials"), Tags(MaterialNode.Tag)]

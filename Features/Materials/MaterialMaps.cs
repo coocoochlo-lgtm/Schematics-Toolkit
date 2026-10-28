@@ -210,6 +210,115 @@ namespace Remedy.Materials
             return (colour, surface, heightMask);
         }
 
+        // ---- The .bytes file ----
+        //
+        // One small file instead of three PNGs: the texture in 32x32 tiles, only the painted ones stored, each texel's
+        // eleven values as bytes, all deflated. A painting's mostly empty, so it's small, and quick to write.
+
+        private const int Tile = 32, Bytes = 11;
+        private static readonly byte[] Magic = { (byte)'R', (byte)'P', (byte)'N', (byte)'T' };
+
+        // Height offset stored as a signed byte round 127, so "none" (0.5) comes back exactly.
+        private static byte HeightByte(float v) => (byte)Mathf.Clamp(Mathf.RoundToInt((v - 0.5f) * 254f) + 127, 0, 254);
+        private static float HeightValue(byte b) => b == 127 ? 0.5f : (b - 127) / 254f + 0.5f;
+        private static byte Byte(float v) => (byte)Mathf.Clamp(Mathf.RoundToInt(v * 255f), 0, 255);
+
+        /// <summary>The painting as a compact file (any thread).</summary>
+        public byte[] ToBytes()
+        {
+            using var memory = new System.IO.MemoryStream();
+            memory.Write(Magic, 0, Magic.Length);
+            var header = new System.IO.BinaryWriter(memory);
+            header.Write(1);
+            header.Write(Size);
+            using (var deflate = new System.IO.Compression.DeflateStream(memory, System.IO.Compression.CompressionLevel.Fastest, true))
+            {
+                int tiles = (Size + Tile - 1) / Tile;
+                var buffer = new byte[Tile * Tile * Bytes];
+                for (int ty = 0; ty < tiles; ty++)
+                    for (int tx = 0; tx < tiles; tx++)
+                    {
+                        int n = 0;
+                        bool painted = false;
+                        for (int y = ty * Tile; y < Mathf.Min(Size, (ty + 1) * Tile); y++)
+                            for (int x = tx * Tile; x < Mathf.Min(Size, (tx + 1) * Tile); x++)
+                            {
+                                int i = y * Size + x;
+                                var c = Colour[i];
+                                buffer[n++] = Byte(c.r);
+                                buffer[n++] = Byte(c.g);
+                                buffer[n++] = Byte(c.b);
+                                byte a = Byte(c.a), rc = Byte(RoughnessCover[i]), mc = Byte(MetallicCover[i]), h = HeightByte(HeightOffset[i]), m = Byte(Mask[i]), e = Byte(Erase[i]);
+                                buffer[n++] = a;
+                                buffer[n++] = Byte(Roughness[i]);
+                                buffer[n++] = rc;
+                                buffer[n++] = Byte(Metallic[i]);
+                                buffer[n++] = mc;
+                                buffer[n++] = h;
+                                buffer[n++] = m;
+                                buffer[n++] = e;
+                                painted |= a > 0 || rc > 0 || mc > 0 || h != 127 || m > 0 || e > 0;
+                            }
+                        deflate.WriteByte(painted ? (byte)1 : (byte)0);
+                        if (painted)
+                            deflate.Write(buffer, 0, n);
+                    }
+            }
+            return memory.ToArray();
+        }
+
+        /// <summary>A painting read back from <see cref="ToBytes"/> (null if it isn't one).</summary>
+        public static PaintLayer FromBytes(byte[] bytes)
+        {
+            if (bytes == null || bytes.Length < 12 || bytes[0] != Magic[0] || bytes[1] != Magic[1] || bytes[2] != Magic[2] || bytes[3] != Magic[3])
+                return null;
+            using var memory = new System.IO.MemoryStream(bytes);
+            memory.Position = 4;
+            var header = new System.IO.BinaryReader(memory);
+            int version = header.ReadInt32();
+            int size = header.ReadInt32();
+            if (version != 1 || size <= 0 || size > 8192)
+                return null;
+            var layer = new PaintLayer(size);
+            using var deflate = new System.IO.Compression.DeflateStream(memory, System.IO.Compression.CompressionMode.Decompress);
+            int tiles = (size + Tile - 1) / Tile;
+            var buffer = new byte[Tile * Tile * Bytes];
+            for (int ty = 0; ty < tiles; ty++)
+                for (int tx = 0; tx < tiles; tx++)
+                {
+                    int flag = deflate.ReadByte();
+                    if (flag < 0)
+                        return layer;
+                    if (flag == 0)
+                        continue;
+                    int w = Mathf.Min(size, (tx + 1) * Tile) - tx * Tile, hgt = Mathf.Min(size, (ty + 1) * Tile) - ty * Tile;
+                    int length = w * hgt * Bytes, read = 0;
+                    while (read < length)
+                    {
+                        int got = deflate.Read(buffer, read, length - read);
+                        if (got <= 0)
+                            return layer;
+                        read += got;
+                    }
+                    int n = 0;
+                    for (int y = ty * Tile; y < ty * Tile + hgt; y++)
+                        for (int x = tx * Tile; x < tx * Tile + w; x++)
+                        {
+                            int i = y * size + x;
+                            layer.Colour[i] = new Color(buffer[n] / 255f, buffer[n + 1] / 255f, buffer[n + 2] / 255f, buffer[n + 3] / 255f);
+                            layer.Roughness[i] = buffer[n + 4] / 255f;
+                            layer.RoughnessCover[i] = buffer[n + 5] / 255f;
+                            layer.Metallic[i] = buffer[n + 6] / 255f;
+                            layer.MetallicCover[i] = buffer[n + 7] / 255f;
+                            layer.HeightOffset[i] = HeightValue(buffer[n + 8]);
+                            layer.Mask[i] = buffer[n + 9] / 255f;
+                            layer.Erase[i] = buffer[n + 10] / 255f;
+                            n += Bytes;
+                        }
+                }
+            return layer;
+        }
+
         /// <summary>Reads it back from the three textures' pixels (any of them null: that part left blank).</summary>
         public static PaintLayer FromPixels(int size, Color[] colour, Color[] surface, Color[] heightMask)
         {
@@ -228,7 +337,9 @@ namespace Remedy.Materials
                 }
                 if (heightMask != null && i < heightMask.Length)
                 {
-                    layer.HeightOffset[i] = heightMask[i].r;
+                    // (8-bit 0.5 is 128/255: snapped back, or the whole texture would rise a hair.)
+                    float h = heightMask[i].r;
+                    layer.HeightOffset[i] = Mathf.Abs(h - 0.5f) < 0.003f ? 0.5f : h;
                     layer.Mask[i] = heightMask[i].g;
                     layer.Erase[i] = heightMask[i].b;
                 }

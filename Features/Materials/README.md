@@ -59,4 +59,12 @@ seams.
   - Mirror X paints both sides at once.
   - Z undoes a stroke; Shift+Z redoes it.
   - Right-drag turns the view, middle-drag pans, and F frames the model.
-  - Strokes save themselves as PNGs in a "<graph> Paint" folder a moment after you stop painting.
+  - Strokes save themselves in the background a moment after you stop. Each node's painting goes in one small
+    `.bytes` file in a "<graph> Paint" folder. Only the painted 32×32 tiles are stored, compressed, so a 1024
+    painting is usually a few hundred KB. Unity imports it when the window closes (or on Save).
+  - **Export PNGs** writes what's painted as textures too, for other apps. Older paintings saved as PNGs still load.
+  - **Staying responsive:**
+    - Brush colour shows on the model immediately.
+    - The full material rebuilds in the background, coarse first (128, then 256, then the preview size) and
+      sharpening when you stop.
+    - Undo only remembers the texels each stroke touched.

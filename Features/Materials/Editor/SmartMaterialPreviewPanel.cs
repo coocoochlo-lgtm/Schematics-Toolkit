@@ -22,6 +22,12 @@ namespace Remedy.Materials
         private readonly Dictionary<PreviewChannel, Texture2D> _channels = new();
         private Material _material;
 
+        // The shown base colour's pixels, kept so brush strokes can be drawn straight onto it while the material's
+        // made again in the background.
+        private Color32[] _basePixels;
+        private Texture2D _baseTexture;
+        private bool _patched;
+
         public List<string> Warnings = new();
         public int Size;
         public double Seconds;
@@ -110,7 +116,12 @@ namespace Remedy.Materials
                 var texture = Upload(_textures, baked.Suffix, baked.Width, baked.Height, pixels, !baked.IsColor);
                 assigned[baked.Suffix] = texture;
                 if (baked.Suffix == MaterialBaker.BaseColor)
+                {
                     _channels[PreviewChannel.BaseColor] = texture;
+                    _basePixels = baked.Pixels;
+                    _baseTexture = texture;
+                    _patched = false;
+                }
                 else if (baked.IsNormalMap)
                     _channels[PreviewChannel.Normal] = Upload(_textures, "NormalFlat", baked.Width, baked.Height, baked.Pixels, true);
             }
@@ -123,6 +134,34 @@ namespace Remedy.Materials
             Warnings = made.warnings;
             Seconds = made.seconds;
             Size = made.baked.Count > 0 ? made.baked[0].Width : 0;
+        }
+
+        /// <summary>
+        /// Blends a brush colour into the shown base colour where texel <paramref name="texel"/> of a
+        /// <paramref name="paintSize"/>² painting lands, by <paramref name="amount"/>: instant feedback while the
+        /// material catches up. Shown at the next <see cref="UploadPatches"/>.
+        /// </summary>
+        public void Patch(int paintSize, int texel, Color colour, float amount)
+        {
+            if (_basePixels == null || _baseTexture == null)
+                return;
+            int size = _baseTexture.width;
+            int x = (texel % paintSize) * size / paintSize, y = (texel / paintSize) * size / paintSize;
+            int i = y * size + x;
+            if (i < 0 || i >= _basePixels.Length)
+                return;
+            _basePixels[i] = Color32.Lerp(_basePixels[i], colour, amount);
+            _patched = true;
+        }
+
+        /// <summary>Sends patched base colour to the texture (main thread; once per repaint, not per dab).</summary>
+        public void UploadPatches()
+        {
+            if (!_patched || _baseTexture == null)
+                return;
+            _baseTexture.SetPixels32(_basePixels);
+            _baseTexture.Apply(true);
+            _patched = false;
         }
 
         private static Texture2D Upload(Dictionary<string, Texture2D> cache, string key, int width, int height, Color32[] pixels, bool linear)
