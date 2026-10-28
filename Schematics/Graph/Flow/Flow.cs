@@ -391,6 +391,15 @@ namespace Remedy.Schematics
                     return scope.Call;
             return null;
         }
+
+        /// <summary>The nearest call of one Function Graph this flow is running in, or null.</summary>
+        public FunctionCall FindCall(SchematicGraph graph)
+        {
+            for (var scope = this; scope != null; scope = scope.Parent)
+                if (scope.Call != null && scope.Call.Graph == graph)
+                    return scope.Call;
+            return null;
+        }
         private readonly Dictionary<(SchematicGraphNode, string), Union> _values = new();
 
         public bool TryGet(SchematicGraphNode node, string port, out Union value)

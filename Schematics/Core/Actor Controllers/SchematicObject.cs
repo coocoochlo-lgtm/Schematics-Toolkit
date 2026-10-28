@@ -109,16 +109,6 @@ namespace Remedy.Schematics
         internal void ResetGraphVariables() => _graphStores?.Clear();
 
         /// <summary>
-        /// One graph's Variables back to their starting values on this object (if it has any yet): a Function Graph's,
-        /// as each call of it starts.
-        /// </summary>
-        public void ResetGraphVariables(SchematicGraph graph)
-        {
-            if (graph != null && _graphStores != null && _graphStores.TryGetValue(graph, out var store))
-                store.Reset();
-        }
-
-        /// <summary>
         /// Which Schematic Object (prefab) this is, the same for every instance of it and stable across sessions.
         /// Assigned in the editor when the Schematic is created, from the prefab asset's GUID (a duplicated prefab
         /// gets its own). 0 for objects that aren't Schematic prefabs (built at runtime or placed by hand).

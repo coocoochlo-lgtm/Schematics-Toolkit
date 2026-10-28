@@ -28,23 +28,26 @@ namespace Remedy.Schematics
 
         public int Count => _values.Length;
 
-        // A Function Graph's Variables start fresh for every call (they're its working values, not lasting state). With
-        // two calls on one object running at once (one waiting, or a function calling itself), the newer call's start
-        // resets them for both.
-        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-        private static void HookFunctionCalls()
+        /// <summary>
+        /// A Function Graph call's own Variables (they're its working values, not lasting state): made fresh the first
+        /// time the call uses them and kept on the call, so calls running at once (one waiting, or a function calling
+        /// itself) don't share them. Null outside a call of that graph.
+        /// </summary>
+        internal static GraphVariableStore ForCall(SchematicGraph graph, SchematicObject owner)
         {
-            FunctionCall.Starting -= FreshForCall;
-            FunctionCall.Starting += FreshForCall;
-        }
-
-        private static void FreshForCall(FunctionGraph graph, GameObject instance)
-        {
-            if (graph == null || instance == null || graph.Variables.Count == 0)
-                return;
-            var owner = instance.GetComponentInParent<SchematicObject>();
-            if (owner != null)
-                owner.ResetGraphVariables(graph);
+            if (graph is not FunctionGraph)
+                return null;
+            var call = Flow.Current?.ExecutingScope?.FindCall(graph);
+            if (call == null)
+                return null;
+            if (call.Variables is GraphVariableStore store && store.Owner == owner)
+            {
+                store.Refresh();
+                return store;
+            }
+            store = new GraphVariableStore(owner, graph);
+            call.Variables = store;
+            return store;
         }
 
         /// <summary>Back to the starting values: the object's overrides, else the graph's defaults.</summary>

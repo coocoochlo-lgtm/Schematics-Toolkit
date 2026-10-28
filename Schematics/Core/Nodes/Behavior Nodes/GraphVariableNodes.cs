@@ -45,7 +45,8 @@ namespace Remedy.Schematics
                 return null;
             }
 
-            var store = owner.GraphVariables(graph);
+            // In a Function Graph call on this object, the call's own Variables; otherwise the object's.
+            var store = (target == instance ? GraphVariableStore.ForCall(graph, owner) : null) ?? owner.GraphVariables(graph);
             index = store != null ? store.IndexOf(VariableId) : -1;
             if (index < 0)
                 Debug.LogWarning($"[{Name}] {graph.name} has no Variable {VariableId} anymore.", instance);

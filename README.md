@@ -312,7 +312,7 @@ A Function Graph is a routine any logic graph can call like a node. Create one w
 - **On Called** starts the function. Its pins are the inputs. The function runs on the object calling it, so Self is the caller.
 - **Return** hands the outputs back. The function can wait (a Wait node, a delay) before it, and the caller carries on once Return is reached. With no Return, a call carries straight on.
 - **Call** is the node other graphs use. Its pins are the function's inputs and outputs, and any input that isn't wired can be set right on the node: numbers with their control, other types (vectors, colours, text, objects) with a value field. The same goes for Return's outputs. Drop a Function Graph into a graph to make one, and double-click its title to open the function. A function can call itself, up to 64 calls deep.
-- **Variables** in a Function Graph start fresh on every call: they're reset to their defaults just before the function starts. They're stored on the calling object, so two calls running at once on the same object (one waiting while another starts) share them, and the second call resets the first one's.
+- **Variables** in a Function Graph belong to each call: every call starts with the defaults, and calls running at once (one waiting while another starts, or a function calling itself) each keep their own values.
 - **In Library** (also under Function in the Graph tab) lists it in every logic graph's node search under Functions/(its Path). Its Description, Use For and Notes document it the way built-in nodes are documented, and the assistant learns it too.
 
 Mesh Graphs can be called the same way, from other Mesh Graphs (see Features/Meshes/README.md).

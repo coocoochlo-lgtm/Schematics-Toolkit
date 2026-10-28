@@ -27,22 +27,11 @@ namespace Remedy.Schematics
         public readonly Dictionary<string, Union> Results = new(StringComparer.Ordinal);
 
         /// <summary>
-        /// Raised as a call starts, before the function's On Called: the calling object's Variables for the function
-        /// graph go back to their starting values here (the Schematic Object does it), so every call starts fresh.
+        /// This call's own values for the function's Variables (a GraphVariableStore, made by the Variable nodes the
+        /// first time they're used in the call). Every call starts fresh, and calls running at once (one waiting, or
+        /// a function calling itself) each keep their own.
         /// </summary>
-        public static event Action<FunctionGraph, GameObject> Starting;
-
-        internal static void RaiseStarting(FunctionGraph graph, GameObject instance)
-        {
-            try
-            {
-                Starting?.Invoke(graph, instance);
-            }
-            catch (Exception exception)
-            {
-                Debug.LogException(exception);
-            }
-        }
+        public object Variables;
 
         /// <summary>Whether its Return has run (only the first one counts).</summary>
         public bool Returned { get; private set; }
@@ -300,7 +289,6 @@ namespace Remedy.Schematics
                 if (pin != null)
                     call.Inputs[pin.Name] = TryGetInputValue<Union>(pin.Name, out var value) ? value : FunctionPins.Default(pin, _arguments);
 
-            FunctionCall.RaiseStarting(Calls, instance);
             _depth++;
             try
             {
