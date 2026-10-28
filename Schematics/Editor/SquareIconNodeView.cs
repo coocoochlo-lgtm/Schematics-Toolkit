@@ -64,10 +64,23 @@ namespace Remedy.Schematics
                 selection.style.borderTopLeftRadius = selection.style.borderTopRightRadius =
                     selection.style.borderBottomLeftRadius = selection.style.borderBottomRightRadius = 9;
 
-            // Pins down the sides, centred top to bottom, over the square.
+            // The body exactly fills the square (left to itself it runs a little past the bottom, which pushes the pins
+            // off centre and sticks out below the selection outline); nothing under it.
             var contents = this.Q("contents");
             if (contents != null)
-                contents.style.height = Size;
+            {
+                contents.style.position = Position.Absolute;
+                contents.style.left = contents.style.top = contents.style.right = contents.style.bottom = 0;
+                contents.style.marginLeft = contents.style.marginRight = contents.style.marginTop = contents.style.marginBottom = 0;
+                contents.style.paddingLeft = contents.style.paddingRight = contents.style.paddingTop = contents.style.paddingBottom = 0;
+                contents.style.borderBottomLeftRadius = contents.style.borderBottomRightRadius =
+                    contents.style.borderTopLeftRadius = contents.style.borderTopRightRadius = 7;
+            }
+            var underneath = this.Q("collapsible-area");
+            if (underneath != null)
+                underneath.style.display = DisplayStyle.None;
+
+            // Pins down the sides, centred top to bottom, over the square.
             var top = this.Q("top");
             if (top != null)
             {

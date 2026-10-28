@@ -3,15 +3,12 @@ using UnityEngine.UIElements;
 
 /// <summary>
 /// The nodes' gloss: a crisp shine over the upper part of a surface and a soft shade along its bottom, laid over it
-/// (over the body gradient that gives the colour its depth). Math nodes' squares and every node's body wear it.
+/// (over the body gradient that gives the colour its depth). The math nodes' squares wear it.
 /// </summary>
 internal static class NodeGloss
 {
     /// <summary>How strong the shine and the shade are on a coloured surface (the math squares).</summary>
     public const float Shine = 0.22f, Shade = 0.12f;
-
-    /// <summary>On a dark node body: a little softer, so its fields stay easy to read.</summary>
-    public const float BodyShine = 0.10f, BodyShade = 0.14f;
 
     /// <summary>
     /// Puts the gloss on a surface (again, if it's already on: replaced). <paramref name="radius"/> is the surface's
