@@ -98,6 +98,13 @@ public class GraphScopeDock : VisualElement
                 GraphScopeEditing.Commit(graph, structural: false, redraw: false);
             }
 
+            // A Function Graph's inputs and outputs (On Called's and Return's pins, and its Call nodes').
+            if (graph is FunctionGraph function)
+            {
+                PinList(function, function.Function.Inputs, "Inputs", "What a call gives it: On Called's pins, and the Call node's inputs.");
+                PinList(function, function.Function.Outputs, "Outputs", "What it hands back: Return's pins, and the Call node's outputs.");
+            }
+
             // What calling it takes and gives.
             var takes = graph.FunctionInputs.Select(i => i.Name)
                 .Concat(graph.GraphParameters.Select(p => p.UI != null && p.UI.Control != ParameterControl.Number ? $"{p.Name} ({ObjectNames.NicifyVariableName(p.UI.Control.ToString()).ToLowerInvariant()})" : p.Name))
@@ -113,6 +120,98 @@ public class GraphScopeDock : VisualElement
         fields.style.marginRight = 4;
         section.Add(fields);
         return section;
+    }
+
+    // One list of a Function Graph's pins, as rows: name, type, and for numbers their control (with its range or
+    // options, and a description, on a second line).
+    private static void PinList(FunctionGraph graph, List<FunctionPin> pins, string title, string tooltip)
+    {
+        EditorGUILayout.Space(4);
+        using (new EditorGUILayout.HorizontalScope())
+        {
+            EditorGUILayout.LabelField(new GUIContent(title, tooltip), EditorStyles.boldLabel);
+            if (GUILayout.Button(new GUIContent("+", "Add one"), EditorStyles.miniButton, GUILayout.Width(22)))
+            {
+                Undo.RecordObject(graph, "Add Function Pin");
+                string name = title == "Inputs" ? "Input" : "Output";
+                int n = 1;
+                while (pins.Any(p => p != null && p.Name == name + (n == 1 ? "" : " " + n)))
+                    n++;
+                pins.Add(new FunctionPin { Name = name + (n == 1 ? "" : " " + n) });
+                CommitFunction(graph);
+                GUIUtility.ExitGUI();
+            }
+        }
+        var types = GraphScopeEditing.VariableTypes;
+        var typeNames = types.Select(t => t.path).ToArray();
+        for (int i = 0; i < pins.Count; i++)
+        {
+            var pin = pins[i];
+            if (pin == null)
+                continue;
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                EditorGUI.BeginChangeCheck();
+                string name = EditorGUILayout.DelayedTextField(pin.Name ?? "", GUILayout.MinWidth(60));
+                int typeIndex = Array.FindIndex(types, t => t.type == pin.ValueType);
+                int newType = EditorGUILayout.Popup(typeIndex, typeNames, GUILayout.Width(70));
+                if (EditorGUI.EndChangeCheck())
+                {
+                    name = name.Trim();
+                    string old = pin.Name;
+                    bool clash = pins.Any(p => p != null && p != pin && p.Name == name);
+                    Undo.RecordObject(graph, "Edit Function Pin");
+                    if (!string.IsNullOrEmpty(name) && !clash)
+                        pin.Name = name;
+                    if (newType >= 0 && newType != typeIndex)
+                        pin.Type = types[newType].type;
+                    CommitFunction(graph, old, pin.Name);
+                    GUIUtility.ExitGUI();
+                }
+                if (GUILayout.Button(new GUIContent("−", "Remove it (and its wires)"), EditorStyles.miniButton, GUILayout.Width(22)))
+                {
+                    Undo.RecordObject(graph, "Remove Function Pin");
+                    pins.RemoveAt(i);
+                    CommitFunction(graph);
+                    GUIUtility.ExitGUI();
+                }
+            }
+            if (!pin.HasInlineValue)
+                continue;
+            pin.UI ??= new ParameterUI();
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                GUILayout.Space(12);
+                EditorGUI.BeginChangeCheck();
+                var control = (ParameterControl)EditorGUILayout.EnumPopup(pin.UI.Control, GUILayout.Width(92));
+                float min = pin.UI.Min, max = pin.UI.Max;
+                string options = pin.UI.Options;
+                if (control == ParameterControl.Slider || control == ParameterControl.WholeNumber)
+                {
+                    min = EditorGUILayout.FloatField(min, GUILayout.MinWidth(30));
+                    max = EditorGUILayout.FloatField(max, GUILayout.MinWidth(30));
+                }
+                else if (control == ParameterControl.Dropdown)
+                    options = EditorGUILayout.DelayedTextField(options ?? "", GUILayout.MinWidth(60));
+                if (EditorGUI.EndChangeCheck())
+                {
+                    Undo.RecordObject(graph, "Edit Function Pin");
+                    pin.UI.Control = control;
+                    pin.UI.Min = min;
+                    pin.UI.Max = max;
+                    pin.UI.Options = options;
+                    CommitFunction(graph);
+                }
+            }
+        }
+        if (pins.Count == 0)
+            EditorGUILayout.LabelField("None. Press + to add one.", EditorStyles.miniLabel);
+    }
+
+    private static void CommitFunction(FunctionGraph graph, string renamedFrom = null, string renamedTo = null)
+    {
+        GraphScopeEditing.Commit(graph, structural: false, redraw: false);
+        FunctionGraphEditor.SyncNodes(graph, renamedFrom, renamedTo);
     }
 
     #endregion

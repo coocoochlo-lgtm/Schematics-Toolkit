@@ -73,13 +73,41 @@ namespace Remedy.Schematics
         public readonly string Name;
         public readonly Type Type;
         public readonly string Description;
+        /// <summary>For a number: how it's shown on the calling node (null: a plain number box).</summary>
+        public readonly ParameterUI UI;
 
-        public GraphPinInfo(string name, Type type, string description = "")
+        public GraphPinInfo(string name, Type type, string description = "", ParameterUI ui = null)
         {
             Name = name;
             Type = type;
             Description = description ?? "";
+            UI = ui;
         }
+    }
+
+    /// <summary>
+    /// One input or output of a Function Graph: its name, its type, and (for numbers) the control it shows on the
+    /// nodes calling the graph when nothing's wired in.
+    /// </summary>
+    [Serializable]
+    public class FunctionPin
+    {
+        [Tooltip("Stays the same when the pin is renamed.")]
+        public string Id = Guid.NewGuid().ToString("N");
+        public string Name = "Value";
+        public SerializableType Type = typeof(float);
+        [Tooltip("For a number, bool or whole number: the control on calling nodes, its range and description.")]
+        public ParameterUI UI = new();
+
+        public Type ValueType => Type.Type;
+
+        /// <summary>Whether it can be set right on the calling node (a number, whole number or bool).</summary>
+        public bool HasInlineValue => ValueType == typeof(float) || ValueType == typeof(int) || ValueType == typeof(bool);
+
+        public GraphPinInfo Info => new(Name, ValueType, UI?.Description, HasInlineValue ? UI : null);
+
+        /// <summary>As a Parameter (for the inline value kept on calling nodes).</summary>
+        public GraphParameter AsParameter(float defaultValue = 0f) => new(Name, typeof(float), defaultValue, UI);
     }
 
     /// <summary>
@@ -100,6 +128,11 @@ namespace Remedy.Schematics
         [Tooltip("Anything else worth knowing when using it.")]
         [TextArea(1, 3)]
         public string Notes = "";
+
+        /// <summary>A Function Graph's inputs: On Called's pins, and the calling node's.</summary>
+        public List<FunctionPin> Inputs = new();
+        /// <summary>A Function Graph's outputs: Return's pins, and what the calling node gives back.</summary>
+        public List<FunctionPin> Outputs = new();
     }
 
     /// <summary>A value set on a node calling a graph as a function, for one of the graph's Parameters (by name).</summary>
@@ -177,6 +210,15 @@ namespace Remedy.Schematics
                 Field(json, "name", input.Name);
                 json.Append(", ");
                 Field(json, "type", TypeName(input.Type));
+                if (input.UI != null && input.UI.Control != ParameterControl.Number)
+                {
+                    json.Append(", ");
+                    Field(json, "control", input.UI.Control.ToString());
+                    if (input.UI.Control == ParameterControl.Slider || input.UI.Control == ParameterControl.WholeNumber)
+                        json.Append(", \"min\": ").Append(Number(input.UI.Min)).Append(", \"max\": ").Append(Number(input.UI.Max));
+                    if (input.UI.Control == ParameterControl.Dropdown)
+                        json.Append(", \"options\": [").Append(string.Join(", ", input.UI.OptionList.Select(Quote))).Append(']');
+                }
                 if (!string.IsNullOrEmpty(input.Description))
                 {
                     json.Append(", ");

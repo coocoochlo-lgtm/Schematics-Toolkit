@@ -116,6 +116,12 @@ TAB_ICONS = {
   <path d="M16 3 L28 9.5 L28 22.5 L16 29 L4 22.5 L4 9.5 Z" fill="none" stroke="{c}" stroke-width="2.3" stroke-linejoin="round"/>
   <path d="M4 9.5 L16 16 L28 9.5 M16 16 V29" fill="none" stroke="{c}" stroke-width="2" stroke-linejoin="round"/>
   <circle cx="16" cy="16" r="3.2" fill="{c}"/>''',
+    # A Function Graph: an f between brackets, a routine called like a node.
+    "function": '''
+  <path d="M7.5 4 C3.5 9, 3.5 23, 7.5 28" fill="none" stroke="{c}" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M24.5 4 C28.5 9, 28.5 23, 24.5 28" fill="none" stroke="{c}" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M20.5 7.5 C19 5.5, 15.5 5.8, 15 9 L12.6 23.5 C12.1 26.6, 9.2 27, 8.5 25" fill="none" stroke="{c}" stroke-width="2.6" stroke-linecap="round"/>
+  <path d="M11 14 H19.5" stroke="{c}" stroke-width="2.4" stroke-linecap="round"/>''',
     # The IO Dock: an object's rows, each with its pin.
     "io-dock": '''
   <rect x="3" y="5" width="18" height="5" rx="2.5" fill="{c}"/>

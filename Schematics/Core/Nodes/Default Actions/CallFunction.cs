@@ -10,7 +10,7 @@ using System;
 
 namespace Remedy.Schematics
 {
-    [SchematicDoc(@"{""name"": ""Call Function"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Loops"", ""description"": ""Calls a function by name on another Schematic Graph (its On Function event), passing parameters."", ""inputs"": [{""name"": ""FunctionParameters"", ""type"": ""List<FunctionParameter>""}], ""use_for"": [""reusable routines"", ""one graph asking another to do something""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next. Pair with On Function in the target graph.""}")]
+    [SchematicDoc(@"{""name"": ""Call Function"", ""kind"": ""node"", ""flow"": ""action"", ""category"": ""Loops"", ""description"": ""Calls a function by name on another Schematic Graph (its On Function event), passing parameters."", ""inputs"": [{""name"": ""FunctionParameters"", ""type"": ""List<FunctionParameter>""}], ""use_for"": [""reusable routines"", ""one graph asking another to do something""], ""notes"": ""Runs when flow reaches it: connect an arrow into it, and from it to what runs next. Pair with On Function in the target graph. For a reusable routine with typed inputs and outputs (and a return value), prefer a Function Graph and its Call node.""}")]
     [Serializable]
     [NodeColor(NodeColors.Action)]
     [Node(Path = "Loops"), Tags("Default")]

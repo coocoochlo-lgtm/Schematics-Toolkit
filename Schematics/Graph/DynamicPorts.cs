@@ -53,5 +53,32 @@ namespace Remedy.Schematics
             }
             return changed;
         }
+
+        /// <summary>The same as <see cref="SyncInputs"/>, for output pins.</summary>
+        public static bool SyncOutputs(Node node, IEnumerable<(string name, Type type)> wanted, Func<Port, bool> owned)
+        {
+            bool changed = false;
+            var names = new HashSet<string>();
+            foreach (var (name, type) in wanted)
+            {
+                if (string.IsNullOrEmpty(name) || !names.Add(name))
+                    continue;
+                var existing = node.GetPort(name);
+                if (existing != null)
+                {
+                    if (existing.Type == type && existing.Direction == PortDirection.Output)
+                        continue;
+                    node.RemovePort(existing);
+                }
+                node.AddPort(new Port { Name = name, Type = type, Direction = PortDirection.Output, Capacity = PortCapacity.Multiple });
+                changed = true;
+            }
+            foreach (var port in node.Ports.Values.Where(p => p.Direction == PortDirection.Output && owned(p) && !names.Contains(p.Name)).ToList())
+            {
+                node.RemovePort(port);
+                changed = true;
+            }
+            return changed;
+        }
     }
 }

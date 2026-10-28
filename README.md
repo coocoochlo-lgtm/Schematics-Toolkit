@@ -306,6 +306,17 @@ Create one with **Create → Remedy Toolkit → Schematics → Singleton Schemat
 
 Give it a State Machine from the graph window's side panel (**Create State Machine**). The definition is stored on the asset; the state lives on the object. Reach the object from code with `mySingletonGraph.Host` or `SingletonGraph.Find("Name")`.
 
+### Function Graphs
+A Function Graph is a routine any logic graph can call like a node. Create one with **Create → Remedy Toolkit → Schematics → Function Graph**, or from the Project Manager's Functions group.
+- **Inputs and outputs:** set them in the IO Dock's Graph tab, under **Function**. Each has a name and a type, and number inputs also get a control (a slider, whole-number slider, toggle or dropdown, with its range or options).
+- **On Called** starts the function. Its pins are the inputs. The function runs on the object calling it, so Self is the caller.
+- **Return** hands the outputs back. The function can wait (a Wait node, a delay) before it, and the caller carries on once Return is reached. With no Return, a call carries straight on.
+- **Call** is the node other graphs use. Its pins are the function's inputs and outputs, and number inputs show their control right on the node. Drop a Function Graph into a graph to make one, and double-click its title to open the function. A function can call itself, up to 64 calls deep.
+- **In Library** (also under Function in the Graph tab) lists it in every logic graph's node search under Functions/(its Path). Its Description, Use For and Notes document it the way built-in nodes are documented, and the assistant learns it too.
+
+Mesh Graphs can be called the same way, from other Mesh Graphs (see Features/Meshes/README.md).
+
+
 
 ---
 

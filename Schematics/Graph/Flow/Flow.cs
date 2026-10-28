@@ -78,14 +78,17 @@ namespace Remedy.Schematics
 
         #region Starting
 
-        /// <summary>Runs an event node and everything it leads to.</summary>
-        public static void Start(SchematicEventNode node, GameObject instance, Union[] arguments)
+        /// <summary>
+        /// Runs an event node and everything it leads to. <paramref name="scope"/> (optional) is what the flow starts
+        /// on top of: a function call's, carrying the call (see <see cref="FlowScope.Call"/>).
+        /// </summary>
+        public static void Start(SchematicEventNode node, GameObject instance, Union[] arguments, FlowScope scope = null)
         {
             // A networked graph's events run on the object's authority only.
             if (!GraphNetwork.RunsEventsFor(node.Graph as SchematicGraph, instance))
                 return;
             var flow = Rent(node, instance);
-            flow._stack.Add(new Step { Node = node, Scope = flow._rootScope, Arguments = arguments });
+            flow._stack.Add(new Step { Node = node, Scope = flow.Adopt(scope), Arguments = arguments });
             flow.Run();
         }
 
@@ -373,6 +376,21 @@ namespace Remedy.Schematics
     public sealed class FlowScope
     {
         public FlowScope Parent;
+
+        /// <summary>
+        /// The function call this flow is running (set on the scope a call starts its function's flow on), so the
+        /// function's Return finds whom to answer, even after a Wait (it's carried when the scope is captured).
+        /// </summary>
+        public FunctionCall Call;
+
+        /// <summary>The function call this scope (or one it sits on) belongs to, if any.</summary>
+        public FunctionCall FindCall()
+        {
+            for (var scope = this; scope != null; scope = scope.Parent)
+                if (scope.Call != null)
+                    return scope.Call;
+            return null;
+        }
         private readonly Dictionary<(SchematicGraphNode, string), Union> _values = new();
 
         public bool TryGet(SchematicGraphNode node, string port, out Union value)
@@ -406,12 +424,13 @@ namespace Remedy.Schematics
             _values.Clear();
             _inputs?.Clear();
             Parent = null;
+            Call = null;
         }
 
         /// <summary>A standalone copy of every value visible from here.</summary>
         internal FlowScope Flatten()
         {
-            var copy = new FlowScope();
+            var copy = new FlowScope { Call = FindCall() };
             var chain = new List<FlowScope>();
             for (var scope = this; scope != null; scope = scope.Parent)
                 chain.Add(scope);

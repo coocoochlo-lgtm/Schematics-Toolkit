@@ -12,7 +12,7 @@ using UnityEngine;
 
 namespace Remedy.Schematics
 {
-    [SchematicDoc(@"{""name"": ""On Function"", ""kind"": ""node"", ""flow"": ""event"", ""category"": ""Events"", ""description"": ""Starts a flow when Call Function calls this graph with a matching Function Name; the call's parameters come out as outputs."", ""outputs"": [{""name"": ""FunctionParameters"", ""type"": ""List<FunctionParameter>""}], ""use_for"": [""reusable routines one graph asks another to run""], ""notes"": ""Starts a flow: connect its arrow to the actions that should run. Pair with Call Function. Set Function Name to match.""}")]
+    [SchematicDoc(@"{""name"": ""On Function"", ""kind"": ""node"", ""flow"": ""event"", ""category"": ""Events"", ""description"": ""Starts a flow when Call Function calls this graph with a matching Function Name; the call's parameters come out as outputs."", ""outputs"": [{""name"": ""FunctionParameters"", ""type"": ""List<FunctionParameter>""}], ""use_for"": [""reusable routines one graph asks another to run""], ""notes"": ""Starts a flow: connect its arrow to the actions that should run. Pair with Call Function. Set Function Name to match. For a reusable routine with typed inputs and outputs, prefer a Function Graph (On Called, Return) and a Call node.""}")]
     [Serializable]
     [NodeColor(NodeColors.Event)]
     [Node(Path = "Events"), Tags("Object")]
