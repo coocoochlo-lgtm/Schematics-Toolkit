@@ -18,7 +18,9 @@ namespace Remedy.Schematics
     public class SquareIconNodeView : NodeView
     {
         private const float Size = 64f;
-        private const float IconSize = 36f;
+        private const float IconSize = 34f;
+        private const float PinBox = 14f;
+        private const float PinInset = 4f;
 
         /// <summary>Operators (+, ×, and...) are green, functions of one value (Sin, Abs...) yellow; both glossy, with white icons.</summary>
         public static readonly Color OperatorColor = new(0.16f, 0.66f, 0.30f);
@@ -49,7 +51,8 @@ namespace Remedy.Schematics
                     border.style.borderBottomLeftRadius = border.style.borderBottomRightRadius = 8;
                 border.style.backgroundColor = color;
                 border.style.overflow = Overflow.Visible;
-                // Glossy: a lighter rim on top, a darker one below, and a soft shine over the upper half.
+                border.style.paddingLeft = border.style.paddingRight = border.style.paddingTop = border.style.paddingBottom = 0;
+                // Glossy: a lighter rim on top, a darker one below, and a crisp shine over the upper half.
                 border.style.borderTopWidth = border.style.borderBottomWidth = border.style.borderLeftWidth = border.style.borderRightWidth = 1;
                 border.style.borderTopColor = Color.Lerp(color, Color.white, 0.55f);
                 border.style.borderLeftColor = border.style.borderRightColor = Color.Lerp(color, Color.black, 0.15f);
@@ -71,6 +74,13 @@ namespace Remedy.Schematics
                 shade.style.backgroundColor = new Color(0f, 0f, 0f, 0.12f);
                 border.Add(shade);
             }
+            // (Nodes' body gradient would darken the colour under the shine.)
+            var body = this.Q("contents");
+            if (body != null)
+            {
+                body.style.backgroundImage = StyleKeyword.None;
+                body.style.backgroundColor = Color.clear;
+            }
             var selection = this.Q("selection-border");
             if (selection != null)
                 selection.style.borderTopLeftRadius = selection.style.borderTopRightRadius =
@@ -89,15 +99,21 @@ namespace Remedy.Schematics
             Side(inputContainer, left: true);
             Side(outputContainer, left: false);
 
-            // The icon, in the middle.
+            // The icon, dead centre: a frame filling the square, centring it.
+            var middle = new VisualElement { name = "math-icon-frame", pickingMode = PickingMode.Ignore };
+            middle.style.position = Position.Absolute;
+            middle.style.left = middle.style.top = middle.style.right = middle.style.bottom = 0;
+            middle.style.alignItems = Align.Center;
+            middle.style.justifyContent = Justify.Center;
             var icon = new VisualElement { name = "math-icon", pickingMode = PickingMode.Ignore };
-            icon.style.position = Position.Absolute;
-            icon.style.left = icon.style.top = (Size - IconSize) / 2f;
             icon.style.width = icon.style.height = IconSize;
+            icon.style.flexShrink = 0;
+            middle.Add(icon);
             if (!string.IsNullOrEmpty(Op.Symbol))
             {
                 var symbol = new Label(Op.Symbol) { pickingMode = PickingMode.Ignore };
-                symbol.style.flexGrow = 1;
+                symbol.style.position = Position.Absolute;
+                symbol.style.left = symbol.style.top = symbol.style.right = symbol.style.bottom = 0;
                 symbol.style.unityTextAlign = TextAnchor.MiddleCenter;
                 symbol.style.fontSize = Op.Symbol.Length > 2 ? 14 : Op.Symbol.Length > 1 ? 16 : 26;
                 symbol.style.unityFontStyleAndWeight = FontStyle.Bold;
@@ -110,7 +126,7 @@ namespace Remedy.Schematics
             }
             else
                 icon.generateVisualContent += DrawPlot;
-            (border ?? (VisualElement)this).Add(icon);
+            (border ?? (VisualElement)this).Add(middle);
 
             // Its name of its own, under it (the name of what it does is the icon, and shows on hover).
             if (!string.IsNullOrEmpty(Target.CustomName))
@@ -153,16 +169,23 @@ namespace Remedy.Schematics
             Bare(Outputs[Outputs.Count - 1]);
         }
 
-        // A pin with no name beside it (the square's too small; hovering it shows its name).
+        // A pin with no name beside it (the square's too small; hovering it shows its name): just its circle, in a
+        // box of the same size on both sides, so inputs and outputs sit the same distance in.
         private static void Bare(PortView view)
         {
             var label = view.Q<Label>("type");
             if (label != null)
                 label.style.display = DisplayStyle.None;
             view.tooltip = view.portName;
-            view.style.height = 20;
-            view.style.minWidth = 0;
-            view.style.paddingLeft = view.style.paddingRight = 0;
+            view.style.width = view.style.minWidth = view.style.maxWidth = PinBox;
+            view.style.height = 18;
+            view.style.paddingLeft = view.style.paddingRight = view.style.paddingTop = view.style.paddingBottom = 0;
+            view.style.marginLeft = view.style.marginRight = 0;
+            view.style.justifyContent = Justify.Center;
+            view.style.alignItems = Align.Center;
+            var connector = view.Q("connector");
+            if (connector != null)
+                connector.style.marginLeft = connector.style.marginRight = 0;
         }
 
         private static void Side(VisualElement container, bool left)
@@ -170,13 +193,16 @@ namespace Remedy.Schematics
             container.style.position = Position.Absolute;
             container.style.top = 0;
             container.style.bottom = 0;
+            container.style.width = PinBox;
+            container.style.alignItems = Align.Center;
+            // The circles' centres a few pixels inside the square's edge, the same on both sides.
             if (left)
-                container.style.left = -4;
+                container.style.left = PinInset - PinBox / 2f;
             else
-                container.style.right = -4;
+                container.style.right = PinInset - PinBox / 2f;
             container.style.flexDirection = FlexDirection.Column;
             container.style.justifyContent = Justify.SpaceAround;
-            container.style.paddingTop = container.style.paddingBottom = 6;
+            container.style.paddingTop = container.style.paddingBottom = 8;
             container.style.backgroundColor = Color.clear;
             container.style.overflow = Overflow.Visible;
         }
