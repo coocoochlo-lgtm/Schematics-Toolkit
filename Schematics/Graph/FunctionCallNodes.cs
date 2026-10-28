@@ -33,6 +33,9 @@ namespace Remedy.Schematics
         /// </summary>
         public object Variables;
 
+        /// <summary>The call of a Function Graph the running flow is in (the nearest, if it's nested), or null outside one.</summary>
+        public static FunctionCall Current(SchematicGraph graph) => Flow.Current?.ExecutingScope?.FindCall(graph);
+
         /// <summary>Whether its Return has run (only the first one counts).</summary>
         public bool Returned { get; private set; }
 

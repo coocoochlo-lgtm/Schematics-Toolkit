@@ -37,7 +37,7 @@ namespace Remedy.Schematics
         {
             if (graph is not FunctionGraph)
                 return null;
-            var call = Flow.Current?.ExecutingScope?.FindCall(graph);
+            var call = FunctionCall.Current(graph);
             if (call == null)
                 return null;
             if (call.Variables is GraphVariableStore store && store.Owner == owner)
