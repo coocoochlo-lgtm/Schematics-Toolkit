@@ -24,6 +24,12 @@ namespace Remedy.Meshes
         public readonly List<float> Selection = new();
         /// <summary>Triangles (3 vertex indices each), per material slot.</summary>
         public readonly List<List<int>> Slots = new() { new List<int>() };
+        /// <summary>
+        /// Shape keys (blend shapes) from a modelled mesh: how far each vertex moves at the shape's full weight. They
+        /// follow the mesh through nodes that move vertices (and are saved into the baked mesh); nodes that rebuild it
+        /// from scratch drop them.
+        /// </summary>
+        public readonly List<MeshBlendShape> BlendShapes = new();
 
         public int VertexCount => Positions.Count;
 
@@ -91,6 +97,15 @@ namespace Remedy.Meshes
             AddTriangle(a, c, d, slot);
         }
 
+        /// <summary>A shape key by name (any case), or null.</summary>
+        public MeshBlendShape BlendShape(string name)
+        {
+            foreach (var shape in BlendShapes)
+                if (string.Equals(shape.Name, name?.Trim(), StringComparison.OrdinalIgnoreCase))
+                    return shape;
+            return null;
+        }
+
         public MeshData Clone()
         {
             var copy = new MeshData();
@@ -125,6 +140,21 @@ namespace Remedy.Meshes
                     Colors.Add(other.HasColors ? other.Colors[i] : Color.white);
                 if (selection)
                     Selection.Add(other.HasSelection ? other.Selection[i] : 0f);
+            }
+            // Shape keys by name: this mesh's vertices don't move in the other's shapes, and the reverse.
+            foreach (var shape in other.BlendShapes)
+            {
+                var target = BlendShape(shape.Name);
+                if (target == null)
+                    BlendShapes.Add(target = new MeshBlendShape { Name = shape.Name });
+                target.Pad(offset);
+                for (int i = 0; i < other.Positions.Count; i++)
+                {
+                    var delta = i < shape.Deltas.Count ? shape.Deltas[i] : Vector3.zero;
+                    var normal = i < shape.NormalDeltas.Count ? shape.NormalDeltas[i] : Vector3.zero;
+                    target.Deltas.Add(transform ? matrix.MultiplyVector(delta) : delta);
+                    target.NormalDeltas.Add(transform ? matrix.MultiplyVector(normal) : normal);
+                }
             }
             for (int s = 0; s < other.Slots.Count; s++)
             {
@@ -229,6 +259,11 @@ namespace Remedy.Meshes
             float cosLimit = Mathf.Cos(Mathf.Clamp(smoothAngle, 0f, 180f) * Mathf.Deg2Rad);
             var source = Clone();
             Positions.Clear(); Normals.Clear(); UVs.Clear(); Colors.Clear(); Selection.Clear();
+            foreach (var shape in BlendShapes)
+            {
+                shape.Deltas.Clear();
+                shape.NormalDeltas.Clear();
+            }
             var made = new Dictionary<(int vertex, Vector3 normal), int>();
             var newSlots = new List<List<int>>();
             foreach (var slot in source.Slots)
@@ -258,6 +293,8 @@ namespace Remedy.Meshes
                             Colors.Add(source.Colors[vertex]);
                         if (source.HasSelection)
                             Selection.Add(source.Selection[vertex]);
+                        for (int k = 0; k < BlendShapes.Count; k++)
+                            BlendShapes[k].CopyFrom(source.BlendShapes[k], vertex);
                         made[key] = index;
                     }
                     newSlots[s][corner] = index;
@@ -307,6 +344,15 @@ namespace Remedy.Meshes
             mesh.subMeshCount = last + 1;
             for (int s = 0; s <= last; s++)
                 mesh.SetTriangles(Slots[s], s, false);
+            // Shape keys that still fit the vertices (a node that rebuilt the mesh after them leaves them behind).
+            mesh.ClearBlendShapes();
+            if (Positions.Count > 0)
+                foreach (var shape in BlendShapes)
+                    if (shape.Fits(Positions.Count) && !string.IsNullOrEmpty(shape.Name))
+                    {
+                        shape.Pad(Positions.Count);
+                        mesh.AddBlendShapeFrame(shape.Name, 100f, shape.Deltas.ToArray(), shape.NormalDeltas.ToArray(), null);
+                    }
             mesh.RecalculateBounds();
             if (Positions.Count > 0)
                 mesh.RecalculateTangents();
@@ -335,6 +381,22 @@ namespace Remedy.Meshes
             }
             if (data.Slots.Count == 0)
                 data.Slots.Add(new List<int>());
+            // Shape keys, at their full weight (the last frame).
+            int count = data.Positions.Count;
+            for (int b = 0; b < mesh.blendShapeCount; b++)
+            {
+                int frames = mesh.GetBlendShapeFrameCount(b);
+                if (frames == 0)
+                    continue;
+                var deltas = new Vector3[count];
+                var normals = new Vector3[count];
+                mesh.GetBlendShapeFrameVertices(b, frames - 1, deltas, normals, null);
+                // (Some exporters give the full frame weight as 1 rather than 100: either way, its deltas are the full shape.)
+                var shape = new MeshBlendShape { Name = mesh.GetBlendShapeName(b) };
+                shape.Deltas.AddRange(deltas);
+                shape.NormalDeltas.AddRange(normals);
+                data.BlendShapes.Add(shape);
+            }
             bool hadNormals = mesh.normals != null && mesh.normals.Length == data.Positions.Count;
             if (!hadNormals)
                 data.RecalculateNormals();
@@ -373,5 +435,35 @@ namespace Remedy.Meshes
 
         internal static float Determinant(Matrix4x4 m)
             => m.m00 * (m.m11 * m.m22 - m.m12 * m.m21) - m.m01 * (m.m10 * m.m22 - m.m12 * m.m20) + m.m02 * (m.m10 * m.m21 - m.m11 * m.m20);
+    }
+
+    /// <summary>
+    /// A shape key: how far each vertex moves (and its normal turns) at the shape's full weight. Shorter than the mesh
+    /// is fine (the vertices past its end don't move in it); longer means the mesh was rebuilt since, and it no longer fits.
+    /// </summary>
+    public sealed class MeshBlendShape
+    {
+        public string Name;
+        public readonly List<Vector3> Deltas = new();
+        public readonly List<Vector3> NormalDeltas = new();
+
+        /// <summary>Whether it still matches a mesh of this many vertices.</summary>
+        public bool Fits(int vertexCount) => Deltas.Count <= vertexCount;
+
+        /// <summary>Zeros on the end until it covers this many vertices.</summary>
+        public void Pad(int vertexCount)
+        {
+            while (Deltas.Count < vertexCount)
+                Deltas.Add(Vector3.zero);
+            while (NormalDeltas.Count < vertexCount)
+                NormalDeltas.Add(Vector3.zero);
+        }
+
+        /// <summary>Adds another shape's delta for one of its vertices onto the end (a mesh being rebuilt vertex by vertex).</summary>
+        internal void CopyFrom(MeshBlendShape source, int vertex)
+        {
+            Deltas.Add(vertex < source.Deltas.Count ? source.Deltas[vertex] : Vector3.zero);
+            NormalDeltas.Add(vertex < source.NormalDeltas.Count ? source.NormalDeltas[vertex] : Vector3.zero);
+        }
     }
 }

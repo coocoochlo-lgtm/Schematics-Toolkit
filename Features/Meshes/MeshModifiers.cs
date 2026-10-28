@@ -302,6 +302,11 @@ namespace Remedy.Meshes
         {
             var source = mesh.Clone();
             mesh.Positions.Clear(); mesh.Normals.Clear(); mesh.UVs.Clear(); mesh.Colors.Clear(); mesh.Selection.Clear();
+            foreach (var shape in mesh.BlendShapes)
+            {
+                shape.Deltas.Clear();
+                shape.NormalDeltas.Clear();
+            }
             bool selection = source.HasSelection;
             var made = new Dictionary<(Vector3, Vector3, Vector2, Color), int>();
             var remap = new int[source.VertexCount];
@@ -317,6 +322,8 @@ namespace Remedy.Meshes
                     mesh.UVs.Add(source.UVs[i]);
                     if (colors) mesh.Colors.Add(source.Colors[i]);
                     if (selection) mesh.Selection.Add(source.Selection[i]);
+                    for (int k = 0; k < mesh.BlendShapes.Count; k++)
+                        mesh.BlendShapes[k].CopyFrom(source.BlendShapes[k], i);
                     made[key] = index;
                 }
                 else if (selection)

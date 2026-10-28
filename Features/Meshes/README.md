@@ -4,8 +4,24 @@
 Create → Schematics → Mesh Graph, or from the Project Manager's Meshes page.
 
 - **Shapes:** Box, Plane, Sphere, Cylinder (a top radius of 0 makes a cone), Torus, and Lathe (a profile curve spun around Y).
+  - **Model** brings in a hand-made mesh: a Mesh asset, or a whole FBX or prefab (every mesh in it, placed as it is
+    there). Its material slots, UVs, vertex colours and shape keys come with it. In a build, tick Read/Write in the
+    mesh's import settings.
 - **Modify:** Transform, Merge, Array, Radial Array, Mirror, Scatter, Shading (hard or smooth edges), Simplify, Weld.
-- **Deform:** Twist, Bend, Taper, Noise, Grab and Relax.
+- **Deform:** Twist, Bend, Taper, Noise, Grab, Relax, Blend Shape and Edit Vertices.
+  - **Blend Shape** dials one of the mesh's shape keys in by Weight (0 none, 1 the full shape). Wire a Parameter in
+    and a sculpted shape becomes a slider. Shape keys come through nodes that move vertices, but not through ones that
+    rebuild the mesh (Subdivide, Boolean...), so put Blend Shapes before those. Shape keys that are still there at the
+    end are saved into the baked mesh.
+  - **Edit Vertices** is for moving vertices by hand. Its **Edit...** button opens a viewport. Click vertices to pick
+    them (Shift adds, Ctrl takes away, drag a box for many). Then press G to move, R to turn or S to scale, like in
+    Blender: X, Y or Z locks to an axis, a click or Enter keeps it, and Esc or a right-click cancels. You can also
+    just drag a picked vertex. **Proportional** (O) makes the vertices around follow, less the further away they
+    are, out to a Radius (the mouse wheel changes it while moving), along a falloff curve (Smooth, Sphere, Root,
+    Linear, Sharp, Constant). **Connected** keeps the falloff to vertices joined along the surface, so moving a lip
+    leaves the other lip alone. Every edit is kept in a list where it can be changed or deleted. Edits remember where
+    their vertices were, not their numbers, so tweaking the nodes before it doesn't throw them away. The node's
+    **Strength** pin scales all the edits, so a Parameter can turn them into a slider.
   - **Grab** works like a sculpting brush. It takes a box of the mesh given as 0 to 1 across its bounds on each axis
     (X 0.8 to 1 is the right-hand fifth), with a soft falloff. It scales, turns and moves that part about a pivot.
     **Mirror X** does the mirror image on the other side, so one Grab swings both arms. With a selection, the box is
@@ -25,6 +41,8 @@ Create → Schematics → Mesh Graph, or from the Project Manager's Meshes page.
   intersects the selection already there.
   - **Select** (a formula), **Select Region** (sphere or box, with a soft falloff), **Select Bounds** (Grab's 0 to 1
     box), **Select Facing**, **Select Slot**.
+  - **Select Colour** picks by vertex colour: near a colour, or by how strong one channel is. Paint parts in the
+    modelling app, then select them here.
   - **Select Inside** picks what's hidden inside other parts, and **Select Near** what's close to them.
   - **Edit Selection** inverts, grows, shrinks or clears it.
   - **Delete Selected** removes it. **Join** closes the gaps between parts in one of two ways. **Surface** snaps cut

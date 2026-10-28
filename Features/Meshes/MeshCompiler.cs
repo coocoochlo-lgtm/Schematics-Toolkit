@@ -83,6 +83,8 @@ namespace Remedy.Meshes
 
         /// <summary>Problems found while reading the graph (shown in the graph window).</summary>
         public readonly List<string> Warnings = new();
+        // Where problems found later, while the mesh is made, go (the plan's own list).
+        private List<string> _late;
 
         private MeshCompiler(IReadOnlyDictionary<string, float> parameters, IReadOnlyDictionary<string, MeshOp> inputs = null)
         {
@@ -144,12 +146,53 @@ namespace Remedy.Meshes
                     : new[] { Mathf.Clamp01(output.CullBelow) };
                 plan.SmoothAngle = output.SmoothAngle;
                 plan.Warnings.AddRange(compiler.Warnings);
+                compiler._late = plan.Warnings;
             }
             finally
             {
                 _current = previous;
             }
             return plan;
+        }
+
+        /// <summary>
+        /// The mesh arriving at one of a node's inputs, as the graph is now (with its Parameters' defaults): what an
+        /// editor tool shows while you work on that node. Read on the main thread; <see cref="MeshOp.Get"/> makes it.
+        /// </summary>
+        public static MeshOp CompileInput(MeshGraph graph, MeshNode node, string port, List<string> warnings = null)
+        {
+            if (graph == null || node == null)
+                return MeshOp.Empty;
+            var compiler = new MeshCompiler(new Dictionary<string, float>());
+            compiler._late = warnings;
+            foreach (var (name, value) in graph.ParameterList)
+                compiler._constants[name] = value;
+            _calling ??= new List<MeshGraph>();
+            _calling.Add(graph);
+            var previous = _current;
+            _current = compiler;
+            try
+            {
+                return compiler.Mesh(node, port);
+            }
+            finally
+            {
+                _current = previous;
+                _calling.RemoveAt(_calling.Count - 1);
+                warnings?.AddRange(compiler.Warnings);
+            }
+        }
+
+        /// <summary>
+        /// A problem found while the mesh is being made (any thread), rather than while the graph's read: it joins the
+        /// graph's other warnings.
+        /// </summary>
+        public void RunWarning(string warning)
+        {
+            var list = _late ?? Warnings;
+            lock (list)
+                if (!list.Contains(warning))
+                    list.Add(warning);
         }
 
         /// <summary>
