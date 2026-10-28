@@ -20,6 +20,7 @@ namespace Remedy.ManifoldNetwork.Schematics
     [Serializable]
     public abstract class BrainNodeBase : SchematicActionNode
     {
+        [Tooltip("Whose brain: the object running this graph if nothing's wired in, or the object wired here (it needs a Brain Behavior).")]
         [Input("Brain Of")] public GameObject BrainOf;
 
         protected BrainAgent Agent(GameObject instance)
@@ -41,8 +42,10 @@ namespace Remedy.ManifoldNetwork.Schematics
     [Node(Name = "Set Brain Input", Path = "AI/Brain"), Tags("Object")]
     public class SetBrainInputNode : BrainNodeBase
     {
+        [Tooltip("Which of the brain's input slots to feed (set up in its Brain Definition).")]
         [Editable, BrainSlot(false)] public string Slot = "Input";
         [Input("Value")] public float Value;
+        [Tooltip("Several numbers for a slot that takes more than one (Size above 1), in order. For a single-number slot use Value instead.")]
         [Input("Values")] public float[] Values;
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
@@ -63,11 +66,15 @@ namespace Remedy.ManifoldNetwork.Schematics
     [Node(Name = "Get Brain Output", Path = "AI/Brain"), Tags("Object")]
     public class GetBrainOutputNode : BrainNodeBase
     {
+        [Tooltip("Which of the brain's output slots to read (set up in its Brain Definition).")]
         [Editable, BrainSlot(true)] public string Slot = "Output";
 
         [Output("Value")] public float Value;
+        [Tooltip("For a button slot: whether the brain decided to press it.")]
         [Output("Pressed")] public bool Pressed;
+        [Tooltip("For a choice slot: which option it picked, counting from 0.")]
         [Output("Choice")] public int Choice;
+        [Tooltip("For a choice slot: the name of the option it picked.")]
         [Output("Option")] public string Option;
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
@@ -96,9 +103,12 @@ namespace Remedy.ManifoldNetwork.Schematics
     [Node(Name = "Teach Brain Output", Path = "AI/Brain"), Tags("Object")]
     public class TeachBrainOutputNode : BrainNodeBase
     {
+        [Tooltip("Which output slot to teach (set up in its Brain Definition).")]
         [Editable, BrainSlot(true)] public string Slot = "Output";
         [Input("Value")] public float Value;
+        [Tooltip("For a button slot: whether it should have been pressed.")]
         [Input("Pressed")] public bool Pressed;
+        [Tooltip("For a choice slot: which option was right, counting from 0.")]
         [Input("Choice")] public int Choice;
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
@@ -126,6 +136,7 @@ namespace Remedy.ManifoldNetwork.Schematics
     [Node(Name = "Reward Brain", Path = "AI/Brain"), Tags("Object")]
     public class RewardBrainNode : BrainNodeBase
     {
+        [Tooltip("How good that was: positive praises its recent decisions, negative punishes them. Bigger numbers count for more.")]
         [Input("Reward")] public float Reward = 1f;
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
@@ -153,6 +164,7 @@ namespace Remedy.ManifoldNetwork.Schematics
     [Node(Name = "Copy Brain", Path = "AI/Brain"), Tags("Object")]
     public class CopyBrainNode : SchematicActionNode
     {
+        [Tooltip("The object whose brain is copied (it needs a Brain Behavior).")]
         [Input("From")] public GameObject From;
         [Input("To")] public GameObject To;
 
@@ -177,8 +189,10 @@ namespace Remedy.ManifoldNetwork.Schematics
     {
         [Input("A")] public GameObject A;
         [Input("B")] public GameObject B;
+        [Tooltip("The object that gets the mixed brain (its own is replaced).")]
         [Input("Into")] public GameObject Into;
         [Input("Amount")] public float Amount = 0.5f;
+        [Tooltip("How the parents are mixed: Blend averages every weight, Swap Parts takes whole parts from one parent or the other, Per Weight picks each weight from one or the other at random.")]
         [Editable] public MnnBreeding.MixStyle Style = MnnBreeding.MixStyle.SwapParts;
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
@@ -254,14 +268,22 @@ namespace Remedy.ManifoldNetwork.Schematics
     [Node(Name = "Ray Fan", Path = "AI/Senses"), Tags("Object")]
     public class RayFanNode : SchematicActionNode
     {
+        [Tooltip("The object the rays start from (the one running this graph if nothing's wired in); they fan out around its forward direction.")]
         [Input("From")] public GameObject From;
+        [Tooltip("How many rays in the fan. More sees more detail but costs more.")]
         [Input("Rays")] public int Rays = 7;
+        [Tooltip("How wide the fan is, edge to edge (degrees): 360 all the way round.")]
         [Input("Spread")] public float Spread = 120f;
+        [Tooltip("How far the rays reach (meters). A ray that hits nothing within this gives 1.")]
         [Input("Range")] public float Range = 10f;
+        [Tooltip("How high above the object's position the rays start (meters), so they clear the ground.")]
         [Input("Height")] public float Height = 0.5f;
+        [Tooltip("Which physics layers the rays can hit.")]
         [Input("Layers")] public LayerMask Layers = ~0;
 
+        [Tooltip("One number per ray, left to right: 0 something right there, 1 nothing within Range. Feed it to a brain input.")]
         [Output("Distances")] public float[] Distances;
+        [Tooltip("The nearest hit out of all the rays, as above (0 touching, 1 clear).")]
         [Output("Closest")] public float Closest;
 
         private float[] _buffer;
@@ -297,12 +319,16 @@ namespace Remedy.ManifoldNetwork.Schematics
     [Node(Name = "Direction To", Path = "AI/Senses"), Tags("Object")]
     public class DirectionToNode : SchematicActionNode
     {
+        [Tooltip("Whose point of view (the object running this graph if nothing's wired in).")]
         [Input("From")] public GameObject From;
         [Input("Target")] public Vector3 Target;
 
+        [Tooltip("Which way the target is, as seen by From: x right, y up, z forward (length 1).")]
         [Output("Local Direction")] public Vector3 LocalDirection;
+        [Tooltip("The same direction as three numbers (x, y, z), ready for a brain input.")]
         [Output("Values")] public float[] Values;
         [Output("Distance")] public float Distance;
+        [Tooltip("How far the target is turned from straight ahead, left or right (degrees): 0 dead ahead, negative to the left, positive to the right.")]
         [Output("Angle")] public float Angle;
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)
@@ -325,10 +351,13 @@ namespace Remedy.ManifoldNetwork.Schematics
     [Node(Name = "Nearest With Tag", Path = "AI/Senses"), Tags("Object")]
     public class NearestWithTagNode : SchematicActionNode
     {
+        [Tooltip("Where to search from (the object running this graph if nothing's wired in).")]
         [Input("From")] public GameObject From;
         [Input("Tag", Editable = true)] public IntTag ObjectTag = IntTags.Player;
+        [Tooltip("How far to look (meters).")]
         [Input("Range")] public float Range = 30f;
 
+        [Tooltip("True if something with the tag was in range; the other outputs are only meaningful then.")]
         [Output("Found")] public bool Found;
         [Output("Object")] public GameObject Object;
         [Output("Position")] public Vector3 Position;
@@ -379,9 +408,12 @@ namespace Remedy.ManifoldNetwork.Schematics
     {
         [Input("A")] public float A;
         [Input("B")] public float B;
+        [Tooltip("The third number (used when Count is 3 or more).")]
         [Input("C")] public float C;
+        [Tooltip("The fourth number (used when Count is 4).")]
         [Input("D")] public float D;
         [Input("Count")] public int Count = 2;
+        [Tooltip("The numbers as a list (the first Count of A, B, C, D).")]
         [Output("Values")] public float[] Values;
 
         protected override void OnTrigger(GameObject instance, bool awaiting = false)

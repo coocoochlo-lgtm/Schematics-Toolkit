@@ -24,6 +24,7 @@ namespace Remedy.Meshes
         [Input("Position", Editable = true)] public Vector3 Position;
         [Input("Rotation", Editable = true)] public Vector3 Rotation;
         [Input("Scale", Editable = true)] public Vector3 Scale = Vector3.one;
+        [Tooltip("Multiplies Scale on every axis at once: 2 is twice the size. Wire a Parameter in to size it from outside.")]
         [Input("Uniform Scale", Editable = true)] public float UniformScale = 1f;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 
@@ -86,6 +87,7 @@ namespace Remedy.Meshes
         [Input("In", Editable = false)] [NonSerialized] public MeshData In;
         [Input("Count", Editable = true)] public int Count = 6;
         [Input("Radius", Editable = true)] public float Radius = 1f;
+        [Tooltip("Turn each copy to face away from the centre (like petals). Off: every copy keeps the original's direction.")]
         [Editable] public bool FaceOut = true;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 
@@ -105,7 +107,9 @@ namespace Remedy.Meshes
     public sealed class MeshMirrorNode : MeshNode
     {
         [Input("In", Editable = false)] [NonSerialized] public MeshData In;
+        [Tooltip("The axis it's mirrored across: X mirrors left to right, Y top to bottom, Z front to back.")]
         [Editable] public MeshAxis Axis = MeshAxis.X;
+        [Tooltip("Keep the original as well as the mirror image (build half, get the whole). Off: only the flipped copy.")]
         [Editable] public bool KeepOriginal = true;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 
@@ -124,6 +128,7 @@ namespace Remedy.Meshes
     public sealed class MeshTwistNode : MeshNode
     {
         [Input("In", Editable = false)] [NonSerialized] public MeshData In;
+        [Tooltip("How much further the top turns than the bottom (degrees). Negative twists the other way.")]
         [Input("Degrees", Editable = true)] public float Degrees = 90f;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 
@@ -141,6 +146,7 @@ namespace Remedy.Meshes
     public sealed class MeshBendNode : MeshNode
     {
         [Input("In", Editable = false)] [NonSerialized] public MeshData In;
+        [Tooltip("How far the top ends up turned from the bottom (degrees): 90 is a quarter arc, 180 an arch.")]
         [Input("Degrees", Editable = true)] public float Degrees = 45f;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 
@@ -158,6 +164,7 @@ namespace Remedy.Meshes
     public sealed class MeshTaperNode : MeshNode
     {
         [Input("In", Editable = false)] [NonSerialized] public MeshData In;
+        [Tooltip("How wide the top is compared to the bottom: 0.5 half as wide (a cone-ish taper), 2 twice as wide, 1 no change.")]
         [Input("Top Scale", Editable = true)] public float TopScale = 0.5f;
         [Editable, Tooltip("Normals are worked out again afterwards: edges sharper than this stay hard.")] public float SmoothAngle = 60f;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
@@ -184,6 +191,7 @@ namespace Remedy.Meshes
         [Input("Amount", Editable = true)] public float Amount = 0.1f;
         [Input("Frequency", Editable = true)] public float Frequency = 2f;
         [Input("Seed", Editable = true)] public int Seed;
+        [Tooltip("Push along each face's direction (rocks, bark, lumps). Off: straight up and down only (terrain).")]
         [Editable] public bool AlongNormals = true;
         [Editable, Tooltip("Normals are worked out again afterwards: edges sharper than this stay hard.")] public float SmoothAngle = 60f;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
@@ -210,7 +218,9 @@ namespace Remedy.Meshes
     public sealed class MeshShadingNode : MeshNode
     {
         [Input("In", Editable = false)] [NonSerialized] public MeshData In;
+        [Tooltip("Faces meeting at a sharper angle than this (degrees) keep a hard edge; gentler ones are smoothed. 0 faceted, 180 smooth everywhere.")]
         [Input("Smooth Angle", Editable = true)] public float SmoothAngle = 60f;
+        [Tooltip("Turn the faces inside out, so the inside is what shows (a sky dome, the walls of a room).")]
         [Editable] public bool Flip;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 
@@ -234,12 +244,17 @@ namespace Remedy.Meshes
     [Node(Name = "Scatter", Path = "Modify"), Tags(MeshNode.Tag)]
     public sealed class MeshScatterNode : MeshNode
     {
+        [Tooltip("The mesh to scatter copies over.")]
         [Input("Surface", Editable = false)] [NonSerialized] public MeshData Surface;
+        [Tooltip("The mesh to place copies of (a leaf, a rock, a stud).")]
         [Input("Item", Editable = false)] [NonSerialized] public MeshData Item;
         [Input("Count", Editable = true)] public int Count = 20;
         [Input("Seed", Editable = true)] public int Seed;
+        [Tooltip("The smallest a copy can be (1 is its own size). Each copy picks a size between Min Scale and Max Scale.")]
         [Input("Min Scale", Editable = true)] public float MinScale = 0.8f;
+        [Tooltip("The largest a copy can be (1 is its own size).")]
         [Input("Max Scale", Editable = true)] public float MaxScale = 1.2f;
+        [Tooltip("How much copies stand along the surface: 1 sticks out along it (like hair), 0 always straight up (like trees on a slope).")]
         [Input("Align", Editable = true)] public float Align = 1f;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 
@@ -259,6 +274,7 @@ namespace Remedy.Meshes
     public sealed class MeshSlotNode : MeshNode
     {
         [Input("In", Editable = false)] [NonSerialized] public MeshData In;
+        [Tooltip("Which material slot the mesh uses: 0 the renderer's first material, 1 its second, and so on.")]
         [Input("Slot", Editable = true)] public int Slot;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 
@@ -278,6 +294,7 @@ namespace Remedy.Meshes
     public sealed class MeshUVProjectNode : MeshNode
     {
         [Input("In", Editable = false)] [NonSerialized] public MeshData In;
+        [Tooltip("How the texture is laid on: Box from whichever side each part faces most (no stretching, any shape), Planar X/Y/Z straight through from one axis.")]
         [Editable] public UVProjection Projection = UVProjection.Box;
         [Input("Scale", Editable = true)] public float Scale = 1f;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
@@ -323,7 +340,9 @@ namespace Remedy.Meshes
     public sealed class MeshVertexColorNode : MeshNode
     {
         [Input("In", Editable = false)] [NonSerialized] public MeshData In;
+        [Tooltip("The colour at the mesh's lowest point.")]
         [Input("Bottom", Editable = true)] public Color Bottom = Color.white;
+        [Tooltip("The colour at the mesh's highest point (fades from Bottom to it).")]
         [Input("Top", Editable = true)] public Color Top = Color.white;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 
@@ -341,6 +360,7 @@ namespace Remedy.Meshes
     public sealed class MeshSimplifyNode : MeshNode
     {
         [Input("In", Editable = false)] [NonSerialized] public MeshData In;
+        [Tooltip("The share of triangles kept: 1 all, 0.5 half, 0.25 a quarter. Lower is blockier.")]
         [Input("Quality", Editable = true)] public float Quality = 0.5f;
         [Output(MeshPort)] [NonSerialized] public MeshData Mesh;
 
@@ -414,6 +434,7 @@ namespace Remedy.Meshes
     public sealed class MeshRelaxNode : MeshNode
     {
         [Input("In", Editable = false)] [NonSerialized] public MeshData In;
+        [Tooltip("How many smoothing passes: more rounds corners off further.")]
         [Input("Iterations", Editable = true)] public int Iterations = 4;
         [Input("Strength", Editable = true)] public float Strength = 0.5f;
         [Editable, Tooltip("Normals are worked out again afterwards: edges sharper than this stay hard (-1: keep them).")] public float SmoothAngle = 60f;

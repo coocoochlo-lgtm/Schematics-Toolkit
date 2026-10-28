@@ -18,8 +18,11 @@ using UnityEngine.InputSystem;
 [Node(Name = "On Device Connected", Path = "Events/Controllers"), Tags("Runtime")]
 public class OnDeviceConnected : SchematicEventNode
 {
+    [Tooltip("The device's number: pass it to Create Player Controller or Add Device to give it to a player.")]
     [Output("Device Id")] public int DeviceId;
+    [Tooltip("What sort of device it is (a gamepad, a keyboard and mouse, a joystick...).")]
     [Output("Kind")] public string Kind;
+    [Tooltip("The device's own name, as the system reports it (for showing in a menu).")]
     [Output("Device Name")] public string DeviceName;
 }
 
@@ -29,8 +32,11 @@ public class OnDeviceConnected : SchematicEventNode
 [Node(Name = "On Device Disconnected", Path = "Events/Controllers"), Tags("Runtime")]
 public class OnDeviceDisconnected : SchematicEventNode
 {
+    [Tooltip("The number of the device that went away.")]
     [Output("Device Id")] public int DeviceId;
+    [Tooltip("What sort of device it was.")]
     [Output("Kind")] public string Kind;
+    [Tooltip("The player who held it (empty if nobody did): pause their game or show a reconnect message.")]
     [Output("Controller")] public Controller Controller;
 }
 
@@ -40,7 +46,9 @@ public class OnDeviceDisconnected : SchematicEventNode
 [Node(Name = "Create Player Controller", Path = "Controllers"), Tags("Runtime", "Object")]
 public class CreatePlayerControllerNode : SchematicActionNode
 {
+    [Tooltip("The device the new player holds (the Device Id from On Device Connected).")]
     [Input("Device Id")] public int DeviceId = -1;
+    [Tooltip("The new player: Possess a character with it so the device controls it.")]
     [Output("Controller")] public Controller Controller;
     [Output("Index")] public int Index;
 
@@ -59,7 +67,9 @@ public class CreatePlayerControllerNode : SchematicActionNode
 [Node(Name = "Add Device", Path = "Controllers"), Tags("Runtime", "Object")]
 public class AddDeviceNode : SchematicActionNode
 {
+    [Tooltip("The player to give the device to.")]
     [Input("Controller")] public Controller Controller;
+    [Tooltip("The device to give them (from On Device Connected).")]
     [Input("Device Id")] public int DeviceId = -1;
 
     protected override void OnTrigger(GameObject instance, bool awaiting = false)
@@ -82,6 +92,7 @@ public class AddDeviceNode : SchematicActionNode
 public class GetPlayerControllerNode : SchematicGraphNode
 {
     [Input("Index", Editable = true)] public int Index;
+    [Tooltip("The player with that number (empty if there's no such player yet).")]
     [Output("Controller")] public Controller Controller;
     [Output("Count")] public int Count;
 
@@ -104,7 +115,9 @@ public class GetPlayerControllerNode : SchematicGraphNode
 [Node(Name = "Set Input Map", Path = "Controllers"), Tags("Object")]
 public class SetInputMapNode : SchematicActionNode
 {
+    [Tooltip("The player to switch (from Create or Get Player Controller). Leave it unwired to switch everyone.")]
     [Input("Controller")] public Controller Controller;
+    [Tooltip("The Input Map to switch to, by its name in the Input System (Global tab). Empty goes back to the default.")]
     [Input("Map Name", Editable = true)] public string MapName;
 
     protected override void OnTrigger(GameObject instance, bool awaiting = false)
@@ -124,9 +137,13 @@ public class SetInputMapNode : SchematicActionNode
 [Node(Name = "Create AI Controller", Path = "Controllers"), Tags("Object")]
 public class CreateAIControllerNode : SchematicActionNode
 {
+    [Tooltip("The AI Controller Graph that decides what it does (its Send Input nodes press its buttons). Optional if it learns from a Teacher or plays a Skill.")]
     [Input("AI Graph", Editable = true)] public AIControllerGraph AIGraph;
+    [Tooltip("A player (or another AI) to learn from by watching: what their objects go through and what they press.")]
     [Input("Teacher")] public Controller Teacher;
+    [Tooltip("Something learned before (a Learned Controls asset) to start with.")]
     [Input("Skill", Editable = true)] public ControllerSkillData Skill;
+    [Tooltip("The new AI: Possess an object with it to have it controlled.")]
     [Output("Controller")] public Controller Controller;
 
     protected override void OnTrigger(GameObject instance, bool awaiting = false)
@@ -142,9 +159,13 @@ public class CreateAIControllerNode : SchematicActionNode
 [Node(Name = "Set AI Learning", Path = "Controllers"), Tags("Object")]
 public class SetAILearningNode : SchematicActionNode
 {
+    [Tooltip("The AI Controller to change.")]
     [Input("AI")] public Controller AI;
+    [Tooltip("A new player (or AI) to learn from. Unwired: keeps the one it has.")]
     [Input("Teacher")] public Controller Teacher;
+    [Tooltip("True: stops learning from its teacher (it keeps what it's learned).")]
     [Input("Stop Learning", Editable = true)] public bool StopLearning;
+    [Tooltip("True: it controls what it possesses with what it has learned. False: only its AI Graph (if any) does.")]
     [Input("Use Learned", Editable = true)] public bool UseLearned = true;
 
     protected override void OnTrigger(GameObject instance, bool awaiting = false)
@@ -173,8 +194,11 @@ public class SetAILearningNode : SchematicActionNode
 [Node(Name = "Save AI Skill", Path = "Controllers"), Tags("Object")]
 public class SaveAISkillNode : SchematicActionNode
 {
+    [Tooltip("The AI Controller whose learning to save.")]
     [Input("AI")] public Controller AI;
+    [Tooltip("Saves into this file in the player's save folder (works in builds). Empty: saves into its Learned Controls asset instead (editor).")]
     [Input("File Name", Editable = true)] public string FileName;
+    [Tooltip("True if it saved.")]
     [Output("Saved")] public bool Saved;
 
     protected override void OnTrigger(GameObject instance, bool awaiting = false)
@@ -190,9 +214,13 @@ public class SaveAISkillNode : SchematicActionNode
 [Node(Name = "Load AI Skill", Path = "Controllers"), Tags("Object")]
 public class LoadAISkillNode : SchematicActionNode
 {
+    [Tooltip("The AI Controller to give the skill to.")]
     [Input("AI")] public Controller AI;
+    [Tooltip("A Learned Controls asset to load.")]
     [Input("Skill", Editable = true)] public ControllerSkillData Skill;
+    [Tooltip("A file written by Save AI Skill to load instead (from the player's save folder).")]
     [Input("File Name", Editable = true)] public string FileName;
+    [Tooltip("True if something was loaded.")]
     [Output("Loaded")] public bool Loaded;
 
     protected override void OnTrigger(GameObject instance, bool awaiting = false)
