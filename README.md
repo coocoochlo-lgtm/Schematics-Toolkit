@@ -326,6 +326,8 @@ Sound Cues can be called from other Sound Cues too, with a **Function** node (un
 - Sound Cue math is one small node per operation, like every graph's math (see **Math nodes** below), plus Sine Wave, Decibels To Volume and Volume To Decibels for sound.
 - **Collapse to Function** works in Sound Cues as well. Wires coming in become Sound Inputs, and the cue's Parameters stay Parameters. The one sound going out goes to the new cue's Output. The new cue is Mono, since the cue calling it decides how it's heard.
 
+**Hover help:** hover a node's title for what it does, what it's good for and anything worth knowing. Hover a pin for its name, what kind of value it takes, and what it's for. Hover a setting on a node, or a Variable or Signal in the IO Dock or the Inspector, for what it does. The text comes from the code: a field's `[Tooltip]`, else its `[SchematicDoc]` description (the same text the assistant reads). Function pins, Parameters and Graph Variables use the Description you give them. When writing a node or a Behavior, give each pin, setting, Variable and Signal a `[Tooltip]`.
+
 **Math nodes**, in logic, mesh and Sound Cue graphs alike, are one small node per operation:
 - **Operators:** Add, Subtract, Multiply, Divide, Modulo, Power, Min, Max, and in logic graphs the gates And, Or, Xor, Not.
 - **Functions** of one value: Sin, Cos, Abs, Floor, Ceil, Round, Fraction, Square Root, Negate, One Minus, Clamp 0 to 1, Sign.
