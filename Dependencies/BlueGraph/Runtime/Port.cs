@@ -356,6 +356,23 @@ namespace BlueGraph
             hasLoadedConnections = resolved;
         }
 
+        /// <summary>Takes another port's links (as node IDs and pin names, found again when it's next enabled).</summary>
+        internal void CopyConnectionsFrom(Port other)
+        {
+            connections.Clear();
+            foreach (var edge in other.connections)
+                if (edge != null)
+                    connections.Add(new Connection { NodeID = edge.NodeID, PortName = edge.PortName });
+            hasLoadedConnections = false;
+        }
+
+        /// <summary>Finds its linked ports again (a node at the other end was swapped for another).</summary>
+        internal void ReloadConnections()
+        {
+            hasLoadedConnections = false;
+            UpdateConnections();
+        }
+
         // Explicit non-serialized so that editor reloads wipe it
         [NonSerialized] private bool hasLoadedConnections;
 

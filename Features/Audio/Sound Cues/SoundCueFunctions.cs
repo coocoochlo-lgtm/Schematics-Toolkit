@@ -10,15 +10,15 @@ using UnityEngine;
 
 namespace Remedy.Audio
 {
-    // Sound Cues as functions: a Call node builds another cue's nodes into this one (its Parameters become the
+    // Sound Cues as functions: a Function node builds another cue's nodes into this one (its Parameters become the
     // node's pins, each with its own control), Sound Inputs take the sound it's given, and its Output is what it gives
     // back. A radio-voice chain, an engine layer, a footstep's surface mix: made once, used in any cue.
 
     /// <summary>
-    /// Sound this cue takes when another cue calls it as a function (a Call node's pin of the same name). Played on
+    /// Sound this cue takes when another cue calls it as a function (a Function node's pin of the same name). Played on
     /// its own, the cue has nothing given, so Preview stands in: wire in something to listen to while making it.
     /// </summary>
-    [SchematicDoc(@"{""name"": ""Sound Input"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Functions"", ""description"": ""Sound this cue takes when another Sound Cue calls it as a function: the Call node calling it gets a pin named Name, and what's wired there comes out here, sample by sample (sound, or any control: a curve, a parameter). When the cue plays on its own, what's wired into Preview comes out instead, so there's something to hear while making it."", ""inputs"": [{""name"": ""Preview"", ""type"": ""float""}], ""outputs"": [{""name"": ""Audio"", ""type"": ""float""}], ""use_for"": [""an effect chain used in many cues (a radio voice, a muffled-through-a-wall pass)"", ""a function that layers something over the sound it's given""]}")]
+    [SchematicDoc(@"{""name"": ""Sound Input"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Functions"", ""description"": ""Sound this cue takes when another Sound Cue calls it as a function: the Function node calling it gets a pin named Name, and what's wired there comes out here, sample by sample (sound, or any control: a curve, a parameter). When the cue plays on its own, what's wired into Preview comes out instead, so there's something to hear while making it."", ""inputs"": [{""name"": ""Preview"", ""type"": ""float""}], ""outputs"": [{""name"": ""Audio"", ""type"": ""float""}], ""use_for"": [""an effect chain used in many cues (a radio voice, a muffled-through-a-wall pass)"", ""a function that layers something over the sound it's given""]}")]
     [Serializable]
     [NodeColor(NodeColors.Event)]
     [Node(Name = "Sound Input", Path = "Functions"), Tags(SoundNode.Tag)]
@@ -49,10 +49,10 @@ namespace Remedy.Audio
     /// Calls another Sound Cue as a function: its nodes play as part of this cue (its Sound Inputs and Parameters are
     /// this node's pins, each Parameter with the control it was given), and what reaches its Output comes out here.
     /// </summary>
-    [SchematicDoc(@"{""name"": ""Call"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Functions"", ""description"": ""Calls another Sound Cue (Cue) as a function: its nodes become part of this cue's sound, on this cue's time, and what reaches its Output (at its Volume) comes out of Audio. Its Sound Inputs and Parameters become pins here: wire sound and controls in, or set the Parameters right on the node with the controls they were given (sliders, toggles, dropdowns). Cues marked In Library are in the node search under Functions. Double-click to open the cue it calls."", ""outputs"": [{""name"": ""Audio"", ""type"": ""float""}], ""use_for"": [""reusing an effect chain or a layer across cues"", ""a library of sound building blocks with sliders for their character"", ""splitting a big cue into named parts""], ""notes"": ""Unlike the Sound Cue node, which plays another cue as its own sound (with its own length, delay and looping), a Call is part of this cue: it can change the sound it's given. The called cue's Output settings (length, falloff, rendering) don't apply. A cue that ends up calling itself is silent (with a warning).""}")]
+    [SchematicDoc(@"{""name"": ""Function"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Functions"", ""description"": ""Calls another Sound Cue (Cue) as a function: its nodes become part of this cue's sound, on this cue's time, and what reaches its Output (at its Volume) comes out of Audio. Its Sound Inputs and Parameters become pins here: wire sound and controls in, or set the Parameters right on the node with the controls they were given (sliders, toggles, dropdowns). Cues marked In Library are in the node search under Functions. Double-click to open the cue it calls."", ""outputs"": [{""name"": ""Audio"", ""type"": ""float""}], ""use_for"": [""reusing an effect chain or a layer across cues"", ""a library of sound building blocks with sliders for their character"", ""splitting a big cue into named parts""], ""notes"": ""Unlike the Sound Cue node, which plays another cue as its own sound (with its own length, delay and looping), a Function is part of this cue: it can change the sound it's given. The called cue's Output settings (length, falloff, rendering) don't apply. A cue that ends up calling itself is silent (with a warning).""}")]
     [Serializable]
     [NodeColor(NodeColors.Schematic)]
-    [Node(Name = "Call", Path = "Functions"), Tags(SoundNode.Tag)]
+    [Node(Name = "Function", Path = "Functions"), Tags(SoundNode.Tag)]
     public sealed class SoundCueCallNode : SoundNode, IDynamicPorts
     {
         public const string AudioPort = "Audio";
@@ -105,7 +105,7 @@ namespace Remedy.Audio
         public override void OnValidate()
         {
             base.OnValidate();
-            if (Calls != null && (string.IsNullOrEmpty(Name) || Name == "Call"))
+            if (Calls != null && (string.IsNullOrEmpty(Name) || Name == "Function"))
                 Name = Calls.name;
             if (SyncPorts())
                 DynamicPorts.Notify(this);

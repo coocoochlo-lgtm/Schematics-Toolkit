@@ -478,6 +478,43 @@ namespace BlueGraph
         }
 
         /// <summary>
+        /// Swaps a node for another in place: the new one takes its ID, position and links (on pins of the same name),
+        /// so everything wired to it stays wired. For upgrading a node to a newer kind.
+        /// </summary>
+        public void ReplaceNode(Node old, Node replacement)
+        {
+            int index = nodes.IndexOf(old);
+            if (index < 0 || replacement == null)
+                return;
+            replacement.ID = old.ID;
+            replacement.Position = old.Position;
+            replacement.Graph = this;
+            foreach (var port in replacement.Ports.Values)
+            {
+                var was = old.GetPort(port.Name);
+                if (was != null)
+                    port.CopyConnectionsFrom(was);
+            }
+            try
+            {
+                old.Disable();
+                old.OnRemovedFromGraph();
+            }
+            catch (Exception e)
+            {
+                Debug.LogException(e);
+            }
+            nodes[index] = replacement;
+            replacement.OnAddedToGraph();
+            replacement.Enable();
+            // The nodes at the other ends still hold the old node's pins: they look them up again.
+            foreach (var port in replacement.Ports.Values)
+                foreach (var edge in port.Connections)
+                    GetNodeById(edge.NodeID)?.GetPort(edge.PortName)?.ReloadConnections();
+            CacheNodesByType();
+        }
+
+        /// <summary>
         /// Add a new edge between two Ports.
         /// </summary>
         public void AddEdge(Port output, Port input)

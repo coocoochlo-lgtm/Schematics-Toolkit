@@ -82,7 +82,7 @@ namespace Remedy.Audio
             var rpm = Parameter(b, 0, 0, "RPM", 900f);
             var throttle = Parameter(b, 0, Row * 2, "Throttle", 0.2f);
 
-            var firing = b.Add<SoundMathNode>(Column, 0, n => { n.Operator = SoundMathNode.Operation.Multiply; n.B = 4f / 120f; n.CustomName = "Firing Rate (x cylinders / 120)"; });
+            var firing = b.Add<SoundMultiplyNode>(Column, 0, n => { n.B = 4f / 120f; n.CustomName = "Firing Rate (x cylinders / 120)"; });
             b.Link(rpm, "Value", firing, "A");
             var bodyCutoff = Map(b, Column, Row, "Exhaust Cutoff", rpm, 800f, 7000f, 250f, 1800f);
             var intakeCutoff = Map(b, Column, Row * 2, "Intake Cutoff", rpm, 800f, 7000f, 900f, 4500f);
@@ -93,7 +93,7 @@ namespace Remedy.Audio
 
             var crank = b.Add<SoundVarispeedNode>(Column * 2, 0, n => n.CustomName = "Crank");
             b.Link(firing, "Result", crank, "Speed");
-            var halfTime = b.Add<SoundMathNode>(Column * 2, Row, n => { n.Operator = SoundMathNode.Operation.Multiply; n.B = 0.5f; n.CustomName = "Half Rate"; });
+            var halfTime = b.Add<SoundMultiplyNode>(Column * 2, Row, n => { n.B = 0.5f; n.CustomName = "Half Rate"; });
             b.Link(crank, "Time", halfTime, "A");
 
             var pulses = b.Add<SoundOscillatorNode>(Column * 3, 0, n => { n.Wave = SoundOscillatorNode.Shape.Saw; n.Frequency = 1f; n.CustomName = "Firing Pulses"; });

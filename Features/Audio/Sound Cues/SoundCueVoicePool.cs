@@ -32,7 +32,7 @@ namespace Remedy.Audio
         }
 
 #if UNITY_EDITOR
-        // The cue's edits and those of the cues played inside it (Sound Cue and Call nodes), so editing an inner
+        // The cue's edits and those of the cues played inside it (Sound Cue and Function nodes), so editing an inner
         // cue rebuilds the voices of cues that play it.
         private static int Version(SoundCueGraph cue, int depth)
         {

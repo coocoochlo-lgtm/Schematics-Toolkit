@@ -239,13 +239,13 @@ namespace Remedy.Audio
         [Editable] public float Default;
         [Editable, Tooltip("How long a new value takes to glide in (seconds; most of the way there by then), so values set once a frame (an engine's RPM) sweep smoothly instead of stepping. 0 = jumps straight there.")]
         public float Glide = 0.05f;
-        [Tooltip("How it's shown on Call nodes calling this cue: its control, range, group and description.")]
+        [Tooltip("How it's shown on Function nodes calling this cue: its control, range, group and description.")]
         public Remedy.Schematics.ParameterUI UI = new();
         [Output("Value")] public float Value;
 
         public override SoundProcessor CreateProcessor(SoundCueBuilder builder)
         {
-            // Called as a function: the value the Call node gives (wired in, or set on it).
+            // Called as a function: the value the Function node gives (wired in, or set on it).
             if (builder.CallParameter(ParameterName, out var given))
             {
                 var passed = new StaticProcessor();
@@ -456,12 +456,22 @@ namespace Remedy.Audio
         }
     }
 
-    [SchematicDoc(@"{""name"": ""Math"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Math"", ""description"": ""A and B combined, sample by sample: add, subtract, multiply, divide, modulo (Time modulo 2 loops every 2 seconds), power, min or max. Multiplying audio by a value changes its volume; multiplying Time by one changes the speed (and pitch) of what it plays."", ""inputs"": [{""name"": ""A"", ""type"": ""float""}, {""name"": ""B"", ""type"": ""float""}], ""outputs"": [{""name"": ""Result"", ""type"": ""float""}]}")]
     [Serializable]
     [NodeColor(NodeColors.Math)]
-    [Node(Name = "Math", Path = "Math"), Tags(SoundNode.Tag)]
+    // Replaced by a node per operation (SoundCueMath.cs): kept so cues saved with it still load and play, and turned
+    // into its operation's node when the cue is opened (SoundMathUpgrade).
+    [Node(Name = "Math (Old)", Path = "Math"), Tags(LegacyTag)]
     public class SoundMathNode : SoundNode
     {
+        /// <summary>The tag of the old all-in-one math nodes: no graph offers it, so they aren't in the node search.</summary>
+        public const string LegacyTag = "Sound Cue Legacy";
+
+        public override void OnValidate()
+        {
+            base.OnValidate();
+            Warning = "Old: each operation is its own node now (Add, Multiply...). This one is replaced by it when the cue is opened.";
+        }
+
         public enum Operation { Add, Subtract, Multiply, Divide, Modulo, Power, Min, Max }
 
         [Input("A", Editable = true)] public float A;
@@ -496,12 +506,18 @@ namespace Remedy.Audio
         }
     }
 
-    [SchematicDoc(@"{""name"": ""Function"", ""kind"": ""node"", ""flow"": ""query"", ""category"": ""Sound Cue/Math"", ""description"": ""One value through a function, sample by sample: Sine Wave (one full wave per 1 of input), sine/cosine of radians, absolute, floor, fraction (loops 0 to 1), square root, negate, one minus, clamp 0 to 1, sign, decibels to volume..."", ""inputs"": [{""name"": ""In"", ""type"": ""float""}], ""outputs"": [{""name"": ""Out"", ""type"": ""float""}]}")]
     [Serializable]
     [NodeColor(NodeColors.Math)]
-    [Node(Name = "Function", Path = "Math"), Tags(SoundNode.Tag)]
+    // Replaced by a node per function (SoundCueMath.cs), like SoundMathNode.
+    [Node(Name = "Function (Old)", Path = "Math"), Tags(SoundMathNode.LegacyTag)]
     public class SoundFunctionNode : SoundNode
     {
+        public override void OnValidate()
+        {
+            base.OnValidate();
+            Warning = "Old: each function is its own node now (Sine Wave, Abs...). This one is replaced by it when the cue is opened.";
+        }
+
         public enum Function { SineWave, Sin, Cos, Abs, Floor, Fraction, Sqrt, Negate, OneMinus, Clamp01, Sign, DecibelsToVolume, VolumeToDecibels }
 
         [Input("In", Editable = true)] public float In;

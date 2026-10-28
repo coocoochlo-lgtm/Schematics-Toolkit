@@ -48,7 +48,7 @@ namespace Remedy.Audio
         /// <summary>Whether the cue is heard placed in the world (Stereo) rather than flat (Mono).</summary>
         public bool IsSpatial => Channels == SoundCueChannels.Stereo;
 
-        /// <summary>Its Parameters, for Set Graph Parameters, Play Sound Cue's pins and Call nodes calling it (with their controls).</summary>
+        /// <summary>Its Parameters, for Set Graph Parameters, Play Sound Cue's pins and Function nodes calling it (with their controls).</summary>
         public override IReadOnlyList<GraphParameter> GraphParameters
             => ParameterNodes.Select(p => new GraphParameter(p.ParameterName.Trim(), typeof(float), p.Default, p.UI)).ToList();
 
@@ -66,7 +66,7 @@ namespace Remedy.Audio
             }
         }
 
-        /// <summary>Sound Cues can be called from other Sound Cues with a Call node: their nodes become part of the caller's sound.</summary>
+        /// <summary>Sound Cues can be called from other Sound Cues with a Function node: their nodes become part of the caller's sound.</summary>
         public override bool CallableAsFunction => true;
 
         /// <summary>The sound it takes when called as a function: its Sound Input nodes (each name once).</summary>
@@ -124,6 +124,13 @@ namespace Remedy.Audio
             }
             if (removedDuplicate)
                 CacheNodesByType();
+            // Cues saved with the old all-in-one Math and Function nodes get the node for each one's operation.
+            if (SoundMathUpgrade.Upgrade(this))
+            {
+#if UNITY_EDITOR
+                UnityEditor.EditorApplication.delayCall += () => { if (this != null) UnityEditor.EditorUtility.SetDirty(this); };
+#endif
+            }
         }
     }
 

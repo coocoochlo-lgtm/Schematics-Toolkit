@@ -11,7 +11,7 @@ using UnityEngine.UIElements;
 namespace Remedy.Audio
 {
     /// <summary>
-    /// A Sound Cue Call node: each of its cue's Parameters drawn on its pin with the control it was given (a slider,
+    /// A Sound Cue Function node: each of its cue's Parameters drawn on its pin with the control it was given (a slider,
     /// a toggle, a dropdown), shown while nothing's wired in. Double-click the title to open the cue it calls.
     /// </summary>
     [CustomNodeView(typeof(SoundCueCallNode))]
@@ -56,7 +56,7 @@ namespace Remedy.Audio
 
     /// <summary>
     /// Sound Cues marked In Library, offered in Sound Cues' node search under Functions (their Library Path as folders):
-    /// picking one makes a Call node calling it.
+    /// picking one makes a Function node calling it.
     /// </summary>
     public class SoundFunctionSearchProvider : ISearchProvider
     {
@@ -96,7 +96,7 @@ namespace Remedy.Audio
 
     /// <summary>
     /// Collapse to Function in Sound Cues: makes a Sound Cue. What's wired in becomes its Sound Inputs (a Parameter of
-    /// this cue becomes one of its Parameters instead), the one sound wired out goes to its Output, and a Call node
+    /// this cue becomes one of its Parameters instead), the one sound wired out goes to its Output, and a Function node
     /// takes the nodes' place.
     /// </summary>
     [InitializeOnLoad]
