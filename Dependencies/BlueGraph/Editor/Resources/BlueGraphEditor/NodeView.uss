@@ -4,7 +4,8 @@
 
 .nodeView #title {
     background-color: var(--bluegraph-node-title-background-color);
-    background-image:  url("Textures/Gradient.png");
+    /* Gradient.png with its right half mirrored onto the left: even both sides, as titles are centred. */
+    background-image:  url("Textures/HeaderGloss.png");
     height: 26px;
     -unity-font-style: bold;
 }
