@@ -130,7 +130,7 @@ namespace Remedy.Schematics.Macros
             {
                 var chosen = macro;
                 string category = string.IsNullOrWhiteSpace(chosen.Category) ? "" : chosen.Category.Trim('/') + "/";
-                evt.menu.AppendAction("Macros/" + category + chosen.name, _ => canvas.PasteSerialized(chosen.Data, "Insert Macro " + chosen.name));
+                evt.menu.AppendAction("Macros/" + category + chosen.name, _ => canvas.Splash(canvas.PasteSerialized(chosen.Data, "Insert Macro " + chosen.name), chosen.name));
                 any = true;
             }
             if (any)
@@ -160,6 +160,8 @@ namespace Remedy.Schematics.Macros
                 builder.AfterInsert();
                 EditorUtility.SetDirty(canvas.Graph);
             }
+            // They splash out from where it was put, and a comment named after it wraps them.
+            canvas.Splash(builder.Nodes, macro.Path.Split('/').Last());
         }
 
         /// <summary>

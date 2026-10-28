@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Reflection;
 using System.Linq;
 using System.Collections.Generic;
 using UnityEditor;
@@ -78,7 +79,7 @@ namespace BlueGraph.Editor
             // Add handlers for (de)serialization
             serializeGraphElements = OnSerializeGraphElements;
             canPasteSerializedData = OnTryPasteSerializedData;
-            unserializeAndPaste = OnUnserializeAndPaste;
+            unserializeAndPaste = (operation, data) => OnUnserializeAndPaste(operation, data);
 
             RegisterCallback<GeometryChangedEvent>(OnFirstResize);
 
@@ -925,11 +926,12 @@ namespace BlueGraph.Editor
         /// <summary>Serializes elements the way copy does (what <see cref="PasteSerialized"/> takes).</summary>
         public static string SerializeElements(IEnumerable<GraphElement> elements) => CopyPasteGraph.Serialize(elements);
 
-        /// <summary>Pastes serialized elements (as copied) where the mouse last was, selected.</summary>
-        public void PasteSerialized(string data, string operationName = "Paste")
+        /// <summary>Pastes serialized elements (as copied) where the mouse last was, selected. Returns the nodes pasted.</summary>
+        public IReadOnlyList<Node> PasteSerialized(string data, string operationName = "Paste")
         {
             if (!string.IsNullOrEmpty(data) && CopyPasteGraph.CanDeserialize(data))
-                OnUnserializeAndPaste(operationName, data);
+                return OnUnserializeAndPaste(operationName, data);
+            return Array.Empty<Node>();
         }
 
         /// <summary>
@@ -980,6 +982,214 @@ namespace BlueGraph.Editor
             }
             serializedGraph.Update();
             EditorUtility.SetDirty(Graph);
+        }
+
+        /// <summary>
+        /// Plays nodes just added (a macro) in like a splash: they start bunched where they were put, burst out one after
+        /// another to their places, then ease further apart until none overlap. Once they've settled, a comment titled
+        /// <paramref name="title"/> wraps them, in the colour most of them share (unless <paramref name="title"/> is null).
+        /// </summary>
+        public void Splash(IEnumerable<Node> added, string title = null)
+        {
+            var views = new List<NodeView>();
+            foreach (var element in nodes.ToList())
+                if (element is NodeView view && view.Target != null && added != null && added.Contains(view.Target))
+                    views.Add(view);
+            if (views.Count == 0)
+                return;
+
+            // Hidden until they're laid out (their sizes are needed to spread them).
+            foreach (var view in views)
+                view.style.opacity = 0f;
+            ClearSelection();
+            schedule.Execute(() => StartSplash(views, title)).StartingIn(30);
+        }
+
+        private const float SplashStagger = 0.045f, SplashBurst = 0.38f, SplashSpread = 0.3f, SplashGap = 28f;
+
+        private void StartSplash(List<NodeView> views, string title)
+        {
+            int count = views.Count;
+            var assigned = new Rect[count];
+            for (int i = 0; i < count; i++)
+                assigned[i] = views[i].GetPosition();
+            var origin = assigned[0].center;
+            if (count > 1)
+            {
+                var all = assigned[0];
+                foreach (var r in assigned)
+                    all = Rect.MinMaxRect(Mathf.Min(all.xMin, r.xMin), Mathf.Min(all.yMin, r.yMin), Mathf.Max(all.xMax, r.xMax), Mathf.Max(all.yMax, r.yMax));
+                origin = all.center;
+            }
+
+            // Where they settle: a little further out from the middle than they were made, then pushed apart until
+            // each has room around it.
+            var settled = new Rect[count];
+            for (int i = 0; i < count; i++)
+            {
+                var c = origin + (assigned[i].center - origin) * 1.12f;
+                settled[i] = new Rect(c - assigned[i].size / 2f, assigned[i].size);
+            }
+            for (int pass = 0; pass < 60; pass++)
+            {
+                bool moved = false;
+                for (int a = 0; a < count; a++)
+                    for (int b = a + 1; b < count; b++)
+                    {
+                        var ra = settled[a];
+                        var rb = settled[b];
+                        float overlapX = Mathf.Min(ra.xMax, rb.xMax) - Mathf.Max(ra.xMin, rb.xMin) + SplashGap;
+                        float overlapY = Mathf.Min(ra.yMax, rb.yMax) - Mathf.Max(ra.yMin, rb.yMin) + SplashGap;
+                        if (overlapX <= 0f || overlapY <= 0f)
+                            continue;
+                        // Apart along whichever way is the shorter push, away from each other (or the middle).
+                        var away = rb.center - ra.center;
+                        if (away.sqrMagnitude < 0.01f)
+                            away = rb.center - origin + new Vector2(0.01f * (b - a), 0.01f);
+                        var push = overlapX < overlapY
+                            ? new Vector2(Mathf.Sign(away.x) * overlapX * 0.5f, 0f)
+                            : new Vector2(0f, Mathf.Sign(away.y) * overlapY * 0.5f);
+                        settled[a].position -= push;
+                        settled[b].position += push;
+                        moved = true;
+                    }
+                if (!moved)
+                    break;
+            }
+
+            // Nearest the middle first, so it opens outward.
+            var order = Enumerable.Range(0, count).OrderBy(i => (assigned[i].center - origin).sqrMagnitude).ToArray();
+            var delay = new float[count];
+            for (int k = 0; k < count; k++)
+                delay[order[k]] = Mathf.Min(k * SplashStagger, 0.5f);
+
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            IVisualElementScheduledItem tick = null;
+            tick = schedule.Execute(() =>
+            {
+                float now = (float)clock.Elapsed.TotalSeconds;
+                bool done = true;
+                for (int i = 0; i < count; i++)
+                {
+                    var view = views[i];
+                    if (view.panel == null)
+                        continue;
+                    float t = now - delay[i];
+                    Vector2 at;
+                    float shown;
+                    if (t <= 0f)
+                    {
+                        at = origin - assigned[i].size / 2f;
+                        shown = 0f;
+                        done = false;
+                    }
+                    else if (t < SplashBurst)
+                    {
+                        // Out to its place, overshooting a touch.
+                        float u = EaseOutBack(t / SplashBurst);
+                        at = Vector2.LerpUnclamped(origin - assigned[i].size / 2f, assigned[i].position, u);
+                        shown = Mathf.Clamp01(t / (SplashBurst * 0.5f));
+                        done = false;
+                    }
+                    else if (t < SplashBurst + SplashSpread)
+                    {
+                        // Then further, to make room.
+                        float u = Mathf.SmoothStep(0f, 1f, (t - SplashBurst) / SplashSpread);
+                        at = Vector2.Lerp(assigned[i].position, settled[i].position, u);
+                        shown = 1f;
+                        done = false;
+                    }
+                    else
+                    {
+                        at = settled[i].position;
+                        shown = 1f;
+                    }
+                    view.style.opacity = shown;
+                    float scale = Mathf.Lerp(0.6f, 1f, shown);
+                    view.transform.scale = new Vector3(scale, scale, 1f);
+                    view.SetPosition(new Rect(at, Vector2.one));
+                }
+                if (!done)
+                    return;
+                tick.Pause();
+                foreach (var view in views)
+                {
+                    view.style.opacity = StyleKeyword.Null;
+                    view.transform.scale = Vector3.one;
+                }
+                if (Graph != null)
+                    EditorUtility.SetDirty(Graph);
+                if (title != null)
+                    WrapInComment(views, title);
+                foreach (var view in views)
+                    AddToSelection(view);
+            }).Every(16);
+        }
+
+        private static float EaseOutBack(float t)
+        {
+            const float c1 = 1.4f, c3 = c1 + 1f;
+            t -= 1f;
+            return 1f + c3 * t * t * t + c1 * t * t;
+        }
+
+        /// <summary>
+        /// A comment titled <paramref name="title"/> round some nodes, in the colour most of them share (their
+        /// [NodeColor]), fading in.
+        /// </summary>
+        public CommentView WrapInComment(IList<NodeView> views, string title)
+        {
+            if (Graph == null || views == null || views.Count == 0)
+                return null;
+            var bounds = views[0].GetPosition();
+            foreach (var view in views)
+            {
+                var r = view.GetPosition();
+                bounds = Rect.MinMaxRect(Mathf.Min(bounds.xMin, r.xMin), Mathf.Min(bounds.yMin, r.yMin), Mathf.Max(bounds.xMax, r.xMax), Mathf.Max(bounds.yMax, r.yMax));
+            }
+            const float padding = 30f;
+            bounds = Rect.MinMaxRect(bounds.xMin - padding, bounds.yMin - padding * 2f, bounds.xMax + padding, bounds.yMax + padding);
+
+            // The colour of the kind of node there's most of.
+            var color = Comment.DefaultColor;
+            var counts = new Dictionary<Color, int>();
+            foreach (var view in views)
+            {
+                var attribute = view.Target.GetType().GetCustomAttribute<NodeColorAttribute>(true);
+                if (attribute == null)
+                    continue;
+                counts.TryGetValue(attribute.Color, out int n);
+                counts[attribute.Color] = n + 1;
+            }
+            if (counts.Count > 0)
+                color = counts.OrderByDescending(pair => pair.Value).First().Key;
+            color.a = 1f;
+
+            Undo.RegisterCompleteObjectUndo(Graph, "Add Comment");
+            var comment = new Comment { Text = title, Region = bounds, Color = color };
+            Graph.Comments.Add(comment);
+            serializedGraph?.Update();
+            EditorUtility.SetDirty(Graph);
+
+            var commentView = new CommentView(comment);
+            commentViews.Add(commentView);
+            AddElement(commentView);
+            Dirty(commentView);
+            commentView.style.opacity = 0f;
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            IVisualElementScheduledItem fade = null;
+            fade = commentView.schedule.Execute(() =>
+            {
+                float u = Mathf.Clamp01((float)clock.Elapsed.TotalSeconds / 0.25f);
+                commentView.style.opacity = u;
+                if (u >= 1f)
+                {
+                    commentView.style.opacity = StyleKeyword.Null;
+                    fade.Pause();
+                }
+            }).Every(16);
+            ScheduleCommentRefit();
+            return commentView;
         }
 
         /// <summary>
@@ -1097,7 +1307,7 @@ namespace BlueGraph.Editor
         /// <summary>
         /// Handler to deserialize a string back into a CopyPasteGraph
         /// </summary>
-        private void OnUnserializeAndPaste(string operationName, string data)
+        private List<Node> OnUnserializeAndPaste(string operationName, string data)
         {
             Undo.RegisterCompleteObjectUndo(Graph, "Paste Subgraph");
 
@@ -1123,7 +1333,9 @@ namespace BlueGraph.Editor
             AddCommentViews(cpg.Comments);
             AddNoteViews(cpg.Notes);
 
+            var pasted = new List<Node>(cpg.Nodes);
             ScriptableObject.DestroyImmediate(cpg);
+            return pasted;
         }
 
         private bool OnTryPasteSerializedData(string data)

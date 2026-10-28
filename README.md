@@ -326,6 +326,8 @@ Sound Cues can be called from other Sound Cues too, with a **Function** node (un
 - Sound Cue math is one small node per operation: Add, Subtract, Multiply, Divide, Modulo, Power, Min, Max, and Sine Wave, Sin, Cos, Abs, Floor, Fraction, Square Root, Negate, One Minus, Clamp 0 to 1, Sign, Decibels To Volume and Volume To Decibels. Each is a flat square with no title bar. Its icon in the middle is its symbol (+, ×, 1−x…) or a plot of its own curve. Numbers for unwired pins are typed in beside them, outside the square, and the node's name shows on hover. Cues saved with the old all-in-one Math and Function nodes are switched to these when opened, keeping their wires and values.
 - **Collapse to Function** works in Sound Cues as well. Wires coming in become Sound Inputs, and the cue's Parameters stay Parameters. The one sound going out goes to the new cue's Output. The new cue is Mono, since the cue calling it decides how it's heard.
 
+**Macros** (right-click the canvas → Macros) are ready-made groups of nodes. A macro's nodes splash in from where you clicked: they burst out one after another to their places, then spread a little further so none overlap. A comment then wraps them, titled with the macro's name and coloured after the kind of node there's most of.
+
 The old **Call Function** and **On Function** nodes still work, but show a warning badge suggesting a Function Graph instead. Any node can show a warning: a yellow wavy outline and a **!** badge, with the warning shown when you hover over the badge. A Call node with no function set gets one too.
 
 
